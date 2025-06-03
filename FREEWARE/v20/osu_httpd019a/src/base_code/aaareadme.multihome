@@ -1,0 +1,60 @@
+								16-JUL-1995
+The multihome extensions to the the HTTP server allow a single server process
+to listen on multiple TCP/IP interfaces (multihomed hosts) and distinguish
+which address the client connected to.  The syntax of the 'localaddress' rule
+has been extended to allow the localaddress declaration to begin a block
+of rules to be executed only for that address, effectively allowing you
+to assigned different server roots based upon the domain name.
+
+New localhost syntax (3 forms):
+
+    LocalAddress dot-address
+	Original format, no extenstions.  Forces server to listen for
+	requests only on specified address.  Use HostName rule to specify
+	string used for CGI SERVER_HOST variable.
+
+    LocalAddress dot-address hostname
+	Extended format.  Forces server to listen for requests to specifed
+	address (interface), also begins block of address-specific rules.
+	Scripts that use the <DNETHOST> and <DNETID> tags (includes CGI
+	scripts) will be returned the hostname for the matching LocalAddress 
+	block definition.
+
+    LocalAddress
+	Extended format (no arguments).  Terminates current block of
+        address-specific rules, following rules will apply to all requests.
+
+Example:
+    #
+    # Listen on multiple interfaces and assign different home pages.
+    #
+    LocalAddress 128.146.235.235 bogus1.com
+    map / /www/bogus1_home.html
+    map /www/ /www/bogus1_home.html
+
+    LocalAddress 128.146.234.236 bogus2.com
+    map / /www/bogus2_home.com
+    map /www/ /www/bogus2_home.com
+    # /htbin2 only accessible from URLS starting with http://bogus2.com/
+    exec /htbin2/* sys$node::"0=WWWEXEC"usr2:[www.bin]"
+    LocalAddress		# terminate address definitions.
+
+To install the patches, unpack the multihome.zip file into the [.base_code]
+directory of the version 1.9 source tree and rebuild.
+
+Notes/restrictions:
+    The tserver_tcp module has been changed to support the extensions,
+    allowing multiple calls to ts_set_local_addr which builds a list of
+    interface addresses to listen on.  Subsequent calls to ts_declare_tcp_port
+    creates a separate thread to listen on each address, only the first
+    created thread is returned in the control_thread argument.  The 
+    management interface address must be the first localaddress declared,
+    due to that being the returned control_thread.
+
+    The client contexts managed by tserver_tcp.c are now pooled (each client
+    context has a unique index 'n' which is displayed in the trace file
+    as "TCP-80/n").
+
+    The routine ts_tcp_info() in tserver_tcp.c was modified to return
+    the local address rather than the remote address when the caller
+    specifies a null argument for the remote_port pointer.

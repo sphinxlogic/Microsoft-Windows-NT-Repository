@@ -1,0 +1,576 @@
+.;******************************************************************************
+.;* Copyright 1985 by Thomas E. Dickey.  All Rights Reserved.                  *
+.;*                                                                            *
+.;* You may freely copy or redistribute this software, so long as there is no  *
+.;* profit made from its use, sale trade or reproduction. You may not change   *
+.;* this copyright notice, and it must be included in any copy made.           *
+.;******************************************************************************
+.; $Id: d1.rno,v 1.2 1985/01/09 10:27:16 tom Exp $
+.req	"d0.req"
+.; Introductory stuff
+.;
+FLIST (directory-editor) provides you, the user with a powerful and versatile
+interface to VAX/VMS.
+Rather than the line-oriented, "glass teletype",
+FLIST is a full-screen editor which shows the effects of commands rapidly
+and naturally.
+It provides both interfaces to VAX/VMS file management commands (EDIT, COPY,
+RENAME) as well as extensions to the command interface to better
+integrate VMS commands, and to augment them
+.lm+8
+.b.i-4
+o	Directory sorting shows you the
+relationship between files based on their directory-attributes
+(e.g., size, date).
+.b.i-4
+o	Alternate display formats (from a palette of directory-attributes)
+can easily be constructed.
+.b.i-4
+.x Command history
+.x Command substitution
+o	A built-in command history and parameter substitution
+facility makes FLIST simple to learn and easy to use.
+.b.i-4
+o	Commands which alter or create files are reflected in
+the display, which is updated automatically for most operations.
+.b.lm-8
+
+.hl	Configuration Requirements
+FLIST's screen management will run on any VT52, VT100 or other
+ANSI x3.64-compatible terminal.
+.b
+FLIST is written in VMS-C, and occupies approximately one hundred kilobytes
+of memory (three-fourths code).
+It has been tested under VMS versions 3.6, 3.7 and 4.0 (field test 2).
+.b
+FLIST is used to manage files on a Files-11 (disk) device.
+
+.hl	Display Window
+FLIST uses the entire terminal screen to display the directory.
+The file name, type and version occupy the left side of the screen.
+For easy readability, all items are aligned into columns.
+.x Display list
+The width of the name-columns is extended to match the widest item
+in the current display-list.
+.b
+Additional information about each file is presented in columns to the
+right of the name columns.
+.x Column-list
+The normal display format (the column-list)
+shows the file size, its creation date and
+protection mask.
+The display format may be altered either by permuting the columns or
+by substituting columns with different attributes.
+A sample display layout is shown in Figure 1.
+.req "d1.pic"
+.;
+.hl+1	Status Line
+The last line in the screen is reserved for status and messages:
+.lm+8
+.b.i-4
+.x Defaults>Current directory
+o	Normally the status line shows the current default directory
+(set to the directory containing the current file entry), and the
+index number in the total number of files in the display-list.
+.b.i-4
+o	During execution of more lengthy commands, the index-number field
+will be replaced by "working...".
+.b.i-4
+.x Error messages
+o	Commands which generate an error message send the text to the
+status line.
+If an error message has already been sent to the status line by the current
+command, FLIST pauses before writing the new message, giving you
+time to see each message.
+.b.i-4
+o	Error- and informational-messages remain on the status line until
+they are replaced by another message, or until you enter a new command.
+Normally the first character of a new command causes FLIST to clear the
+message line (showing the current directory).
+Single-keystroke commands are treated specially, however.
+For example, if you type a CTRL/T (scroll-to-top) when the cursor is
+already at the top of the display list, FLIST will warn you.
+Repeating the CTRL/T does not cause the message to be cleared,
+because FLIST can immediately test for this repeated error.
+.b.lm-8
+.;
+.hl	Display-List
+.x Display list
+The list of files which are described in FLIST's tables is denoted the
+^&display-list\&.
+FLIST maintains a table of information (indeed, a private copy of the
+directory) for each file, whether or not it is currently displayed.
+Commands which alter the display format present different slices of
+this directory.
+.b
+.x Read-list
+FLIST maintains an auxiliary table, the ^&read-list\&,
+which is a list of the expanded file specifications used to construct
+the display-list.
+.b
+FLIST is hierarchical;
+it may recur upon itself to construct new read- and display-lists.
+
+.hl-1	Command Entry
+FLIST accepts three types of user input:
+.lm+8
+.b.i-4
+o	Control characters,
+.b.i-4
+o	Keypad, and
+.b.i-4
+o	Typed ("visible") commands.
+.b.lm-8
+All keypad commands correspond to either a control character or a visible
+command.
+The control character commands may also be entered by a short "visible" command.
+Thus, FLIST makes use of single-keystroke commands for efficiency, but
+will run properly on terminals which do not have a keypad, or
+through interfaces which cannot pass the complete set of control characters.
+.;
+.hl+1	Configuration Requirements
+The minimum keyset needed to run FLIST is:
+.lm+8
+.b.i-4
+o	The normal set of "printing" ASCII characters, and
+.b.i-4
+o	The cursor arrow keys (UP-ARROW, DOWN-ARROW, LEFT-ARROW, RIGHT-ARROW),
+and
+.b.i-4
+o	VMS-related control keys: CTRL/U (or CTRL/X), CTRL/K, CTRL/N, CTRL/W,
+DELETE and RETURN.
+.b.lm-8
+Other control keys such as LINE-FEED, BACKSPACE, CTRL/R and CTRL/N are
+useful but not essential.
+.;
+.hl	Scrolling
+.x Scrolling commands
+FLIST accepts command input in a natural fashion.
+To operate upon a file, you scroll the cursor to the line
+representing the file and enters a command.
+Scrolling is accomplished by entering
+.ls
+.x Scrolling commands>Number
+.le;the index number in the display to which the cursor should jump, or
+.le;a single-keystroke scrolling command, or
+.le;the command to which a single-key command corresponds.
+.els
+.b
+After scrolling, FLIST displays the index of the cursor in the display
+list in the status line.
+.x Display list>deleting files
+Files which have been deleted are excluded from this index.
+(FLIST automatically skips over deleted-file entries,
+which are blanked).
+.b
+FLIST's scrolling commands are summarized below.
+The "visible" commands begin with a slash "/".
+Their minimum abbreviation is shown in parentheses:
+.lm+8
+.tp5
+.x Key assignments>CTRL/T, scroll to top
+.x Scrolling commands>CTRL/T, scroll to top
+.x CTRL/T, scroll to top
+.b.i-4;CTRL/T
+.x Scrolling commands>/TOP, scroll to top
+.x /TOP, scroll to top
+.br.i-4;/TOP (/TOP)
+.br;Scroll to the first file entry in the display-list.
+.;
+.tp5
+.x Scrolling commands>CTRL/E, scroll to end
+.x Key assignments>CTRL/E>scroll to end
+.x CTRL/E>scroll to end
+.b.i-4;CTRL/E
+.br.i-4;/END (/END)
+.x Scrolling commands>/END, scroll to end
+.x /END, scroll to end
+.br;Scroll to the end of the display-list.
+.;
+.tp5
+.x Scrolling commands>CTRL/F, scroll forward
+.x Key assignments>CTRL/F>scroll forward
+.x CTRL/F>scroll forward
+.b.i-4;CTRL/F
+.x Scrolling commands>/FORWARD, scroll forward
+.x /FORWARD, scroll forward
+.br.i-4;/FORWARD (/F)
+.br;Scroll forward by one screen.
+If less than one screen remains in the display-list,
+scroll upward until the end-entry is visible, then place the cursor
+at the resulting top-of-screen (i.e., the HOME position).
+.;
+.tp5
+.x Scrolling commands>CTRL/B, scroll backward
+.x Key assignments>CTRL/B, scroll backward
+.x CTRL/B, scroll backward
+.b.i-4;CTRL/B
+.br.i-4;/BACKWARD (/B)
+.x Scrolling commands>/BACKWARD, scroll backward
+.x /BACKWARD, scroll backward
+.br;Scroll backward by one screen.
+If less than one screen precedes the display-list,
+scroll to the top of the display-list.
+.;
+.tp5
+.x Scrolling commands>/HOME
+.x /HOME
+.b.i-4;/HOME (/H)
+.br;Scroll to the HOME position (top of the current screen).
+.;
+.tp5
+.x Scrolling commands>/MIDDLE
+.x /MIDDLE
+.b.i-4;/MIDDLE (/M)
+.br;Scroll to the middle of the current screen.
+.;
+.tp5
+.x Scrolling commands>/LOW
+.x /LOW
+.b.i-4;/LOW (/L)
+.br;Scroll to the LOW position (bottom of the current screen).
+.;
+.tp5
+.x Scrolling commands>Backspace key, move up
+.x Key assignments>Backspace key>move up
+.x Backspace key>move up
+.b.i-4;BACKSPACE
+.x Scrolling commands>Up-arrow, move up
+.x Key assignments>Up-arrow>move up
+.x Up-arrow>move up
+.br.i-4;UP-ARROW
+.br;Move up by one line.
+If the cursor is at the top of the screen, index the display by one line,
+then place the cursor at the resulting top of screen.
+.;
+.tp5
+.x Scrolling commands>Return key, move down
+.x Key assignments>Return key>move down
+.x Return key>move down
+.b.i-4;RETURN
+.x Scrolling commands>ENTER key, move down
+.x Key assignments>ENTER key>move down
+.x ENTER key>move down
+.br.i-4;ENTER
+.x Scrolling commands>Down-arrow, move down
+.x Key assignments>Down-arrow>move down
+.x Down-arrow>move down
+.br.i-4;DOWN-ARROW
+.br;Move the cursor down by one line.
+If the cursor is at the bottom of the screen, index the display by one line,
+then place the cursor at the resulting bottom of screen.
+.;
+.tp5
+.x Scrolling commands>Number
+.x Number-scrolling
+.b.i-4;_{number_}
+.br;A number directs FLIST to place the cursor at the file entry with
+that index.
+If followed by a plus or minus sign, FLIST moves the cursor relative
+to the current index.
+.lm-8
+.;
+.;
+.hl	Visible Command Entry
+Whenever you type a printing character,
+FLIST enters visible-command mode, and echoes the command characters
+until you hit RETURN (or ENTER, which is always treated the same by FLIST).
+The echoed command is displayed immediately after the file name columns,
+and may overlay the directory attributes.
+.x Highlighting>command editing
+(To distinguish the command text from the display, the command is
+lowercased and highlighted).
+.b
+.hl	Command Editing
+.x Line editing
+The command may be edited or canceled:
+.lm+8
+.tp5
+.x Key assignments>Delete key, delete a character
+.x Delete key, delete a character
+.b.i-4;DELETE
+.br;Delete the character before the cursor.
+.;
+.tp5
+.x Key assignments>Line-feed key, delete a word
+.x Line-feed key, delete a word
+.b.i-4;LINE-FEED
+.br;Delete the "word" before the cursor.
+A word is delimited by spaces.
+.;
+.tp5
+.x Key assignments>Backspace key>move to beginning of line
+.x Backspace key>move to beginning of line
+.b.i-4;BACKSPACE
+.x Key assignments>Keypad#0>move to beginning of line
+.x Keypad#0>move to beginning of line
+.br.i-4;KEYPAD-"0"
+.br;Move the cursor to the beginning of the command.
+.;
+.tp5
+.x Key assignments>CTRL/D, move cursor left
+.x CTRL/D, move cursor left
+.b.i-4;CTRL/D
+.x Key assignments>Left-arrow, move cursor left
+.x Left-arrow, move cursor left
+.br.i-4;LEFT-ARROW
+.br;Move the cursor left one character.
+.;
+.tp5
+.x Key assignments>CTRL/F>move cursor right
+.x CTRL/F>move cursor right
+.b.i-4;CTRL/F
+.x Key assignments>Right-arrow, move cursor right
+.x Right-arrow, move cursor right
+.br.i-4;RIGHT-ARROW
+.br;Move the cursor right one character.
+.;
+.tp5
+.x Key assignments>CTRL/E>move to end of line
+.x CTRL/E>move to end of line
+.b.i-4;CTRL/E
+.x Key assignments>Keypad#2>move to end of line
+.x Keypad#2>move to end of line
+.br.i-4;KEYPAD-"2"
+.br;Move the cursor to the end of the command.
+.;
+.tp5
+.x Key assignments>CTRL/U, abort command
+.x CTRL/U, abort command
+.b.i-4;CTRL/U
+.x Key assignments>CTRL/X, abort command
+.x CTRL/X, abort command
+.br.i-4;CTRL/X
+.br;Erase the command, exiting from command-entry mode.
+.;
+.tp5
+.x Key assignments>Return key>enter command
+.x Return key>enter command
+.b.i-4;RETURN
+.x Key assignments>ENTER key>enter command
+.x ENTER key>enter command
+.br.i-4;ENTER
+.br;Completes the command, directing FLIST to execute it.
+.b.lm-8
+.;
+.hl	Command History
+.x Command history
+.y Recall>see Command history
+.;
+.;
+FLIST maintains a hierarchical command-history.
+Each visible command (except number-scrolling) is saved in a stack
+for later retrieval:
+.lm+8
+.b.i-4
+o	If the latest command text matches any of the most recent 3
+items (the top of stack)
+no push is done, but the top-of-stack is rotated.
+.b.i-4
+o	If no match is found in the top of stack, the entire stack
+is pushed.
+.b.lm-8
+The combined strategy results in a much longer effective buffer
+memory than would a simple stack, since frequently used commands
+tend to be repeated within one or two commands.
+.b
+The stack is hierarchical as well.
+If you enter a new display-list, FLIST
+allocates a new stack buffer and copies the state of the higher
+level to the new stack.
+On exit from the lower level, FLIST resumes with the original
+state of the higher level.
+Thus, excursions will not clutter the command history.
+.b
+Stacked commands may be recalled for reexecution
+with single-keystroke commands:
+.lm+8
+.tp5
+.x Key assignments>Keypad#"-", recall
+.x Keypad#"-", recall
+.b.i-4;KEYPAD-"-"
+.x Key assignments>"-", recall
+.x "-", recall
+.br.i-4;"-"
+.br;FLIST enters command-entry mode with the last command text shown,
+and the cursor positioned at the end of the command.
+.b
+The "-" is recognized only when FLIST is not in comment-entry mode,
+since this character is used in VMS commands.
+The keypad control may be used at any point.
+.;
+.tp5
+.x Key assignments>Up-arrow>recall (older)
+.x Up-arrow>recall (older)
+.b.i-4;UP-ARROW
+.x Key assignments>Keypad#"-", recall
+.x Keypad#"-", recall
+.br.i-4;KEYPAD-"-"
+.br;If FLIST is in command-entry mode (i.e., the text of a partly completed
+command is visible on the screen), these controls attempt to recall
+an earlier stacked command.
+.b
+The UP-ARROW key is used for command retrieval only when FLIST is
+in command-entry mode, since otherwise it is used for cursor movement.
+.;
+.tp5
+.x Key assignments>Down-arrow>recall (newer)
+.x Down-arrow>recall (newer)
+.b.i-4;DOWN-ARROW
+.br;If FLIST is in command-entry mode, it attempts to recall a
+later stacked command.
+.b
+The DOWN-ARROW key is used for command retrieval only when FLIST is
+in command-entry mode, since otherwise it is used for cursor movement.
+.lm-8
+
+.hl-1	Command Substitution
+.x Command substitution
+Some of FLIST's commands require one or more arguments (usually a filename).
+In most cases, the argument can be made implicit (i.e., the current entry
+in the display-list).
+If FLIST were restricted to only implicit arguments, it would be quite
+inflexible.
+To avoid this, FLIST provides substitution operators to specify the
+actual arguments of a command, and their order.
+.;
+.hl+1	Token Substitution
+In most cases, the order of arguments appears unambiguous:
+.lm +8
+.b;DELETE##- no arguments, simply delete the current-file
+.b;RENAME##- one argument, the new-file name
+.b.lm -8
+Suppose, however, that you wish to rename a different version of
+the current file (one which does not even appear in the display list)
+to supersede the current entry.
+In this case, the current entry is not even an argument.
+Also, an implicit-argument approach to COPY would permit you to
+only create files, not to supersede existing ones.
+.b
+To uniquely specify arguments and ordering, FLIST
+uses two special tokens:
+.lm+8
+.tp5
+.x Command substitution>"/O", omit substitution
+.x "/O", omit substitution
+.b.i-4;/O
+.br;The ^&omit\&-operator directs FLIST to omit the use of the current
+filename as an implicit argument.
+For most commands, FLIST would otherwise append the filename from the
+current entry in the display-list.
+.tp5
+.x Command substitution>"/",##substitute after name
+.x "/",#substitute after name
+.b.i-4;/
+.br;The ^&after\&-operator directs FLIST to put the remaining text
+of the command after the current filename.
+Actually, the first time that the after-operator is encountered, FLIST
+inserts the current filename.
+Successive occurrences are ignored.
+If it is evoked at least once, FLIST will not put the current filename
+at the end of the resulting command.
+.b.lm-8
+The command substitution operators are detected whenever their
+text appears with no following VMS name-characters (i.e., alphanumerics,
+"_$", "__").
+For example, suppose that the current file is DBC4:[DICKEY]FLIST.EXE;1200.
+Then the commands
+.x Examples>Command substitution
+.b.lm+8
+.lt
+COPY / x
+COPY x
+COPY //           (see note below on syntax)
+COPY x y          (syntactically in error, see below)
+.el
+.b.lm-8
+would be translated to
+.b.lm+8
+.lt
+COPY DBC4:[DICKEY]FLIST.EXE;1200  x
+COPY x DBC4:[DICKEY]FLIST.EXE;
+COPY DBC4:[DICKEY]FLIST.EXE;1200
+COPY x y DBC4:[DICKEY]FLIST.EXE;
+.el
+.b.lm-8
+FLIST makes a special case for "COPY#x", stripping the version number
+from the output file when the command implies that it has the same name
+as the current entry.
+This causes VMS to create a new version.
+Thus the first two examples are proper COPY commands.
+.b
+The case "COPY#/#/" is syntactically proper, but produces only one
+substitution.
+This produces an error message (no output file given).
+The last example also is in error, since it results in three arguments,
+where COPY expects two.
+This command might be re-entered as
+.b;########COPY#x,y
+.b;or
+.b;########/O#COPY#x#y
+.b;depending on whether you wanted to use both 'x' and 'y' as
+inputs and the current entry as outputs,
+or if you wanted to copy 'x' to 'y'.
+.b
+You may copy components of the current filename 
+(via substitutions performed by FLIST when executing a command).
+For example, if the file  entry is that shown above
+.b.lm +8
+.x Command substitution>"/P", substitute PATH
+.x "/P", substitute PATH
+.br;/P##substitutes the path, "DBC4:[DICKEY]"
+.x Command substitution>"/N", substitute NAME
+.x "/N", substitute NAME
+.br;/N##substitutes the name, "FLIST"
+.x Command substitution>"/T", substitute TYPE
+.x "/T", substitute TYPE
+.br;/T##substitutes the type, "EXE"
+.x Command substitution>"/V", substitute VERSION
+.x "/V", substitute VERSION
+.br;/V##substitutes the version, "1200"
+.b.lm -8
+You must supply the "." and ";" punctuation to construct
+a filename by substitution, e.g., "/N./T".
+.b
+Thus, all, none, or part of the current filename may be included
+in command substitution.
+.;
+.hl	Symbol Translation
+.x Command substitution>User-defined symbols
+Before interpreting a command, FLIST tests the command keywords:
+.lm+8
+.b.i-4
+o	If the keyword is found in its symbol table, FLIST
+accepts it, and carries out the token-substitution and executes it.
+.b.i-4
+o	If the keyword is not found in its symbol table, FLIST
+determines if it is defined as a ^&symbol\&.
+If so, FLIST tests the keyword-part of the translation.
+If this is found in its symbol table, FLIST performs the substitution,
+and processes the resulting command.
+.b.i-4
+o	If the keyword is not found in any table, FLIST reports an error.
+Presently FLIST does not permit unknown commands to escape.
+.b.lm-8
+No other type of symbol substitution is presently performed
+by FLIST except indirectly, in the commands which are performed
+by spawned processes.
+.;
+.hl	Default-Propagation
+.x Defaults>Propagation of specifications
+In addition to the explicit token-substitution and implicit symbol-translation
+activity described above,
+FLIST also employs the usual VMS default-field propagation.
+For example, the RENAME command (which is performed within FLIST)
+could be used on the preceding example:
+.b;########REN#/#x
+.b;to produce
+.b;########DBC4:[DICKEY]X.EXE;1
+.b;or
+.b;########REN#/#x;_*
+.b;to produce
+.b;########DBC4:[DICKEY]X.EXE;1200.
+.b
+The VMS convention propagates specified fields to unspecified fields,
+treating "_*" as a special case to override the RENAME command's tendency
+to rename to version-one.

@@ -1,0 +1,2156 @@
+MODULE bannermonitor (IDENT = 'V01-000',
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:	BANNER
+!
+! ABSTRACT:
+!
+!	This module displays performance monitors
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:
+!
+!	CW Hobbs					2-May-1985
+!
+! Modified by:
+!
+!	V05-001	CWH5001		CW Hobbs		12-Dec-1987
+!		Update, use logicals for devices.
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    monitor_init : NOVALUE,
+    device_count,
+    device_display : NOVALUE,
+    device_logicals : NOVALUE,
+    kernel_sysflts,
+    page_io_monitor : NOVALUE,
+    pe_monitor : NOVALUE,
+    cwps_monitor : NOVALUE,
+    lock_monitor : NOVALUE;
+
+EXTERNAL ROUTINE
+    remote_io_count,
+    remote_pe_count : NOVALUE,
+    cvt_lnm_integer,
+    cvt_lnm_string;
+
+LITERAL
+    lnbsize    = 12 + 64,	! header + 64 byte names
+				!	--------------------
+				!   [0] |   forward link   |
+				!	--------------------
+				!   [1] | length of name   |  (descriptor for name)
+				!	--------------------
+				!   [2] | buffer pointer   |
+				!	--------------------
+				!   [3] |  64-byte buffer  |
+				!       |                  |
+				!       |                  |
+				!       |                  |
+				!	--------------------
+    title_size = 12;
+
+pag_own_rw
+    lnbpool   : BLOCK [lnbsize*100, BYTE],
+    lnbpool_end;
+
+npag_own_rw
+    pes : BLOCK [pes_c_length, BYTE],
+    lks : BLOCK [lks_c_length, BYTE],
+    cwps : BLOCK [lck_c_length, BYTE],
+    titlebuf  : VECTOR [4*title_size, BYTE],
+    titlelen  : VECTOR [4, LONG],
+    device_lnblink : VECTOR [4, LONG],
+    device_unitcnt : VECTOR [4, LONG],
+    device_iocnt : VECTOR [4, LONG],
+    device_rate  : VECTOR [4, LONG],
+    device_y     : VECTOR [4, LONG] PRESET ([0] = %E'4.0',
+					    [1] = %E'3.0',
+					    [2] = %E'2.0',
+					    [3] = %E'1.0');
+    
+
+EXTERNAL
+    sd_banner_lnmtable,
+    monitor_font,
+    mon : BLOCK [mon_c_length, BYTE],
+    pem : BLOCK [pem_c_length, BYTE],
+    lck : BLOCK [lck_c_length, BYTE],
+    new_pes : BLOCK [pes_c_length, BYTE],
+    lcl : BLOCK [lcl_c_length, BYTE];
+
+EXTERNAL
+    mmg$gl_sysphd,
+    sch$gl_freecnt,
+    sch$gl_mfycnt,
+    pms$gl_cwps_msgs_in,
+    pms$gl_cwps_msgs_out,
+    pms$gl_cwps_bytes_in,
+    pms$gl_cwps_bytes_out,
+    pms$gl_cwps_getjpi_in,
+    pms$gl_cwps_getjpi_out,
+    pms$gl_cwps_pcntrl_in,
+    pms$gl_cwps_pcntrl_out,
+    pms$gl_cwps_waits,
+    pms$gl_cwps_waiting,
+    pms$gl_faults,
+    pms$gl_bufio,
+    pms$gl_dirio,
+    pms$gl_preadio,
+    pms$gl_pwritio,
+    pms$gl_enqnew_loc,
+    pms$gl_enqnew_in,
+    pms$gl_enqnew_out,
+    pms$gl_enqcvt_loc,
+    pms$gl_enqcvt_in,
+    pms$gl_enqcvt_out,
+    pms$gl_deq_loc,
+    pms$gl_deq_in,
+    pms$gl_deq_out,
+    pms$gl_enqwait,
+    pms$gl_enqnotqd,
+    pms$gl_blk_loc,
+    pms$gl_blk_in,
+    pms$gl_blk_out,
+    pms$gl_dir_in,
+    pms$gl_dir_out,
+    pms$gl_dlckmsgs_in,
+    pms$gl_dlckmsgs_out,
+    pms$gl_dlcksrch,
+    pms$gl_dlckfnd;
+
+BIND
+    fiveb = UPLIT BYTE ('     '),
+    ctrstr = %ASCID '!10UL',
+    ctrstr2 = %ASCID '!5SL',
+    ctrstr3 = %ASCID '!3SL';
+
+macro
+    fao_put (string) =	%,
+    fao_put2 (string) =	BEGIN
+			EXTERNAL ROUTINE
+			    lib$put_output;
+			LOCAL
+			    faop_buff : VECTOR [80, BYTE],
+			    faop_desc : VECTOR [2, LONG] PRESET ([0] = 80, [1] = faop_buff);
+			$fao (string, faop_desc, faop_desc, %REMAINING);
+			lib$put_output (faop_desc);
+			END	%;
+
+pag_plit;
+pag_code;
+
+GLOBAL ROUTINE monitor_init : NOVALUE =
+
+!-
+!	This is the entry point for initializing the monitor areas of the banner
+!
+! Inputs:
+!
+!	mon		- Monitor structure
+!	lcl_l_vd_id	- Display ID of the display to include the clock
+!
+! Outputs:
+!
+!-
+
+BEGIN
+
+LOCAL
+    status;				! Routine status
+
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+
+    ! Create a transformation for the monitor window, map (0,0) (22,7) to the virtual display
+    ! region we have been given
+    !
+    mon[mon_l_tr_id] = uis$create_transformation (lcl[lcl_l_vd_id],  lcl[lcl_l_cons_0],
+								 %REF ( IF .lcl[lcl_l_lines] EQL 4
+									THEN
+									    %E'4'
+									ELSE IF .lcl[lcl_l_lines] EQL 5
+									THEN
+									    %E'3'
+									ELSE IF .lcl[lcl_l_lines] EQL 6
+									THEN
+									    %E'2'
+									ELSE IF .lcl[lcl_l_lines] EQL 7
+									THEN
+									    %E'1'
+									ELSE
+									    %E'0'),
+								 %REF (%E'22'), %REF (%E'8'),
+						      		 mon[mon_f_x],  mon[mon_f_y],
+								 mon[mon_f_xh], mon[mon_f_yh]);
+
+    ! Set up the attribute block for the text
+    !
+    uis$set_font (mon[mon_l_tr_id], lcl[lcl_l_cons_0], mon[mon_l_atb], .monitor_font);
+    uis$set_writing_mode (mon[mon_l_tr_id], mon[mon_l_atb], mon[mon_l_atb], %REF (uis$c_mode_repl));
+    END;
+
+! Create a transformation for the PE monitor window, map (0,0) (21,7) to the virtual display
+! region we have been given
+!
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    pem[pem_l_tr_id] = uis$create_transformation (lcl[lcl_l_vd_id],  lcl[lcl_l_cons_0],
+								 %REF ( IF .lcl[lcl_l_lines] EQL 4
+									THEN
+									    %E'4'
+									ELSE IF .lcl[lcl_l_lines] EQL 5
+									THEN
+									    %E'3'
+									ELSE IF .lcl[lcl_l_lines] EQL 6
+									THEN
+									    %E'2'
+									ELSE IF .lcl[lcl_l_lines] EQL 7
+									THEN
+									    %E'1'
+									ELSE
+									    %E'0'),
+								 %REF (%E'21'), %REF (%E'8'),
+						      		 pem[pem_f_x],  pem[pem_f_y],
+								 pem[pem_f_xh], pem[pem_f_yh]);
+
+    ! Set up the attribute block for the text
+    !
+    uis$set_font (pem[pem_l_tr_id], lcl[lcl_l_cons_0], pem[pem_l_atb], .monitor_font);
+    uis$set_writing_mode (pem[pem_l_tr_id], pem[pem_l_atb], pem[pem_l_atb], %REF (uis$c_mode_repl));
+    END;
+
+! Create a transformation for the LOCK monitor window, map (0,0) (23,7) to the virtual display
+! region we have been given
+!
+IF  .lcl[lcl_v_lock_monitor]
+ OR .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    lck[lck_l_tr_id] = uis$create_transformation (lcl[lcl_l_vd_id],  lcl[lcl_l_cons_0],
+								 %REF ( IF .lcl[lcl_l_lines] EQL 4
+									THEN
+									    %E'4'
+									ELSE IF .lcl[lcl_l_lines] EQL 5
+									THEN
+									    %E'3'
+									ELSE IF .lcl[lcl_l_lines] EQL 6
+									THEN
+									    %E'2'
+									ELSE IF .lcl[lcl_l_lines] EQL 7
+									THEN
+									    %E'1'
+									ELSE
+									    %E'0'),
+								 %REF (%E'23'), %REF (%E'8'),
+						      		 lck[lck_f_x],  lck[lck_f_y],
+								 lck[lck_f_xh], lck[lck_f_yh]);
+
+    ! Set up the attribute block for the text
+    !
+    uis$set_font (lck[lck_l_tr_id], lcl[lcl_l_cons_0], lck[lck_l_atb], .monitor_font);
+    uis$set_writing_mode (lck[lck_l_tr_id], lck[lck_l_atb], lck[lck_l_atb], %REF (uis$c_mode_repl));
+    END;
+
+! Place the text on the screen
+!
+IF .lcl[lcl_l_lines] GEQ 8
+THEN
+    BEGIN
+    IF .lcl[lcl_v_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'1'));
+	uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'DEVICE_3_NAME');
+	END;
+    IF .lcl[lcl_v_pe_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'1'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'Node Count');
+	END;
+    IF .lcl[lcl_v_lock_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'1'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'DLck Msgs');
+	END;
+    IF .lcl[lcl_v_cwps_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'1'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Waits');
+	END;
+    END;
+IF .lcl[lcl_l_lines] GEQ 7
+THEN
+    BEGIN
+    IF .lcl[lcl_v_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'2'));
+	uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'DEVICE_2_NAME');
+	END;
+    IF .lcl[lcl_v_pe_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'2'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'Misc Event');
+	END;
+    IF .lcl[lcl_v_lock_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'2'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'DLck Find');
+	END;
+    IF .lcl[lcl_v_cwps_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'2'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Pcntrl I/O');
+	END;
+    END;
+IF .lcl[lcl_l_lines] GEQ 6
+THEN
+    BEGIN
+    IF .lcl[lcl_v_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'3'));
+	uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'DEVICE_1_NAME');
+	END;
+    IF .lcl[lcl_v_pe_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'3'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'Timeouts');
+	END;
+    IF .lcl[lcl_v_lock_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'3'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'DLck Srch');
+	END;
+    IF .lcl[lcl_v_cwps_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'3'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'GETJPI Out');
+	END;
+    END;
+IF .lcl[lcl_l_lines] GEQ 5
+THEN
+    BEGIN
+    IF .lcl[lcl_v_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'4'));
+	IF .lcl[lcl_v_remote_disk]
+	THEN
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'RemoteIO')
+	ELSE
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'DEVICE_0_NAME');
+	END;
+    IF .lcl[lcl_v_pe_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'4'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'PipeFull');
+	END;
+    IF .lcl[lcl_v_lock_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Directory');
+	END;
+    IF .lcl[lcl_v_cwps_monitor]
+    THEN
+	BEGIN
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'GETJPI In');
+	END;
+    END;
+
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'5'));
+    IF .lcl[lcl_v_systemfaults]
+    THEN
+	uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'Sys Fault')
+    ELSE
+	uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'Paging IO');
+    END;
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'5'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'Retries');
+    END;
+IF .lcl[lcl_v_lock_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Wait/NotQd');
+    END;
+IF .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Kb Out');
+    END;
+
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'6'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'Faults');
+    END;
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'6'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'Kbytes');
+    END;
+IF .lcl[lcl_v_lock_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Lock Out');
+    END;
+IF .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Kb In');
+    END;
+
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'7'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'Modified');
+    END;
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'7'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'PE Rcv');
+    END;
+IF .lcl[lcl_v_lock_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'7'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Lock In');
+    END;
+IF .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'7'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'CWPS Msg Out');
+    END;
+
+IF .lcl[lcl_v_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl[lcl_l_cons_0], %REF (%E'8'));	! Top line is 8
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], %ASCID 'Free Pages');
+    END;
+IF .lcl[lcl_v_pe_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], lcl[lcl_l_cons_0], %REF (%E'8'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], %ASCID 'PE Xmt');
+    END;
+IF .lcl[lcl_v_lock_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'8'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'Lock Lcl');
+    END;
+IF .lcl[lcl_v_cwps_monitor]
+THEN
+    BEGIN
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], lcl[lcl_l_cons_0], %REF (%E'8'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], %ASCID 'CWPS Msg In');
+    END;
+
+mon[mon_v_initialized] = 1;
+lcl[lcl_v_ws_purged] = 0;
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE device_count (devidx) =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Inputs:
+!
+!	devidx	- index for device (0:3)
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    nambuf : VECTOR [128, BYTE],
+    namdsc : VECTOR [2, LONG]
+	     PRESET ([1] = nambuf),
+    lnb : REF VECTOR [, LONG],
+    iocnt : INITIAL (0),		! Return value
+    status;
+
+! Two possibilities now exist.  First, if the device count GEQ 1, then we need to
+! loop through all the indicated devices, assuming that the device name contains
+! an FAO string.
+!
+IF .device_unitcnt [.devidx] GEQ 1
+THEN
+    BEGIN
+    LOCAL
+	faobuf : VECTOR [32, BYTE],
+	faodsc : VECTOR [2, LONG],
+	itmcnt,
+	itmlst : VECTOR [6, LONG];
+
+    ! First LNB is our name
+    !
+    lnb = .device_lnblink [.devidx];	
+    fao_put (%ASCID '    count is !UL, name is !AS', .device_unitcnt [.devidx], lnb [1]);
+    
+    ! Set up the item list, and get the iocnt
+    !
+    itmlst[0] = dvi$_opcnt^16 + 4;
+    itmlst[1] = itmcnt;
+    itmlst[2] = itmlst[3] = 0;
+
+    INCR i FROM 0 TO .device_unitcnt [.devidx]
+    DO
+	BEGIN
+	itmcnt = 0;
+	namdsc [0] = 128;
+	$fao (lnb [1], namdsc, namdsc, .i);
+	$getdviw (devnam=namdsc, itmlst=itmlst);
+	iocnt = .iocnt + .itmcnt;
+        fao_put (%ASCID '        name !UL is "!AS", this device !UL, total !UL', .i, namdsc, .itmcnt, .iocnt);
+	END;
+
+    ! Got the data, return
+    !
+    RETURN .iocnt;
+    END;
+
+! Other possibility is that the names are simple, search down the
+! list, adding each name that we find.
+!
+lnb = .device_lnblink [.devidx];
+WHILE .lnb NEQ 0
+DO
+    BEGIN
+    LOCAL
+	dvilst : VECTOR [4, LONG],
+	dvicnt;
+
+    ! Set up the item list, and get the iocnt
+    !
+    dvilst[0] = dvi$_opcnt^16 + 4;
+    dvilst[1] = dvicnt;
+    dvilst[2] = dvilst[3] = 0;
+    dvicnt = 0;
+    status = $getdviw (devnam=lnb [1], itmlst=dvilst);
+    iocnt = .iocnt + .dvicnt;
+    fao_put (%ASCID '        name is "!AS", status !UL, this device !UL, total !UL',
+		lnb [1], .status, .dvicnt, .iocnt);
+
+    ! Get the next name
+    !
+    lnb = .lnb [0];
+
+    END;
+
+RETURN .iocnt;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE device_display (devidx) : NOVALUE =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Inputs:
+!
+!	devidx	- index for device (0:3), which defines
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    buffer : VECTOR [20, BYTE],
+    desc : VECTOR [2, LONG],
+    iocnt,
+    rate,
+    status;
+
+iocnt = device_count (.devidx);
+
+rate = .iocnt - .device_iocnt [.devidx];
+IF .rate NEQ .device_rate [.devidx]
+THEN
+    BEGIN
+    device_rate [.devidx] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+   uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'17'), device_y [.devidx]);
+   uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+   END;
+IF .iocnt NEQ .device_iocnt [.devidx]
+THEN
+    BEGIN
+    LOCAL
+	length,
+	offset;
+    device_iocnt [.devidx] = .iocnt;
+    desc[0] = 17;
+    desc[1] = buffer;
+    length = 16-.titlelen[.devidx];
+    $fao (%ASCID '!#UL', desc, desc, .length, .device_iocnt [.devidx]);
+    offset = 16 - .desc[0];
+    desc[1] = buffer;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (FLOAT_F (.offset)), device_y [.devidx]);
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+
+RETURN;
+END;    
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE device_logicals : NOVALUE =
+
+!-
+!	This routine updates the page_io monitor device names.
+!
+! Inputs:
+!
+!	none
+!
+! Implicit Inputs:
+!
+!	logical names
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    lnm_index,
+    lnm_max_index,
+    desc : VECTOR [2, LONG],
+    nambuf : VECTOR [128, BYTE],
+    namdsc : VECTOR [2, LONG]
+	     PRESET ([1] = nambuf),
+    lnmbuf : VECTOR [128, BYTE],
+    lnmdsc : VECTOR [2, LONG]
+	     PRESET ([1] = lnmbuf),
+    next_lnb,
+    status;
+
+fao_put (%ASCID '!/Entry to update ***********************');
+!
+! Put all the LNBs on the "free list"
+!
+next_lnb = lnbpool;
+
+!
+! Save all of the values of the logical names
+!
+DECR devidx FROM 3 TO (IF .lcl[lcl_v_remote_disk] THEN 1 ELSE 0)
+DO
+    BEGIN
+    LOCAL
+	lnb : REF VECTOR [, LONG],
+	prev_lnb : REF VECTOR [, LONG];
+
+    IF (.lcl [lcl_l_lines] - 5 - .devidx) GEQ 0
+    THEN
+	BEGIN
+!!	EXITLOOP;
+
+    ! Check to see if the title has changed.
+    ! If yes, then rewrite the title region.
+    !
+    lnmdsc [0] = 128;
+    status = $FAO (%ASCID 'DEVICE_!UL_TITLE', lnmdsc, lnmdsc, .devidx);
+    IF NOT .status THEN SIGNAL_STOP (.status);
+    fao_put (%ASCID 'New title logical for !UL is "!AS"', .devidx, lnmdsc);
+    namdsc [0] = 128;
+    IF cvt_lnm_string (lnmdsc, namdsc)
+    THEN
+	BEGIN
+	fao_put (%ASCID '	translates to "!AS"', .devidx, namdsc);
+	namdsc [0] = MIN (title_size, .namdsc [0]);
+	IF CH$NEQ (.namdsc [0], .namdsc [1], title_size, titlebuf [title_size*.devidx], %C' ')
+	THEN
+	    BEGIN
+	    fao_put (%ASCID 'New title string for !AS (!UL) is "!AS"', lnmdsc, .devidx, namdsc);
+	    CH$COPY (.namdsc [0], .namdsc [1], %C' ', title_size, titlebuf [title_size*.devidx]);
+	    titlelen [.devidx] = .namdsc [0];
+	    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], lcl [lcl_l_cons_0], device_y [.devidx]);
+	    desc [0] = title_size;
+	    desc [1] = titlebuf [title_size*.devidx];
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+	    END;
+	END;
+
+    ! Fetch and save the device count
+    !
+    lnmdsc [0] = 128;
+    status = $FAO (%ASCID 'DEVICE_!UL_COUNT', lnmdsc, lnmdsc, .devidx);
+    IF NOT .status THEN SIGNAL_STOP (.status);
+    fao_put (%ASCID '!/Count string for !UL is "!AS"', .devidx, lnmdsc);
+    device_unitcnt [.devidx] = cvt_lnm_integer (lnmdsc, 0);
+    
+    ! Deallocate the existing list of logical names, and create new
+    !
+    device_lnblink [.devidx] = 0;
+    prev_lnb = device_lnblink [.devidx];
+    lnb = 0;
+    lnmdsc [0] = 128;
+    status = $FAO (%ASCID 'DEVICE_!UL_NAME', lnmdsc, lnmdsc, .devidx);
+    IF NOT .status THEN SIGNAL_STOP (.status);
+    fao_put (%ASCID 'Logical name to fetch is "!AS"', lnmdsc);
+    lnm_index = 0;
+    WHILE 1
+    DO
+	BEGIN
+	LOCAL
+	    itmlst: VECTOR [10, LONG];		! $TRNLNM item list
+    
+	! Translate the name
+	!
+	itmlst[0] = lnm$_index^16 + 4;
+	itmlst[1] = lnm_index;
+	itmlst[2] = 0;
+	itmlst[3] = lnm$_max_index^16 + 4;
+	itmlst[4] = lnm_max_index;
+	itmlst[5] = 0;
+	itmlst[6] = lnm$_string^16 + %ALLOCATION (nambuf);
+	itmlst[7] = nambuf;
+	itmlst[8] = namdsc [0];			! Put returned length in descr
+	itmlst[9] = 0;
+	status = $trnlnm (TABNAM = sd_banner_lnmtable,	! BIND sd_banner_lnmtable = %ASCID 'BANNER_LNMTABLE'; already done
+			  LOGNAM = lnmdsc,
+			  ITMLST = itmlst);
+	fao_put (%ASCID '        $TRNLNM status for !UL is !UL, max_index is !UL', .lnm_index, .status, .lnm_max_index);
+	IF NOT .status THEN EXITLOOP;			! Found the end
+
+	! Link it onto this device list
+	!
+	lnb = .next_lnb;				! "Allocate" the next one
+	next_lnb = .next_lnb + lnbsize;			! Move the pointer
+	IF .next_lnb GTR lnbpool_end			! Check the end condition
+	THEN
+	    SIGNAL_STOP (SS$_BADPARAM);
+	prev_lnb [0] = .lnb;				! Point last at this one
+	lnb [0] = 0;					! This is the last one
+	lnb [1] = .namdsc [0];				! Put length in the lnb
+	lnb [2] = lnb [3];				! Set buffer address to rest of lnb
+	CH$COPY (.namdsc [0], .namdsc [1], %C' ',	! Copy the name to the buffer
+			lnbsize-12, lnb [3]);
+	prev_lnb = .lnb;				! This is now the "previous" lnb
+
+	! Get the next name
+	!
+	lnm_index = .lnm_index + 1;
+	IF .lnm_index GTR .lnm_max_index
+	THEN
+	    EXITLOOP;
+	END;
+    END;
+    END;
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE kernel_sysflts =
+
+!-
+!	This routine returns the number of system faults
+!
+! Inputs:
+!
+!	none
+!
+! Implicit Inputs:
+!
+!	system PHD
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+LOCAL
+    phd : REF BLOCK [, BYTE];
+
+phd = .mmg$gl_sysphd;			! Get pointer to system PHD (in ERKW memory)
+
+RETURN .phd [phd$l_pageflts];
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE page_io_monitor : NOVALUE =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+OWN
+    page_io_updcnt,
+    page_io_lnm_updcnt;
+
+LOCAL
+    rate,
+    temp,
+    desc : VECTOR [2, LONG],
+    buffer : VECTOR [10, BYTE],
+    status;
+
+! Make sure that we have been initialized
+!
+IF NOT .mon[mon_v_initialized]
+THEN
+    monitor_init ();
+
+! Check to see if we should do it this tick
+!
+page_io_updcnt = .page_io_updcnt - 1;
+IF .page_io_updcnt GTR 0
+THEN
+    RETURN;
+page_io_updcnt = .lcl[lcl_l_page_io_update];
+
+! Check to see if we should update the logicals
+!
+page_io_lnm_updcnt = .page_io_lnm_updcnt - 1;
+IF .page_io_lnm_updcnt LEQ 0
+THEN
+    BEGIN
+    page_io_lnm_updcnt = .lcl[lcl_l_page_io_lnm_update];
+    device_logicals ();
+    END;
+
+! Set up the attribute block for the text
+!
+uis$set_font (mon[mon_l_tr_id], lcl[lcl_l_cons_0], mon[mon_l_atb], .monitor_font);
+uis$set_writing_mode (mon[mon_l_tr_id], mon[mon_l_atb], mon[mon_l_atb], %REF (uis$c_mode_repl));
+
+! If any of the stats has changed, rewrite it
+!
+rate = .sch$gl_freecnt - .mon[mon_l_freecnt];
+IF .rate NEQ .mon[mon_l_freecnt_rate]
+THEN
+    BEGIN
+    mon[mon_l_freecnt_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'17'), %REF (%E'8'));	! Top line is 8
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+IF .sch$gl_freecnt NEQ .mon[mon_l_freecnt]
+THEN
+    BEGIN
+    mon[mon_l_freecnt] = .sch$gl_freecnt;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .mon[mon_l_freecnt]);
+    desc[0] = 6;
+    desc[1] = buffer+4;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'10'), %REF (%E'8'));	! Top line is 8
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+
+rate = .sch$gl_mfycnt - .mon[mon_l_mfycnt];
+IF .rate NEQ .mon[mon_l_mfycnt_rate]
+THEN
+    BEGIN
+    mon[mon_l_mfycnt_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'17'), %REF (%E'7'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+IF .sch$gl_mfycnt NEQ .mon[mon_l_mfycnt]
+THEN
+    BEGIN
+    mon[mon_l_mfycnt] = .sch$gl_mfycnt;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .mon[mon_l_mfycnt]);
+    desc[0] = 6;
+    desc[1] = buffer+4;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'10'), %REF (%E'7'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+
+rate = .pms$gl_faults - .mon[mon_l_faults];
+IF .rate NEQ .mon[mon_l_faults_rate]
+THEN
+    BEGIN
+    mon[mon_l_faults_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'17'), %REF (%E'6'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+IF .pms$gl_faults NEQ .mon[mon_l_faults]
+THEN
+    BEGIN
+    mon[mon_l_faults] = .pms$gl_faults;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .mon[mon_l_faults]);
+    desc[0] = 10;
+!    desc[1] = buffer+1;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'6'), %REF (%E'6'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+
+IF .lcl[lcl_v_systemfaults]
+THEN
+    temp = $CMKRNL(ROUTIN=kernel_sysflts)
+ELSE
+    temp = .pms$gl_preadio + .pms$gl_pwritio;
+rate = .temp - .mon[mon_l_pageio];
+IF .rate NEQ .mon[mon_l_pageio_rate]
+THEN
+    BEGIN
+    mon[mon_l_pageio_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'17'), %REF (%E'5'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+IF .temp NEQ .mon[mon_l_pageio]
+THEN
+    BEGIN
+    mon[mon_l_pageio] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .mon[mon_l_pageio]);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'9'), %REF (%E'5'));
+    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+    END;
+
+IF .lcl[lcl_l_lines] GEQ 5                
+THEN
+    BEGIN
+    LOCAL
+	diskvector : VECTOR [4, BYTE],
+	iocnt;
+    BIND
+	diskchar = diskvector;
+
+    ! If REMOTE_DISK is set, then do special code for remote disks
+    !
+    IF .lcl[lcl_v_remote_disk]
+    THEN
+	BEGIN
+	iocnt = remote_io_count();
+	diskchar = '    ';
+	IF .mon[mon_v_ni_sys_mv]
+	THEN
+	    diskvector[0] = 'S';
+	IF .mon[mon_v_ni_mntverip]
+	THEN
+	    diskvector[1] = 'M';
+	IF .mon[mon_v_ni_busy]
+	THEN
+	    diskvector[2] = 'P';
+	IF .diskchar NEQ .mon[mon_l_diskchar]	!changed, put in the new character
+	THEN                                                               
+	    BEGIN
+	    desc[0] = 3;
+	    desc[1] = diskchar;
+	    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'16'), %REF (%E'4'));
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+	    mon[mon_l_diskchar] = .diskchar;
+	    END;
+	rate = .iocnt - .mon[mon_l_ni_io];
+	IF .rate NEQ .mon[mon_l_ni_io_rate]
+	THEN
+	    BEGIN
+	    mon[mon_l_ni_io_rate] = .rate;
+	    desc[0] = 3;
+	    IF .rate NEQ 0
+	    THEN
+	    BEGIN
+		desc[1] = buffer;
+		$fao (ctrstr3, desc, desc, .rate);
+		END
+	    ELSE
+		desc[1] = fiveb;
+	    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'19'), %REF (%E'4'));
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+	    END;
+	IF .iocnt NEQ .mon[mon_l_ni_io]
+	THEN
+	    BEGIN
+	    mon[mon_l_ni_io] = .iocnt;
+	    desc[0] = 10;
+	    desc[1] = buffer;
+	    $fao (ctrstr, desc, desc, .mon[mon_l_ni_io]);
+	    desc[0] = 8;
+	    desc[1] = buffer+2;
+	    uis$set_aligned_position (mon[mon_l_tr_id], mon[mon_l_atb], %REF (%E'8'), %REF (%E'4'));
+	    uis$text (mon[mon_l_tr_id], mon[mon_l_atb], desc);
+	    END;
+	END
+
+    ! REMOTE_DISK is not set, use the common routine for DEVICE_0
+    !
+    ELSE
+	device_display (0);
+
+    IF .lcl[lcl_l_lines] GEQ 6
+    THEN
+	BEGIN
+	device_display (1);
+	IF .lcl[lcl_l_lines] GEQ 7
+	THEN
+	    BEGIN
+	    device_display (2);
+	    IF .lcl[lcl_l_lines] GEQ 8
+	    THEN
+		device_display (3);
+	    END;
+	END;
+    END;		!GEQ 5
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE pe_monitor : NOVALUE =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+OWN
+    pe_updcnt;
+
+LOCAL
+    newkb,
+    rate,
+    remote_io_cnt,
+    temp,
+    desc : VECTOR [2, LONG],
+    buffer : VECTOR [10, BYTE],
+    status;
+
+! Make sure that we have been initialized
+!
+IF NOT .mon[mon_v_initialized]
+THEN
+    monitor_init ();
+
+! Check to see if we should do it this tick
+!
+pe_updcnt = .pe_updcnt - 1;
+IF .pe_updcnt GTR 0
+THEN
+    RETURN;
+pe_updcnt = .lcl[lcl_l_pe_update];
+
+! Update the NEW_PES block
+!
+remote_pe_count ();
+
+! Display PE stats
+!
+rate = .new_pes[pes_l_xmt_msg] - .pes[pes_l_xmt_msg];
+IF .rate NEQ .pem[pem_l_xmt_rate]
+THEN
+    BEGIN
+    pem[pem_l_xmt_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'8'));	! Top line is 8
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+IF .new_pes[pes_l_xmt_msg] NEQ .pem[pem_l_xmt]
+THEN
+    BEGIN
+    pem[pem_l_xmt] = .new_pes[pes_l_xmt_msg];
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .pem[pem_l_xmt]);
+!    desc[0] = 9;
+!    desc[1] = buffer+1;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'6'), %REF (%E'8'));	! Top line is 8
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+
+
+rate = .new_pes[pes_l_rcv_msg] - .pes[pes_l_rcv_msg];
+IF .rate NEQ .pem[pem_l_rcv_rate]
+THEN
+    BEGIN
+    pem[pem_l_rcv_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'7'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+IF .new_pes[pes_l_rcv_msg] NEQ .pem[pem_l_rcv]
+THEN
+    BEGIN
+    pem[pem_l_rcv] = .new_pes[pes_l_rcv_msg];
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .pem[pem_l_rcv]);
+!    desc[0] = 9;
+!    desc[1] = buffer+1;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'6'), %REF (%E'7'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+
+
+!
+! Calculate the new byte figure.  Note that the "raw" data has already been
+! divided by 256, therefore another divide by 4 gives us kilobytes.
+!
+newkb = .(new_pes[pes_l_xmt_bytes])<2,30,0> + .(new_pes[pes_l_rcv_bytes])<2,30,0>;
+rate = .newkb - .pem[pem_l_kbyte];
+IF .rate NEQ .pem[pem_l_kbyte_rate]
+THEN
+    BEGIN
+    pem[pem_l_kbyte_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'6'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+IF .newkb NEQ .pem[pem_l_kbyte]
+THEN
+    BEGIN
+    pem[pem_l_kbyte] = .newkb;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .newkb);
+!    desc[0] = 9;
+!    desc[1] = buffer+1;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'6'), %REF (%E'6'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+
+
+rate = .new_pes[pes_l_rcv_rercv] - .pes[pes_l_rcv_rercv];
+rate = .rate + .new_pes[pes_l_xmt_rexmt] - .pes[pes_l_xmt_rexmt];
+IF .rate NEQ .pem[pem_l_retry_rate]
+THEN
+    BEGIN
+    pem[pem_l_retry_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'5'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+rate = .new_pes[pes_l_rcv_rercv] + .new_pes[pes_l_xmt_rexmt];
+IF .rate NEQ .pem[pem_l_retry]
+THEN
+    BEGIN
+    pem[pem_l_retry] = .rate;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .pem[pem_l_retry]);
+    desc[0] = 9;
+    desc[1] = buffer+1;
+    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'7'), %REF (%E'5'));
+    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+    END;
+
+IF .lcl[lcl_l_lines] GEQ 5                
+THEN
+    BEGIN
+    rate = .new_pes[pes_l_tr_pipe_quota] - .pes[pes_l_tr_pipe_quota];
+    IF .rate NEQ .pem[pem_l_pipefull_rate]
+    THEN
+	BEGIN
+	pem[pem_l_pipefull_rate] = .rate;
+	desc[0] = 5;
+	IF .rate NEQ 0
+	THEN
+	    BEGIN
+	    desc[1] = buffer;
+	    $fao (ctrstr2, desc, desc, .rate);
+	    END
+	ELSE
+	    desc[1] = fiveb;
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'4'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	END;
+    IF .new_pes[pes_l_tr_pipe_quota] NEQ .pem[pem_l_pipefull]
+    THEN
+	BEGIN
+	pem[pem_l_pipefull] = .new_pes[pes_l_tr_pipe_quota];
+	desc[0] = 10;
+	desc[1] = buffer;
+	$fao (ctrstr, desc, desc, .pem[pem_l_pipefull]);
+	desc[0] = 8;
+	desc[1] = buffer+2;
+	uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'8'), %REF (%E'4'));
+	uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	END;
+
+    IF .lcl[lcl_l_lines] GEQ 6
+    THEN
+	BEGIN
+	temp = .new_pes[pes_l_hs_tmo] + .new_pes[pes_l_xmt_seq_tmo] + .new_pes[pes_l_rcv_listen_tmo];
+	rate = .temp - .pem[pem_l_timeout];
+	IF .rate NEQ .pem[pem_l_timeout_rate]
+	THEN
+	    BEGIN
+	    pem[pem_l_timeout_rate] = .rate;
+	    desc[0] = 5;
+	    IF .rate NEQ 0
+	    THEN
+		BEGIN
+		desc[1] = buffer;
+		$fao (ctrstr2, desc, desc, .rate);
+		END
+	    ELSE
+		desc[1] = fiveb;
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'3'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	IF .temp NEQ .pem[pem_l_timeout]
+	THEN
+	    BEGIN
+	    pem[pem_l_timeout] = .temp;
+	    desc[0] = 10;
+	    desc[1] = buffer;
+	    $fao (ctrstr, desc, desc, .pem[pem_l_timeout]);
+	    desc[0] = 6;
+	    desc[1] = buffer+4;
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'10'), %REF (%E'3'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	 END;
+
+    IF .lcl[lcl_l_lines] GEQ 7
+    THEN
+	BEGIN
+	temp = .new_pes[pes_l_xmt_noxch] + .new_pes[pes_l_rcv_norch] + .new_pes[pes_l_rcv_tr_short] +
+	       .new_pes[pes_l_rcv_cc_short] + .new_pes[pes_l_rcv_ill_ack] + .new_pes[pes_l_rcv_ill_seq] +
+	       .new_pes[pes_l_rcv_cc_bad_eco] + .new_pes[pes_l_rcv_cc_authorize] + .new_pes[pes_l_tr_dfq_empty] +
+	       .new_pes[pes_l_tr_mfq_empty] + .new_pes[pes_l_cc_dfq_empty] + .new_pes[pes_l_cc_mfq_empty];
+	rate = .temp - .pem[pem_l_miscerr];
+	IF .rate NEQ .pem[pem_l_miscerr_rate]
+	THEN
+	    BEGIN
+	    pem[pem_l_miscerr_rate] = .rate;
+	    desc[0] = 5;
+	    IF .rate NEQ 0
+	    THEN
+		BEGIN
+		desc[1] = buffer;
+		$fao (ctrstr2, desc, desc, .rate);
+		END
+	    ELSE
+		desc[1] = fiveb;
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'2'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	IF .temp NEQ .pem[pem_l_miscerr]
+	THEN
+	    BEGIN
+	    pem[pem_l_miscerr] = .temp;
+	    desc[0] = 10;
+	    desc[1] = buffer;
+	    $fao (ctrstr, desc, desc, .pem[pem_l_miscerr]);
+	    desc[0] = 6;
+	    desc[1] = buffer+4;
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'10'), %REF (%E'2'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	END;
+
+    IF .lcl[lcl_l_lines] GEQ 8
+    THEN
+	BEGIN
+	LOCAL
+	    node_count,
+	    syi_item : VECTOR [4, LONG] PRESET
+			( [0] = (syi$_cluster_nodes^16 + 4),
+			  [1] = node_count,
+			  [2] = 0, [3] = 0),
+	    status;
+	IF NOT (status = $getsyiw (itmlst = syi_item))
+	THEN
+	    SIGNAL_STOP (.status);
+	IF .node_count NEQ .pem[pem_l_badchk_rate]
+	THEN
+	    BEGIN
+	    pem[pem_l_badchk_rate] = .node_count;
+	    desc[0] = 5;
+	    desc[1] = buffer;
+	    $fao (ctrstr2, desc, desc, .node_count);
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'11'), %REF (%E'1'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	IF .new_pes[pes_l_rcv_bad_cksum] NEQ .pem[pem_l_badchk]
+	THEN
+	    BEGIN
+	    pem[pem_l_badchk] = .new_pes[pes_l_rcv_bad_cksum];
+	    desc[0] = 5;
+	    desc[1] = buffer;
+	    $fao (%ASCID 'Bad!2UL', desc, desc, .pem[pem_l_badchk]);
+	    uis$set_aligned_position (pem[pem_l_tr_id], pem[pem_l_atb], %REF (%E'16'), %REF (%E'1'));
+	    uis$text (pem[pem_l_tr_id], pem[pem_l_atb], desc);
+	    END;
+	END;
+    END;
+
+!
+! Copy the entire PE statistics block
+!
+CH$MOVE (pes_c_length, new_pes, pes);
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE cwps_monitor : NOVALUE =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+OWN
+    cwps_updcnt;
+
+LOCAL
+    temp,
+    rate,
+    desc : VECTOR [2, LONG],
+    buffer : VECTOR [12, BYTE],
+    status;
+
+! Make sure that we have been initialized
+!
+IF NOT .mon[mon_v_initialized]
+THEN
+    monitor_init ();
+
+! Check to see if we should do it this tick
+!
+cwps_updcnt = .cwps_updcnt - 1;
+IF .cwps_updcnt GTR 0
+THEN
+    RETURN;
+cwps_updcnt = .lcl[lcl_l_cwps_update];
+
+! Update the CWPS block, we collect all at once to get little better
+! "snapshot" of activity
+!
+cwps[cwps_l_msgs_in]	= .pms$gl_cwps_msgs_in;
+cwps[cwps_l_msgs_out]	= .pms$gl_cwps_msgs_out;
+cwps[cwps_l_bytes_in]	= .pms$gl_cwps_bytes_in;
+cwps[cwps_l_bytes_out]	= .pms$gl_cwps_bytes_out;
+cwps[cwps_l_getjpi_in]	= .pms$gl_cwps_getjpi_in;
+cwps[cwps_l_getjpi_out]	= .pms$gl_cwps_getjpi_out;
+cwps[cwps_l_pcntrl_in]	= .pms$gl_cwps_pcntrl_in;
+cwps[cwps_l_pcntrl_out]	= .pms$gl_cwps_pcntrl_out;
+cwps[cwps_l_waits]	= .pms$gl_cwps_waits;
+cwps[cwps_l_waiting]	= .pms$gl_cwps_waiting;
+
+! Display cwps stats
+!
+temp = .cwps[cwps_l_msgs_in];
+rate = .temp - .lck[cwps_l_msgs_in];
+IF .rate NEQ .lck[cwps_l_msgs_in_rate]
+THEN
+    BEGIN
+    lck[cwps_l_msgs_in_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'8'));	! Top line is 8
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[cwps_l_msgs_in]
+THEN
+    BEGIN
+    lck[cwps_l_msgs_in] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'8'));	! Top line is 8
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+temp = .cwps[cwps_l_msgs_out];
+rate = .temp - .lck[cwps_l_msgs_out];
+IF .rate NEQ .lck[cwps_l_msgs_out_rate]
+THEN
+    BEGIN
+    lck[cwps_l_msgs_out_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'7'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[cwps_l_msgs_out]
+THEN
+    BEGIN
+    lck[cwps_l_msgs_out] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'7'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+temp = .cwps[cwps_l_bytes_in]; !!^-10;		! Divide by 1024 for Kbytes
+rate = .temp - .lck[cwps_l_bytes_in];
+IF .rate NEQ .lck[cwps_l_bytes_in_rate]
+THEN
+    BEGIN
+    lck[cwps_l_bytes_in_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[cwps_l_bytes_in]
+THEN
+    BEGIN
+    lck[cwps_l_bytes_in] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 10;
+    desc[1] = buffer;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'7'), %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+!
+temp = .cwps[cwps_l_bytes_out];	!!^-10;		! Divide by 1024 for Kbytes
+rate = .temp - .lck[cwps_l_bytes_out];
+IF .rate NEQ .lck[cwps_l_bytes_out_rate]
+THEN
+    BEGIN
+    lck[cwps_l_bytes_out_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[cwps_l_bytes_out]
+THEN
+    BEGIN
+    lck[cwps_l_bytes_out] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 10;
+    desc[1] = buffer;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'7'), %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+
+IF .lcl[lcl_l_lines] GEQ 5                
+THEN
+    BEGIN
+
+    temp = .cwps[cwps_l_getjpi_in];
+    rate = .temp - .lck[cwps_l_getjpi_in];
+    IF .rate NEQ .lck[cwps_l_getjpi_in_rate]
+    THEN
+	BEGIN
+	lck[cwps_l_getjpi_in_rate] = .rate;
+	desc[0] = 5;
+	IF .rate NEQ 0
+	THEN
+	    BEGIN
+	    desc[1] = buffer;
+	    $fao (ctrstr2, desc, desc, .rate);
+	    END
+	ELSE
+	    desc[1] = fiveb;
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	END;
+    IF .temp NEQ .lck[cwps_l_getjpi_in]
+    THEN
+	BEGIN
+	lck[cwps_l_getjpi_in] = .temp;
+	desc[0] = 10;
+	desc[1] = buffer;
+	$fao (ctrstr, desc, desc, .temp);
+	desc[0] = 7;
+	desc[1] = buffer+3;
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	END;
+
+    IF .lcl[lcl_l_lines] GEQ 6
+    THEN
+	BEGIN
+
+	temp = .cwps[cwps_l_getjpi_out];
+	rate = .temp - .lck[cwps_l_getjpi_out];
+	IF .rate NEQ .lck[cwps_l_getjpi_out_rate]
+	THEN
+	    BEGIN
+	    lck[cwps_l_getjpi_out_rate] = .rate;
+	    desc[0] = 5;
+	    IF .rate NEQ 0
+	    THEN
+		BEGIN
+		desc[1] = buffer;
+		$fao (ctrstr2, desc, desc, .rate);
+		END
+	    ELSE
+		desc[1] = fiveb;
+	    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'3'));
+	    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	    END;
+	IF .temp NEQ .lck[cwps_l_getjpi_out]
+	THEN
+	    BEGIN
+	    lck[cwps_l_getjpi_out] = .temp;
+	    desc[0] = 10;
+	    desc[1] = buffer;
+	    $fao (ctrstr, desc, desc, .temp);
+	    desc[0] = 7;
+	    desc[1] = buffer+3;
+	    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'3'));
+	    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	    END;
+
+	IF .lcl[lcl_l_lines] GEQ 7
+	THEN
+	    BEGIN
+	    
+	    temp = .cwps[cwps_l_pcntrl_in] + .cwps[cwps_l_pcntrl_out];
+	    rate = .temp - .lck[cwps_l_pcntrl_in];
+	    IF .rate NEQ .lck[cwps_l_pcntrl_in_rate]
+	    THEN
+		BEGIN
+		lck[cwps_l_pcntrl_in_rate] = .rate;
+		desc[0] = 5;
+		IF .rate NEQ 0
+		THEN
+		    BEGIN
+		    desc[1] = buffer;
+		    $fao (ctrstr2, desc, desc, .rate);
+		    END
+		ELSE
+		    desc[1] = fiveb;
+		uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'2'));
+		uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		END;
+	    IF .temp NEQ .lck[cwps_l_pcntrl_in]
+	    THEN
+		BEGIN
+		lck[cwps_l_pcntrl_in] = .temp;
+		desc[0] = 10;
+		desc[1] = buffer;
+		$fao (ctrstr, desc, desc, .temp);
+		desc[0] = 7;
+		desc[1] = buffer+3;
+		uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'2'));
+		uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		END;
+	    
+	    IF .lcl[lcl_l_lines] GEQ 8
+	    THEN
+		BEGIN
+
+		temp = .cwps[cwps_l_waits];
+		rate = .temp - .lck[cwps_l_waits];
+		IF .rate NEQ .lck[cwps_l_waits_rate]
+		THEN
+		    BEGIN
+		    lck[cwps_l_waits_rate] = .rate;
+		    desc[0] = 5;
+		    IF .rate NEQ 0
+		    THEN
+			BEGIN
+			desc[1] = buffer;
+			$fao (ctrstr2, desc, desc, .rate);
+			END
+		    ELSE
+			desc[1] = fiveb;
+		    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'1'));
+		    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		    END;
+		IF .temp NEQ .lck[cwps_l_waits]
+		THEN
+		    BEGIN
+		    lck[cwps_l_waits] = .temp;
+		    desc[0] = 10;
+		    desc[1] = buffer;
+		    $fao (ctrstr, desc, desc, .temp);
+		    desc[0] = 7;
+		    desc[1] = buffer+3;
+		    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'1'));
+		    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		    END;
+    		END;
+	    END;
+	END;
+    END;
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE lock_monitor : NOVALUE =
+
+!-
+!	This routine updates the monitor statistics.
+!
+! Implicit Inputs:
+!
+!	mon	- monitor data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+OWN
+    lock_updcnt;
+
+LOCAL
+    temp,
+    rate,
+    desc : VECTOR [2, LONG],
+    buffer : VECTOR [12, BYTE],
+    status;
+
+! Make sure that we have been initialized
+!
+IF NOT .mon[mon_v_initialized]
+THEN
+    monitor_init ();
+
+! Check to see if we should do it this tick
+!
+lock_updcnt = .lock_updcnt - 1;
+IF .lock_updcnt GTR 0
+THEN
+    RETURN;
+lock_updcnt = .lcl[lcl_l_lock_update];
+
+! Update the lks block, we collect all at once to get little better
+! "snapshot" of activity
+!
+lks[lks_l_enqnew_loc]	= .pms$gl_enqnew_loc;
+lks[lks_l_enqnew_in]	= .pms$gl_enqnew_in;
+lks[lks_l_enqnew_out]	= .pms$gl_enqnew_out;
+lks[lks_l_enqcvt_loc]	= .pms$gl_enqcvt_loc;
+lks[lks_l_enqcvt_in]	= .pms$gl_enqcvt_in;
+lks[lks_l_enqcvt_out]	= .pms$gl_enqcvt_out;
+lks[lks_l_deq_loc]	= .pms$gl_deq_loc;
+lks[lks_l_deq_in]	= .pms$gl_deq_in;
+lks[lks_l_deq_out]	= .pms$gl_deq_out;
+lks[lks_l_enqwait]	= .pms$gl_enqwait;
+lks[lks_l_enqnotqd]	= .pms$gl_enqnotqd;
+lks[lks_l_blk_loc]	= .pms$gl_blk_loc;
+lks[lks_l_blk_in]	= .pms$gl_blk_in;
+lks[lks_l_blk_out]	= .pms$gl_blk_out;
+lks[lks_l_dir_in]	= .pms$gl_dir_in;
+lks[lks_l_dir_out]	= .pms$gl_dir_out;
+lks[lks_l_dlckmsgs_in]	= .pms$gl_dlckmsgs_in;
+lks[lks_l_dlckmsgs_out]	= .pms$gl_dlckmsgs_out;
+lks[lks_l_dlcksrch]	= .pms$gl_dlcksrch;
+lks[lks_l_dlckfnd]	= .pms$gl_dlckfnd;
+
+! Display locking stats
+!
+temp = .lks[lks_l_enqnew_loc] + .lks[lks_l_enqcvt_loc] + .lks[lks_l_deq_loc];
+rate = .temp - .lck[lck_l_lck_loc];
+IF .rate NEQ .lck[lck_l_lck_loc_rate]
+THEN
+    BEGIN
+    lck[lck_l_lck_loc_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'8'));	! Top line is 8
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[lck_l_lck_loc]
+THEN
+    BEGIN
+    lck[lck_l_lck_loc] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'8'));	! Top line is 8
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+temp = .lks[lks_l_enqnew_in] + .lks[lks_l_enqcvt_in] + .lks[lks_l_deq_in];
+rate = .temp - .lck[lck_l_lck_in];
+IF .rate NEQ .lck[lck_l_lck_in_rate]
+THEN
+    BEGIN
+    lck[lck_l_lck_in_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'7'));	! Next line is 7
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[lck_l_lck_in]
+THEN
+    BEGIN
+    lck[lck_l_lck_in] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'7'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+temp = .lks[lks_l_enqnew_out] + .lks[lks_l_enqcvt_out] + .lks[lks_l_deq_out];
+rate = .temp - .lck[lck_l_lck_out];
+IF .rate NEQ .lck[lck_l_lck_out_rate]
+THEN
+    BEGIN
+    lck[lck_l_lck_out_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[lck_l_lck_out]
+THEN
+    BEGIN
+    lck[lck_l_lck_out] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'6'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+!
+temp = .lks[lks_l_enqwait] + .lks[lks_l_enqnotqd];
+rate = .temp - .lck[lck_l_wtnotq];
+IF .rate NEQ .lck[lck_l_wtnotq_rate]
+THEN
+    BEGIN
+    lck[lck_l_wtnotq_rate] = .rate;
+    desc[0] = 5;
+    IF .rate NEQ 0
+    THEN
+	BEGIN
+	desc[1] = buffer;
+	$fao (ctrstr2, desc, desc, .rate);
+	END
+    ELSE
+	desc[1] = fiveb;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+IF .temp NEQ .lck[lck_l_wtnotq]
+THEN
+    BEGIN
+    lck[lck_l_wtnotq] = .temp;
+    desc[0] = 10;
+    desc[1] = buffer;
+    $fao (ctrstr, desc, desc, .temp);
+    desc[0] = 7;
+    desc[1] = buffer+3;
+    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'5'));
+    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+    END;
+
+IF .lcl[lcl_l_lines] GEQ 5                
+THEN
+    BEGIN
+
+    temp = .lks[lks_l_dir_in] + .lks[lks_l_dir_out];
+    rate = .temp - .lck[lck_l_dir];
+    IF .rate NEQ .lck[lck_l_dir_rate]
+    THEN
+	BEGIN
+	lck[lck_l_dir_rate] = .rate;
+	desc[0] = 5;
+	IF .rate NEQ 0
+	THEN
+	    BEGIN
+	    desc[1] = buffer;
+	    $fao (ctrstr2, desc, desc, .rate);
+	    END
+	ELSE
+	    desc[1] = fiveb;
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	END;
+    IF .temp NEQ .lck[lck_l_dir]
+    THEN
+	BEGIN
+	lck[lck_l_dir] = .temp;
+	desc[0] = 10;
+	desc[1] = buffer;
+	$fao (ctrstr, desc, desc, .temp);
+	desc[0] = 7;
+	desc[1] = buffer+3;
+	uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'4'));
+	uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	END;
+
+    IF .lcl[lcl_l_lines] GEQ 6
+    THEN
+	BEGIN
+
+	temp = .lks[lks_l_dlcksrch];
+	rate = .temp - .lck[lck_l_dlcksrch];
+	IF .rate NEQ .lck[lck_l_dlcksrch_rate]
+	THEN
+	    BEGIN
+	    lck[lck_l_dlcksrch_rate] = .rate;
+	    desc[0] = 5;
+	    IF .rate NEQ 0
+	    THEN
+		BEGIN
+		desc[1] = buffer;
+		$fao (ctrstr2, desc, desc, .rate);
+		END
+	    ELSE
+		desc[1] = fiveb;
+	    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'3'));
+	    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	    END;
+	IF .temp NEQ .lck[lck_l_dlcksrch]
+	THEN
+	    BEGIN
+	    lck[lck_l_dlcksrch] = .temp;
+	    desc[0] = 10;
+	    desc[1] = buffer;
+	    $fao (ctrstr, desc, desc, .temp);
+	    desc[0] = 7;
+	    desc[1] = buffer+3;
+	    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'3'));
+	    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+	    END;
+
+	IF .lcl[lcl_l_lines] GEQ 7
+	THEN
+	    BEGIN
+	    
+	    temp = .lks[lks_l_dlckfnd];
+	    rate = .temp - .lck[lck_l_dlckfind];
+	    IF .rate NEQ .lck[lck_l_dlckfind_rate]
+	    THEN
+		BEGIN
+		lck[lck_l_dlckfind_rate] = .rate;
+		desc[0] = 5;
+		IF .rate NEQ 0
+		THEN
+		    BEGIN
+		    desc[1] = buffer;
+		    $fao (ctrstr2, desc, desc, .rate);
+		    END
+		ELSE
+		    desc[1] = fiveb;
+		uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'2'));
+		uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		END;
+	    IF .temp NEQ .lck[lck_l_dlckfind]
+	    THEN
+		BEGIN
+		lck[lck_l_dlckfind] = .temp;
+		desc[0] = 10;
+		desc[1] = buffer;
+		$fao (ctrstr, desc, desc, .temp);
+		desc[0] = 7;
+		desc[1] = buffer+3;
+		uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'2'));
+		uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		END;
+	    
+	    IF .lcl[lcl_l_lines] GEQ 8
+	    THEN
+		BEGIN
+
+		temp = .lks[lks_l_dlckmsgs_in] + .lks[lks_l_dlckmsgs_out];
+		rate = .temp - .lck[lck_l_dlckmsg];
+		IF .rate NEQ .lck[lck_l_dlckmsg_rate]
+		THEN
+		    BEGIN
+		    lck[lck_l_dlckmsg_rate] = .rate;
+		    desc[0] = 5;
+		    IF .rate NEQ 0
+		    THEN
+			BEGIN
+			desc[1] = buffer;
+			$fao (ctrstr2, desc, desc, .rate);
+			END
+		    ELSE
+			desc[1] = fiveb;
+		    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'17'), %REF (%E'1'));
+		    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		    END;
+		IF .temp NEQ .lck[lck_l_dlckmsg]
+		THEN
+		    BEGIN
+		    lck[lck_l_dlckmsg] = .temp;
+		    desc[0] = 10;
+		    desc[1] = buffer;
+		    $fao (ctrstr, desc, desc, .temp);
+		    desc[0] = 7;
+		    desc[1] = buffer+3;
+		    uis$set_aligned_position (lck[lck_l_tr_id], lck[lck_l_atb], %REF (%E'10'), %REF (%E'1'));
+		    uis$text (lck[lck_l_tr_id], lck[lck_l_atb], desc);
+		    END;
+    		END;
+	    END;
+	END;
+    END;
+
+RETURN;
+END;
+
+END
+ELUDOM

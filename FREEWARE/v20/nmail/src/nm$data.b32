@@ -1,0 +1,218 @@
+%title 'nm$data'
+module nm$data(
+              ident='22',
+    	      addressing_mode(external=general)
+    	      ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	05-Apr-1985
+!
+! Revision history:
+!
+!   01  25-Sep-1985
+!	Change global literals to longwords containing
+!	the same values
+!
+!   02	14-Oct-1985
+!	Remove NM$GT_LNM_AFTER and NM$GT_LNM_CONFIRM declarations,
+!	the logical names are not used.  Change name for report file
+!	so it starts with "NMAIL$RP" since we have no right to "NMREP$".
+!
+!   03	04-Dec-1985
+!	Increase send-phase timeout period to 5 minutes, since 2
+! 	is not always sufficient for long-haul links due to
+!	the weirdnesses of VMS pipelining.
+!
+!   04	21-Mar-1986 
+!	Add NM$GT_LNM_MAXRET to allow specification of maximum 
+!	number of lines to return to sender.
+!
+!   05	12-Apr-1986
+!	Change all text from %ASCID to %ASCIC format; allows
+!	us to avoid fixups in NM_MAILSHR
+!
+!   06	24-Apr-1986
+!	Remove log filespec, it's no longer used.
+!
+!   07	21-May-1986
+!	Change submission priority for report jobs to 200; VMS
+!	has changed its priority conventions.
+!
+!   08	08-Sep-1986
+!	Change network timeout cells
+!
+!   09	27-Jun-1987
+!  	Change NM$MAXRETMSG to NM$MAXRETURN
+!
+!   10	17-Aug-1987
+!	Use NM$ for work file prefix rather than NMAIL$, since
+!	we use the abbreviated facility name everywhere else.
+!
+!   11	13-Mar-1988
+!	Nmail version 9
+!
+!   12  23-Apr-1988
+!	Add trace-related data
+! 
+!   13	12-Feb-1989
+!	Add priorities for summary and returned-message jobs.
+!	Move a few pieces of RO data to RO storage!  Remove
+!	NM$GL_MAXRET and NM$GT_LNM_MAXRET, no longer supported.
+!
+!   14	14-Feb-1989
+!	Add job names for end-of-run-summary and return-to-sender
+!	jobs submitted by the daemon.
+!
+!   15  27-Feb-1991
+!	Nmail V9.2 starts here.
+!
+!   16	11-Mar-1992
+!	Nmail V9.3 starts here.
+!
+!   17	24-Sep-1993
+!	V9.3-4; a significant milestone since it marks the
+!	introduction of a separate NM_MAILSHRP image.
+!
+!   18	4-Oct-1993
+!	Add ALIAS attribute to strings which are typically passed
+!	indirectly via item-list or RMS structure
+!
+!   19	15-Nov-1993
+!	Nmail V9.4 starts here.
+!
+!   20	28-Nov-1993
+!	Add callout-related data
+!
+!   21	3-Dec-1993
+!	. Add network I/O statistics block
+!	. Remove filespec prefixes
+!
+!   22	26-Apr-1994
+!	Nmail V10.0 (V9.4 never released; I decided that
+!	it was time for a major version number change)
+!
+!--
+
+
+!
+! Haul in the usual definitions
+!
+library 'nm$library';
+library 'sys$library:starlet';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Version number and ident. Note that this line is parsed by a command
+! procedure to set the image ident, so don't alter the layout at all.
+!
+global bind                           
+    nm$gt_version = $ascic('Nmail V10.0') : vector[,byte];
+
+!
+! Defaults for assorted times
+!
+global bind
+    nm$gt_def_delta  = $ascic('0 00:30:00.00')	: vector[,byte],
+    nm$gt_min_delta  = $ascic('0 00:10:00.00')	: vector[,byte],
+    nm$gt_def_expiry = $ascic('3 00:00:00.00')	: vector[,byte];
+
+!
+! 64-bit internal representations of above (converted at runtime)
+! and possibly overridden by logical name specifications.
+!
+global
+    nm$gq_def_delta  : vector[2],
+    nm$gq_min_delta  : vector[2],
+    nm$gq_def_expiry : vector[2];
+
+!
+! Default filespec for control files
+!
+global bind
+    nm$gt_work_def   = $ascic('NM$WORK:.WRK')     : vector[,byte] alias,
+    nm$gt_show_fspec = $ascic('SYS$OUTPUT')       : vector[,byte] alias,
+    nm$gt_show_def   = $ascic('NMAILOUTPUT.LIS')  : vector[,byte] alias,
+    nm$gt_err_fspec  = $ascic('NM$ERROR')         : vector[,byte] alias,
+    nm$gt_err_def    = $ascic('SYS$SYSTEM:.DAT')  : vector[,byte] alias,
+    nm$gt_tr_fspec   = $ascic('NMAILTRACE')	  : vector[,byte] alias,
+    nm$gt_tr_def     = $ascic('SYS$MANAGER:.LOG') : vector[,byte] alias;
+
+!
+! Job submission parameters
+!
+global bind
+    nm$gt_queue   = $ascic('NM$QUEUE')		: vector[,byte] alias,
+    nm$gt_jobname = $ascic('NMAIL')		: vector[,byte] alias,
+    nm$gt_jobrpt  = $ascic('REPORT')		: vector[,byte] alias,
+    nm$gt_jobsum  = $ascic('SUMMARY')		: vector[,byte] alias,
+    nm$gt_jobret  = $ascic('RETURNED')		: vector[,byte] alias;
+
+!
+! Assorted other pieces of string
+!
+global bind
+    nm$gt_daemon  = $ascic('NMAIL-DAEMON')	: vector[,byte] alias,
+    nm$gt_prcnam  = $ascic('NMAIL')		: vector[,byte] alias;
+
+!
+! Names of logical names and symbols
+!
+global bind
+    nm$gt_lnmtbl     = $ascic('LNM$SYSTEM')	: vector[,byte] alias,
+    nm$gt_lnm_expire = $ascic('NM$EXPIRE')	: vector[,byte] alias,
+    nm$gt_lnm_delta  = $ascic('NM$DELTA')	: vector[,byte] alias,
+    nm$gt_lnm_trace  = $ascic('NM$TRACE')	: vector[,byte] alias,
+    nm$gt_lnm_extn   = $ascic('NM$EXTENSION')	: vector[,byte] alias;
+
+!
+! Operating parameters
+!
+global bind
+    nm$gl_sndtmo   	= uplit (5*60),		! Timeout on transmits (in secs)
+    nm$gl_rcvtmo   	= uplit (30*60),	! Timeout on receives (in secs)
+    nm$gl_rpt_prio   	= uplit (200),		! Queue priority for report job
+    nm$gl_ret_prio   	= uplit (199),		! Priority for returned message
+    nm$gl_sum_prio   	= uplit (198);		! Priority for end-of-run summary
+
+!
+! Various bits of read/write global data
+!
+global
+    nm$gl_abort_send	: initial(0) volatile,	! Flag: abort sending if true
+    nm$gl_phase		: initial(0) volatile,	! Protocol phase (for trace)
+    nm$gl_trace		: bitvector[%bpval];	! Trace flags
+
+!
+! Global network I/O statistics block
+!
+global
+    nm$iostats		: block[stat$s_stats,byte];
+
+!
+! Hook for extension image; filled in from the
+! loaded image (if one exists)
+!
+global
+    nm$nmx		: block[nmx$s_nmxblk,byte];  
+
+end
+eludom

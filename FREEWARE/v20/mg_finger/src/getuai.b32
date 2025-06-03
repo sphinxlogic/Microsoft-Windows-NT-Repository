@@ -1,0 +1,95 @@
+%TITLE	'GETUAI'
+MODULE GETUAI (IDENT = '01-000') = 
+BEGIN
+!++
+!
+!  Facility:	FINGER
+!
+!  Author:	Hunter Goatley
+!		Copyright © 1994, MadGoat Software.
+!		ALL RIGHTS RESERVED.
+!
+!  Date:	June 22, 1993
+!
+!  Abstract:
+!
+!	This module contains routines to get user authorization information
+!	for FINGER.
+!
+!  Modified by:
+!
+!	01-000		Hunter Goatley		22-JUN-1993 07:39
+!		Original version.
+!
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+FORWARD ROUTINE
+	get_login_directory;
+
+EXTERNAL ROUTINE
+	LIB$SYS_FAO;
+
+
+%SBTTL	'GET_LOGIN_DIRECTORY'
+GLOBAL ROUTINE get_login_directory (user_a, devdir_a) =
+BEGIN
+!+
+!
+!  Routine:	GET_LOGIN_DIRECTORY
+!
+!  Functional Description:
+!
+!	This routine returns the default login directory for a user.
+!
+!  Formal parameters:
+!
+!	user_a		Address of descriptor for the username
+!	devdir_a	Address of dynamic string descriptor to receive the
+!			login device and directory.
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	user	= .user_a	: $BBLOCK,
+	devdir	= .devdir_a	: $BBLOCK;
+
+    LOCAL
+	uai_itmlst	: $ITMLST_DECL (ITEMS = 2),
+	device		: $BBLOCK[32],
+	directory	: $BBLOCK[64],
+	device_len,
+	directory_len;
+
+    REGISTER
+	status		: UNSIGNED LONG;
+
+    $ITMLST_INIT (ITMLST = uai_itmlst,
+	(ITMCOD = UAI$_DEFDEV,
+	 BUFSIZ	= 32,
+	 BUFADR = device),
+	(ITMCOD = UAI$_DEFDIR,
+	 BUFSIZ = 64,
+	 BUFADR = directory));
+
+    status = $GETUAI (USRNAM = user, ITMLST = uai_itmlst);
+
+    IF (.status)
+    THEN
+	LIB$SYS_FAO (%ASCID'!AC!AC', 0, devdir, device, directory);
+
+    RETURN (.status);				!Set success status
+
+END;						!End of routine
+
+END						!End of module BEGIN
+ELUDOM						!End of module

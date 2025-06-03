@@ -1,0 +1,130 @@
+%TITLE 'PARSE_CMD'
+MODULE PARSE_CMD (IDENT='V1.2') =
+BEGIN
+!++
+! FACILITY:     FINGER
+!
+! ABSTRACT:     Parses user@host[@host...] for FINGER & FINGER_SERVER.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains the PARSE_CMD routine.
+!
+! AUTHOR:	    M. Madison
+!		    Copyright © 1994, MadGoat Software.
+!		    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    17-DEC-1990
+!
+! MODIFICATION HISTORY:
+!
+!   17-DEC-1990	V1.0	Madison	    Initial coding.
+!   25-MAY-1993	V1.1	Madison	    Add default host name.
+!    2-MAY-1994 V1.2	Goatley     Don't check default name for server!
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'FINGER';
+
+    FORWARD ROUTINE
+	PARSE_CMD;
+
+    EXTERNAL ROUTINE
+	G_HAT (STR$COPY_DX, STR$TRANSLATE, STR$COPY_R, STR$TRIM);
+
+
+%SBTTL 'PARSE_CMD'
+GLOBAL ROUTINE PARSE_CMD (CMDSTR_A, USER_A, HOST_A, server) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Parses the Finger command.
+!
+! RETURNS:	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PARSE_CMD cmdstr, user, host
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:		normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+	STR : BLOCK [DSC$K_S_BLN,BYTE],
+	STR2	: BLOCK [DSC$K_S_BLN,BYTE],
+	LEN : WORD,
+	ATP,
+	CP;
+
+    INIT_DYNDESC (STR, STR2);
+    STR$COPY_DX (.USER_A, STR2);
+    STR$COPY_DX (.HOST_A, %ASCID'');
+    STR$TRANSLATE (STR, .CMDSTR_A, %ASCID'abcdefghijklmnopqrstuvwxyz',
+				   %ASCID'ABCDEFGHIJKLMNOPQRSTUVWXYZ');
+    STR$TRIM (STR2, STR);
+
+    IF .STR2 [DSC$W_LENGTH] EQL 0 THEN
+    BEGIN
+	FREE_STRINGS (STR, STR2);
+	RETURN SS$_NORMAL;
+    END;
+
+    ATP = (DECR CP FROM CH$PLUS (.STR2 [DSC$A_POINTER], .STR2 [DSC$W_LENGTH]-1)
+	    TO .STR2 [DSC$A_POINTER] DO IF CH$RCHAR (.CP) EQL %C'@' THEN
+		EXITLOOP .CP);
+
+    IF .ATP EQL -1
+    THEN
+	BEGIN
+	IF NOT (.server)		!If this isn't the server, then
+	THEN				!... check for a default host name
+	    BEGIN
+	    LOCAL
+		LNMBUF	: VECTOR [255,BYTE],
+		LNMLEN	: WORD,
+		LNMLST	: $ITMLST_DECL (ITEMS=1);
+	    STR$COPY_DX (.USER_A, STR2);
+	    $ITMLST_INIT (ITMLST=LNMLST,
+		(ITMCOD=LNM$_STRING, BUFSIZ=%ALLOCATION (LNMBUF), BUFADR=LNMBUF,
+		 RETLEN=LNMLEN));
+	    IF $TRNLNM(TABNAM=%ASCID'LNM$SYSTEM',
+			LOGNAM=%ASCID'FINGER_DEFAULT_HOST',ITMLST=LNMLST)
+	    THEN
+		STR$COPY_R (.HOST_A, LNMLEN, LNMBUF);
+	    END;
+
+	FREE_STRINGS (STR, STR2);
+	RETURN SS$_NORMAL;
+	END
+    ELSE
+	BEGIN
+	LEN = CH$DIFF (.ATP, .STR2 [DSC$A_POINTER]);
+	STR$COPY_R (STR, LEN, .STR2 [DSC$A_POINTER]);
+	STR$TRIM (.USER_A, STR);
+	CP = CH$FIND_NOT_CH (.STR2 [DSC$W_LENGTH]-.LEN-1, .ATP+1, %C' ');
+	IF NOT CH$FAIL (.CP)
+	THEN
+	    BEGIN
+	    LEN = CH$DIFF (.CP, .STR2 [DSC$A_POINTER])-1;
+	    STR$COPY_R (STR, %REF (.STR2 [DSC$W_LENGTH]-.LEN-1), .CP);
+	    STR$TRIM (.HOST_A, STR);
+	    END;
+	END;
+
+    FREE_STRINGS (STR, STR2);
+
+    SS$_NORMAL
+
+END; ! PARSE_CMD
+
+END
+ELUDOM

@@ -1,0 +1,149 @@
+1000 do
+       line input 'Enter INFO file definition': filename$
+       if _exit or _back then stop
+       when exception in
+         open #1: name filename$
+       use
+         message error: 'Illegal file name ' + filename$
+         repeat do
+       end when
+     end do
+
+1010 ! get a record
+1015 eof = false
+1020 do
+1030   when exception in
+         line input#1: rec$
+       use
+         eof = true
+       end when
+       if  eof  then exit do
+       IF  REC$[1:1] = CHR$(12)  THEN
+         REC$[1:1]=''
+       END IF
+       if  rec$ = ''  then repeat do
+
+1035 if pos(rec$, 'ITEMS:') > 0 then repeat do
+     if pos(rec$, '**  REDEFINED ITEMS') > 0 then repeat do
+
+1037 if pos(rec$, ' COL') = 1 then repeat do
+
+1060   uprec$ = ucase$(rec$)
+
+1070   if  uprec$[2:9] = 'DATAFILE'  then
+         gosub new_database
+         repeat do
+       end if
+
+1130  ! here with a normal field line
+
+1150  field_name$ = uprec$[8:16]
+      fpos$ = uprec$[1:5]
+      flen$ = uprec$[25:28]
+      olen$ = uprec$[29:33]
+      explain$ = field_name$
+      heading$ = field_name$
+      ftype$   = uprec$[36:36]  ! field type
+      ddigits$ = uprec$[40:41]  ! decimal digits
+
+1155  gosub fix_field
+
+1160  gosub store_field
+      message database$ + ':  ' + field_name$ + '  ' + explain$
+
+1170  loop
+1180 stop
+
+1190  ! N e w   d a t a b a s e
+       !
+  new_database:
+
+1200  database$ = trim$(mid(uprec$, 17,16))
+      z0 = pos(database$, '.')
+      if z0 > 0  then
+        database$ = database$[1:z0-1]
+      end if
+      if database$ = last_database$ then return
+      last_database$ = database$
+1205  close structure st
+      pass 'create/fdl=tti_run:define ' + database$ + '.def'
+      open structure st: name 'tti_run:define', datafile database$+'.def', &
+                         access outin, lock
+
+1208  message 'Working on ' + database$
+
+1210  return
+
+
+13000  ! F i x   u p   f i e l d s
+  fix_field:
+
+13020  if ftype$ = 'F' or ftype$ = 'B' &
+                       or ftype$ = 'I' or ftype$ = 'N' then
+         numflg$ = 'Y'
+         if  ddigits$ <> ' -'  then 
+           ddigits% = val(ddigits$)
+         else
+           ddigits% = 0%
+         end if
+       else
+         numflg$ = 'N'
+         ddigits% = 0%
+       end if
+       scale%  = 0
+
+13025   select case ftype$
+        case 'F'
+          field_ftype$ = 'FL'
+        case 'B'
+          field_ftype$ = 'IN'
+        case else
+          field_ftype$ = 'CH'
+        end select
+
+13030  fpos% = val(fpos$)
+       flen% = val(flen$)
+
+13040  ustring$ = ''
+       if numflg$ = 'Y'  then
+         olen% = val(olen$) + 2
+         ustring$ = repeat$('#', olen%)
+         if ddigits% > 0  then
+           ustring$[olen%-ddigits%:olen%-ddigits%] = '.'
+         end if
+       end if
+       
+13050  field_name$ = change$(field_name$, '-#', '__')
+
+13060  ucflg$ = 'Y'
+
+13099  return
+
+
+13100  ! S t o r e   n e w   f i e l d
+  store_field:
+
+13120  add structure st
+13150    let st(name)  = field_name$
+         let st(desc)  = field_name$
+         let st(heading) = field_name$
+         let st(prompt)  = field_name$
+         let st(first) = fpos%
+         let st(len)   = flen%
+         let st(read)  = 'N'
+         let st(write) = 'N'
+         let st(dtype) = field_ftype$
+         let st(num)   = numflg$
+         let st(scale) = scale%
+         let st(rj)    = numflg$
+         let st(zf)    = 'N'
+         let st(zs)    = 'N'
+         let st(uc)    = ucflg$
+         let st(date)  = 'N'
+         let st(df)    = 'MDY'
+         let st(prmask)= ustring$
+13170  end add
+
+13199  return
+
+

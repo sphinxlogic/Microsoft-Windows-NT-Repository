@@ -1,0 +1,781 @@
+module TestVList		/* TestVList MOTIF/UIL module */
+  names = case_sensitive
+  objects = {
+    XmToggleButton = gadget;
+    XmPushButton = gadget;
+    XmLabel = gadget;
+    XmSeparator = gadget;
+  }
+
+/*
+*******************************************************************************
+* VToolkit (1995) 	"If it doesn't use VToolkit, it isn't cool!"	      *
+* (c) Steve Klein							      *
+* Unpublished rights reserved under the copyright laws of the United States.  *
+*******************************************************************************
+
+This module contains the MOTIF UIL description of the TestVList program.  It is
+an example of how to use the VList widget from UIL.
+
+MODIFICATION HISTORY:
+
+29-Oct-1993 (sjk) Add test for VListNselectionIsLocked resource.
+
+22-Oct-1993 (sjk) Add test for VListNgridStyle and VListNgridPixmap resources.
+
+28-Aug-1993 (sjk/nfc) Run through the Motif Porting tools.
+
+11-Dec-1991 (sjk) Bugfix - wrong create callback index for third text widget.
+
+20-Nov-1991 (sjk) Add test for VListNspaceTiersEqually resource.
+
+15-Nov-1991 (sjk) Add test for VListNspaceGroupsEqually resource.
+
+14-Nov-1991 (sjk) Use VtkCreateCallback and built-in VList drag-and-drop callbacks.
+
+11-Nov-1991 (sjk) Use vlist_drag_arm_callback and vlist_drag_drop_callback.
+
+17-May-1991 (sjk) Integrate Ken Burechailo's MOTIF updates.  Thanks Ken!
+
+10-Apr-1990 (sjk) Use gadgets wherever possible.
+
+28-Mar-1990 (sjk) Add test for VListSelectStyleNone option.
+
+16-Mar-1990 (sjk) Use foreground color as coloridx zero.
+
+09-Mar-1990 (sjk) Use vautorepeat.uil which now includes the auto-repeating
+    pushbutton support.  Add customization option for field_spacing_width
+    resource.  Add the "Timer On/Off" option to control dynamic updating
+    of the histograms.
+
+07-Feb-1990 (sjk) Fix capitalization of include file for portability.
+
+01-Feb-1990 (sjk) Use PushButton for drag widget instead of label.
+
+26-Jan-1990 (sjk) Change label to indicate that MB2 can be used to
+    drag line items around within the list.
+
+23-Jan-1990 (sjk) Add test for stippled text.  Add drag button.
+
+19-Jan-1990 (sjk) Converted DWT version to this MOTIF version.
+
+15-Jan-1990 (sjk) Add test for segmented strings.  Test all VListMakeLineVisible options.
+
+09-Jan-1990 (sjk) Add test for VListComputePreferredWidth.
+
+28-Dec-1989 (sjk) Version X2.0 update.
+*/
+
+include file 'XmAppl.uil';			/* MOTIF definitions */
+include file 'vtoolkit.uil';			/* VToolkit definitions */
+
+value
+  DRAG_LABEL_I			: 1;
+  VLIST_I			: 2;
+  MAIN_I			: 3;
+  POPUP_MENU_I			: 4;
+  STEXT0_I			: -1;
+  STEXT1_I			: -2;
+  STEXT2_I			: -3;
+
+/* Declare the application callback procedures. */
+
+procedure
+  TestChangeColorCallback;
+  TestChangeFontCallback;
+  TestChangeStippledCallback;
+  TestColumnStyleCallback;
+  TestDragArmCallback;
+  TestDragDropCallback;
+  TestEnterCallback;
+  TestFieldSpacingWidthCallback;
+  TestGridStyleCallback;
+  TestHScrollBarPolicyCallback;
+  TestMakeLineVisibleCallback;
+  TestMoveDownCallback;
+  TestMoveUpCallback;
+  TestQuitCallback;
+  TestRemoveCallback;
+  TestResetCallback;
+  TestResizeCallback;
+  TestRowSpacingHeightCallback;
+  TestSegmentStringCallback;
+  TestSelectCallback;
+  TestSelectConfirmCallback;
+  TestSelectStyleCallback;
+  TestSelectUnitCallback;
+  TestSelectionIsLockedCallback;
+  TestSpaceGroupsCallback;
+  TestSpaceTiersCallback;
+  TestTimerCallback;
+  TestVScrollBarPolicyCallback;
+  TestVScrollBarPositionCallback;
+
+/* Define the label that appears at the top of the application window. */
+
+object testVListLabel : XmLabel {
+  arguments {
+    XmNlabelString = 'MB3 for pop-up menu, MB2 to move entries.';
+    XmNleftAttachment 	= XmATTACH_FORM; XmNleftOffset = 0;
+    XmNrightAttachment 	= XmATTACH_FORM; XmNrightOffset = 0;
+    XmNtopAttachment 	= XmATTACH_FORM; XmNtopOffset = 10;
+    XmNbottomAttachment = XmATTACH_NONE;};};
+
+/* Define the scroll bars and the custom header widget for the VList.
+ * The scroll bars must be given a non-zero initial size. */
+
+object testVListVScrollBar : XmScrollBar {arguments {XmNorientation = XmVERTICAL;   XmNheight = 1;};};
+object testVListHScrollBar : XmScrollBar {arguments {XmNorientation = XmHORIZONTAL; XmNwidth = 1;};};
+
+object testVListHeader : user_defined procedure VHeaderCreate {};
+
+object testVListDragLabel : XmLabel widget {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (DRAG_LABEL_I);};
+  arguments {XmNborderWidth = 2;};};
+
+/* Define the font table for the VList widget.  When a line is added to
+ * the widget, its font index is an index into this table.  In this example,
+ * four different fonts are used.  It is a restriction in VList X2.0 that
+ * all the fonts in this list must have the same character height in pixels. */
+
+value testVListFontTable : font_table (
+  font ('-*-Times-Bold-*-Normal--*-140-*-*-*-*-*-*'),		/* fontidx 0 */
+  font ('-*-Times-Medium-*-Normal--*-140-*-*-*-*-*-*'),		/* fontidx 1 */
+  font ('-*-Courier-Bold-*-Normal--*-140-*-*-*-*-*-*'),		/* fontidx 2 */
+  font ('-*-Times-Medium-*-Normal--*-140-*-*-*-*-*-*'),		/* fontidx 3 */
+  font ('-*-Courier-Medium-*-Normal--*-140-*-*-*-*-*-*'),	/* fontidx 4 */
+  font ('-*-Times-Bold-*-Normal--*-180-*-*-*-*-*-*'));		/* fontidx 5 */
+
+/* Define the color list pixmap for the VList widget.  When a line is added to
+ * the widget, its color index is an index into this list.  If the color
+ * list is not supplied, all lines will be drawn using the foreground color. */
+
+value vListColor1 : color ('red', 	foreground);		/* coloridx 1 */
+value vListColor2 : color ('orange',  	foreground);		/* coloridx 2 */
+value vListColor3 : color ('yellow',  	foreground);		/* coloridx 3 */
+value vListColor4 : color ('green', 	foreground);		/* coloridx 4 */
+value vListColor5 : color ('blue', 	foreground);		/* coloridx 5 */
+value vListColor6 : color ('magenta', 	foreground);		/* coloridx 6 */
+
+value testVListColorList : icon (color_table = color_table (
+  foreground color = '0',	/* coloridx 0 */
+  vListColor1      = '1',	/* coloridx 1 */
+  vListColor2 	   = '2',	/* coloridx 2 */
+  vListColor3      = '3',	/* coloridx 3 */
+  vListColor4      = '4',	/* coloridx 4 */
+  vListColor5      = '5',	/* coloridx 5 */
+  vListColor6      = '6'),	/* coloridx 6 */
+    '0123456');		/* tiny pixmap containing one pixel of each color */
+
+/* Define the VList widget itself. */
+
+object testVListVList : user_defined procedure VListCreate {
+  callbacks {
+    MrmNcreateCallback = procedure VtkCreateCallback (VLIST_I);
+    vlist_drag_arm = procedure TestDragArmCallback;
+    vlist_drag_drop = procedure TestDragDropCallback;
+    vlist_select = procedure TestSelectCallback;
+    vlist_select_confirm = procedure TestSelectConfirmCallback;};
+  controls {unmanaged XmLabel widget testVListDragLabel;};
+  arguments {
+    XmNborderPixmap = icon ('**  **  ');  	/* dashed line between header and list */
+    vlist_grid_pixmap = icon ('* ',' *'); 	/* (optional) grid pattern when VListNgridStyle is VListGridStylePixmap */
+    vlist_select_unit = VListSelectUnitField;
+    vlist_color_list = testVListColorList;
+    vlist_font_table = testVListFontTable;};};
+
+/* Define the VFrame widget that contains the VList widget, the two scroll bars,
+ * and the VHeader widget.  In this sample program, the VFrame widget is
+ * a child of an attached_dialog_box.  The attachments are defined so that
+ * the widget will be resized by the ADB when the user resizes the
+ * application main window.  The background_pixmap for the VFrame widget
+ * can optionally be supplied to tile the deadspace in the corners. */
+
+object testVListVFrame : user_defined procedure VFrameCreate {
+  controls {
+    XmScrollBar testVListHScrollBar;
+    XmScrollBar testVListVScrollBar;
+    user_defined testVListVList;
+    user_defined testVListHeader;};
+  arguments {
+    XmNborderWidth = 2; XmNbackgroundPixmap = icon ('*  *', ' *  ', ' ** ', '   *');
+    XmNleftAttachment 	= XmATTACH_FORM; XmNleftOffset = 10;
+    XmNrightAttachment 	= XmATTACH_FORM; XmNrightOffset = 10;
+    XmNtopAttachment 	= XmATTACH_WIDGET; XmNtopOffset = 10; XmNtopWidget = XmLabel testVListLabel;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 10; XmNbottomWidget = XmPushButton testVListUpButton;};};
+
+/* Define the pushbuttons and other widgets that allow the user to
+ * manipulate the VList widget contents. */
+
+object testVListRemoveButton : XmPushButton {
+  callbacks {XmNactivateCallback = procedure TestRemoveCallback;};
+  arguments {
+    XmNlabelString = 'Remove';
+    XmNleftAttachment 	= XmATTACH_NONE;
+    XmNrightAttachment 	= XmATTACH_FORM; XmNrightOffset = 20;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 10; XmNbottomWidget = XmText testVListSText0;};};
+
+object testVListDownButton : XmPushButton widget {
+  callbacks {
+    MrmNcreateCallback = procedure EnableRepeatingButton (repeatingButtonArgs);
+    XmNactivateCallback = procedure TestMoveDownCallback;};
+  arguments {
+    XmNlabelString = 'Down';
+    XmNleftAttachment 	= XmATTACH_WIDGET; XmNleftOffset = 10; XmNleftWidget = XmPushButton testVListUpButton;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 10; XmNbottomWidget = XmText testVListSText0;};};
+
+object testVListUpButton : XmPushButton widget {
+  callbacks {
+    MrmNcreateCallback = procedure EnableRepeatingButton (repeatingButtonArgs);
+    XmNactivateCallback = procedure TestMoveUpCallback;};
+  arguments {
+    XmNlabelString = 'Up';
+    XmNleftAttachment 	= XmATTACH_FORM; XmNleftOffset = 20;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 10; XmNbottomWidget = XmText testVListSText0;};};
+
+object testVListSText0 : XmText {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (STEXT0_I);};
+  arguments {
+    XmNresizeWidth = false; XmNresizeHeight = false; XmNrows = 1; XmNcolumns = 10;
+    XmNleftAttachment 	= XmATTACH_FORM; XmNleftOffset = 20;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 20; XmNbottomWidget = XmPushButton testVListResetButton;};};
+
+object testVListSText1 : XmText {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (STEXT1_I);};
+  arguments {
+    XmNresizeWidth = false; XmNresizeHeight = false; XmNrows = 1; XmNcolumns = 10;
+    XmNleftAttachment 	= XmATTACH_WIDGET; XmNleftOffset = 10; XmNleftWidget = XmText testVListSText0;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 20; XmNbottomWidget = XmPushButton testVListResetButton;};};
+
+object testVListSText2 : XmText {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (STEXT2_I);};
+  arguments {
+    XmNresizeWidth = false; XmNresizeHeight = false; XmNrows = 1; XmNcolumns = 10;
+    XmNleftAttachment 	= XmATTACH_WIDGET; XmNleftOffset = 10; XmNleftWidget = XmText testVListSText1;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 20; XmNbottomWidget = XmPushButton testVListResetButton;};};
+
+object testVListEnterButton : XmPushButton {
+  callbacks {
+    MrmNcreateCallback = procedure EnableRepeatingButton (repeatingButtonArgs);
+    XmNactivateCallback = procedure TestEnterCallback;};
+  arguments {
+    XmNlabelString = 'Enter';
+    XmNleftAttachment 	= XmATTACH_NONE;
+    XmNrightAttachment 	= XmATTACH_FORM; XmNrightOffset = 20;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_WIDGET; XmNbottomOffset = 20; XmNbottomWidget = XmPushButton testVListQuitButton;};};
+
+object testVListResetButton : XmPushButton {
+  callbacks {XmNactivateCallback = procedure TestResetCallback;};
+  arguments {
+    XmNlabelString = 'Reload';
+    XmNleftAttachment 	= XmATTACH_FORM; XmNleftOffset = 20;
+    XmNrightAttachment 	= XmATTACH_NONE;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_FORM; XmNbottomOffset = 10;};};
+
+object testVListQuitButton : XmPushButton {
+  callbacks {XmNactivateCallback = procedure TestQuitCallback;};
+  arguments {
+    XmNlabelString = 'Quit';
+    XmNleftAttachment 	= XmATTACH_NONE;
+    XmNrightAttachment 	= XmATTACH_FORM; XmNrightOffset = 20;
+    XmNtopAttachment 	= XmATTACH_NONE;
+    XmNbottomAttachment = XmATTACH_FORM; XmNbottomOffset = 10;};};
+
+/* Define the menu bar hierarchy. */
+
+object testVListMenuBar : XmMenuBar {
+  arguments {XmNorientation = XmHORIZONTAL;};
+  controls {
+    XmCascadeButton {arguments {XmNlabelString = 'Control';};
+      controls {
+	XmPulldownMenu {
+	  controls {
+	    XmPushButton {arguments {XmNlabelString = 'Reload';};
+	      callbacks {XmNactivateCallback = procedure TestResetCallback;};};
+	    XmPushButton {arguments {XmNlabelString = 'Timer On/Off';};
+	      callbacks {XmNactivateCallback = procedure TestTimerCallback;};};
+	    XmPushButton {arguments {XmNlabelString = 'Resize';};
+	      callbacks {XmNactivateCallback = procedure TestResizeCallback;};};
+	    XmPushButton {arguments {XmNlabelString = 'Quit';};
+	      callbacks {XmNactivateCallback = procedure TestQuitCallback;};};
+    };};};};
+    XmCascadeButton {arguments {XmNlabelString = 'Customize';};
+      controls {
+	XmPulldownMenu {
+	  controls {
+            XmCascadeButton {arguments {XmNlabelString = 'SelectStyle';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Single'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectStyleCallback (VListSelectStyleSingle);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Multiple';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectStyleCallback (VListSelectStyleMultiple);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Extend';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectStyleCallback (VListSelectStyleExtend);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'None';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectStyleCallback (VListSelectStyleNone);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'SelectUnit';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Field'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectUnitCallback (VListSelectUnitField);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Row';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectUnitCallback (VListSelectUnitRow);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'ColumnStyle';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'BestFit'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestColumnStyleCallback (VListColumnStyleBestFit);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Single';};
+		      callbacks {XmNvalueChangedCallback = procedure TestColumnStyleCallback (VListColumnStyleSingle);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Multiple';};
+		      callbacks {XmNvalueChangedCallback = procedure TestColumnStyleCallback (VListColumnStyleMultiple);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'VScrollBarPosition';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Right'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestVScrollBarPositionCallback (VListScrollBarPositionRight);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Left';};
+		      callbacks {XmNvalueChangedCallback = procedure TestVScrollBarPositionCallback (VListScrollBarPositionLeft);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'HScrollBarPolicy';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'AsNeeded'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestHScrollBarPolicyCallback (VListScrollBarPolicyAsNeeded);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Never';};
+		      callbacks {XmNvalueChangedCallback = procedure TestHScrollBarPolicyCallback (VListScrollBarPolicyNever);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Always';};
+		      callbacks {XmNvalueChangedCallback = procedure TestHScrollBarPolicyCallback (VListScrollBarPolicyAlways);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'VScrollBarPolicy';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'AsNeeded'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestVScrollBarPolicyCallback (VListScrollBarPolicyAsNeeded);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Never';};
+		      callbacks {XmNvalueChangedCallback = procedure TestVScrollBarPolicyCallback (VListScrollBarPolicyNever);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Always';};
+		      callbacks {XmNvalueChangedCallback = procedure TestVScrollBarPolicyCallback (VListScrollBarPolicyAlways);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'FieldSpacingWidth';};
+	      controls {
+		XmPulldownMenu {
+		  controls {
+		    XmPushButton {
+		      arguments {XmNlabelString = '+1';};
+		      callbacks {XmNactivateCallback = procedure TestFieldSpacingWidthCallback (1);};};
+		    XmPushButton {
+		      arguments {XmNlabelString = '-1';};
+		      callbacks {XmNactivateCallback = procedure TestFieldSpacingWidthCallback (-1);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'RowSpacingHeight';};
+	      controls {
+		XmPulldownMenu {
+		  controls {
+		    XmPushButton {
+		      arguments {XmNlabelString = '+1';};
+		      callbacks {XmNactivateCallback = procedure TestRowSpacingHeightCallback (1);};};
+		    XmPushButton {
+		      arguments {XmNlabelString = '-1';};
+		      callbacks {XmNactivateCallback = procedure TestRowSpacingHeightCallback (-1);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'SpaceGroups';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'PackedToLeft'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestSpaceGroupsCallback (0);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Equally';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSpaceGroupsCallback (1);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'SpaceTiers';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'PackedToTop'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestSpaceTiersCallback (0);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'Equally';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSpaceTiersCallback (1);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'SelectionIsLocked';};
+	      controls {
+		XmPulldownMenu {
+		  arguments {XmNradioBehavior = true;};
+		  controls {
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'False'; XmNset = true;};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectionIsLockedCallback (0);};};
+		    XmToggleButton {
+		      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'True';};
+		      callbacks {XmNvalueChangedCallback = procedure TestSelectionIsLockedCallback (1);};};
+	    };};};};
+	    XmCascadeButton {arguments {XmNlabelString = 'GridStyle';};
+              controls {
+                XmPulldownMenu {
+                  arguments {XmNradioBehavior = true;};
+                  controls {
+                    XmToggleButton {
+                      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'GridStyleBackground'; XmNset = true;};
+                      callbacks {XmNvalueChangedCallback = procedure TestGridStyleCallback (VListGridStyleBackground);};};
+                    XmToggleButton {
+                      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'GridStyleForeground';};
+                      callbacks {XmNvalueChangedCallback = procedure TestGridStyleCallback (VListGridStyleForeground);};};
+                    XmToggleButton {
+                      arguments {XmNindicatorType = XmONE_OF_MANY; XmNlabelString = 'GridStylePixmap';};
+                      callbacks {XmNvalueChangedCallback = procedure TestGridStyleCallback (VListGridStylePixmap);};};
+            };};};};
+    };};};};
+};};
+
+/* Define the application's main window. */
+
+object testVListMain : XmMainWindow {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (MAIN_I);};
+  arguments {XmNx = 100; XmNy = 100;};
+  controls {
+    XmMenuBar testVListMenuBar;
+    XmForm {
+      arguments {
+        XmNunitType = XmPIXELS; XmNwidth = 850; XmNheight = 550;
+	XmNdefaultButton = XmPushButton testVListEnterButton;};
+      controls {
+	XmPushButton testVListQuitButton;
+	XmPushButton testVListResetButton;
+	XmPushButton testVListEnterButton;
+	XmText testVListSText0;
+	XmText testVListSText1;
+	XmText testVListSText2;
+	XmPushButton testVListUpButton;
+	XmPushButton testVListDownButton;
+	XmPushButton testVListRemoveButton;
+        XmLabel testVListLabel;
+	user_defined testVListVFrame;};};};};
+
+/* Define the popup menu for the VList widget. */
+
+object testVListPopupMenu : XmPopupMenu {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (POPUP_MENU_I);};
+  controls {
+    XmPushButton {arguments {XmNlabelString = 'Move Line Up';};
+      callbacks {XmNactivateCallback = procedure TestMoveUpCallback;};};
+    XmPushButton {arguments {XmNlabelString = 'Move Line Down';};
+      callbacks {XmNactivateCallback = procedure TestMoveDownCallback;};};
+    XmPushButton {arguments {XmNlabelString = 'Change Color';};
+      callbacks {XmNactivateCallback = procedure TestChangeColorCallback;};};
+    XmPushButton {arguments {XmNlabelString = 'Change Font';};
+      callbacks {XmNactivateCallback = procedure TestChangeFontCallback;};};
+    XmPushButton {arguments {XmNlabelString = 'Change Stippled';};
+      callbacks {XmNactivateCallback = procedure TestChangeStippledCallback;};};
+    XmCascadeButton {arguments {XmNlabelString = 'Make Line Visible';};
+      controls {
+	XmPulldownMenu {
+	  controls {
+	    XmPushButton {
+	      arguments {XmNlabelString = 'In Window';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleInWindow);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Top';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtTop);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Bottom';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtBottom);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Left';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtLeft);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Right';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtRight);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Top Left';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtTopLeft);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Top Right';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtTopRight);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Bottom Left';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtBottomLeft);};};
+	    XmPushButton {
+	      arguments {XmNlabelString = 'At Bottom Right';};
+	      callbacks {XmNactivateCallback = procedure TestMakeLineVisibleCallback (VListVisibleAtBottomRight);};};
+    };};};};
+    XmPushButton {arguments {XmNlabelString = 'Segment String';};
+      callbacks {XmNactivateCallback = procedure TestSegmentStringCallback;};};
+    XmPushButton {arguments {XmNlabelString = 'Remove Line';};
+      callbacks {XmNactivateCallback = procedure TestRemoveCallback;};};};};
+
+
+/* Define the icon library. */
+
+value
+  icon_colors	: color_table (
+    background color		    = '_',
+    foreground color		    = 'x',
+    color ('red', 	foreground) = '1',
+    color ('orange', 	foreground) = '2',
+    color ('yellow', 	foreground) = '3',
+    color ('green', 	foreground) = '4',
+    color ('blue', 	foreground) = '5',
+    color ('magenta', 	foreground) = '6');
+
+  iconCnt	: exported 12;
+		  
+  icon0		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x___________x_',
+'xx__xx___xx__xx',
+'xx__xx___xx__xx',
+'x_____________x',
+'x____xxxxx____x',
+'xx__xx___xx__xx',
+'xx__x_____x__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon1		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x_xxxx_xxxx_x_',
+'xx__xx___xx__xx',
+'xx_xxxx_xxxx_xx',
+'x_____________x',
+'x____xxxxx____x',
+'xx__xx___xx__xx',
+'xx__x_____x__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon2		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x_xxxx_xxxx_x_',
+'xx__xx___xx__xx',
+'xx__xx___xx__xx',
+'x_____________x',
+'x____xxxxx____x',
+'xx__xx___xx__xx',
+'xx__x_____x__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon3		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x___________x_',
+'_x_x_x___x_x_xx',
+'xx_xxx___xxx_xx',
+'x_____________x',
+'x____xxxxx____x',
+'xx__xx___xx__xx',
+'xx__x_____x__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon4		: exported icon (color_table = icon_colors,
+'____xxxxxx____',
+'___xxxxxxxx___',
+'__xxxxxxxxxx__',
+'_xx________xx_',
+'_x__________x_',
+'xx__xx__xx__xx',
+'xx__xx__xx__xx',
+'x____________x',
+'x____________x',
+'xx__________xx',
+'xx__xxxxxx__xx',
+'_x__________x_',
+'_xx________xx_',
+'__xxxx__xxxx__',
+'____xxxxxx____');
+
+  icon5		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x___________x_',
+'xx_xxxx_xxxx_xx',
+'xx__xx___xx__xx',
+'x__xxxx_xxxx__x',
+'x_____________x',
+'xx___________xx',
+'xx__xxxxxxx__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon6		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x___________x_',
+'xx_xxxx_xxxx_xx',
+'xx__xx___xx__xx',
+'x___xx___xx___x',
+'x_____________x',
+'xx___________xx',
+'xx__xxxxxxx__xx',
+'_x___________x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon7		: exported icon (color_table = icon_colors,
+'____xxxxxx____',
+'___xxxxxxxx___',
+'__xxxxxxxxxx__',
+'_xx________xx_',
+'_x__________x_',
+'_x_x_x__x_x_xx',
+'xx_xxx__xxx_xx',
+'x____________x',
+'x____________x',
+'xx__________xx',
+'xx__xxxxxx__xx',
+'_x__________x_',
+'_xx________xx_',
+'__xxxx__xxxx__',
+'____xxxxxx____');
+
+  icon8		: exported icon (color_table = icon_colors,
+'____xxxxxx____',
+'___xxxxxxxx___',
+'__xxxxxxxxxx__',
+'_xx________xx_',
+'_x__________x_',
+'xx__xx__xx__xx',
+'xx__xx__xx__xx',
+'x____________x',
+'x_xxx____xxx_x',
+'xx_xx____xx_xx',
+'xx__xxxxxx__xx',
+'_x___xxxx___x_',
+'_xx________xx_',
+'__xxxx__xxxx__',
+'____xxxxxx____');
+
+  icon9		: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x_xxxx_xxxx_x_',
+'xx__xx___xx__xx',
+'xx_xxxx_xxxx_xx',
+'x_____________x',
+'x_xxx_____xxx_x',
+'xx_xx_____xx_xx',
+'xx__xxxxxxx__xx',
+'_x___xxxxx___x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+
+  icon10	: exported icon (color_table = icon_colors,
+'____xxxxxxx____',
+'___xxxxxxxxx___',
+'__xxxxxxxxxxx__',
+'_xx_________xx_',
+'_x_xxxx_xxxx_x_',
+'xx__xx___xx__xx',
+'xx__xx___xx__xx',
+'x_____________x',
+'x_xxx_____xxx_x',
+'xx_xx_____xx_xx',
+'xx__xxxxxxx__xx',
+'_x___xxxxx___x_',
+'_xx_________xx_',
+'__xxxx___xxxx__',
+'____xxxxxxx____');
+  icon11	: exported icon (color_table = icon_colors,
+'____xxxxxx____',
+'___xxxxxxxx___',
+'__xxxxxxxxxx__',
+'_xx________xx_',
+'_x__________x_',
+'_x_x_x__x_x_xx',
+'xx_xxx__xxx_xx',
+'xx_xxx__xxx_xx',
+'xx_xxx__xxx_xx',
+'xx_xxx__xxx_xx',
+'xx_xxx__xxx_xx',
+'x____________x',
+'x_xxx____xxx_x',
+'xx_xx____xx_xx',
+'xx__xxxxxx__xx',
+'_x___xxxx___x_',
+'_xx________xx_',
+'__xxxx__xxxx__',
+'____xxxxxx____');
+
+end module;

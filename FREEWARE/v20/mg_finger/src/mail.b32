@@ -1,0 +1,171 @@
+%TITLE 'MAIL'
+MODULE MAIL (IDENT='V1.1') =
+BEGIN
+!++
+! FACILITY:     FINGER
+!
+! ABSTRACT:     Mail-related stuff.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains mail-related routines for Finger.
+!
+! AUTHOR:	    M. Madison
+!   	    	    Copyright © 1994, MadGoat Software.
+!		    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    30-APR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   30-APR-1990	V1.0	Madison	    Initial coding (partly from CMU-based code).
+!   12-APR-1994 V1.1	Goatley     Add support for other node-name logicals.
+!   25-FEB-1995	V1.2	Madison	    Eliminate MDMLIB dependency.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'FINGER';
+
+    FORWARD ROUTINE
+	GET_EMAIL_ADDRESS,
+    	TRANSLATE_LOGICAL;
+
+    EXTERNAL
+	PRVMSK	: VECTOR [2,LONG];
+
+    EXTERNAL ROUTINE
+    	G_HAT (NETLIB_GET_HOSTNAME),
+	G_HAT (LIB$SYS_FAO, STR$PREFIX, STR$TRANSLATE, STR$TRIM, STR$CONCAT,
+		STR$COPY_DX, STR$COPY_R);
+
+%SBTTL 'GET_EMAIL_ADDRESS'
+GLOBAL ROUTINE GET_EMAIL_ADDRESS (INSTR_A, OUTSTR_A) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Validates username and returns E-mail address.
+!
+! RETURNS:	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   GET_EMAIL_ADDRESS  instr, outstr
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:		normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+	INSTR	= .INSTR_A	: BLOCK [,BYTE],
+	OUTSTR	= .OUTSTR_A : BLOCK [,BYTE];
+
+    LOCAL
+	UNAME	: VECTOR [32,BYTE],
+	UAILST	: $ITMLST_DECL (ITEMS=1),
+	SDSC	: BLOCK [DSC$K_S_BLN,BYTE] PRESET (
+		    [DSC$B_DTYPE] = DSC$K_DTYPE_T,
+		    [DSC$B_CLASS] = DSC$K_CLASS_S,
+		    [DSC$A_POINTER] = UNAME),
+	STR : BLOCK [DSC$K_S_BLN,BYTE],
+	MNAME	: BLOCK [DSC$K_S_BLN,BYTE],
+	CP,
+	STATUS;
+
+    INIT_DYNDESC (STR, MNAME);
+
+    $ITMLST_INIT (ITMLST=UAILST,
+	(ITMCOD=UAI$_USERNAME, BUFADR=UNAME, RETLEN=SDSC [DSC$W_LENGTH],
+	    BUFSIZ=%ALLOCATION (UNAME)));
+
+    STR$TRANSLATE (STR, INSTR, %ASCID'ABCDEFGHIJKLMNOPQRSTUVWXYZ$',
+			       %ASCID'abcdefghijklmnopqrstuvwxyz.');
+    STR$TRIM (STR, STR);
+
+    $SETPRV (PRVADR=PRVMSK, ENBFLG=1);
+    STATUS = $GETUAI (USRNAM=STR, ITMLST=UAILST);
+    $SETPRV (PRVADR=PRVMSK, ENBFLG=0);
+    IF NOT .STATUS THEN
+    BEGIN
+	FREE_STRINGS (STR);
+	RETURN .STATUS;
+    END;
+
+    STATUS = TRANSLATE_LOGICAL (%ASCID'MX_VMSMAIL_LOCALHOST', MNAME);
+    IF NOT .STATUS THEN
+    BEGIN
+	status = TRANSLATE_LOGICAL (%ASCID'MULTINET_SMTP_HOST_NAME', MNAME);
+    	IF NOT .STATUS THEN
+    	    STATUS = NETLIB_GET_HOSTNAME (MNAME);
+	IF NOT (.status)
+	THEN
+	    STR$COPY_DX (mname, %ASCID'[Unknown]');
+	STR$PREFIX (MNAME, %ASCID'@');
+    END;
+
+    CP = CH$FIND_CH (.SDSC [DSC$W_LENGTH], UNAME, %C' ');
+    IF NOT CH$FAIL (.CP) THEN
+	SDSC [DSC$W_LENGTH] = CH$DIFF (.CP, UNAME);
+    STR$TRANSLATE (STR, SDSC, %ASCID'abcdefghijklmnopqrstuvwxyz.',
+			      %ASCID'ABCDEFGHIJKLMNOPQRSTUVWXYZ$');
+    LIB$SYS_FAO (%ASCID'!/User !AS E-mail address is !AS!AS!/',
+	0, OUTSTR, SDSC, STR, MNAME);
+
+    FREE_STRINGS (STR, MNAME);
+
+    SS$_NORMAL
+
+END; ! GET_EMAIL_ADDRESS
+
+%SBTTL 'TRANSLATE_LOGICAL'
+GLOBAL ROUTINE TRANSLATE_LOGICAL (LNMDSC_A, RESDSC_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Translates a logical name out of LNM$FILE_DEV.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   TRANSLATE_LOGICAL
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	LNMLST	: $ITMLST_DECL (ITEMS=1),
+    	LEN 	: VOLATILE WORD,
+    	BUF 	: VOLATILE BLOCK [255, BYTE],
+    	STATUS;
+
+    $ITMLST_INIT (ITMLST=LNMLST,
+    	(ITMCOD=LNM$_STRING, BUFSIZ=%ALLOCATION (BUF), BUFADR=BUF, RETLEN=LEN));
+
+    STATUS = $TRNLNM (TABNAM=%ASCID'LNM$FILE_DEV', LOGNAM=.LNMDSC_A,
+    	    	      ATTR=%REF (LNM$M_CASE_BLIND), ITMLST=LNMLST);
+    IF .STATUS THEN STR$COPY_R (.RESDSC_A, LEN, BUF);
+
+    .STATUS
+
+END; ! TRANSLATE_LOGICAL
+
+END
+ELUDOM

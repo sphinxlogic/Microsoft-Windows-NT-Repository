@@ -1,0 +1,2009 @@
+%title 'NMAIL interface to VMS MAIL'
+module nm$mail(
+    	      ident='35',
+    	      addressing_mode(external=general)
+              ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	27-Mar-1985
+!
+! Revision history:
+!
+!   01  18-Oct-1985
+!	If value given for NM$DELTA is less than the daemon
+!	default value, then check that user has ALTPRI privilege
+!
+!   02	04-Nov-1985
+!	Ensure user (or image) has NETMBX privilege.
+!
+!   03	16-Dec-1985
+!	Fix code to strip CRLF from records of message (codes
+!	for CR and LF were interchanged)
+!
+!   04	05-Feb-1986
+!	Don't object if null sender name, it's only RSTS DECmail
+!	fooling around.
+!
+!   05	09-Apr-1986
+!	Change calling sequence to NM$CREATE_CTL_FILE; no 
+!	filename is now supplied.
+!
+!   06	11-Apr-1986
+!	Call exec-mode services to open and close file, and
+!	submit job to queue (needed because MAIL.EXE no longer
+!	has SYSPRV). Requires removal of all .ADDRESSes as well.
+!
+!   07	18-Apr-1986
+!	Retract the ALTPRI change.
+!
+!   08	20-Apr-1986
+!	Replace SS$_NONETMBX by NM$_NONETMBX.
+!
+!   09	21-Apr-1986
+!	Support for CC
+!
+!   10	22-Apr-1986
+!	Use CH$xxx functions rather than calling runtime
+!	library routine STR$POSITION.
+!
+!   11	23-Apr-1986
+!	Use exit handler to be certain that the work file is
+!	closed on abnormal exit.
+!
+!   12	25-Apr-1986
+!	Don't signal error if we fail to queue the job; instead,
+!       save status for later request to 'check status of sending'.
+!
+!   13	20-May-1986
+!	Support for SEND-ATTRIBUTES entry (a late addition to 
+!	the definition of interface protocol 2.1).
+!
+!   14	17-Nov-1986
+!	When preening protocol identifiers out of the to-string,
+!	upcase first (unlike MAIL, NOTES doesn't appear to upcase,
+!	so lowercase "nm%" prefixes stay as such).
+!
+!   15	27-Jun-1987
+!	If mail is from NMAIL-DAEMON, set no-report flag in control
+!	record, so as to avoid possibilities of infinite loops.
+!	This case can arise when the daemon sends a report to a
+!	user that has SET FORWARD NM%xxxxx; the loop occurs if
+!	sending to xxxxx incurs a hard error.
+!
+!   16	24-Aug-1987
+!	More sneaky changes to protocol level 2.1 (extra arguments
+!	to connect_out and send_attribs, don't affect Nmail)
+!
+!   17	31-Aug-1987
+!	Changes to make Nmail's use of MAIL-11 block mode almost
+!	identical to that of MAIL.  Includes only using block mode if 
+!	it's a VAR or VFC file, and storing the RFM and RAT in the 
+!	control record for later use.
+!
+!   18	30-Apr-1988
+!	Move definition of MAIL$C_PROT_xxx symbols back into this 
+!	module; now VMS V4.x is over, we don't need the complexity.
+!
+!   19	28-Jan-1989
+!	Support for MAIL-11 3.1, in particular for support
+!	of compound document files (handled as 'foreign' messages
+!	by MAIL-11).
+!
+!   20  9-Feb-1989
+!	When doing RMS operations on MAIL's files, use the error
+!	routine callback provided by MAIL rather than signalling,
+!	since the latter seems to cause an ACCVIO.  Must be due
+!	to referencing stack data after an unwind, I suppose.  
+!	Has this bug been here since 1985, or what?
+!
+!   21	21-Feb-1989
+!	Support for user-notification by broadcast messages (which
+!	merely means another bit in the control record, as far as
+!	this module is concerned).
+!
+!   22	23-Feb-1989
+!	Move NM$SUBMIT_JOB into this module; it's easier to keep
+!	one version for end-user submits and one for Nmail system
+!	submits, since they're ever-diverging.
+!
+!   23	24-Feb-1989
+!	In NM$GET_OPTIONS, ignore symbols with null definitions.
+!	This gives KITINSTAL.COM a convenient way to override
+!	any existing user choices.
+!
+!   24	7-Mar-1991
+!	. Fix cosmetic bug in NM$PREEN_TO; space is a valid 
+!	  address separator
+!	. Don't attempt to parse the personal name, just accept
+!	  whatever garbage MAIL wants to give us
+!
+!   25	16-Dec-1991	Cathy Wright
+!	ALPHA specific modifications
+!
+!   26	7-May-1992
+!	A few changes to reduce the difference between
+!	VAX and ALPHA versions
+!
+!   27	11-May-1992
+!	Add a TDF field to timestamp if we have UTC
+!	services on this system
+!
+!   28	1-Jul-1992
+!	Check status from FAO
+!
+!   29	4-Jul-1992
+!	Add some VOLATILEs where necessary
+!
+!   30	9-Jul-1992
+!	Damnit, the $GETUTC macro uses different keywords
+!	in Alpha VMS FT3 and in VAX VMS V5.5 -- so, let's
+!	just call SYS$GETUTC directly.
+!
+!   31	20-Sep-1993
+!	Changes in exec mode services.  From this module's
+!	point of view, it means we return to calling NM$CREATE_CTL_FILE
+!	(for example) rather than the change-mode entry.  See module
+!	NM$FILEIO for the whole poop.
+!
+!   32	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   33	9-Dec-1993
+!	Add ability to call out to some other image for extended
+!	address handling (adapted from code by Pierre Bijaoui)
+!
+!   34	17-Dec-1993
+!	Tweaks to extension image support
+!
+!   35	31-Jan-1994
+!	Upcase date/times in NM$GET_OPTIONS
+!--
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Forward declarations
+!
+forward routine
+    nm$connect_out,
+    nm$send_from,
+    nm$send_addressee,
+    nm$send_to,
+    nm$send_cc,
+    nm$send_subject,
+    nm$send_attribs,
+    nm$send_text,	
+    nm$check_send_status,
+    nm$disconnect,
+    nm$get_options,
+    nm$add_timestamp,
+    nm$is_timestamp,
+    nm$preen_to,
+    nm$from_daemon,
+    nm$conhand,
+    nm$exithand;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Equated symbols
+!
+literal
+    unknown_tdf = %x'10000';
+
+!
+! Own data
+!
+own
+    got_defaults   : initial(false),
+    connect_count  : initial(0),
+    done_flags     : block[%upval,byte] initial(0),
+    send_status	   : block[%upval,byte],
+    file_open      : initial(false),
+    prot_name      : descrip initial($dynamic),
+    temp_string    : descrip initial($dynamic),
+    ctl_rec	   : block[ctl$s_hdr,byte],
+    ctl_fid	   : block[nm$s_fileid,byte],
+    start_time	   : vector[2],
+    expire_time	   : vector[2],
+    after_time	   : vector[2],
+    delta_time     : vector[2],
+    tdf		   : initial(unknown_tdf),
+    confirm_deliv  : long,
+    no_return      : long,
+    exit_block	   : vector[4],
+    exit_status	   : volatile,
+    pass_signal    : volatile,
+    addr_count	   : long,
+    text_size      : long;
+
+!
+! Flags to show what we've done and what we ain't
+! 
+macro
+    done_from = 0,0,1,0 %,
+    done_addr = 0,1,1,0 %,
+    done_to   = 0,2,1,0 %,
+    done_cc   = 0,3,1,0 %,
+    done_subj = 0,4,1,0 %,
+    done_attr = 0,5,1,0 %,
+    done_text = 0,6,1,0 %;
+literal
+    done_mask = %b'01111111';
+
+!
+! Handy constant
+!
+bind
+    null = uplit byte (0);
+
+!
+! Global literals
+!
+global literal
+    mail$c_prot_major = 2,
+    mail$c_prot_minor = 1;
+
+%sbttl 'entry point from VMS mail'
+global routine mail$protocol (
+		 	     context,
+			     function,
+			     p1, p2, p3, p4, p5, p6
+			     ) =
+
+!++
+! Functional description:
+!
+! This routine is the only entry point from the VMS mail program.
+! The specific function to be performed is indicated through the
+! parameter list.
+!
+! Formal parameters:
+!
+! context.mlu.r = context longword for use by this routine
+! function.rl.v = function to perform
+!			0 = outgoing connect
+!			1 = send "from" name
+!			2 = send and check one recipient address
+!			3 = send "to" string
+!			4 = send "subject" string
+!			5 = send mail text from file
+!			6 = check status of sending to one user
+!			7 = disconnect link
+!			8 = incoming connect
+!			9 = get "from" name
+!		       10 = get one recipient address
+!		       11 = get "to" string
+!		       12 = get "subject" string
+!		       13 = get mail text and write to file
+!		       14 = read record
+!		       15 = write record
+!		       16 = get "cc" string
+!		       17 = send "cc" string
+!		       18 = get message attributes
+!		       19 = send message attributes
+! p1.xy.z = function specific parameter
+! p2.xy.z      (etc)
+!    :           :
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    builtin
+	argptr,
+	callg;
+
+    local
+	dispoff : initial(0);
+
+    !
+    ! Table to map function code to processing routine. Order is,
+    ! of course, vital in this table.  The table actual contains
+    ! offsets to routines rather than actual routine addresses, so
+    ! as to cater for position independence.
+    !
+    bind
+	disbase  = mail$protocol,
+	dispatch = plit (
+	    		nm$connect_out		-disbase,	! 0
+	    		nm$send_from		-disbase,	! 1
+	   		nm$send_addressee	-disbase,	! 2
+	   		nm$send_to		-disbase,	! 3
+	   		nm$send_subject		-disbase,	! 4
+	   		nm$send_text		-disbase,	! 5
+	    		nm$check_send_status	-disbase,	! 6
+	    		nm$disconnect		-disbase,	! 7
+		        0,					! 8
+		        0,					! 9
+		        0,					! 10
+		        0,					! 11
+		        0,					! 12
+		        0,					! 13
+		        0,					! 14
+		        0,					! 15
+			0,					! 16
+			nm$send_cc		-disbase,	! 17
+			0,					! 18
+			nm$send_attribs		-disbase	! 19
+	    		) : vector[];
+	
+    !
+    ! Intercept signals
+    !
+    enable nm$conhand;
+
+    !
+    ! Get offset to appropriate processing routine
+    !
+    if .function lssu .dispatch[-1] 
+    then
+	dispoff = .dispatch[.function];
+
+    !
+    ! Dispatch to processing routine - all of them take the
+    ! same argument list for convenience.
+    !
+    if .dispoff neq 0
+    then
+	callg (argptr(), .dispoff+disbase)
+
+    !
+    ! Unknown request. "Can never happen".
+    !
+    else
+	signal_stop(nm$_unxfc, 1, .function)
+
+    end;
+
+%sbttl 'outgoing connect'
+routine nm$connect_out (
+		       context,
+		       function,
+		       protocol : ref descrip,
+		       node     : ref descrip,
+		       errcode  : long,
+		       file_rat : byte,
+		       file_rfm : byte,
+		       sysflags : bitvector[%bpval],
+	   	       att_file : ref descrip,
+		       file_org : byte,
+		       sysatt   : bitvector[%bpval]
+		       ) =
+
+!++
+! Functional description:
+!
+! This routine is called to initiate a logical link for outgoing
+! mail.   For NMAIL, we simply open the control file.
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! protocol.rt.dx = protocol name string
+! node.rt.dx     = node name string
+! errcode.rlc.v  = error code MAIL$_LOGLINK for signalling errors
+! file_rat.rbu.v = RAT from file FAB
+! file_rfm.rbu.v = RFM from file FAB
+! sysflags.rlu.v = high 16 bits of mail system flags
+! att_file.rt.dx = attachment file (not used)
+! file_org.rbu.v = ORG from file FAB
+! sysatt.rlu.v   = system-defined message attributes
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v   = completion status
+!
+! Note that if this routine returns an error status, then MAIL will
+! consider that this "node" is inaccessible, and will therefore not
+! attempt to deliver to any recipients on it.
+!
+!--
+
+    begin
+
+    external routine sys$getutc;
+
+    !
+    ! Only need to do things for the first connection
+    !
+    if .connect_count eql 0
+    then
+    	begin
+    	local
+	     percent : $str('%'),
+  	     bat     : block[16,byte];
+
+	!
+	! Save our own protocol name, finished off with a percent sign
+	!
+	str$concat(prot_name, .protocol, percent);
+
+    	!
+	! Initialise state variables
+	!
+        file_open   = false;
+    	done_flags  = 0;
+	send_status = 0;
+        text_size   = 0;
+	addr_count  = 0;
+	$gettim(timadr=start_time);
+
+	!
+	! Try and determine our time differential factor so 
+	! we can later include it in the timestamp.   Not all	
+	! systems necessarily have the UTC system services.
+	!
+	if sys$getutc(bat)
+	then
+	    begin
+	    tdf = .bat[14,0,12,1];
+	    if abs(.tdf) gtr 12*60 then tdf = unknown_tdf;
+	    end;
+
+	!
+	! Ensure we have appropriate privileges
+	!
+	if not nm$chkcurpriv($prvmsk(netmbx))
+	then
+	    signal(nm$_nonetmbx);
+
+    	!
+    	! Get options, etc
+    	! 
+        nm$get_options();
+	nm$get_extension();
+
+    	! 
+    	! Initialise control record
+    	! 
+    	ch$fill(0, ctl$s_hdr, ctl_rec);
+        ctl_rec[ctl$b_form]   = ctl$k_form;
+        ctl_rec[ctl$w_nm]     = ctl$k_nm;
+	ctl_rec[ctl$v_summ]   = .confirm_deliv<0,1,0>;
+	ctl_rec[ctl$v_nfy]    = .confirm_deliv<1,1,0>;
+	ctl_rec[ctl$v_noret]  = .no_return;
+	ctl_rec[ctl$b_rfm]    = .file_rfm;
+        ctl_rec[ctl$b_rat]    = .file_rat;
+	ctl_rec[ctl$b_org]    = .file_org;
+	ctl_rec[ctl$l_sysatt] = .sysatt;
+
+        ! 
+      	! For foreign documents, we must always store the document
+	! in the file block-aligned, and we always send the data 
+	! in block mode (the only way to preserve all information).
+	!
+	if .sysatt[0] 
+	then
+	    ctl_rec[ctl$v_for] = ctl_rec[ctl$v_blk] = true
+
+	! 
+	! Otherwise, it's a normal text message.  Store text block-aligned
+	! only for variable or variable-with-fixed-control record formats.
+	! Also, because of the way we build the control file, we lose the 
+	! fixed control area in a VFC record, thus we in effect do a 
+	! not-very-good conversion to VAR-CR format.  Note that we may not
+	! actually send block-aligned data in block mode; this depends on
+	! what the target node will accept.
+	!
+	else
+	    begin
+	    ctl_rec[ctl$b_rat] = .ctl_rec[ctl$b_rat] and not fab$m_blk;
+	    if .file_rfm eql fab$c_var 
+       	    then
+	    	ctl_rec[ctl$v_blk] = true;
+	    if  .file_rfm eql fab$c_vfc
+	    then
+	    	begin
+	    	ctl_rec[ctl$v_blk] = true;
+            	ctl_rec[ctl$b_rfm] = fab$c_var;
+	    	ctl_rec[ctl$b_rat] = fab$m_cr;
+	    	end;
+	    end;
+
+    	!
+    	! Fill in current time, /EXPIRE time, and resubmit delta time
+	!
+    	$movq(start_time, ctl_rec[ctl$q_qued]);
+	$movq(expire_time, ctl_rec[ctl$q_expir]);
+	$movq(delta_time, ctl_rec[ctl$q_delta]);
+
+	!
+	! Open the control file. We cannot write the first record,
+	! however, until we've seen the 'from' address.
+	!
+	nm$create_ctl_file(ctl_fid);
+	file_open = true;
+
+	!
+	! Declare exit handler
+	!
+	exit_block[0] = 0;
+	exit_block[1] = nm$exithand;
+	exit_block[2] = 1;
+	exit_block[3] = exit_status;
+	$dclexh(desblk=exit_block);
+
+    	end;
+
+    !
+    ! Count one more connection made
+    !
+    connect_count = .connect_count + 1;
+
+    true
+    end;
+
+%sbttl 'send "from" name'
+routine nm$send_from (
+		     context,
+		     function,
+		     node    : ref descrip,
+		     fromstr : ref descrip
+		     ) =
+
+!++
+! Functional description:
+!
+! This routine is called to transmit the "from" text in the MAIL-11
+! protocol.  
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! node.rt.dx     = node name string (destination)
+! fromstr.rt.dx  = "from" string
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    !
+    ! We don't want to step into the same river twice
+    !
+    if .done_flags[done_from] then return true;
+    done_flags[done_from] = true;
+        
+    !
+    ! Write the control record the from-string to the file
+    !
+    if nm$from_daemon(.fromstr) then ctl_rec[ctl$v_norpt] = true;
+    nm$write_ctl(ctl_rec, ctl$s_hdr);
+    nm$add_timestamp(.fromstr, temp_string);
+    nm$write_ctl(.temp_string[dsc$a_pointer], .temp_string[dsc$w_length]);
+
+    !
+    ! If we have an extension image loaded, then we can now tell
+    ! it that we're starting up
+    !
+    if .nm$nmx[nmx$a_start] neq 0
+    then
+	begin
+	local
+	    dsc1 : descrip,
+	    dsc2 : descrip,
+	    status;
+	nm$parse_token(temp_string, dsc1, dsc2);
+	status = (.nm$nmx[nmx$a_start])(start_time, dsc1);
+	end;
+
+    true
+    end;
+
+%sbttl 'send one recipient name'
+routine nm$send_addressee (
+			  context,
+			  function,		       
+			  node	    : ref descrip,
+			  addressee : ref descrip,
+			  err_routine
+			  ) =
+
+!++
+! Functional description:
+!
+! This routine is called to validate one address.  For NMAIL, no
+! validation is performed, and the address is simply stored in
+! the control file.
+!
+! Formal parameters:
+!
+! context.mlu.r      = context longword
+! function.rl.v      = function code
+! node.rt.dx	     = destination node name
+! addressee.rt.dx    = string giving name of addressee
+! err_routine.szem.r = address of MAILs error routine
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+! If this routine returns an error status, then MAIL will consider
+! that the specified user is invalid and will not attempt to send
+! mail to him/her/it.
+!
+!--
+
+    begin
+
+    local
+	colons   : $str('::'),
+	nocolons : $str(''),
+	addrhdr  : $str(%exactstring(addr$s_hdr,0)),
+	endmark  : initial(false),
+	gotaddr  : initial(false);
+
+    !
+    ! Is this is the end-of-addresses record?  We get one of
+    ! these per node, but we're only interested in the first one.
+    !
+    if .addressee[dsc$w_length] eql 1 and
+       .(.addressee[dsc$a_pointer])<0,8,0> eql 0
+    then
+	begin
+    	if .done_flags[done_addr] then return true;
+	endmark = true;
+	end;
+
+    !
+    ! If we have an extension image loaded, then pass the call 
+    ! on to it to worry about.   If the extension doesn't want
+    ! to reformat this address, then it just skips writing to
+    ! the output string.  False status means address invalid.
+    !
+    if .nm$nmx[nmx$a_sendaddr] neq 0
+    then
+	begin
+	local status;
+	str$free1_dx(temp_string);
+	pass_signal = not .endmark;
+	status = (.nm$nmx[nmx$a_sendaddr])(.node, .addressee, temp_string);
+	pass_signal = false;
+	if not .status and not .endmark then return .status;
+	if .temp_string[dsc$w_length] neq 0 then gotaddr = true;
+	end;
+
+    !
+    ! Special processing for end-of-address marker
+    !
+    if .endmark
+    then
+        begin
+    	done_flags[done_addr] = true;
+	nm$write_ctl(null, 1);
+	return true;
+        end;
+
+    !
+    ! Format the address record.
+    !
+    if .gotaddr
+    then
+        str$concat(
+    	      temp_string, addrhdr, temp_string
+	      )
+    else
+        str$concat(
+    	      temp_string, addrhdr,
+    	      .node, (if .node[dsc$w_length] neq 0 then colons else nocolons),
+    	      .addressee    
+    	      );
+
+    !
+    ! Write to the control file
+    !
+    nm$write_ctl(.temp_string[dsc$a_pointer], .temp_string[dsc$w_length]);
+    addr_count = .addr_count + 1;
+
+    true
+    end;
+
+%sbttl 'send "to" string'
+routine nm$send_to (
+	           context,
+		   function,
+		   node  : ref descrip,
+		   tostr : ref descrip
+		   ) =
+
+!++
+! Functional description:
+!
+! This routine is called to send the "to" string in the MAIL-11 protocol.
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! node.rt.dx     = destination node name string
+! tostr.rt.dx    = "to" string
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+    
+    !
+    ! Fast return if not first time through
+    !
+    if .done_flags[done_to] then return true;
+    done_flags[done_to] = true;
+
+    !
+    ! Remove embedded "NM%" prefixes
+    !
+    nm$preen_to(.tostr, temp_string);
+
+    !
+    ! Write the reconstructed to-string to the file
+    !
+    nm$write_ctl(.temp_string[dsc$a_pointer], .temp_string[dsc$w_length]);
+
+    true
+    end;
+
+%sbttl 'send "cc" string'
+routine nm$send_cc (
+	           context,
+		   function,
+		   node  : ref descrip,
+		   ccstr : ref descrip
+		   ) =
+
+!++
+! Functional description:
+!
+! This routine is called to send the "cc" string in the MAIL-11 protocol.
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! node.rt.dx     = destination node name string
+! ccstr.rt.dx    = "cc" string
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+    
+    !
+    ! Fast return if not first time through
+    !
+    if .done_flags[done_cc] then return true;
+    done_flags[done_cc] = true;
+
+    !
+    ! Remove embedded "NM%" prefixes
+    !
+    nm$preen_to(.ccstr, temp_string);
+
+    !
+    ! Write the reconstructed cc-string to the file
+    !
+    nm$write_ctl(.temp_string[dsc$a_pointer], .temp_string[dsc$w_length]);
+
+    true
+    end;
+
+%sbttl 'send "subject" string'
+routine nm$send_subject (
+			context,
+			function,
+			node    : ref descrip,
+			subject : ref descrip
+			) =
+
+!++
+! Functional description:
+!
+! This routine is called to transmit the "subject" string in the MAIL-11
+! protocol.
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! node.rt.dx     = destination node name string
+! subject.rt.dx  = "subject" string
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    !
+    ! Backwards compatibility hack... if we haven't seen a "cc" string,
+    ! then put a blank one in the file
+    !
+    if not .done_flags[done_cc]
+    then
+	begin
+	local nocc : $str('');
+	nm$send_cc(.context, .function, .node, nocc);
+	end;
+
+    !
+    ! First time through, write the subject-string to the file
+    !
+    if not .done_flags[done_subj]
+    then
+	begin
+	done_flags[done_subj] = true;
+	nm$write_ctl(.subject[dsc$a_pointer], .subject[dsc$w_length]);
+	end;
+
+    true
+    end;
+
+%sbttl 'send message attributes'
+routine nm$send_attribs (
+	                context,
+		        function,
+			sysatt : bitvector[%bpval],
+		 	usratt : ref descrip
+			) =
+
+!++
+! Functional description:
+!
+! This routine is called to deal with the message attributes.
+! Currently, we don't support any funny attributes.
+!
+! Formal parameters:
+!
+! context.mlu.r  = context longword
+! function.rl.v  = function code
+! sysatt.rl.v    = system-defined message attributes (longword)
+! usratt.rt.dx   = user-defined message attributes (TLD string)
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    !
+    ! First time through, write the attributes record to the file
+    !
+    if not .done_flags[done_attr]
+    then
+	begin
+	done_flags[done_attr] = true;
+	nm$write_ctl(.usratt[dsc$a_pointer], .usratt[dsc$w_length]);
+	end;
+
+    true
+    end;
+
+%sbttl 'send text of mail'
+routine nm$send_text (
+		     context,
+		     function,
+		     node : ref descrip,
+		     rab  : ref $rab_decl,
+		     err_routine
+		     ) =
+
+!++
+! Functional description:
+!
+! This routine is called to transmit the actual mail message text,
+! contained in a file.  Note that MAIL will call this entry point
+! once for each perceived "logical link"; we however ...
+!
+! Formal parameters:
+!
+! context.mlu.r      = context longword
+! function.rl.v      = function code
+! node.rt.dx	     = destination node name string
+! rab.mr.r	     = RAB of open message file
+! err_routine.szem.r = RMS error routine
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!		 true generally (even if error occurred)
+!	    	 false if error occurred that was immediately reported
+!
+!--
+
+    begin
+
+    local
+        status,
+	vbn0,
+	vbn1,
+	offs : word;
+
+    !
+    ! Backwards compatibility hack... if we haven't seen an attributes
+    ! string, then put a blank one in the file
+    !
+    if not .done_flags[done_attr]
+    then
+	begin
+	local noattr : $str('');
+	nm$send_attribs(.context, .function, 0, noattr);
+	end;
+
+    !
+    ! Beat a hasty retreat if we've been here before
+    !
+    if .done_flags[done_text] then return true;
+    done_flags[done_text] = true;
+
+    !
+    ! Sanity check. Have we seen all that we should have seen?
+    !
+    if .done_flags neq done_mask
+    then
+        signal(nm$_synch, 1, .done_flags);
+
+    !
+    ! Write end-of-header record, and then pad out to end of block
+    ! if we're allowing block mode for this message.  Compute VBN
+    ! for start of following text.
+    !
+    nm$write_ctl(null, 1);
+    if .ctl_rec[ctl$v_blk] 
+    then 
+	begin
+	nm$pad_blk_ctl(true);
+	vbn1 = vbn0 = nm$get_vbn() + 1;
+	offs = 0;
+	end;
+
+    ! 
+    ! Processing of normal messages: we transfer the message to
+    ! the control file by records.  This allows the symbiont to
+    ! choose block mode (assuming suitable record format, checked
+    ! earlier) or record mode, depending on the slave mail.
+    ! 
+    if not .ctl_rec[ctl$v_for]
+    then
+	begin
+
+	! 
+	! Ensure that the input file isn't set to block-I/O-only
+	! mode.
+	!
+    	if .rab[rab$v_bio]
+    	then
+	    begin
+	    status = $disconnect(rab=.rab, err=.err_routine);
+	    if not .status then return .status;
+	    rab[rab$v_bio] = false;
+	    status = $connect (rab=.rab, err=.err_routine);
+	    if not .status then return .status;
+	    end;
+
+    	!
+    	! Loop, copying text from MAIL's file to the control file.
+	! Records consisting of a single null character are altered,
+	! since they have special meaning in the MAIL-11 protocol.
+    	!
+    	while true do
+	    begin
+	    switches structure (ref vector[,byte]);
+	    status = $get(rab=.rab, err=.err_routine);
+	    if not .status then exitloop;
+	    if .rab[rab$w_rsz] eql 1 and .rab[rab$l_rbf][0] eql 0
+	    then
+	        rab[rab$l_rbf][0] = ' ';
+	    nm$write_ctl(.rab[rab$l_rbf], .rab[rab$w_rsz]);
+	    text_size = .text_size + .rab[rab$w_rsz];
+	    end;
+
+	!
+	! Check final read status
+	!
+        if .status neq rms$_eof then return .status;
+
+	!
+	! Write end-of-text record, saving VBN and offset-in-block 
+	! for that record. Pad to end-of-block if necessary.
+	!
+	nm$write_ctl(null, 1);
+	if .ctl_rec[ctl$v_blk]
+	then
+	    begin
+	    nm$get_vbn(vbn1, offs);
+	    nm$pad_blk_ctl(false);
+	    end;
+
+	!
+	! End of normal case
+	!	
+	end
+    
+    !
+    ! Foreign mode processing: we transfer the data to the control
+    ! file in block mode.  This guarantees that the data format is
+    ! unchanged; it restricts the symbiont to using block mode for
+    ! actual delivery.
+    !
+    else
+	begin
+        local notnull, rsize, wsize;
+
+	!
+	! Make sure buffer size is suitable for block I/O
+	! We probably ought not just go and change it
+	!
+	if (.rab[rab$w_usz] and 511) neq 0
+	then
+	    signal(nm$_badbuf);
+
+ 	!
+	! Position at EOF (actually, we're already there,
+	! but we need to get RMS context set up to make the 
+	! switch into block-I/O mode).
+  	!
+	nm$point_eof_ctl();
+
+	!
+	! Loop, copying blocks from input file to control file
+	!
+	notnull = false;
+    	while true do
+	    begin
+	    status = $read(rab=.rab, err=.err_routine);
+	    if not .status then exitloop;
+	    rsize = .rab[rab$w_rsz];
+	    wsize = .rsize+511 and not 511;
+	    nm$write_ctl_blk(.rab[rab$l_rbf], .wsize);
+	    text_size = .text_size + .rsize;
+	    notnull = true;
+	    end;
+
+	!
+	! Check final read status
+	!
+        if .status neq rms$_eof then return .status;
+
+	!
+	! Compute VBN and offset to the byte just past the end of
+	! the data.  If the data was an integral number of blocks, 
+	! the computed VBN will refer to a block which is not in the
+	! file.   To make life easier for the symbiont, we write
+	! a filler block to the file in this case.
+	!
+	if .notnull
+	then
+	    begin
+	    vbn1 = nm$get_vbn() + .wsize/512;
+	    offs = .rsize and 511;
+	    end;
+	if .offs eql 0 
+	then
+	    begin
+	    ch$fill(0, 512, .rab[rab$l_rbf]);
+	    nm$write_ctl_blk(.rab[rab$l_rbf], 512);
+	    end
+	else 
+	    vbn1 = .vbn1 - 1;
+	
+	!
+	! End of foreign case
+	!
+	end;
+
+    !
+    ! Update control record with end-of-text pointers
+    !
+    if .ctl_rec[ctl$v_blk]
+    then
+	begin
+	local scratch;
+	bind ubuf = rab[rab$l_ubf] : ref block[,byte];
+	nm$rewind_ctl(.rab[rab$l_ubf], scratch);
+	nm$read_ctl();
+	ubuf[ctl$l_sotvbn] = .vbn0;
+	ubuf[ctl$l_eotvbn] = .vbn1;
+	ubuf[ctl$w_eotoff] = .offs;
+	nm$update_ctl();
+	end;
+
+    !
+    ! All done, so close the file
+    !
+    file_open = false;
+    nm$close_ctl_file(false);
+
+    !
+    ! Submit job to Nmail execution queue (needs to be done in exec
+    ! mode).  Keep the status around until later.
+    !
+    send_status = nm$uss_submit_job(ctl_fid, after_time);
+
+    true
+    end;
+
+%sbttl 'check status of sending'
+routine nm$check_send_status (
+			     context,
+			     function,
+			     node      : ref descrip,
+			     addressee : ref descrip,
+			     err_routine
+			     ) =
+
+!++
+! Functional description:
+!
+! This routine is called to check the status of sending to one
+! user. We return the status from the queue submission.
+!
+! Formal parameters:
+!
+! context.mlu.r      = context longword
+! function.rl.v      = function code
+! node.rt.dx	     = destination node name string
+! addressee.rt.dx    = user name to check
+! err_routine.szem.r = error handling routine
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    !
+    ! If this is a failure status, then signal the error.
+    ! But remember to tell the handler to let this one through.
+    !
+    if not .send_status 
+    then
+	begin
+	pass_signal = true;
+	signal(nm$_submit, 0, .send_status);
+	pass_signal = false;
+	end;
+
+    !
+    ! And tell MAIL the final resolution
+    !
+    .send_status
+
+    end;
+
+%sbttl 'disconnect link'
+routine nm$disconnect (
+		      context,
+		      function
+		      ) =
+
+!++
+! Functional description:
+!
+! This routine is called to disconnect the logical link.
+!
+! Formal parameters:
+!
+! context.mlu.r = context longword
+! function.rl.v  = function code
+!
+! Routine value/Completion codes:
+!
+! status.wlc.v = completion status
+!
+!--
+
+    begin
+
+    !
+    ! If we're the last "link" to go away...
+    !
+    if .connect_count neq 0
+    then
+	if (connect_count = .connect_count - 1) eql 0
+	then
+	    begin
+
+	    !
+	    ! Cancel the exit handler
+	    !
+	    $canexh(desblk=exit_block);
+	    
+	    !
+	    ! Deallocate dynamic strings
+	    !
+	    str$free1_dx(temp_string);
+	    str$free1_dx(prot_name);
+
+	    !
+	    ! If the control file is still open, then
+	    ! we're being abnormally terminated. Delete file.
+	    !
+	    if .file_open
+	    then
+	        begin
+	        file_open = false;
+		nm$close_ctl_file(true);
+	        end;
+
+	    !
+	    ! Tell any extension image to run down the connection.
+	    ! Pass the 'send' status so the extension knows whether
+	    ! or not this was a successful submission.
+ 	    !
+ 	    if .nm$nmx[nmx$a_finish] neq 0 
+	    then 
+		(.nm$nmx[nmx$a_finish])(.send_status, .text_size, .addr_count);
+
+	    end;
+
+    true
+
+    end;
+
+%sbttl 'get options'
+routine nm$get_options =
+
+!++
+! Functional description:
+!
+! Gets NMAIL options by translating symbols, logical names, etc.
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! status.wlc.v = true always
+!
+!--
+
+    begin
+
+    !
+    ! Routine to get a non-null symbol definition
+    !
+    routine get_symbol (sym : ref descrip, buf : ref descrip) =
+	begin
+	external routine lib$get_symbol;
+	local st;
+        st = lib$get_symbol(.sym, .buf);
+	if .st and .buf[dsc$w_length] eql 0 then st = 0;
+	if .st then str$upcase(.buf, .buf);
+	.st
+	end;
+
+    !
+    ! Local storage
+    !
+    local
+	status,
+	after_sym    : $str('NM$AFTER'),
+	expire_sym   : $str('NM$EXPIRE'),
+	delta_sym    : $str('NM$DELTA'),
+	confirm_sym  : $str('NM$CONFIRM'),
+	noreturn_sym : $str('NM$NORETURN');
+
+    !
+    ! First time through, get system defaults
+    !
+    if not .got_defaults
+    then
+	begin
+	got_defaults = nm$get_defdata();
+	if not .got_defaults then signal(.got_defaults);
+	end;
+
+    !
+    ! Sundry initialisation
+    !
+    after_time[0] = after_time[1] = 0;
+    expire_time[0] = expire_time[1] = 0;
+    delta_time[0] = delta_time[1] = 0;
+    no_return = confirm_deliv = 0;
+
+    !
+    ! Get symbol for /AFTER time. If not defined, default to zero,
+    ! which means run immediately.
+    !
+    if get_symbol(after_sym, temp_string)
+    then
+	begin
+	status = $bintim(timbuf=temp_string, timadr=after_time);
+	if not .status then signal(nm$_ivtime, 1, temp_string);
+	end;
+
+    !
+    ! If the after time was given as a delta time, then convert it
+    ! to absolute. Note that it's SUB and not ADD because the delta
+    ! time is stored as a negative magnitude.
+    !
+    if .after_time[1] lss 0
+    then
+    	$subq(after_time, start_time, after_time);
+
+    !
+    ! Get symbol for /EXPIRE time. If not defined, let the symbiont
+    ! provide a default (which will thus be relative to the time of
+    ! the first attempt).
+    !
+    if get_symbol(expire_sym, temp_string)
+    then
+	begin
+	status = $bintim(timbuf=temp_string, timadr=expire_time);
+	if not .status then signal(nm$_ivtime, 1, temp_string);
+	end;
+
+    !
+    ! If expiry time is a delta time, then convert it to absolute
+    ! format.  If an /AFTER time was specified, then convert it
+    ! relative to that time. Otherwise, convert it relative to
+    ! now.
+    !
+    if .expire_time[1] lss 0
+    then
+	if $zeroq(after_time)
+	then
+	    $subq(expire_time, start_time, expire_time)
+	else
+	    $subq(expire_time, after_time, expire_time);
+
+    !
+    ! Get value for resubmit delta time, if specified (note this has
+    ! to be in delta time format, absolute time is meaningless). Also,
+    ! don't allow delta times less than the hardwired Nmail minimum.
+    !
+    if get_symbol(delta_sym, temp_string)
+    then
+	begin
+        status = $bintim(timbuf=temp_string, timadr=delta_time);
+    	if not .status or .delta_time[1] geq 0 then signal(nm$_ivtime, 1, temp_string);
+        if $cmpq(delta_time, nm$gq_min_delta) gtr 0 
+        then 
+	    signal(nm$_toosoon, 1, temp_string);
+	end;
+
+    !
+    ! Get confirm-delivery flag.
+    !
+    if get_symbol(confirm_sym, temp_string)
+    then
+	begin
+        local num;
+	status = lib$cvt_dtb(
+			    .temp_string[dsc$w_length], 
+			    .temp_string[dsc$a_pointer],
+			    num
+			    );
+	if not .status then signal(nm$_ivnum, 1, temp_string);
+	confirm_deliv = .num and 3;
+	end;
+
+    !
+    ! Get no-return-to-sender flag.
+    !
+    if get_symbol(noreturn_sym, temp_string)
+    then
+	begin
+        local num : bitvector[%bpval];
+	status = lib$cvt_dtb(
+			    .temp_string[dsc$w_length], 
+			    .temp_string[dsc$a_pointer],
+			    num
+			    );
+	if not .status then signal(nm$_ivnum, 1, temp_string);
+	no_return = .num[0];
+	end;
+
+    !
+    ! That's all folks	
+    !
+    true
+    end;
+
+%sbttl 'add timestamp to from-string'
+routine nm$add_timestamp (
+	    	         fromstr : ref descrip,
+	                 outstr  : ref descrip
+	    	         ) =
+
+!++
+! Functional description:
+!
+! Adds the time stamp to the 'from' string.  The timestamp is
+! contained in the personal name field, preceded by two spaces
+! to separate it.
+!
+! If there is already a time stamp there, no action is taken.
+!
+! Formal parameters:
+!
+! fromstr.rt.ds = from-string to be used
+! outstr.wt.dd  = output (dynamic) string which will have
+!	          the augmented string
+!
+! Routine value:
+!
+! added.wl.v = true if we added it
+!	       false if we didn't
+!
+!--
+
+
+    begin
+
+    literal
+        timesize1   = %charcount('dd-mmm-yyyy hhmm'),
+	timesize2   = %charcount('dd-mmm-yyyy hhmm +hhmm'),
+	timebufsize = timesize2 + 2;
+
+    local
+        timebuf     : vector[timebufsize,byte] alias,
+   	timestamp   : descrip initial(timebufsize,timebuf),
+	sender      : descrip,
+	personal    : descrip,
+	two_spaces  : $str('  '),
+	space_quote : $str(' "'),
+	quote	    : $str('"'),
+	empty	    : $str(''),
+	unknown	    : $str('<unknown>'),
+	zone	    : $str(' !AF!2ZL!2ZL');
+
+    !
+    ! Parse out the sender field. If we can't get one, then
+    ! use a stand-in string of 'unknown'.
+    !
+    if not nm$parse_token(.fromstr, sender, personal)
+    then
+	$movq(unknown, sender);
+
+    !
+    ! The rest of the line should be the personal name string.
+    ! Check that it's quoted, and then strip the quotes.
+    !
+    if nm$trim(personal, personal)
+    then
+	begin
+        bind persbuff = personal[dsc$a_pointer] : ref vector[,byte];
+
+        !
+        ! Check that quotes exist and strip them
+        !
+	if .personal[dsc$w_length] lss 2 or
+	    .persbuff[0] neq '"' or
+	    .persbuff[.personal[dsc$w_length]-1] neq '"'
+	then
+	    signal(nm$_syntax, 1, personal)
+        else
+	    begin
+    	    personal[dsc$a_pointer] = .personal[dsc$a_pointer] + 1;
+	    personal[dsc$w_length]  = .personal[dsc$w_length]  - 2;
+            end;
+
+	!
+	! Trim trailing spaces which VMS seems to allow; they will
+	! mess up the two-space separator for the timestamp
+	!
+ 	nm$trim(personal, personal);
+
+	!
+	! If there's a timestamp in there already (introduced by
+	! two spaces) then we'll leave everything alone
+	!
+	if ch$find_sub(
+		      .personal[dsc$w_length],   .personal[dsc$a_pointer],   
+		      .two_spaces[dsc$w_length], .two_spaces[dsc$a_pointer]
+		      ) neq 0
+	then
+	    begin
+	    str$copy_dx(.outstr, .fromstr);
+	    return false;
+	    end;
+
+	!
+	! If the name is just a timestamp, then leave it alone also
+	!
+	if .personal[dsc$w_length] eql timesize1 or	
+	   .personal[dsc$w_length] eql timesize2
+	then
+	    if nm$is_timestamp(personal)
+	    then
+		begin
+		str$copy_dx(.outstr, .fromstr);
+		return false;
+		end;
+
+	end;
+
+    !
+    ! Format the timestamp string itself. Discard the colon which
+    ! separates hours and minutes, it upsets some Arpanet software.
+    ! Downcase the month, it upsets me. (Sorry, you only get this
+    ! service if the month is spelled with non-accented letters).
+    !
+    $asctim(timadr=start_time, timbuf=timestamp);
+    if .timebuf[0] eql ' ' then timebuf[0] = '0';
+    timebuf[timesize1-2] = .timebuf[timesize1-1];
+    timebuf[timesize1-1] = .timebuf[timesize1-0];
+    if .timebuf[4] gequ 'A' and .timebuf[4] lequ 'Z' and
+       .timebuf[5] gequ 'A' and .timebuf[5] lequ 'Z'
+    then
+	begin
+	timebuf[4] = .timebuf[4] + 32;
+	timebuf[5] = .timebuf[5] + 32;
+	end;
+    timestamp[dsc$w_length] = timesize1;
+
+    !
+    ! If we know our time differential (offset from Greenwich)
+    ! then add it to the timestamp
+    !
+    if .tdf neq unknown_tdf 
+    then
+	begin
+	local
+	    temp : descrip initial(timebufsize-timesize1, timebuf+timesize1),
+	    sign,
+ 	    sts;
+	sign = (if .tdf lss 0 then '-' else '+');
+	sts = $fao(zone, temp, temp, 1, sign, abs(.tdf)/60, abs(.tdf) mod 60);
+  	if not .sts then signal_stop(nm$_fao, 0, .sts);
+	timestamp[dsc$w_length] = timesize2;
+	end;
+
+    !
+    ! Now, put it all together
+    !
+    str$concat(
+	      .outstr, 
+	      sender, 
+	      space_quote,
+    	      personal,
+  	      (if .personal[dsc$w_length] neq 0 then two_spaces else empty),
+              timestamp,
+	      quote
+	      );
+
+    !
+    ! Phew!
+    !
+    true
+    end;
+
+%sbttl 'check if string is a timestamp'
+routine nm$is_timestamp(str : ref descrip) =
+
+!++
+! Functional description:
+!
+! Tests a string to see if it is probably a timestamp previously
+! added by Nmail (which can occur on multihop journeys)
+!
+! Formal parameters:
+!
+! str.rt.dx  = string to test
+!
+! Routine value:
+!
+! status.wlc.v = true if syntax is appropriate for a timestamp
+!	       = false otherwise
+!
+!--
+
+    begin
+
+    bind
+	tspattern = uplit byte ('99-XXX-9999 9999 +9999!') : vector[,byte],
+        buff      = str[dsc$a_pointer] : ref vector[,byte];
+
+    !
+    ! Scan through supplied string, comparing against pattern
+    !
+    incr i from 0 to .str[dsc$w_length]-1 do
+	selectone .tspattern[.i] of
+	    set
+		    
+	    ['9']:
+		if .buff[.i] lssu '0' or .buff[.i] gtru '9'
+		then
+		    return false;
+		    
+	    ['X']:
+		! anything will do here
+		;
+		    
+	    ['+']:
+		if .buff[.i] neq '+' and .buff[.i] neq '-'
+		then
+		    return false;
+
+	    ['!']:
+		! input string too long
+		return false;
+
+	    [otherwise]:
+		if .buff[.i] neq .tspattern[.i]
+		then
+		    return false;
+
+	    tes;
+
+    !
+    ! All matched
+    !
+    return true;
+
+    end;
+
+%sbttl 'to-string preener'
+routine nm$preen_to (tostr : ref descrip, outstr : ref descrip) =
+
+!++
+! Functional description:
+!
+! Processes the to-string to remove occurrences of
+! our own protocol indentifier, since it looks ugly.
+!
+! Formal parameters:
+!
+! tostr.rt.dx  = "to" string
+! outstr.wt.dd = reconstructed "to" string
+!
+! Routine value: 
+!
+! always true
+!
+!--
+
+    begin
+
+    local
+	i, j,
+	inquotes,
+	addr    : descrip,
+	pfx	: descrip,
+	pfxbuff : vector[16,byte] alias;
+
+    bind
+ 	to_buff = .tostr[dsc$a_pointer] : vector[,byte];
+
+    !
+    ! Initialise for address parsing
+    !
+    str$free1_dx(.outstr);
+    inquotes = false;
+    addr[dsc$b_class] = addr[dsc$b_dtype] = 0;
+    pfx[dsc$b_class]  = pfx[dsc$b_dtype]  = 0;
+    pfx[dsc$w_length] = min(.prot_name[dsc$w_length], 16);
+    pfx[dsc$a_pointer] = pfxbuff;
+
+    !
+    ! Scan the string looking for "NM%" prefixes
+    !
+    i = 0;
+    while .i lss .tostr[dsc$w_length] do
+	begin
+
+	!
+	! Discard leading white space
+        !
+	while .i lss .tostr[dsc$w_length] and .to_buff[.i] lequ ' ' do
+	    i = .i + 1;
+
+	!
+	! Scan rest of string to isolate the next address
+	! (Terminated by end-of-string or unquoted comma or space)
+	!
+	j = .tostr[dsc$w_length];
+	incr k from .i to .tostr[dsc$w_length]-1 do
+	    begin
+	    if .to_buff[.k] eql '"' 
+	    then
+		inquotes = not .inquotes;
+	    if (.to_buff[.k] eql ',' or .to_buff[.k] lequ ' ') and 
+		not .inquotes
+	    then
+		exitloop (j = .k+1);
+	    end;
+
+	!
+	! Form descriptor for address we've just parsed. 
+	!
+	addr[dsc$a_pointer] = to_buff[.i];
+	addr[dsc$w_length]  = .j - .i;
+
+	!
+	! Only if the address is long enough to contain the protocol
+	! do we carry on to make the comparison; firstly, upcase the
+	! beginning of the parsed address.  Then, if the upcased address
+	! starts with the protocol identifier, discard that part of
+	! the original address.
+	!
+	if .addr[dsc$w_length] geq .prot_name[dsc$w_length] 
+	then
+	    begin
+	    str$upcase(pfx, addr);
+	    if ch$eql(
+		     .pfx[dsc$w_length], .pfx[dsc$a_pointer], 
+		     .prot_name[dsc$w_length], .prot_name[dsc$a_pointer]
+		     )
+	    then
+		begin
+		addr[dsc$a_pointer] = .addr[dsc$a_pointer] + .prot_name[dsc$w_length];
+		addr[dsc$w_length]  = .addr[dsc$w_length]  - .prot_name[dsc$w_length];
+		end;
+	    end;
+
+	!
+	! Append this address to the reconstructed list, and move on
+	!
+	str$append(.outstr, addr);
+	i = .j;
+	end;
+
+    !
+    ! Done
+    !
+    true
+
+    end;
+
+%sbttl 'check for mail from the daemon'
+routine nm$from_daemon (fromstr : ref descrip) =
+
+!++
+! Functional description:
+!
+! Checks the specified 'from' string to determine whether this
+! could be from the daemon.  In this case, we need to set the
+! no-report flag on the message we're creating.
+!
+! The daemon originates mail to report errors in user mail.  Usually,
+! the no-report bit is set on origination.  However, if some user has
+! done SET FORWARD NM%xxxx, a report sent back to this user will cause
+! the creation of a secondary job to do the forwarding, and this secondary
+! would not ordinarily inherit the no-report flag. By making an explicit
+! check for a 'from' address containing the daemon name, we can force
+! the no-report flag on.
+!
+! Formal parameters:
+!
+! frombuf.rt.dx =  entire from-string
+!
+! Routine value:
+!
+! fromself.wl.v = true if mail from the daemon
+!		= false otherwise
+!
+!--
+
+    begin
+
+    local
+	dsc2 : descrip,
+	dsc3 : descrip,
+	ptr  : ref vector[,byte];
+                                   
+    !
+    ! Parse out actual 'from' address. Set up pointer to last N
+    ! characters of address, where N is the length of the daemon's name. 
+    !
+    nm$parse_token(.fromstr, dsc2, dsc3);
+    ptr = .dsc2[dsc$a_pointer] + .dsc2[dsc$w_length] - .nm$gt_daemon[0];
+
+    !
+    ! No need to check further if the address is shorter than
+    ! the daemon's name
+    !
+    if .dsc2[dsc$w_length] lss .nm$gt_daemon[0] then return false;
+
+    !
+    ! Check that address ends with the daemon's name; if not, then
+    ! return false, as this mail cannot be from the daemon
+    !
+    if ch$neq(.nm$gt_daemon[0], .ptr, .nm$gt_daemon[0], nm$gt_daemon[1])
+    then
+	return false;
+
+    ! 
+    ! It's from the local daemon if the lengths are exactly equal
+    ! 
+    if .dsc2[dsc$w_length] eql .nm$gt_daemon[0]
+    then
+        return true;
+                                                                 
+    !
+    ! It's from some remote daemon if the string has two colons 
+    ! before the daemon's name
+    !
+    if .dsc2[dsc$w_length] geq .nm$gt_daemon[0]+2
+    then
+	if .ptr[-1] eql ':' and .ptr[-2] eql ':'
+	then                                 
+	    return true;
+
+    !
+    ! Otherwise, it's from someone that has a name that's similar to
+    ! the daemon.  What a wally, eh?
+    !
+    false
+
+    end;	
+
+%sbttl 'condition handler'
+routine nm$conhand (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine is invoked as a condition handler to field any signals
+! that are let loose.   
+!
+! Severe errors and true statuses are resignalled. Errors and warnings
+! cause the condition to be signalled anew (so as to output the error 
+! messages) and then the stack is unwound back to MAIL.
+!
+! Unwinds cause any necessary image cleanup to be performed. At present,
+! all cleanup is done in the `disconnect' code.
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal vector
+! mech.mr.r = mechanism vector
+!
+! Routine values:
+!
+! sts.wlc.v = ss$_resignal (which the system ignores if
+!			    we've asked for an unwind)
+!
+!--
+
+    begin
+
+    builtin
+        callg;
+
+    external routine
+        lib$signal;
+
+    bind
+	sig_name = sig[chf$l_sig_name] : block[,byte];
+
+    local
+	save_args   : block [4,byte];
+
+    !
+    ! Skip processing if it's:
+    !   .  any success status (although who signalled it, i dunno)
+    !   .  any fatal error (these are usually file I/O problems)
+    !   .  an unwind
+    !	.  a signal providing mail-11 status (pass_signal is true)
+    !
+    if .sig_name[sts$v_severity] or
+       .sig_name[sts$v_severity] geq sts$k_severe or
+       .sig_name eql ss$_unwind or
+       .pass_signal
+    then
+	begin	
+	pass_signal = false;
+	return ss$_resignal;
+	end;
+
+    !
+    ! Temporarily diddle the first word of the signal vector to reduce the
+    ! argument count by 2 (drop the PC/PSL). Signal the condition.
+    ! (** TEMP: force severity to 'severe' to prevent MAIL continuing **)
+    !
+    save_args = .sig[chf$l_sig_args];
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] - 2;
+    sig_name[sts$v_severity] = sts$k_severe;
+    callg(.sig, lib$signal);
+    sig[chf$l_sig_args] = .save_args;
+
+    !
+    ! Set the return status to be the same as the signalled condition
+    !
+    $setstatus(mech, .sig_name);
+
+    !
+    ! Set up to unwind the stack. (If the unwind fails, which it
+    ! shouldn't, then we'll return ss$_resignal and let someone else
+    ! worry).
+    !
+    setunwind();
+    ss$_resignal
+
+    end;
+
+%sbttl 'exit handler'
+routine nm$exithand (xsts : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! This is the exit handler. If it gets called, it means that
+! the image has somehow died without calling the `disconnect'
+! entry point.
+!
+! Formal parameters:
+!
+! xsts.rlc.r = exit status
+!
+! Routine value:
+!
+! always true
+!
+!--
+
+    begin
+
+    !
+    ! If the control file is still open, then
+    ! we're being abnormally terminated. Delete file.
+    !
+    if .file_open
+    then
+	begin
+	file_open = false;
+	nm$close_ctl_file(true);
+	end;
+
+    !
+    ! Tell extension image we're exiting
+    !
+    if .nm$nmx[nmx$a_finish] neq 0 
+    then 
+	(.nm$nmx[nmx$a_finish])(.send_status,  .text_size, .addr_count);
+
+    !
+    ! Look happy
+    !
+    true
+
+    end;
+
+end
+eludom

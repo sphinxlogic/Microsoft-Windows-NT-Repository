@@ -1,0 +1,1150 @@
+
+
+
+                                  FLECS:
+
+                               USER'S MANUAL
+
+
+
+
+
+                       University of Oregon Edition
+
+              This manual corresponds to version 22 of Flecs.
+                         (Revised October 1, 1975)
+
+
+
+
+
+
+
+
+
+
+        Author:         Terry Beyer
+
+        Address:        Computing Center
+                        University of Oregon
+                        Eugene, Oregon 97403
+
+        Telephone:      (503) 686-4416
+
+        Published by:   Department of Computer Science
+                        University of Oregon
+
+
+
+
+
+
+          Neither the author nor the University  of  Oregon  shall  be
+     liable  for any direct or indirect, incidental, consequential, or
+     specific damages of any kind or from any cause whatsoever arising
+     out of or in any way connected with the use or performance of the
+     Flecs system or its documentation.
+
+          This manual is in the public domain and may  be  altered  or
+     reproduced without the explicit permission of the author.  Please
+     communicate any errors, ambiguities, or omissions to the author.
+
+
+
+
+     ACKNOWLEDGEMENTS
+
+          The author is indebted to many people for assistance of  one
+     form  or another during the course of this project.  Mike Dunlap,
+     Kevin McCoy, and Peter Moulton deserve special  thanks  for  many
+     helpful    and    fruitful    discussions,    suggestions,    and
+     encouragements.  I am grateful to my wife, Kathleen, who assisted
+     in many ways including shielding me from the harsh reality of JCL
+     and  360  Assembly  Language.   Text  preparation  was   adroitly
+     accomplished  by  Marva  VanNatta,  Allyene  Tom, Diane Lane, and
+     Kathleen Beyer.
+
+          This project was initiated  while  the  author  was  working
+     under  a grant provided by the Office of Scientific and Scholarly
+     Research of the Graduate School  at  the  University  of  Oregon.
+     Work  on  the  project  has  also  been  supported in part by the
+     Department of Computer Science and by the Computing Center of the
+     University of Oregon
+
+     flecs user's manual                                        Page 0
+
+
+     1.0 INTRODUCTION
+
+          Fortran  contains  four  basic  mechanisms  for  controlling
+     program  flow:   CALL/RETURN, IF, DO, and various forms of the GO
+     TO.
+
+          Flecs  is  a  language  extension  of  Fortran   which   has
+     additional  control  mechanisms.  These mechanisms make it easier
+     to write Fortran by  eliminating  much  of  the  clerical  detail
+     associated  with  constructing  Fortran  programs.  Flecs is also
+     easier to read and comprehend than Fortran.
+
+          This  manual  is  intended  to  be  a  brief  but   complete
+     introduction  to  Flecs.   It  is  not intended to be a primer on
+     Flecs or structured programming.  The reader is assumed to  be  a
+     knowledgeable Fortran programmer.
+
+          For programmers to whom transportability of  their  programs
+     is a concern, it should be noted that the Flecs translator source
+     code is in the public domain and is made freely  available.   The
+     translator was written with transportability in mind and requires
+     little effort  to  move  from  one  machine  to  another.   Those
+     interested  in moving Flecs to another machine or in having their
+     own copy of Flecs should contact the author.
+
+          The  manner  of  implementation  of  Flecs  is  that  of   a
+     preprocessor   which   translates  Flecs  programs  into  Fortran
+     programs.  The resulting Fortran program is then processed in the
+     usual  way.   The  translator  also  produces  a nicely formatted
+     listing of the  Flecs  program  which  graphically  presents  the
+     control structures used.
+
+
+     2.0 RETENTION OF FORTRAN FEATURES
+
+          The Flecs translator examines each statement  in  the  Flecs
+     program  to see if it is an EXTENDED STATEMENT (a statement valid
+     in Flecs but not in Fortran).  If it is recognized as an extended
+     statement,  the  translator  generates  the corresponding Fortran
+     statements.  If, however, the statement is not recognized  as  an
+     extended  statement,  the translator assumes it must be a Fortran
+     statement and passes it through unaltered.  Thus THE FLECS SYSTEM
+     DOES  NOT  RESTRICT  THE  USE  OF  FORTRAN  STATEMENTS, it simply
+     provides a set of additional statements which may  be  used.   In
+     particular,  GO  TOs, arithmatic IFs, CALLs, arithmetic statement
+     functions, and any other Fortran statements,  compiler  dependent
+     or otherwise, may be used in a Flecs program.
+
+     flecs user's manual                                        Page 1
+
+
+     3.0 CORRELATION OF FLECS AND FORTRAN SOURCES
+
+          One difficulty of preprocessor systems like  Flecs  is  that
+     error  messages  which  come  from  the  Fortran compiler must be
+     related  back  to  the  original  Flecs  source  program.    This
+     difficulty  is  reduced by allowing the placement of LINE NUMBERS
+     (not to be confused with  Fortran  statement  numbers)  on  Flecs
+     source statements.  These line numbers then appear on the listing
+     and in the Fortran source.  When an error message is produced  by
+     either  the  Flecs  translator  or  the Fortran compiler, it will
+     include the line number of the offending Flecs source  statement,
+     making it easy to locate on the listing.
+
+          If the programmer chooses not to supply  line  numbers,  the
+     translator  will  assign sequential numbers and place them on the
+     listing and  in  the  Fortran  source.   Thus,  errors  from  the
+     compiler may still be related to the Flecs program.
+
+          Details of line numbering  are  machine  dependent  and  are
+     given  in  section  10.   On most card oriented systems, the line
+     numbers may be placed in collumns  76-80  of  each  card.   Other
+     systems may have special provisions for line numbers.
+
+          The beginning Flecs  programmer  should  discover  and  make
+     special  note  of  the details of the mechanisms by which Fortran
+     compiler error messages may be traced back to the  Flecs  listing
+     on the system being used.
+
+
+     4.0 STRUCTURED STATEMENTS
+
+          A basic notion of Flecs is that of the STRUCTURED  STATEMENT
+     which  consists  of  a CONTROL PHRASE and its SCOPE.  Fortran has
+     two structured statements,  the  logical  IF  and  the  DO.   The
+     following examples illustrate this terminology:
+
+        <structured statement> ::= <control phrase> <scope>
+
+        <control phrase> ::= <keyword> <specification>
+
+        <keyword> ::= <DO>, <IF>
+
+        <specification> ::= <(X .EQ.  Y)>
+
+        <scope> ::= <U=V+W>
+
+        <keword> <specification>
+        DO       30 I=1,N       >control phrase
+                 A(I) = B(I)+C
+                                >scope          >structured statement
+                 L(I)=I-K(I)
+     30          CONTINUE
+     Note that each structured statement consists of a control  phrase
+     which  controls  the execution of a set of one or more statements
+     called its scope.  Also note that each control phrase consists of
+
+     flecs user's manual                                        Page 2
+
+
+     a   KEYWORD   plus   some   additional   information  called  the
+     SPECIFICATION.  A statement which does not consist of  a  control
+     phrase and a scope is said to be a SIMPLE STATEMENT.  Examples of
+     simple statements are assignment  statements,  subroutine  CALLs,
+     arithmatic IFs, and GO TOs.
+
+          The problem with the Fortran logical IF  statement  is  that
+     its  scope  may  contain  only  a  single simple statement.  This
+     restriction is eliminated in the case of the DO, but at the  cost
+     of  clerical  detail  (having  to stop thinking about the problem
+     while a statement number is invented).  Note  also  that  the  IF
+     specification   is   enclosed   in   parentheses   while  the  DO
+     specification is not.
+
+          In Flecs there is a uniform convention for  writing  control
+     phrases  and  indicating  their  scopes.   To  write a structured
+     statement, the keyword is placed on a line beginning in collumn 7
+     followed  by  its  specification  enclosed  in  parentheses.  The
+     remainder of the line is left blank.  The  statements  comprising
+     the  scope  are placed on successive lines.  The end of the scope
+     is indicated by a  FIN  statement.   This  creates  a  MULTI-LINE
+     STRUCTURED STATEMENT.
+
+     Examples of multi-line structured statements:
+
+        IF (X .EQ.  Y)
+        .  U = V+W
+        .  R = S+T
+        ...FIN
+
+        DO (I = 1,N)
+        .  A(I) = B(I)+C
+        .  C = C*2.14 - 3.14
+        ...FIN
+
+     Note:  the statement number  has  been  eliminated  from  the  DO
+     specification  since  it  is  no longer necessary, the end of the
+     loop being specified by the FIN.
+
+
+     Nesting of structured statements is permitted to any depth.
+
+     Example of nested structured statements:
+
+        IF (X .EQ.  Y)
+        .  U = V+W
+        .  DO   (I = 1,N)
+        .  .  A(I) = B(I)+C
+        .  .  C = C*2.14 - 3.14
+        .  ...FIN
+        .  R = S+T
+        ...FIN
+
+     flecs user's manual                                        Page 3
+
+
+          When the scope of a control  phrase  consists  of  a  single
+     SIMPLE  statement,  it  may  be  placed  on  the same line as the
+     control phrase and the FIN may be dispensed with.  This creates a
+     ONE-LINE STRUCTURED STATEMENT.
+
+     Examples of one-line structured statements:
+
+        IF(X .EQ.  Y)   U = V+W
+
+        DO (I = 1,N)    A(I) = B(I)+C
+
+
+          Since each control phrase must begin on a new  line,  it  is
+     not  possible to have a one-line structured statement whose scope
+     consists of a structured statement.
+
+     Example of an invalid construction:
+
+        IF (X .EQ.  Y) DO (I = 1,N) A(I) = B(I)+C
+
+     To achieve the above desired effect, the IF must be written in  a
+     multi-line form.
+
+     Example of a valid construction:
+
+        IF (X .EQ.  Y)
+        .  DO (I = 1,N) A(I) = B(I)+C
+        ...FIN
+
+          In addition to IF and  DO,  Flecs  provides  several  useful
+     structured  statements  not  available in Fortran.  After a brief
+     excursion into the subject of indentation, we will present  these
+     additional structures.
+
+     5.0 INDENTATION, LINES AND THE LISTING
+
+          In the examples of multi-line structured  statements  above,
+     the  statements in the scope were indented and an "L" shaped line
+     was drawn connecting the keyword of the  control  phrase  to  the
+     matching  FIN.   The resulting graphic effect helps to reveal the
+     structure of the program.  The rules for  using  indentation  and
+     FINs  are  quite  simple  and  uniform.   The control phrase of a
+     multi-line structured statement always causes indentation of  the
+     statements  that  follow.   Nothing  else  causes indentation.  A
+     level of indentation (i.  e.  a scope) is always terminated  with
+     a FIN.  Nothing else terminates a level of indentation.
+
+          When writing a Flecs program on paper the programmer  should
+     adopt  the  indentation and line drawing conventions shown below.
+     When preparing a Flecs source program in machine  readable  form,
+     however,  each  statement  should  begin  in collumn 7.  When the
+     Flecs translator produces the listing, it  will  reintroduce  the
+     correct  indentation and produce the corresponding lines.  If the
+     programmer attempts to introduce his own indentation with the use
+     of  leading blanks, the program will be translated correctly, but
+
+     flecs user's manual                                        Page 4
+
+
+     the resulting listing will be improperly indented.
+
+     Example of indentation:
+
+        1.      Program as written on paper by programmer
+
+                IF (X .EQ.  Y)
+                .  U=V+W
+                .  DO (I=1,N)
+                .  .  A(I)=B(I)+C
+                .  .  C=C*2.14-3.14
+                .  ...FIN
+                .  R=S+T
+                ....FIN
+
+        2.      Program as entered into computer
+
+                IF (X.EQ.Y)
+                U = V+W
+                DO (I = 1,N)
+                A(I) = B(I)+C
+                C = C*2.14-3.14
+                FIN
+        3.      Program as listed by Flecs translator.
+
+                IF (X.EQ.Y)
+                .  U = V+W
+                .  DO (I = 1,N)
+                .  .  A(I) = B(I)+C
+                .  .  C = C*2.14-3.14
+                .  ...FIN
+                .  R = S+T
+                ...FIN
+
+          The correctly  indented  listing  is  a  tremendous  aid  in
+     reading  and  working  with  programs.   Except  for the dots and
+     spaces used for indentation, the lines are listed exactly as they
+     appear  in  the source program.  That is, the internal spacing of
+     collumns 7-72 is preserved.  There is seldom any need to refer to
+     a straight listing of the unindented source.
+
+          Comment lines are  treated  in  the  following  way  on  the
+     listing  to  prevent  interruption of the dotted lines indicating
+     scope.  A comment line which contains only blanks in  collumns  2
+     through  6  will be listed with collumns 7 through 72 indented at
+     the then-current level of indentation as  if  the  line  were  an
+     executable   statement.    If,  however  one  or  more  non-blank
+     characters appear in collumns 2 through 6 of a comment  card,  it
+     will  be listed without indentation.  Blank lines may be inserted
+     in the source and will be treated as empty comments.
+
+     flecs user's manual                                        Page 5
+
+
+     6.0 CONTROL STRUCTURES
+
+          The complete set of control structures provided by Flecs  is
+     given  below.   The  symbol  l  is  used  to  indicate  a logical
+     expression.  The symbol s is used to indicate a scope of  one  or
+     more  statements.   Some  statements,  as indicated below, do not
+     have a one-line construction.
+
+     6.1 Decision Structures
+
+          Decision structures are structured statements which  control
+     the  execution  of  their  scopes  on  the  basis  of  a  logical
+     expression or test.
+
+     6.1.1 IF
+
+          Description:  the IF statement causes a  logical  expression
+     to  be  evaluated.   If  the value is true, the scope is executed
+     once and control passes to the next statement.  If the  value  is
+     false,  control  passes  directly  to  the next statement without
+     execution of the scope.
+
+     General Form:
+
+        IF (l) s
+
+     Examples:
+
+        IF (X.EQ.Y) U = V+W
+
+        IF (T.GT.0 .AND.  S.LT.R)
+        .  I = I+1
+        .  Z= 0.1
+        ...FIN
+
+     6.1.2 UNLESS
+
+          Description:  "UNLESS (l)"  is  functionally  equivalent  to
+     "IF(.NOT.(l))", but is more convenient in some contexts.
+
+     General Form:
+
+        UNLESS (l) s
+
+     Examples:
+
+        UNLESS (X.NE.Y) U = V+W
+
+        UNLESS (T.LE.0 .OR.  S.GE.R)
+        .  I = I+1
+        .  Z = 0.1
+        ...FIN
+
+     flecs user's manual                                        Page 6
+
+
+     6.1.3 WHEN...ELSE
+
+          Description:  The WHEN...ELSE statements correspond  to  the
+     IF...THEN...ELSE  statements  of  ALGOL,  PL/1,  PASCAL, etc.  In
+     Flecs, both the WHEN and the ELSE act  as  structured  statements
+     although  only  the WHEN has a specification.  The ELSE statement
+     must immediately follow the scope of the when.  The specifier  of
+     the  WHEN  is  evaluated  and  exactly  one  of the two scopes is
+     executed.  The scope of the WHEN statement  is  executed  if  the
+     expression  is  true  and  the  scope  of  the  ELSE statement is
+     executed if the expression is false.   In  either  case,  control
+     then passes to the next statement following the ELSE statement.
+
+     General Form:
+
+        WHEN (l) s1
+        ELSE s2
+
+     Examples:
+
+        WHEN (X.EQ.Y) U = V+W
+        ELSE U = V-W
+
+        WHEN (X.EQ.Y)
+        .  U = V+W
+        .  T = T+1.5
+        ...FIN
+        ELSE U = V-W
+
+        WHEN (X.EQ.Y) U = V+W
+        ELSE
+        .  U = V-W
+        .  T = T+1.5
+        ...FIN
+
+        WHEN (X.EQ.Y)
+        .  U = V+W
+        .  T = T-1.5
+        ...FIN
+        ELSE
+        .  U = V-W
+        .  T = T+1.5
+        ...FIN
+
+          Note:  WHEN and ELSE always come as a  pair  of  statements,
+     never separately.  Either the WHEN or the ELSE or both may assume
+     the multi-line form.  ELSE is considered to be a control  phrase,
+     hence cannot be placed on the same line as the WHEN.  Thus:
+     "WHEN (l) s1 ELSE s2 " is NOT valid.
+
+     flecs user's manual                                        Page 7
+
+
+     6.1.4 CONDITIONAL
+
+          Description:  The CONDITIONAL statement is based on the LISP
+     conditional.   A  list of logical expressions is evaluated one by
+     one until the first expression to be true  is  encountered.   The
+     scope  corresponding  to that expression is executed, and control
+     then passes to the first statement following the CONDITIONAL.  If
+     all  expressions are false, no scope is executed.  (See, however,
+     the note about OTHERWISE below.)
+
+     General Form:
+
+        CONDITIONAL
+        .  (l1) s1
+        .  (l2) s2
+        .  .  .
+        .  .  .
+        .  (ln) sn
+        ...FIN
+
+     Examples:
+
+        CONDITIONAL
+        .  (X.LT.-5.0) U = U+W
+        .  (X.LE.1.0) U = U+W+Z
+        .  (X.LE.10.5) U = U-Z
+        ...FIN
+
+        CONDITIONAL
+        .  (A.EQ.B) Z = 1.0
+        .  (A.LE.C)
+        .  .  Y = 2.0
+        .  .  Z = 3.4
+        .  ...FIN
+        .  (A.GT.C .AND.  A.LT.B) Z = 6.2
+        .  (OTHERWISE) Z = 0.0
+        ...FIN
+
+
+          Notes:  The CONDITIONAL itself does not possess  a  one-line
+     form.   However,  each  "(li)  si  "  is  treated as a structured
+     statement and may be in one-line or multi-line form.
+
+          The reserved word OTHERWISE represents a catchall condition.
+     that  is,  "(OTHERWISE) sn " is equivalent to "(.TRUE.) sn " in a
+     CONDITIONAL statement.
+
+     flecs user's manual                                        Page 8
+
+
+     6.1.5 SELECT
+
+          Description:   the  SELECT  statement  is  similar  to   the
+     CONDITIONAL  but is more specialized.  It allows an expression to
+     be  tested  for  equality  to  each  expression  in  a  list   of
+     expressions.   When the first matching expression is encountered,
+     a corresponding  scope  is  executed  and  the  SELECT  statement
+     terminates.   In  the  description  below,  e, e1,...en represent
+     arbitrary but compatible expressions.   Any  type  of  expression
+     (integer, real, complex,...) is allowed as long as the underlying
+     Fortran system allows such expressions to  be  compared  with  an
+     .EQ.  or .NE.  operator.
+
+     General Form:
+
+        SELECT (e)
+        .  (e1) s1
+        .  (e2) s2
+        .  .  .
+        .  .  .
+        .  (en) sn
+        ...FIN
+
+     Example:
+
+        SELECT (OPCODE(PC))
+        .  (JUMP) PC = AD
+        .  (ADD)
+        .  .  A = A+B
+        .  .  PC = PC+1
+        .  ...FIN
+        .  (SKIP) PC = PC+2
+        .  (STOP) CALL STOPCD
+        ...FIN
+
+
+          Notes:  As in the case of CONDITIONAL, at most one of the si
+     will be executed.
+
+          The  catchall  OTHERWISE  may  also  be  used  in  a  SELECT
+     statement.   Thus  "(OTHERWISE)  sn  " is equivalent to "(e) sn "
+     within a "SELECT (e)" statement.
+
+          The expression "e" is reevaluated for each comparison in the
+     list, thus lengthy, time consuming, or irreproducible expressions
+     should be precomputed, assigned to a variable, and  the  variable
+     used in the specification portion of the SELECT statement.
+
+     flecs user's manual                                        Page 9
+
+
+     6.2 LOOP Structures
+
+          The structured statements described below all have  a  scope
+     which  is  executed  a  variable  number  of  times  depending on
+     specified conditions.
+
+          Of the five loops presented the  most  useful  are  the  DO,
+     WHILE,  and  and  REPEAT  UNTIL  loops.   To avoid confusion, the
+     REPEAT WHILE and UNTIL loops should initially be ignored.
+
+     6.2.1 DO
+
+          Description:  the Flecs DO loop is functionally identical to
+     the Fortran DO loop.  The only differences are syntactic.  In the
+     Flecs DO loop, the  statement  number  is  omitted  from  the  DO
+     statement,   the   incrementation   parameters  are  enclosed  in
+     parentheses, and the scope is indicated by either the one-line or
+     multi-line   convention.   The  symbol  i  represents  any  legal
+     incrementation specification.
+
+     General Form:
+
+        DO (i) s
+
+     Examples:
+
+        DO (I = 1,N) A(I) = 0.0
+
+        DO (J = 3,K,3)
+        .  B(J) = B(J-1)*B(J-2)
+        .  C(J) = SIN(B(J))
+        ...FIN
+
+     6.2.2 WHILE
+
+          Description:   the  WHILE  loop  causes  its  scope  to   be
+     repeatedly  executed  while  a  specified condition is true.  The
+     condition is checked prior to the first execution of  the  scope,
+     thus  if  the  condition is initially false the scope will not be
+     executed at all.
+
+     General Form:
+
+        WHILE (l) s
+
+     Examples:
+
+        WHILE (X.LT.A(I)) I = I+1
+
+        WHILE (P.NE.0)
+        .  VAL(P) = VAL(P)+1
+        .  P = LINK(P)
+        ...FIN
+
+
+     flecs user's manual                                       Page 10
+
+
+     6.2.3 REPEAT WHILE
+
+          Description:  By using the REPEAT  verb,  the  test  can  be
+     logically  moved  to  the end of the loop.  The REPEAT WHILE loop
+     causes its scope to be  repeatedly  executed  while  a  specified
+     condition remains true.  The condition is not checked until after
+     the first execution of the scope.  Thus the scope will always  be
+     executed  at  least  once  and the condition indicates under what
+     conditions the scope is to be repeated.  Note:  "REPEAT WHILE(l)"
+     is functionally equivalent to "REPEAT UNTIL(.NOT.(l))".
+
+     General Form:
+
+        REPEAT WHILE (l) s
+
+     Examples:
+
+        REPEAT WHILE(N.EQ.M(I)) I = I+1
+
+        REPEAT WHILE (LINK(Q).NE.0)
+        .  R = LINK(Q)
+        .  LINK(Q) = P
+        .  P = Q        .  Q = R
+        ...FIN
+
+     6.2.4 UNTIL
+
+          Description:   The  UNTIL  loop  causes  its  scope  to   be
+     repeatedly  executed  until  a  specified condition becomes true.
+     The condition is checked prior to  the  first  execution  of  the
+     scope,  thus  if  the condition is initially true, the scope will
+     not be executed at all.  Note that "UNTIL  (l)"  is  functionally
+     equivalent to "WHILE (.NOT.(l))".
+
+     General Form:
+
+        UNTIL (l) s
+
+     Examples:
+
+        UNTIL (X.EQ.A(I)) I = I+1
+
+        UNTIL (P.EQ.0)
+        .  VAL(P) = VAL(P)+1
+        .  P = LINK(P)
+        ...FIN
+
+
+     6.2.5 REPEAT UNTIL
+
+          Description:  By using the REPEAT  verb,  the  test  can  be
+     logically  moved  to  the end of the loop.  The REPEAT UNTIL loop
+     cauese its scope to be  repeatedly  executed  until  a  specified
+     condition becomes true.  The condition is not checked until after
+     the first execution of the scope.  Thus the scope will always  be
+
+     flecs user's manual                                       Page 11
+
+
+     executed  at  least  once  and the condition indicates under what
+     circumstances the REPETITION of the scope is to be terminated.
+
+     General Form:
+
+        REPEAT UNTIL (l) s
+
+     Examples:
+
+        REPEAT UNTIL (N.EQ.M(I)) I = I+1
+
+        REPEAT UNTIL (LINK(Q).EQ.0)
+        .  R = LINK(Q)
+        .  LINK(Q) = P
+        .  P = Q
+        .  Q = R
+        ...FIN
+
+     7.0 INTERNAL PROCEDURES
+
+          In Flecs  a  sequence  of  statements  may  be  declared  an
+     INTERNAL  PROCEDURE  and given a name.  The procedure may then be
+     invoked from any point in the program by simply giving its name.
+
+          PROCEDURE NAMES may be any string of  letters,  digits,  and
+     hyphens   (i.e.    minus  signs)  beginning  with  a  letter  and
+     containing at least one hyphen.  Internal blanks are not allowed.
+     The  only  restriction on the length of a name is that it may not
+     be continued onto a second line.
+
+     Examples of valid internal procedure names:
+
+        INITIALIZE-ARRAYS
+        GIVE-WARNING
+        SORT-INTO-DESCENDING-ORDER
+        INITIATE-PHASE-3
+
+
+          A  PROCEDURE  DECLARATION  consists  of  the  keyword   "TO"
+     followed  by  the  procedure  name  and  its  scope.   The set of
+     statements comprising the procedure is called its scope.  If  the
+     scope  consists  of a single simple statement it may be placed on
+     the same line as the  "TO"  and  procedure  name,  otherwise  the
+     statements  of  the  scope  are placed on the following lines and
+     terminated with a FIN statement.  These rules  are  analogous  to
+     the rules for forming the scope of a structured statement.
+
+     General Form of procedure declaration:
+
+        TO procedure-name
+
+
+     flecs user's manual                                       Page 12
+
+
+     Examples of procedure declarations:
+
+        TO RESET-POINTER P = 0
+
+        TO DO-NOTHING CONTINUE
+
+        TO SUMMARIZE-FILE
+        .  INITIALIZE-SUMMARY
+        .  OPEN-FILE
+        .  REPEAT UNTIL (EOF)
+        .  .  ATTEMPT-TO-READ-RECORD
+        .  .  WHEN (EOF) CLOSE-FILE
+        .  .  ELSE UPDATE-SUMMARY
+        .  ...FIN
+        .  OUTPUT-SUMMARY
+        ...FIN
+
+          An  INTERNAL  PROCEDURE  REFERENCE  is  a   procedure   name
+     appearing  where  an  executable statement would be expected.  In
+     fact an internal procedure  reference  is  an  executable  simple
+     statement  and  thus  may  be  used  in the scope of a structured
+     statement as in the last example above.  When control  reaches  a
+     procedure reference during execution of a Flecs program, a return
+     address  is  saved  and  control  is  transferred  to  the  first
+     statement  in  the  scope of the procedure.  When control reaches
+     the end  of  the  scope,  control  is  transferred  back  to  the
+     statement logically following the procedure reference.
+
+          A typical Flecs program or subprogram consists of a sequence
+     of  Fortran declarations (e.g.  INTEGER, DIMENSION, COMMON, etc.)
+     followed by a sequence of executable statements called  the  body
+     of   the   program  followed  by  the  Flecs  internal  procedure
+     declarations, if any, and finally the END statement.
+
+          Here is a complete (but uninteresting) Flecs  program  which
+     illustrates the placement of the procedure declarations.
+
+     0010 C INTERACTIVE PROGRAM FOR PDP-11 TO COMPUTE X**2.
+     0020 C 0 IS USED AS A SENTINEL VALUE TO TERMINATE EXECUTION.
+     0030               REAL X,XSQ
+     0040               REPEAT UNTIL (X.EQ.0)
+     0050               .  GET-A-VALUE-OF-X
+     0060               .  IF (X.NE.0)
+     0070               .  .  COMPUTE-RESULT
+     0080               .  .  TYPE-RESULT
+     0090               .  ...FIN
+     0100               ...FIN
+     0110               CALL EXIT
+
+         ----------------------------------------------
+
+     0120               TO GET-A-VALUE-OF-X
+     0130               .  TYPE 10
+     0140 10            .  FORMAT (' X = ',$)
+     0150               .  ACCEPT 20,X
+
+     flecs user's manual                                       Page 13
+
+
+     0160 20            .  FORMAT (F)
+     0170               ...FIN
+
+        ----------------------------------------------
+
+     0180               TO COMPUTE-RESULT XSQ = X*X
+
+        ----------------------------------------------
+
+     0190               TO TYPE-RESULT
+     0200               .  TYPE 30, XSQ
+     0210 30            .  FORMAT(' X-SQUARED = ',F7.2)
+     0220               ...FIN
+     0230               END
+
+     flecs user's manual                                       Page 14
+
+
+     Notes concerning internal procedures:
+
+     1.  All internal procedure declarations must be placed at the end
+     of  the  program just prior to the END statement.  The appearence
+     of the first "TO" statement terminates the body of  the  program.
+     The  translator expects to see nothing but procedure declarations
+     form that point on.
+
+     2.  The order of the declarations is not important.  Alphabetical
+     by name is an excellent order for programs with a large number of
+     procedures.
+
+     3.  Procedure declarations may not be nested.   In  other  words,
+     the scope of a procedure may not contain a procedure declaration.
+     It may of course contain executable procedure references.
+
+     4.  Any procedure may contain references to any other  procedures
+     (excluding itself).
+
+     5.  Dynamic recursion of procedure referencing is not permitted.
+
+     6.  All program variables within a main or subprogram are  global
+     and  are  accessable to the statements in all procedures declared
+     within that same main or sub program.
+
+     7.   There  is  no  formal  mechanism  for  defining  or  passing
+     parameters  to  an internal procedure.  When parameter passing is
+     needed, the Fortran function or subroutine  subprogram  mechanism
+     may  be  used  or  the  programmer  may  invent his own parameter
+     passing  methods  using  the  global  nature  of  variables  over
+     internal procedures.
+
+     8.  The Flecs translator separates procedure declarations on  the
+     listing by dashed lines as shown in the preceding example.
+
+     flecs user's manual                                       Page 15
+
+
+     8.0 RESTRICTIONS AND NOTES
+
+          If Flecs were implemented by  a  nice  intelligent  compiler
+     this section would be much shorter.  Currently, however, Flecs is
+     implemented by a sturdy but naive  translator.   Thus  the  Flecs
+     programmer must observe the following restrictions.
+
+     1.  Flecs must invent many  statement  numbers  in  creating  the
+     Fortran  program.   It  does  so by beginning with a large number
+     (usually 99999) and generating successively smaller numbers as it
+     needs  them.   Do not use a number which will be generated by the
+     translator.  A good rule of thumb  is  to  AVOID  USING  5  DIGIT
+     STATEMENT NUMBERS.
+
+     2.  The Flecs translator must generate  integer  variable  names.
+     It does so by using names of the form "Innnnn" where nnnnn is a 5
+     digit number related to a generated statement number.  DO NOT USE
+     VARIABLES  OF  THE  FORM  Innnnn  AND  AVOID  CAUSING  THEM TO BE
+     DECLARED OTHER  THAN  INTEGERS.   For  example,  the  declaration
+     "IMPLICIT  REAL  (A-Z)""  leads  to  trouble.  Try "IMPLICIT REAL
+     (A-H,J-Z)" instead.
+
+     3.  The translator does not recognize continuation lines  in  the
+     source  file.  Thus Fortran statements may be continued since the
+     statement and  its  continuations  will  be  passed  through  the
+     translator  without  alteration  (see  section  2.).  However, AN
+     EXTENDED FLECS STATEMENT WHICH REQUIRES TRANSLATION  MAY  NOT  BE
+     CONTINUED.   The  reasons  one  might  wish  to  continue a Flecs
+     statement are:  1) It is  a  structured  statement  or  procedure
+     declaration with a one statement scope too long to fit on a line;
+     2) it contains an excessively long specification portion;  or  3)
+     both  of  the  above.   Problem  1 can be avoided by going to the
+     multi-line form.  Frequently problem 2 can be  avoided  when  the
+     specification   is   an  expression  (logical  or  otherwise)  by
+     assigning the expression to a variable in a  preceding  statement
+     and then using the variable as the specification.
+
+     4.  BLANKS ARE MEANINGFUL SEPARATORS IN FLECS STATEMENTS:  DO NOT
+     PUT  THEM  IN  DUMB  PLACES like the middle of identifiers or key
+     words and DO use them to separate distinct words like REPEAT  and
+     UNTIL.
+
+     5.  Let Flecs  indent  the  listing.   START  ALL  STATEMENTS  IN
+     COLLUMN  7  and the listing will always reveal the true structure
+     of the program (as understood by the translator, of course).
+
+     6.  As far as the translator is concerned, FORMAT statements  are
+     executable  Fortran statements since Flecs doesn't recognize them
+     as extended Flecs statements.  Thus ONLY PLACE FORMAT  STATEMENTS
+     WHERE  AN  EXECUTABLE  FORTRAN STATEMENT WOULD BE ACCEPTABLE.  Do
+     not put them  between  the  end  of  a  WHEN  statement  and  the
+     beginning  of  an  ELSE  statement.   Do  not  put  them  between
+     procedure declarations.
+
+
+     flecs user's manual                                       Page 16
+
+
+     Incorrect examples:                Correct examples:
+
+        WHEN (FLAG) WRITE(3,30)         WHEN (FLAG)
+     30 FORMAT(7H TITLE:)                       .  WRITE(3,30)
+        ELSE LINE = LINE+1              30      .  FORMAT(7H TITLE:)
+                                                ...FIN
+                                                ELSE LINE = LINE+1
+
+        TO WRITE-HEADER                         TO WRITE-HEADER
+        .  PAGE = PAGE+1                        .  PAGE = PAGE+1
+        .  WRITE(3,40)H,PAGE                    .  WRITE(3,40)H,PAGE
+        ...FIN                          40      .  FORMAT(70A1,I3)
+     40 FORMAT(70A1,I3)                         ...FIN
+
+     7.  The  translator,  being  simple-minded,  recognizes  extended
+     Flecs  statements by the process of scanning the first identifier
+     on the line.  If the identifier is one of the Flecs keywords  IF,
+     WHEN,  UNLESS,  FIN,  etc.,  the  line  is  assumed to be a Flecs
+     statement and is treated as such.  Thus the  FLECS  KEYWORDS  ARE
+     RESERVED  AND  MAY  NOT  BE  USED  AS VARIABLE NAMES.  In case of
+     necessity, a variable name, like WHEN, may be  slipped  past  the
+     translator  by  embedding  a  blank within it.  Thus "WH EN" will
+     look like "WH" followed by "EN" to the translator which is  blank
+     sensitive, but like "WHEN" to the compiler which ignores blanks.
+
+     8.  In scanning a  parenthesized  specification,  the  translator
+     scans  from  left  to right to find the parenthesis which matches
+     the  initial  left  parenthesis  of   the   specification.    The
+     translator,  however, is ignorant of Fortran syntax including the
+     concept  of  Hollerith  constants  and   will   treat   Hollerith
+     parentheses   as  syntactic  parentheses.   Thus,  AVOID  PLACING
+     HOLLERITH CONSTANTS  CONTAINING  UNBALANCED  PARENTHESES  WHITHIN
+     SPECIFICATIONS.    If  necessary,  assign  such  constants  to  a
+     variable, using a DATA or assignment  statement,  and  place  the
+     variable in the specification.
+
+     Incorrect example:                 Correct example
+
+     IF (J.EQ.'(')                      LP = '('
+                                        IF(J.EQ.LP)
+
+     9.  The Flecs translator will not supply the statements necessary
+     to  cause appropriate termination of main and sub-programs.  Thus
+     it is NECESSARY TO INCLUDE THE APPROPRIATE RETURN, STOP, OR  CALL
+     EXIT   STATEMENTS   PRIOR   TO   THE   FIRST  INTERNAL  PROCEDURE
+     DECLARATION.  Failure to do so will result  in  control  entering
+     the  scope  of  the first procedure after elaving the body of the
+     program.  Do not place  such  statements  between  the  procedure
+     declaration and the END statement.
+
+     9.0 ERRORS
+
+          This section provides  a  framework  for  understanding  the
+     error  handling mechanisms of version 22 of the Flecs Translator.
+     The system described below is at an early point in evolution, but
+
+     flecs user's manual                                       Page 17
+
+
+     has proven to be quite workable.
+
+          The Flecs translator examines a Flecs program on a  line  by
+     line basis.  As each line is encountered it is first subjected to
+     a limited SYNTAX analysis followed by a CONTEXT analysis.  Errors
+     may  be  detected  during  either  of these analyses.  It is also
+     possible to errors to go undetected by the translator.
+
+     9.1 Syntax Errors
+
+          When a syntax  error  is  detected  by  the  translator,  it
+     IGNORES  THE  STATEMENT.  On the Flecs listing the line number of
+     the statement is  overprinted  with  -'s  to  indicate  that  the
+     statement  has  been  ignored.  The nature of the syntax error is
+     given in a message on the following line.
+
+          The fact that a statement has been ignored may,  of  course,
+     cause  some context errors in later statements.  For example, the
+     control  phrase  "WHEN  (X(I).LT.(3+4)"  has  a   missing   right
+     parenthesis.   This  statement  will  be  ignored,  causing  as a
+     minimum the following ELSE to be out of context.  The  programmer
+     should  of  course  be aware of such effects.  More is said about
+     them in the next section.
+
+     9.2 Context Errors
+
+          If a statement successfully passes the syntax  analysis,  it
+     is  checked to see if it is in the appropriate context within the
+     program.  For example an ELSE must appear following  a  WHEN  and
+     nowhere  else.   If  an  ELSE  does not appear at the appropriate
+     point or if it appears at some other point, then a context  error
+     has  occurred.  A frequent source of context error in the initial
+     stages of developement of a program comes  from  miscounting  the
+     number of FIN's needed at some point in the program.
+
+          Whith the exception of excess FIN's which do not  match  any
+     preceding  control  phrase  and  are  ignored  (as  indicated  by
+     overprinting the line number), all  context  errors  are  treated
+     with a uniform strategy.  When an out-of-context source statement
+     is encountered, the translator generates a "STATEMENT(S)  NEEDED"
+     message.   It then invents and processes a sequence of statements
+     which, if they had been included at that point  in  the  program.
+     would  have  placed  the  original  source statement in a correct
+     context.  A message is given for each  such  statement  invented.
+     The  original  source  statement  is  then processed in the newly
+     created context.
+
+          By inventing statements the  translator  is  not  trying  to
+     patch  up the program so that it will run correctly, it is simply
+     trying to adjust the local context so that  the  original  source
+     statement  and the statements which follow would be acceptable on
+     a context basis.  As in the case of context errors  generated  by
+     ignoring  a syntactically incorrect statement, such an adjustment
+     of context frequently causes further  context  errors  later  on.
+     This is called PROPAGATION OF CONTEXT ERRORS.
+
+     flecs user's manual                                       Page 18
+
+
+          One nice feature of the context adjustment strategy is  that
+     context  errors  cannot  propagate  past a recognizable procedure
+     declaration.  This is because the "TO" declaration is in  context
+     only at indententation level 0.  Thus to place it in context, the
+     translator must invent enough statements to  terminate  all  open
+     control  structures  which  precede the "TO".  The programmer who
+     modularizes his program into a  collection  of  relatively  short
+     internal  procedures,  limits  the  potential  for propagation of
+     context errors.
+
+     9.3 Undetected Errors
+
+          The Flecs translator is ignorant of most details of  Fortran
+     syntax.   Thus most Fortran syntax errors will be detected by the
+     Fortran compiler not the Flecs translator.  In addition there are
+     two  major  classes  of  Flecs errors which will be caught by the
+     compiler and not the translator.
+
+          The first class  of  undetected  errors  involve  misspelled
+     Flecs  keywords.   A misspelled keyword will not be recognized by
+     the translator.  The line on which it occurs will be  assumed  to
+     be  a  Fortran  statement  and  will  be  passed unaltered to the
+     compiler which will no doubt object to it.  For example a  common
+     error is to spell UNTIL with two L's.  Such statements are passed
+     to the compiler, which then produces an error message.  The  fact
+     that  an  intended  control  phrase was not recognized frequently
+     causes a later context error since a level  of  indentation  will
+     not be triggered.
+
+          The second class of undetected  errors  involves  unbalanced
+     parentheses.   (See  also note 8 in section 8.0.) When scanning a
+     parenthesized specification, the  translator  is  looking  for  a
+     matching  right  parenthesis.   If  the  matching  parenthesis is
+     encountered before the end of the line the remainder of the  line
+     is  scanned.   If  the  remainder  is  blank  or  consists  of  a
+     recognizable internal  procedure  reference,  all  is  well.   If
+     neither of the above two cases hold, the remainder of the line is
+     ASSUMED (without checking) to be a simple Fortran statement which
+     is  passed  to  the  Compiler.  Of course, this assumption may be
+     wrong.  Thus the statement:
+
+     "WHEN (X.LT.A(I)+Z)) X = 0"
+
+     is broken into
+
+        keyword "WHEN"
+        specification "(X.LT.A(I)+Z"
+        Fortran statement ") X = 0"
+
+     Needless to say the compiler will object  to  ")  X  =  0"  as  a
+     statement.
+
+     flecs user's manual                                       Page 19
+
+
+          Programmers on batch oriented systems have  less  difficulty
+     with  undected  errors due to the practice of running the program
+     through both the translator and the compiler each time a  run  is
+     submitted.   The  compiler  errors  usually  point out any errors
+     undected by the translator.
+
+          Programmers on timesharing systems tend to have a  bit  more
+     difficulty  since  an  undetected error in one line may trigger a
+     context error in a much later line.  Noticing the context  error,
+     the programmer does not proceed with compilation and hence is not
+     warned by the compiler of the genuine cause of  the  error.   One
+     indication  of the true source of the error may be an indentation
+     failure at the corresponding point in the listing.
+
+     9.4 Other Errors
+
+          The translator detects a variety of  other  errors  such  as
+     multiply  defined,  or undefined procedure references.  The error
+     messages are self-explanatory.  (Really and truly!)
+
+     flecs user's manual                                       Page 20
+     Appendix 2: References
+
+
+                Available Documentation Concerning Flecs
+                (As of December 1974)
+
+     Beyer, T., Flecs Users Manual (University of Oregon Edition)
+
+          Contains a concise description of  the  flecs  extension  of
+          Fortran  and  of  the  details  necessary to running a Flecs
+          program on the PDP-10 or the IBM S/360 at Oregon.
+
+     Beyer, t., Flecs:  System Modification Guide
+
+          Contains information of interest to  anyone  who  wishes  to
+          install  or  adapt  the  Flecs  system  to  a new machine or
+          operating system.  Also of interest to  those  who  wish  to
+          improve  the  efficiency of the system by rewriting portions
+          of the system in assembly language.
+
+     flecs user's manual                                  Page Index-1
+     INDEX
+
+
+                                index
+
+
+
+appendix 2: references, 20          9.4 other errors, 19
+ 
+6.1.4 conditional, 7                6.2.5 repeat until, 10
+9.2 context errors, 17              6.2.3 repeat while, 10
+6.0 control structures, 5           8.0 restrictions and notes, 15
+3.0 correlation of sources, 1       2.0 retention of features, 0
+ 
+6.1 decision structures, 5          6.1.5 select, 8
+6.2.1 do, 9                         4.0 structured statements, 1
+                                    9.1 syntax errors, 17
+9.0 errors, 16
+                                    9.3 undetected errors, 18
+6.1.1 if, 5                         6.1.2 unless, 5
+5.0 indentation, 3                  6.2.4 until, 10
+7.0 internal procedures, 11
+1.0 introduction, 0
+                                    6.1.3 when...else, 6
+6.2 loop structures, 9              6.2.2 while, 9

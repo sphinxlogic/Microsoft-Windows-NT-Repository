@@ -1,0 +1,155 @@
+	.Title	InitVD	- Initialize a virtual disk
+	.Ident	/V01.000/
+	.Enable	SUP
+	.Default Displacement,Word
+	.Subtitle	Introduction
+
+;+
+;
+; ----- InitVD:  Initialize a virtual disk
+;
+;
+; Facility:
+;
+;	PDDRIVER.
+;
+; Abstract:
+;
+;	This program will control the size of a virtual disk connected
+;	to the PDDRIVER.  The "disk" is a  ram-based disk, with  pages
+;	allocated from non-paged pool comprising the "blocks".
+;
+; Environment:
+;
+;	VAX/VMS V4.1 or later, PHY_IO privilege (CMKRNL to load the driver).
+;
+;
+; Version:	V01.000
+; Date:		23-Nov-1985
+;
+; Gerard K. Newman	23-Nov-1985
+; Science Applications International
+; 800 Oak Ridge Turnpike
+; Oak Ridge, TN  37830
+; (615) 482-9031
+;
+;
+; Modifications:
+;
+;
+;-
+
+	.Page
+	.Subtitle	Local definitions
+
+	.NoCross			;Save a tree
+
+	$IODEF				;I/O function codes
+	$SSDEF				;System service codes
+	$TPADEF				;TPARSE definitions
+
+	.Cross				;Turn CREF back on
+
+	.Page
+	.Subtitle	TPARSE state table
+
+	$INIT_STATE	VD_STATES,VD_KEYS	;Initialize the state table
+
+	$STATE					;First state
+
+	$TRAN	TPA$_SYMBOL,,,,DEV_DESC		;Get the device name
+
+	$STATE					;Dummy state to swallow a trailing :
+
+	$TRAN	':'				;Swallow the ":"
+	$TRAN	TPA$_LAMBDA			; if it's there
+
+	$STATE					;State to pick up the number of pages to allocate
+
+	$TRAN	TPA$_DECIMAL,TPA$_EXIT,GROW_DISK ;Grab a decimal # and grow the disk
+
+	$END_STATE				;End of the state table
+
+	.Subtitle	Storage, pure & impure
+
+	.Psect	DATA	NOEXE,RD,WRT,PIC,NOSHR,PAGE
+
+
+TPARSE_BLOCK:	.Long	TPA$K_COUNT0	;Length of the TPARSE argument block
+		.Long	0		;Option flags (none which matter)
+		.Long	128		;Input buffer
+		.Address IN_BUFF	; descriptor
+		.Blkb	TPA$K_LENGTH0-<4*4> ;Allocate the rest of the block
+
+IOSB:		.Blkq			;I/O status block
+DEV_DESC:	.Blkq			;Descriptor of the device name
+DEV_CHAN:	.Blkw			;Channel to the "disk"
+IN_BUFF:	.Blkb	128		;Input buffer
+
+PROMPT:		.Ascid	"Init-VD> "	;Our prompt
+
+	.Page
+	.Subtitle	Entry point
+
+	.Psect	CODE		EXE,RD,NOWRT,PIC,SHR,PAGE
+
+	.Entry	START,^M<>		;Entry here
+
+	MOVAL	TPARSE_BLOCK,R11	;Address our TPARSE parameter block
+	PUSHAW	TPA$L_STRINGCNT(R11)	;Return the length here
+	PUSHAQ	PROMPT			;Here's our prompt
+	PUSHAQ	TPA$L_STRINGCNT(R11)	;Here's the input buffer
+	CALLS	#3,G^LIB$GET_FOREIGN	;Get a command line
+	BLBC	R0,10$			;Probably EOF
+	PUSHAB	VD_KEYS			;Stack the keyword table address
+	PUSHAB	VD_STATES		;Stack the state table address
+	PUSHL	R11			;Stack the TPARSE parameter block address
+	CALLS	#3,G^LIB$TPARSE		;Go parse & execute the command
+
+10$:	CMPL	#RMS$_EOF,R0		;EOF (^Z) on input?
+	BNEQ	20$			;If NEQ no, onward
+	MOVL	#SS$_NORMAL,R0		;Else not an error
+
+20$:	RET				;Bye
+
+	.Page
+	.Subtitle	GROW_DISK	- Grow (or shrink) the disk
+
+;+
+;
+; ----- GROW_DISK:  Grow (or shrink) the disk
+;
+;
+; This routine will grow or shrink the specified virtual disk.
+;
+; Do NOT try to use this routine on a real disk.
+;
+; You have been warned.
+;
+; Inputs:
+;
+;	DEV_DESC	 - A descriptor of the virtual disk name
+;	TPA$L_NUMBER(AP) - Size to make the disk in pages (blocks)
+;
+; Outputs:
+;
+;	Whatever $QIOW returns from the IO$_FORMAT request.
+;
+;-
+
+GROW_DISK: .Word ^M<>			;Here to grow the disk
+
+	$ASSIGN_S DEVNAM=DEV_DESC,-	;Assign a channel
+		CHAN=DEV_CHAN		; to the virtual disk
+	BLBC	R0,10$			;Branch if error
+	$QIOW_S	CHAN=DEV_CHAN,-		;Issue the
+		FUNC=#IO$_FORMAT,-	; format request
+		IOSB=IOSB,-		;	...
+		P1=@TPA$L_NUMBER(AP)	;Extra level of indirection is to pass P1 by value
+	BLBC	R0,10$			;Sigh.
+	MOVZWL	IOSB,R0			;Get the return status
+
+10$:	RET				;Back to TPARSE
+
+
+	.End	START

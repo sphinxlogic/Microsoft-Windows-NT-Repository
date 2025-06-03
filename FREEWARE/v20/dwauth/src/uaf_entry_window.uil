@@ -1,0 +1,1462 @@
+!module	authorize_entry_window
+!	version		= 'X1.0'
+!	names		= case_insensitive
+
+! Constants used to define reflect the maximum string size for various
+! fields in the authorization record.
+
+value
+	uaf$s_account			: 32;
+	uaf$s_clitables			: 32;
+	uaf$s_defcli			: 32;
+	uaf$s_defdev			: 32;
+	uaf$s_defdir			: 64;
+	uaf$s_lgicmd			: 64;
+	uaf$s_owner			: 64;
+	uaf$s_password			: 31;			! Text string not hashed value
+	uaf$s_username			: 32;
+
+! Constants used to define sizes of some of the various fields in the entry
+! window.
+
+value
+	uaf$c_account_cols		: 8;			! Size (in characters) of account field
+	uaf$c_byte_cols			: 3;			! Number of digits in a byte value
+	uaf$c_cli_cols			: 12;			! Size (in characters) of CLI field
+	uaf$c_clitable_cols		: 32;			! Size (in characters) of CLI table field
+	uaf$c_date_cols			: 10;			! Number of characters in a date
+	uaf$c_date_max			: 24;			! Max characters in a date
+	uaf$c_default_cols		: 32;			! Size (in characters) of default (device & directory) field
+	uaf$c_lgicmd_cols		: 32;			! Size (in characters) of login command field
+	uaf$c_longword_cols		: 10;			! Number of digits in a longword value
+	uaf$c_owner_cols		: 32;			! Size (in characters) of owner field
+	uaf$c_password_cols		: 16;			! Size (in characters) of password field
+	uaf$c_uic_cols			: 32;			! Size (in characters) of UIC field
+	uaf$c_uic_max			: 65;			! Max characters in a UIC
+	uaf$c_word_cols			: 5;			! Number of digits in a word value
+
+! Strings associated with the various menus and menu entries.  These determine
+! the text displayed.
+
+value
+	uaf$t_entry_modify_title	: compound_string	("Authorization Entry");
+	uaf$t_entry_ok			: compound_string	("OK");
+	uaf$t_entry_cancel		: compound_string	("Cancel");
+	uaf$t_entry_apply_template	: compound_string	("Apply Template");
+	uaf$t_entry_rename		: compound_string	("Rename");
+	uaf$t_entry_copy		: compound_string	("Copy");
+
+! Strings associated with the various fields within the authorization entry
+! display box.  These are needed to label the various entry fields.
+
+	uaf$t_username			: compound_string	("Username");
+	uaf$t_owner			: compound_string	("Owner");
+	uaf$t_account			: compound_string	("Account");
+	uaf$t_uic			: compound_string	("UIC");
+	uaf$t_cli			: compound_string	("CLI");
+	uaf$t_clitable			: compound_string	("CLI tables");
+	uaf$t_default			: compound_string	("Default");
+	uaf$t_password			: compound_string	("Password");
+	uaf$t_lgicmd			: compound_string	("LGICMD");
+	uaf$t_password2			: compound_string	("Sec Pwd");
+	uaf$t_expiration		: compound_string	("Acct exp");
+	uaf$t_lastlogin_i		: compound_string	("Int login");
+	uaf$t_lastlogin_n		: compound_string	("Other login");
+	uaf$t_logfails			: compound_string	("Logfails");
+	uaf$t_pwd_length		: compound_string	("Pwd length");
+	uaf$t_pwd_lifetime		: compound_string	("Pwd life");
+	uaf$t_pwd_date			: compound_string	("Pri pwd chg");
+	uaf$t_pwd2_date			: compound_string	("Sec pwd chg");
+
+	uaf$t_maxjobs			: compound_string	("Maxjobs");
+	uaf$t_fillm			: compound_string	("Fillm");
+	uaf$t_bytlm			: compound_string	("Bytlm");
+	uaf$t_maxacctjobs		: compound_string	("Maxacctjobs");
+	uaf$t_shrfillm			: compound_string	("Shrfillm");
+!	uaf$t_pbytlm			: compound_string	("Pbylm");
+	uaf$t_maxdetach			: compound_string	("Maxdetach");
+	uaf$t_biolm			: compound_string	("BIOlm");
+	uaf$t_jtquota			: compound_string	("JTquota");
+	uaf$t_prclm			: compound_string	("Prclm");
+	uaf$t_diolm			: compound_string	("DIOlm");
+	uaf$t_wsdef			: compound_string	("WSdef");
+	uaf$t_prio			: compound_string	("Prio");
+	uaf$t_astlm			: compound_string	("ASTlm");
+	uaf$t_wsquo			: compound_string	("WSquo");
+	uaf$t_queprio			: compound_string	("Queprio");
+	uaf$t_tqelm			: compound_string	("TQElm");
+	uaf$t_wsextent			: compound_string	("WSextent");
+	uaf$t_cpu			: compound_string	("CPU");
+	uaf$t_enqlm			: compound_string	("Enqlm");
+	uaf$t_pgflquo			: compound_string	("Pgflquo");
+
+	uaf$t_login_flags		: compound_string	("Login Flags:");
+	uaf$t_authorized_privileges	: compound_string	("Authorized Privileges:");
+	uaf$t_default_privileges	: compound_string	("Default Privileges:");
+	uaf$t_primary_days		: compound_string	("Primary Days:");
+
+! Strings for the entry popup menu.
+
+	uaf$t_entry_access_primary	: compound_string	("Primary Day Restrictions");
+	uaf$t_entry_access_secondary	: compound_string	("Secondary Day Restrictions");
+
+! Strings defined for the various login flags.  NOTE!! The order of this
+! list is important.  The position in the list corresponds to the bit in
+! the login flags field.
+
+	uaf$t_login_flag_list		: string_table	('DISCTLY',			! uaf$v_disctly
+							 'DEFCLI',			! uaf$v_defcli
+							 'LOCKPWD',			! uaf$v_lockpwd
+							 'RESTRICTED',			! uaf$v_restricted
+							 'DISUSER',			! uaf$v_disacnt
+							 'DISWELCOME',			! uaf$v_diswelcom
+							 'DISNEWMAIL',			! uaf$v_dismail
+							 'DISMAIL',			! uaf$v_nomail
+							 'GENPWD',			! uaf$v_genpwd
+							 'PWD_EXPIRED',			! uaf$v_pwd_expired
+							 'PWD2_EXPIRED',		! uaf$v_pwd2_expired
+							 'AUDIT',			! uaf$v_audit
+							 'DISREPORT',			! uaf$v_disreport
+							 'DISRECONNECT',		! uaf$v_disreconnect
+							 'AUTOLOGIN',			! uaf$v_autologin
+							 'NOFORCE_EXP_PWD_CHANGE',	! uaf$v_disforce_pwd_change
+							 'CAPTIVE',			! uaf$v_captive
+							 'DISIMAGE',			! uaf$v_disimage
+							 'DISPWDDIC',			! uaf$v_dispwddic
+							 'DISPWDHIS',			! uaf$v_dispwdhis
+							 'DEFCLSVAL');			! uaf$v_defclsval
+
+! Strings defined for the various privilege bits.  Whenever new privileges are
+! added to $PRVDEF, this list must be updated.  (Otherwise the privileges will
+! not be available for use.)  NOTE!! The order of this list is important.  The
+! position in the list corresponds to the bit in the privilege mask.
+
+	uaf$t_privilege_list		: string_table	('CMKRNL',			! prv$v_cmkrnl
+							 'CMEXEC',			! prv$v_cmexec
+							 'SYSNAM',			! prv$v_sysnam
+							 'GRPNAM',			! prv$v_grpnam
+							 'ALLSPOOL',			! prv$v_allspool
+							 'DETACH',			! prv$v_detach
+							 'DIAGNOSE',			! prv$v_diagnose
+							 'LOG_IO',			! prv$v_log_io
+							 'GROUP',			! prv$v_group
+							 'ACNT',			! prv$v_noacnt
+							 'PRMCEB',			! prv$v_prmceb
+							 'PRMMBX',			! prv$v_prmmbx
+							 'PSWAPM',			! prv$v_pswapm
+							 'ALTPRI',			! prv$v_setpri
+							 'SETPRV',			! prv$v_setprv
+							 'TMPMBX',			! prv$v_tmpmbx
+							 'WORLD',			! prv$v_world
+							 'MOUNT',			! prv$v_mount
+							 'OPER',			! prv$v_oper
+							 'EXQUOTA',			! prv$v_exquota
+							 'NETMBX',			! prv$v_netmbx
+							 'VOLPRO',			! prv$v_volpro
+							 'PHY_IO',			! prv$v_phy_io
+							 'BUGCHK',			! prv$v_bugchk
+							 'PRMGBL',			! prv$v_prmgbl
+							 'SYSGBL',			! prv$v_sysgbl
+							 'PFNMAP',			! prv$v_pfnmap
+							 'SHMEM',			! prv$v_shmem
+							 'SYSPRV',			! prv$v_sysprv
+							 'BYPASS',			! prv$v_bypass
+							 'SYSLCK',			! prv$v_syslck
+							 'SHARE',			! prv$v_share
+							 'UPGRADE',			! prv$v_upgrade
+							 'DOWNGRADE',			! prv$v_downgrade
+							 'GRPPRV',			! prv$v_grpprv
+							 'READALL',			! prv$v_readall
+							 'IMPORT',			! prv$v_import
+							 'AUDIT',			! prv$v_audit
+							 'SECURITY');			! prv$v_security
+
+! Strings defined for the primary day flags.  NOTE!! The order of this
+! list is important.  The position in the list corresponds to the bit in
+! the primary day mask.
+
+	uaf$t_primeday_list		: string_table	('Monday',			! uaf$v_monday
+							 'Tuesday',			! uaf$v_tuesday
+							 'Wednesday',			! uaf$v_wednesday
+							 'Thursday',			! uaf$v_thursday
+							 'Friday',			! uaf$v_friday
+							 'Saturday',			! uaf$v_saturday
+							 'Sunday');			! uaf$v_sunday
+
+! Useful icons.
+
+value
+	left_arrow_icon		: icon ('            ******  ',
+					'           *******  ',
+					'          **    **  ',
+					'         **     **  ',
+					'        **      **  ',
+					'       **       **  ',
+					'      **        **  ',
+					'     **         **  ',
+					'    **          **  ',
+					'   **           **  ',
+					'  **            **  ',    
+					'   **           **  ',
+					'    **          **  ',
+					'     **         **  ',
+					'      **        **  ',
+					'       **       **  ',
+					'        **      **  ',
+					'         **     **  ',
+					'          **    **  ',
+					'           *******  ',
+					'            ******  ');
+	right_arrow_icon	: icon ('  ******            ',
+					'  *******           ',
+					'  **    **          ',
+					'  **     **         ',
+					'  **      **        ',
+					'  **       **       ',
+					'  **        **      ',
+					'  **         **     ',
+					'  **          **    ',
+					'  **           **   ',
+					'  **            **  ',
+					'  **           **   ',
+					'  **          **    ',
+					'  **         **     ',
+					'  **        **      ',
+					'  **       **       ',
+					'  **      **        ',
+					'  **     **         ',
+					'  **    **          ',
+					'  *******           ',
+					'  ******            ');
+
+! Define the basic entry display/modify display.
+
+object	entry_window		: XmFormDialog
+		{arguments	{XmNdialogTitle		= uaf$t_entry_modify_title;
+				 XmNcancelButton	= entry_cancel_button;
+				 XmNdefaultButton	= entry_ok_button;
+				 XmNunitType		= XmPIXELS;
+				 XmNautoUnmanage	= false;
+				 XmNdefaultPosition	= false;
+				 };
+		 controls	{XmLabel	entry_username_label;
+				 XmText		entry_username_value;
+				 XmLabel	entry_owner_label;
+				 XmText		entry_owner_value;
+				 XmLabel	entry_account_label;
+				 XmText		entry_account_value;
+				 XmLabel	entry_uic_label;
+				 XmText		entry_uic_value;
+				 XmLabel	entry_cli_label;
+				 XmText		entry_cli_value;
+				 XmLabel	entry_clitable_label;
+				 XmText		entry_clitable_value;
+				 XmLabel	entry_default_label;
+				 XmText		entry_default_value;
+				 XmLabel	entry_password_label;
+				 XmText		entry_password_value;
+				 XmLabel	entry_lgicmd_label;
+				 XmText		entry_lgicmd_value;
+				 XmLabel	entry_password2_label;
+				 XmText		entry_password2_value;
+
+				 XmLabel	entry_expiration_label;
+				 XmText		entry_expiration_value;
+				 XmLabel	entry_lastlogin_i_label;
+				 XmText		entry_lastlogin_i_value;
+				 XmLabel	entry_lastlogin_n_label;
+				 XmText		entry_lastlogin_n_value;
+				 XmLabel	entry_logfails_label;
+				 XmText		entry_logfails_value;
+				 XmLabel	entry_pwd_length_label;
+				 XmText		entry_pwd_length_value;
+				 XmLabel	entry_pwd_lifetime_label;
+				 XmText		entry_pwd_lifetime_value;
+				 XmLabel	entry_pwd_date_label;
+				 XmText		entry_pwd_date_value;
+				 XmLabel	entry_pwd2_date_label;
+				 XmText		entry_pwd2_date_value;
+
+				 XmLabel	entry_maxjobs_label;
+				 XmText		entry_maxjobs_value;
+				 XmLabel	entry_maxacctjobs_label;
+				 XmText		entry_maxacctjobs_value;
+				 XmLabel	entry_maxdetach_label;
+				 XmText		entry_maxdetach_value;
+				 XmLabel	entry_prclm_label;
+				 XmText		entry_prclm_value;
+				 XmLabel	entry_prio_label;
+				 XmText		entry_prio_value;
+				 XmLabel	entry_queprio_label;
+				 XmText		entry_queprio_value;
+				 XmLabel	entry_cpu_label;
+				 XmText		entry_cpu_value;
+				 XmLabel	entry_bytlm_label;
+				 XmText		entry_bytlm_value;
+				 XmLabel	entry_fillm_label;
+				 XmText		entry_fillm_value;
+				 XmLabel	entry_shrfillm_label;
+				 XmText		entry_shrfillm_value;
+				 XmLabel	entry_biolm_label;
+				 XmText		entry_biolm_value;
+				 XmLabel	entry_diolm_label;
+				 XmText		entry_diolm_value;
+				 XmLabel	entry_wsdef_label;
+				 XmText		entry_wsdef_value;
+				 XmLabel	entry_wsquo_label;
+				 XmText		entry_wsquo_value;
+				 XmLabel	entry_wsextent_label;
+				 XmText		entry_wsextent_value;
+				 XmLabel	entry_pgflquo_label;
+				 XmText		entry_pgflquo_value;
+				 XmLabel	entry_astlm_label;
+				 XmText		entry_astlm_value;
+				 XmLabel	entry_tqelm_label;
+				 XmText		entry_tqelm_value;
+				 XmLabel	entry_enqlm_label;
+				 XmText		entry_enqlm_value;
+				 XmLabel	entry_jtquota_label;
+				 XmText		entry_jtquota_value;
+
+				 XmLabel	entry_login_flag_label;
+				 XmScrolledWindow	entry_login_flags;
+
+				 XmLabel	entry_auth_priv_label;
+				 XmScrolledWindow	entry_auth_privileges;
+
+				 XmLabel	entry_def_priv_label;
+				 XmScrolledWindow	entry_def_privileges;
+
+				 XmLabel	entry_primary_day_label;
+				 XmScrolledWindow	entry_primary_days;
+
+! Pushbuttons for the authorization entry window.
+
+				 XmPushButton	entry_ok_previous_button;
+				 XmPushButton	entry_ok_button;
+				 XmPushButton	entry_ok_next_button;
+				 XmPushButton	entry_cancel_button;
+				 XmPushButton	entry_apply_template_button;
+				 XmPushButton	entry_rename_button;
+				 XmPushButton	entry_copy_button;
+				 };
+		};
+
+! Define the objects for the basic user information area.
+
+object	entry_username_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_username;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_username_value;
+				 }; };
+object	entry_username_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_username;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_username_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_username); };
+		 };
+object	entry_owner_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_owner;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_owner_value;
+				 }; };
+object	entry_owner_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_owner;
+				 XmNtopAttachment	= XmATTACH_FORM;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_right;
+				 XmNcolumns		= uaf$c_owner_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_owner); };
+		 };
+object	entry_account_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_account;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_username_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_account_value;
+				 }; };
+object	entry_account_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_account;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_username_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_account_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_account); };
+		 };
+object	entry_uic_label		: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_uic;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_username_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_uic_value;
+				 XmNleftWidget		= XmText entry_account_value;
+				 }; };
+object	entry_uic_value		: XmText
+		{arguments	{XmNmaxLength		= uaf$c_uic_max;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_username_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_right;
+				 XmNcolumns		= uaf$c_uic_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_uic); };
+		 };
+object	entry_cli_label		: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_cli;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_account_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_cli_value;
+				 }; };
+object	entry_cli_value		: XmText
+		{arguments	{XmNmaxLength		= uaf$s_defcli;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_account_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_cli_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_cli); };
+		 };
+object	entry_clitable_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_clitable;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_account_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_clitable_value;
+				 }; };
+object	entry_clitable_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_clitables;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_account_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_2col_right;
+				 XmNcolumns		= uaf$c_clitable_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_clitable); };
+		 };
+object	entry_default_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_default;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_cli_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_default_value;
+				 }; };
+object	entry_default_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_defdev + uaf$s_defdir;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_cli_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_default_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_default); };
+		 };
+object	entry_password_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_password;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_cli_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_password_value;
+				 }; };
+object	entry_password_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_password;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_cli_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_password_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_password); };
+		 };
+object	entry_lgicmd_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_lgicmd;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_default_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_lgicmd_value;
+				 }; };
+object	entry_lgicmd_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_lgicmd;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_default_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_lgicmd_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_lgicmd); };
+		 };
+object	entry_password2_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_password2;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_default_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_password2_value;
+				 }; };
+object	entry_password2_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$s_password;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_default_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_password_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_password2); };
+		 };
+
+object	entry_expiration_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_expiration;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_expiration_value;
+				 }; };
+object	entry_expiration_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_date_max;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_expiration); };
+		 };
+object	entry_lastlogin_i_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_lastlogin_i;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_lastlogin_i_value;
+				 }; };
+object	entry_lastlogin_i_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_date_max;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_lastlogin_i); };
+		 };
+object	entry_lastlogin_n_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_lastlogin_n;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_lastlogin_n_value;
+				 }; };
+object	entry_lastlogin_n_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_date_max;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_lastlogin_n); };
+		 };
+object	entry_logfails_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_logfails;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_logfails_value;
+				 }; };
+object	entry_logfails_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_lgicmd_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_logfails); };
+		 };
+object	entry_pwd_length_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_pwd_length;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_pwd_length_value;
+				 }; };
+object	entry_pwd_length_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_pwd_length); };
+		 };
+object	entry_pwd_lifetime_label: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_pwd_lifetime;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_pwd_lifetime_value;
+				 }; };
+object	entry_pwd_lifetime_value: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_pwd_lifetime); };
+		 };
+object	entry_pwd_date_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_pwd_date;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_pwd_date_value;
+				 }; };
+object	entry_pwd_date_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_pwd_date); };
+		 };
+object	entry_pwd2_date_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_pwd2_date;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_pwd2_date_value;
+				 }; };
+object	entry_pwd2_date_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_expiration_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_pwd2_date); };
+		 };
+
+object	entry_maxjobs_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_maxjobs;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_maxjobs_value;
+				 }; };
+object	entry_maxjobs_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_maxjobs); };
+		 };
+object	entry_maxacctjobs_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_maxacctjobs;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_maxacctjobs_value;
+				 }; };
+object	entry_maxacctjobs_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_maxacctjobs); };
+		 };
+object	entry_maxdetach_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_maxdetach;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_maxdetach_value;
+				 }; };
+object	entry_maxdetach_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_maxdetach); };
+		 };
+object	entry_prclm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_prclm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_prclm_value;
+				 }; };
+object	entry_prclm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_pwd_length_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_prclm); };
+		 };
+
+object	entry_bytlm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_bytlm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_bytlm_value;
+				 }; };
+object	entry_bytlm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_longword_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_longword_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_bytlm); };
+		 };
+object	entry_prio_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_prio;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_prio_value;
+				 }; };
+object	entry_prio_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_byte_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_byte_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_prio); };
+		 };
+object	entry_queprio_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_queprio;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_queprio_value;
+				 }; };
+object	entry_queprio_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_byte_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_byte_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_queprio); };
+		 };
+object	entry_cpu_label		: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_cpu;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_cpu_value;
+				 }; };
+object	entry_cpu_value		: XmText
+		{arguments	{XmNmaxLength		= 16;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_maxjobs_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_date_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_cpu); };
+		 };
+object	entry_fillm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_fillm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_fillm_value;
+				 }; };
+object	entry_fillm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_fillm); };
+		 };
+object	entry_shrfillm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_shrfillm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_shrfillm_value;
+				 }; };
+object	entry_shrfillm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_shrfillm); };
+		 };
+object	entry_biolm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_biolm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_biolm_value;
+				 }; };
+object	entry_biolm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_biolm); };
+		 };
+object	entry_diolm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_diolm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_diolm_value;
+				 }; };
+object	entry_diolm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_bytlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_diolm); };
+		 };
+
+object	entry_wsdef_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_wsdef;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_wsdef_value;
+				 }; };
+object	entry_wsdef_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_longword_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_longword_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_wsdef); };
+		 };
+object	entry_wsquo_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_wsquo;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_wsquo_value;
+				 }; };
+object	entry_wsquo_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_longword_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_longword_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_wsquo); };
+		 };
+object	entry_wsextent_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_wsextent;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_wsextent_value;
+				 }; };
+object	entry_wsextent_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_longword_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_longword_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_wsextent); };
+		 };
+object	entry_pgflquo_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_pgflquo;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_pgflquo_value;
+				 }; };
+object	entry_pgflquo_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_longword_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_fillm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_longword_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_pgflquo); };
+		 };
+
+object	entry_astlm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_astlm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_astlm_value;
+				 }; };
+object	entry_astlm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_1_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_astlm); };
+		 };
+object	entry_tqelm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_tqelm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_tqelm_value;
+				 }; };
+object	entry_tqelm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_tqelm); };
+		 };
+object	entry_enqlm_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_enqlm;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_enqlm_value;
+				 }; };
+object	entry_enqlm_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_enqlm); };
+		 };
+object	entry_jtquota_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_jtquota;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNrightAttachment	= XmATTACH_WIDGET;
+				 XmNrightOffset		= uaf$c_labval_widget_offset;
+				 XmNrightWidget		= XmText entry_jtquota_value;
+				 }; };
+object	entry_jtquota_value	: XmText
+		{arguments	{XmNmaxLength		= uaf$c_word_cols;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmText entry_wsdef_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4_with_lab;
+				 XmNcolumns		= uaf$c_word_cols;
+				 XmNrows		= 1;
+				 XmNmarginHeight	= 0;
+				 XmNresizeHeight	= false;
+				 };
+		 callbacks	{MrmNcreateCallback	= procedure create_proc (uaf$c_entry_jtquota); };
+		 };
+
+! Define the objects for the login flags area.
+
+object	entry_login_flag_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_login_flags;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmText entry_astlm_value;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 }; };
+object	entry_login_flags	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel entry_login_flag_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton entry_ok_previous_button;
+				 XmNrightAttachment	= XmATTACH_POSITION;
+				 XmNrightPosition	= uaf$c_4col_column_2;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNscrollBarDisplayPolicy	= XmSTATIC;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			entry_login_flag_list; };
+		 };
+object	entry_login_flag_list	: XmList
+		{arguments	{XmNvisibleItemCount	= 10;
+				 XmNitems		= uaf$t_login_flag_list;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmMULTIPLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_entry_login_flag_list);
+				 XmNmultipleSelectionCallback	= procedure list_proc (uaf$c_entry_login_flag_list); };
+		 };
+
+! Define the objects for the authorized privilege display.
+
+object	entry_auth_priv_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_authorized_privileges;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmText entry_astlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2;
+				 }; };
+object	entry_auth_privileges	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel entry_login_flag_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton entry_ok_previous_button;
+				 XmNrightAttachment	= XmATTACH_POSITION;
+				 XmNrightPosition	= uaf$c_4col_column_3;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_2;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			entry_auth_priv_list; };
+		 };
+object	entry_auth_priv_list	: XmList
+		{arguments	{XmNvisibleItemCount	= 10;
+				 XmNitems		= uaf$t_privilege_list;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmMULTIPLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_entry_auth_priv_list);
+				 XmNmultipleSelectionCallback	= procedure list_proc (uaf$c_entry_auth_priv_list); };
+		 };
+
+! Define the objects for the default privilege display.
+
+object	entry_def_priv_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_default_privileges;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmText entry_astlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3;
+				 }; };
+object	entry_def_privileges	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel entry_login_flag_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton entry_ok_previous_button;
+				 XmNrightAttachment	= XmATTACH_POSITION;
+				 XmNrightPosition	= uaf$c_4col_column_4;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_3;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			entry_def_priv_list; };
+		 };
+object	entry_def_priv_list	: XmList
+		{arguments	{XmNvisibleItemCount	= 10;
+				 XmNitems		= uaf$t_privilege_list;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmMULTIPLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_entry_def_priv_list);
+				 XmNmultipleSelectionCallback	= procedure list_proc (uaf$c_entry_def_priv_list); };
+		 };
+
+object	entry_primary_day_label	: XmLabel
+		{arguments	{XmNlabelString		= uaf$t_primary_days;
+				 XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_top_offset;
+				 XmNtopWidget		= XmText entry_astlm_value;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4;
+				 }; };
+object	entry_primary_days	: XmScrolledWindow
+		{arguments	{XmNtopAttachment	= XmATTACH_WIDGET;
+				 XmNtopOffset		= uaf$c_topbot_widget_offset;
+				 XmNtopWidget		= XmLabel entry_login_flag_label;
+				 XmNbottomAttachment	= XmATTACH_WIDGET;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNbottomWidget	= XmPushButton entry_ok_previous_button;
+				 XmNrightAttachment	= XmATTACH_FORM;
+				 XmNrightOffset		= uaf$c_right_offset;
+				 XmNleftAttachment	= XmATTACH_POSITION;
+				 XmNleftPosition	= uaf$c_4col_column_4;
+				 XmNscrollingPolicy	= XmCONSTANT;
+				 XmNvisualPolicy	= XmVARIABLE;
+				 };
+		 controls	{XmList			entry_primeday_list; };
+		 };
+object	entry_primeday_list	: XmList
+		{arguments	{XmNvisibleItemCount	= 10;
+				 XmNitems		= uaf$t_primeday_list;
+				 XmNautomaticSelection	= false;
+				 XmNselectionPolicy	= XmMULTIPLE_SELECT;
+				 };
+		 callbacks	{MrmNcreateCallback		= procedure create_proc (uaf$c_entry_primeday_list);
+				 XmNmultipleSelectionCallback	= procedure list_proc (uaf$c_entry_primeday_list); };
+		 };
+
+! Define the objects for the entry window push buttons.
+
+object	entry_ok_previous_button	: XmPushButton
+		{arguments	{XmNlabelType		= XmPIXMAP;
+				 XmNlabelPixmap		= left_arrow_icon;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_FORM;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_ok_previous); };
+		 };
+object	entry_ok_button		: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_ok;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= 1;
+				 XmNleftWidget		= XmPushButton entry_ok_previous_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_ok); };
+		 };
+object	entry_ok_next_button	: XmPushButton
+		{arguments	{XmNlabelType		= XmPIXMAP;
+				 XmNlabelPixmap		= right_arrow_icon;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= 1;
+				 XmNleftWidget		= XmPushButton entry_ok_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_ok_next); };
+		 };
+object	entry_cancel_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_cancel;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNleftWidget		= XmPushButton entry_ok_next_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_cancel); };
+		 };
+object	entry_apply_template_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_apply_template;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNleftWidget		= XmPushButton entry_cancel_button;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_apply_template); };
+		 };
+object	entry_rename_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_rename;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNleftWidget		= XmPushButton entry_apply_template_button;
+				 XmNsensitive		= false;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_rename); };
+		 };
+object	entry_copy_button	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_copy;
+				 XmNbottomAttachment	= XmATTACH_FORM;
+				 XmNbottomOffset	= uaf$c_bottom_offset;
+				 XmNleftAttachment	= XmATTACH_WIDGET;
+				 XmNleftOffset		= uaf$c_left_offset;
+				 XmNleftWidget		= XmPushButton entry_rename_button;
+				 XmNsensitive		= false;
+				 };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_copy); };
+		 };
+
+! Define the objects needed for the entry window popup menu box.
+
+object	entry_popup_menu		: XmPopupMenu
+		{arguments	{XmNorientation		= XmVERTICAL; };
+		 controls	{XmPushButton		primary_access_restrictions;
+				 XmPushButton		secondary_access_restrictions;
+				};
+		};
+
+object	primary_access_restrictions	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_access_primary; };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_access_primary); };
+		};
+
+object	secondary_access_restrictions	: XmPushButton
+		{arguments	{XmNlabelString		= uaf$t_entry_access_secondary; };
+		 callbacks	{XmNactivateCallback	= procedure activate_proc (uaf$c_entry_access_secondary); };
+		};

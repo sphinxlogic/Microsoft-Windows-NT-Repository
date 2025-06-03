@@ -1,0 +1,110 @@
+How to Compile, Link and Build GNU Emacs under VMS
+==================================================
+
+A runnable Emacs on VMS consists of two files, an exe file and a map
+file.  (It also refers to a DOC file in the [-.etc] sibling directory.
+These files are made automatically and kept straight by Emacs version
+number.)
+
+For an Emacs being built and tested, these files are `temacs.exe' and
+`temacs.dump' in the [.vms] subdiredtory or the directory you use to
+build emacs.
+
+For an installed Emacs, these files are `emacs.exe' and `emacs.dump'
+in the binaries directory.  These names are known only in the file
+`emacs_startup.com' or `gnu_startup.com', which are instaled in the
+startup directory.
+
+* Run configure.com
+  In the root of the source directory, you'll find configure.com, which
+  helps you configure the whole Emacs compilation process.  Just move
+  to the directory where you want the object files to reside and type:
+
+	@srcdev:[srcdir]CONFIGURE
+
+  The result will be that Emacs will be installed in the directory tree
+  starting with SYS$SYSDEVICE:[GNU], which is the only place you can
+  be sure there is a disk, on any VMS system.
+
+  You might want to install Emacs in some other place than
+  SYS$SYSDEVICE:[GNU...].  CONFIGURE has a lot of switches with which
+  may help you can change the directory names which are used.  type
+  @CONFIGURE --HELP for more info, or read [.VMS]CONFIGURE.VMS_DOC.
+
+  Now, you have two choices.  You may compile Emacs with MMS (the make
+  utility that Digtal distributes), or you may compile Emacs with DCL
+  procedures.  If you want to use MMS, do the following:
+
+	MMS/IGNORE=WARNING
+	@[.vms]testemacs.com
+
+  test Emacs by typing RUNTEMACS.  When it works right, do this:
+
+	MMS/IGNORE=WARNING INSTALL
+
+  If you want to compile Emacs with DCL procedures, please read on.  If
+  you did it with MMS, you don't need to read any more.
+
+
+  To continue, move into the [.vms] directory
+
+* Run makepaths.com
+  This creates the files vmslink.opt, [-.src]paths.h, emacs_startup.dat,
+  config.dat and rebuild.com.
+
+* Run compxmenu.com if you want to use X-windows menus.
+  This will recompile the files in [-.oldXmenu].
+
+* Run compvmslib.com
+  This will compile and build vmslib.olb.
+
+* Run compile.com.
+  This will recompile any files that need to be recompiled.  You can
+  force it to recompile all C files by giving it an argument (any
+  argument).  Or, you can run precomp.com to define a command `ccom'
+  that can be used to compile any specific C file you want.
+
+  If you compile with optimization, note that in compiler version 3.0
+  there is a bug affecting inline functions.  So you must specify
+  /OPTIMIZE=NOINLINE when compiling `dispnew.c'.  If you still have
+  problems, try using /NOOPT.
+
+  Compilation will give you lots of warnings about symbols longer than
+  30 characters.  You must just ignore them.  Alternatively, you can
+  compile the C program `vms-pp.c' and run all the .C and .H files
+  through that program and then compile the results.  (On VMS versions
+  before 4.4, the program is called `vms_pp.c'.)
+
+  ***If you use `vms-pp.c', please save the originals .c and .h files
+  and distribute them rather than the transformed files if you wish to 
+  distribute copies of Emacs.  Help minimize confusion!***
+
+* Run link.com.
+  This will link the compiled files into `temacs.exe'.  You will get
+  lots of linker warnings telling you that there were compiler warnings.
+  There might also be some warnings about multiply defined symbols.
+  Just ignore them. 
+
+* Run complibsrc.com.
+  This will compile and link the files in the [-.lib-src] directory.
+  This must be done before `makedoc.com' can be run. 
+
+* Run makedoc.com.
+  This will create or update the file `[-.etc]doc.'.  This must be done
+  if that file does not yet exist or if any of the Emacs C sources or
+  preloaded Lisp sources has changed.  It must be done before
+  `build.com' is run in order to take effect.
+
+* Run build.com. 
+  This runs `temacs.exe', initializes it and preloads some Lisp code, and
+  dumps the map file `temacs.dump' containing a copy of all the impure
+  storage after initialization. 
+
+* Run testemacs.com.
+  This defines the `runtemacs' command to run `temacs.exe' with its map
+  file `temacs.dump'.  This step is optional, and allows you to test
+  whether or not emacs is running.
+
+* Run emacs_install.com.
+  This makes sure `temacs.exe' and `temacs.dump' get copied to the binaries
+  directory, along with any other needed files.

@@ -1,0 +1,114 @@
+*** descrip.mms_in_in;13
+--- descrip.mms_in_in;18
+**************
+*** 248,254
+     the information in `config.h'.  */
+  #ifdef VMS
+  
+! ALL_CFLAGS = /define=("emacs",HAVE_CONFIG_H 'extra_defs')/include=(SYS$DISK:[],$(srcdir)) C_SWITCH_MACHINE C_SWITCH_X_MACHINE C_SWITCH_SYSTEM C_SWITCH_X_SYSTEM C_SWITCH_SITE C_SWITCH_X_SITE $(CFLAGS) C_DEBUG_SWITCH
+  #else
+  
+  /* C_SWITCH_X_SITE must come before C_SWITCH_X_MACHINE and C_SWITCH_X_SYSTEM
+--- 248,254 -----
+     the information in `config.h'.  */
+  #ifdef VMS
+  
+! ALL_CFLAGS = /define=("emacs",HAVE_CONFIG_H 'extra_defs')/include=(SYS$DISK:[],EMACS_LIBRARY:[OLDXMENU],$(srcdir)) C_SWITCH_MACHINE C_SWITCH_X_MACHINE C_SWITCH_SYSTEM C_SWITCH_X_SYSTEM C_SWITCH_SITE C_SWITCH_X_SITE $(CFLAGS)
+  #else
+  
+  /* C_SWITCH_X_SITE must come before C_SWITCH_X_MACHINE and C_SWITCH_X_SYSTEM
+**************
+*** 560,568
+  all_debug : [-.vms]temacs_d.dump OTHER_FILES
+  	/ / / !
+  
+! [-.vms]temacs.dump : [-.vms]temacs.exe
+! [-.vms]temacs_d.dump : [-.vms]temacs_d.exe [-.vms]temacs_d.input
+! [-.vms]temacs.dump [-.vms]temacs_d.dump : $(etc)DOC $(lisp)
+  #ifdef CANNOT_DUMP
+  #else
+  #ifdef HAVE_SHM
+--- 560,566 -----
+  all_debug : [-.vms]temacs_d.dump OTHER_FILES
+  	/ / / !
+  
+! [-.vms]temacs.dump : [-.vms]temacs.exe $(etc)DOC $(lisp)
+  #ifdef CANNOT_DUMP
+  #else
+  #ifdef HAVE_SHM
+**************
+*** 600,605
+  #endif /* ! defined (HAVE_SHM) */
+  #endif /* ! defined (CANNOT_DUMP) */
+  
+  $(etc)DOC : $(libsrc)make-docfile.exe $(obj) $(lisp) OBJECTS_SYSTEM OBJECTS_MACHINE
+  	- if f$search("$(etc)DOC$(dot)$(dot)*") .nes. "" then -
+  		delete/log $(etc)DOC$(dot)$(dot)*
+--- 598,641 -----
+  #endif /* ! defined (HAVE_SHM) */
+  #endif /* ! defined (CANNOT_DUMP) */
+  
++ [-.vms]temacs_d.dump : [-.vms]temacs_d.exe [-.vms]temacs_d.input $(etc)DOC $(lisp)
++ #ifdef CANNOT_DUMP
++ #else
++ #ifdef HAVE_SHM
++ 	-if [ -w ${srcdir}/../lisp ]; then \
++ 	  w=`pwd`; cd ${srcdir}; $${w}/temacs -nl -batch -l ../lisp/inc-vers; \
++ 	else true; fi
++ 	./temacs -nl -batch -l loadup dump
++ #else /* ! defined (HAVE_SHM) */
++ #ifdef VMS
++ 	set noon
++ 	home=f$environment("DEFAULT")
++ 	set default [-.vms]
++ 	temacs_home = f$environment("DEFAULT")
++ 	set default $(srcdir)
++ 	temacs_name = f$parse("$@",,,"NAME")
++ 	a = f$trnlnm("DBG$DECW$DISPLAY")
++ 	define dbg$decw$display " "
++ 	if "$@" - "_D" .nes. "$@" then -
++ 		def/user dbg$input 'temacs_home'temacs_d.input
++ 	mcr 'temacs_home''temacs_name' -batch -l [-.lisp]inc-vers
++ 	set default 'temacs_home'
++ 	set on
++ 	if "$@" - "_D" .nes. "$@" then -
++ 		def/user dbg$input [-.vms]temacs_d.input
++ 	mcr sys$disk:[-.vms]'temacs_name' -batch -l loadup dump
++ 	set default 'home'
++ 	if a .eqs. "" then deassign dbg$decw$display
++ 	if a .nes. "" then define dbg$decw$display "''a'"
++ #else /* ! defined (VMS) */
++ 	-if [ -w ${srcdir}/../lisp ]; then \
++ 	  w=`pwd`; cd ${srcdir}; $${w}/temacs -batch -l ../lisp/inc-vers; \
++ 	else true; fi
++ 	./temacs -batch -l loadup dump
++ #endif /* ! defined (VMS) */
++ #endif /* ! defined (HAVE_SHM) */
++ #endif /* ! defined (CANNOT_DUMP) */
++ 
+  $(etc)DOC : $(libsrc)make-docfile.exe $(obj) $(lisp) OBJECTS_SYSTEM OBJECTS_MACHINE
+  	- if f$search("$(etc)DOC$(dot)$(dot)*") .nes. "" then -
+  		delete/log $(etc)DOC$(dot)$(dot)*
+**************
+*** 630,636
+  #define MAKE_PARALLEL
+  #endif
+  
+! [-.vms]temacs.exe [-.vms]temacs_d.exe : [-.vms]temacs.opt
+  	debug_flag = ""
+  	if "$@" - "_D" .nes. "$@" then debug_flag = "/debug"
+  	$(LD) YMF_PASS_LDFLAGS ($(STARTFLAGS) $(LDFLAGS)) 'debug_flag'  -
+--- 666,678 -----
+  #define MAKE_PARALLEL
+  #endif
+  
+! [-.vms]temacs.exe :  [-.vms]temacs.opt
+! 	debug_flag = ""
+! 	if "$@" - "_D" .nes. "$@" then debug_flag = "/debug"
+! 	$(LD) YMF_PASS_LDFLAGS ($(STARTFLAGS) $(LDFLAGS))  -
+! 	/exec=$/ / //trace/map=$*.map/full [-.vms]temacs.opt/opt
+! 
+! [-.vms]temacs_d.exe : [-.vms]temacs.opt
+  	debug_flag = ""
+  	if "$@" - "_D" .nes. "$@" then debug_flag = "/debug"
+  	$(LD) YMF_PASS_LDFLAGS ($(STARTFLAGS) $(LDFLAGS)) 'debug_flag'  -

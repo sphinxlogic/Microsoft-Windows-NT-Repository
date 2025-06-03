@@ -1,0 +1,919 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978-1992						    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the FORTRAN language output from the SDL tree.
+
+author:
+	Rich Grove
+date:
+	31-JUL-1981
+
+	revised 30-JUN-1982	ls		version 1.5 changes
+	revised 15-APR-1983	kd		fix accvio bug with FILL attribute
+	revised 10-OCT-1983	jlc		add FORTRAN record support
+	revised  3-May-1984	kd		fix bug - TYPNAM error message
+						not being generated.
+	revised 25-May-1984	kd		remove extra level of recursion
+						to decrease the virtual pages.
+						Make the outputnode routine
+						perform an iterative loop for
+						p->nod$a_flink rather than doing
+						it recursively.
+	revised 26-May-1984	kd		Flatten the structures.  Only put
+						out structure declaration for top
+						level structures.
+	revised 23-Jun-1984	kd		Fix problem with bitfields declared
+						FILL getting PARAMETER declarations.
+	revised 02-Aug-1984	kd		Add ident field to procedure. Fix
+						problem with multiple structure 
+						declarations with userfill flag.
+	revised 01-Sep-1984	kd	2-1	Increase the line length to 132.
+        revised 13-Feb-1990  William R. Vales   Make changes to record
+                             Robert Thomson     dependency data for VMS VDE
+                                                system builder. (see CHANGE LOG)
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+    10-Dec-1984	! kd 	! 2-2 Fix incorrect %FILL for bitfield structures.
+________________!_______!______________________________________________________
+    14-Jan-1985	| kd	| 2-3 Fix problem where the flink of the tree root is
+		|	|     being reassigned to point to the tree_root.
+________________!_______!______________________________________________________
+    19-Mar-1985	| kd	| 2-4 Add named type support. (RECORDS)
+________________!_______!______________________________________________________
+     6-Jun-1985	|  kd	| 2-5  Add a close for output file.  Add condition
+		|	|	handler for undefinefile condition.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-1 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    25-Feb-1986	|  pc	| V3.0-2 In the CONSTNODE section remove the statement
+		|	|	 which looks for the string "_fill_" and "$$fill_".
+		|	|	 Why was it there in the first place?
+________________|_______|______________________________________________________
+    19-Mar-1987	|  jgw	| T3.1-0 Initialized the output buffer (buf) to '' in
+		|	|	 outer-level declaration.
+________________|_______|______________________________________________________
+     2-Apr-1987	|  jgw	| X3.1-1 Bumped version edit level and switched to X.
+________________|_______|______________________________________________________
+     7-Apr-1987	|  jgw	| X3.1-2 Added F, D, G and H_FLOATING COMPLEX data
+		|	|	 type functionality (enhancement for RTL)
+________________|_______|______________________________________________________
+    14-Jul-1987	|  jgw	| X3.1-3 Initialize comment_buf to '' in outer-level
+		|	|	 declaration.
+________________|_______|______________________________________________________
+    21-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________|_______|______________________________________________________
+    04-Feb-1988	|  jg	| X3.2-1 User defined types / Entry point return types
+________________|_______|______________________________________________________
+    07-Feb-1988	|  jg	| X3.2-2 Change instance of TYPDEF'd aggregate to
+		|	|	 RECORD (error in Specification)
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-3 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    08-Jul-1988	|  jgw	| X3.2-4 Prevent code generation for aggregate members
+		|	|	  of type CHARACTER LENGTH 0, and output an
+		|	|	  informational comment instead.  Break up
+		|	|	  FORTRAN string constants that cause source
+		|	|	  records to extend beyond column 72.
+________________|_______|______________________________________________________
+    12-Jul-1988	|  jgw	| X3.2-5 Correct problems related to X3.2-4 changes.
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+    16-Aug-1990	|  sbl	| X3.2-6 Use %FILL for userfill fields.  Remove leading
+		|	|	 $ and _ from names.
+________________|_______|______________________________________________________
+    20-May-1992 |  jak	| EV1-10 Added bounds check on ref to types array.
+		|	|	Added revision checks.
+________________|_______|______________________________________________________
+    11-Jun-1992 |  jak	| EV1-14 End of line comment on aggregate caused line 
+		|	|	to start in column 1.  Was missing "indent||".
+________________|_______|______________________________________________________
+     7-Jul-1992 |  jak	| EV1-16 Implement new data types: INTEGER and POINTER.,
+    15-Jul-1992	|	|	Fix bug: clear buf after emitting COMMON line for
+		|	|	nod$v_common.
+________________|_______|______________________________________________________
+     1-Sep-1992 |  jak	| EV1-18 Add directives (CDEC$ OPTIONS)to push/pop alignment.
+		|	|	Changed sdl$putline calls to call internal PUTLINE.
+________________|_______|______________________________________________________
+    17-Feb-1994 |  sdd	| EV1-34 Change from typenod node types to itemnode types
+		|	|	caused embedded structures to ACCVIO.
+________________|_______|______________________________________________________
+    18-Oct-1994	|  RC	| EV1-40  Replace   if p->nod$a_typeinfo2 ^= null() &  p->nod$a_typeinfo2->...
+		|	|	       by   if p->nod$a_typeinfo2 ^= null() &: p->nod$a_typeinfo2->...
+		|	|	      and   if (level > 1) &  (p->nod$a_parent->...
+		|	|	       by   if (level > 1) &: (p->nod$a_parent->...
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Fix arrays of records.
+________________|_______|______________________________________________________
+    17-Oct-1995 |  SBL  | EV1-50  Replace CDEC$ with !DEC$, for subroutines,
+		|	|         don't emit EXTERNAL declaration, for negative
+		|	|         constants, use decimal notation.
+		|	|         Check for (nod$v_based | nod$v_typedef) 
+		|	|	  where we had just typedef before.
+		|	|	  Put prefix on FILL structure names.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-50';
+
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) options(ident(MODULE_IDENT));
+ 	
+	%include 'sdl$library:sdlnodef.in';	/* include node structure definition	*/
+	%include 'sdl$library:sdltypdef.in';	/* include data type definitions	*/
+	%include 'sdl$library:sdlmsgdef.in';	/* include error message interface	*/
+	%include 'sdl$library:sdlshr.in';	/* include the data that is passed
+						   to the backends. 	*/ 
+        %include 'SDL$LIBRARY:sdlgetfnm.in';
+ 
+/* CONSTANTS */
+	%replace lang_ext by '.for';	/* extension for fortran */ 
+	%replace lang_name by 'FORTRAN'; /* Language name for conditional - jg */
+	%replace k_buf by '0'b;		/* flags for puttype */
+	%replace k_out by '1'b;
+	%replace false by '0'b;					/* jg */
+	%replace true by '1'b;					/* jg */
+
+/* LOCALS */
+	dcl out_file char(255) var ;
+	dcl def_filename char(132) var;
+	dcl output_file file output record sequential;
+	dcl bitfield_bits fixed bin(31) static initial (0);	/* Accumulated size of bitfields in structure */
+	dcl bitfield_fill fixed bin(31);	/* Number of bytes of fill for bitfields */
+	dcl types(36) char (32) var;	/* the data type equivalents */ /* jg */
+
+	types = '';
+	types(typ$k_address)	= 'INTEGER*4';
+	types(typ$k_byte)	= 'BYTE     ';
+	types(typ$k_boolean)	= 'BYTE     ';
+	types(typ$k_char)	= 'CHARACTER';
+	types(typ$k_decimal)	= '';
+	types(typ$k_double)	= 'REAL*8   ';
+	types(typ$k_float)	= 'REAL*4   ';
+	types(typ$k_grand)	= 'REAL*8   ';
+	types(typ$k_huge)	= 'REAL*16  ';
+	types(typ$k_double_complex) = 'COMPLEX*16';
+	types(typ$k_float_complex) = 'COMPLEX  ';
+	types(typ$k_grand_complex) = 'COMPLEX*16';
+	types(typ$k_huge_complex) = '';
+	types(typ$k_longword)	= 'INTEGER*4';
+	types(typ$k_octaword)	= '';
+	types(typ$k_quadword)	= '';
+	types(typ$k_vield)	= '';
+	types(typ$k_word)	= 'INTEGER*2';
+	types(typ$k_structure)	= '';
+	types(typ$k_union)	= '';
+	types(typ$k_any)	= '';
+	types(typ$k_user)	= '**user**';			/* jg */
+	types(typ$k_void)	= '';				/* jg */
+
+	types(typ$k_integer)		= 'INTEGER*4';
+	types(typ$k_integer_byte)	= 'INTEGER*1';
+	types(typ$k_integer_word)	= 'INTEGER*2';
+	types(typ$k_integer_long)	= 'INTEGER*4';
+	types(typ$k_pointer)		= 'INTEGER*4';
+	types(typ$k_pointer_long)	= 'INTEGER*4';
+
+	if sdl$v_alpha_opt then 
+	    do;
+	types(typ$k_integer_quad)	= 'INTEGER*8';
+	types(typ$k_pointer_quad)	= 'INTEGER*8';
+	types(typ$k_integer_hw)		= 'INTEGER*8';
+	types(typ$k_pointer_hw)		= 'INTEGER*8';
+	types(typ$k_hardware_integer)	= 'INTEGER*8';
+	types(typ$k_hardware_address)	= 'INTEGER*8';
+	    end;
+	else 
+	    do;
+	types(typ$k_integer_quad)	= '';
+	types(typ$k_pointer_quad)	= '';
+	types(typ$k_integer_hw)		= 'INTEGER*4';
+	types(typ$k_pointer_hw)		= 'INTEGER*4';
+	types(typ$k_hardware_integer)	= 'INTEGER*4';
+	types(typ$k_hardware_address)	= 'INTEGER*4';
+	    end;
+
+	dcl buf char(1024) var init('');
+	dcl comment_buf char(1024) var init('');    /* Alignment for naked comments */
+	dcl based_string char(1024) var based;
+	dcl tab char(1) initial(byte(9));
+	dcl indent char(132) var;	/* # of spaces to indent */
+	dcl process_conditional bit init (false);		/* jg */
+	dcl module_flag bit(1) aligned static init(false); /* EV1-18 */
+	dcl prefix char(34) var;
+
+
+/*** main ***/
+
+/* Check version mismatch */
+    if shrdata_version ^= sdl$k_shrdata_rev |
+       node_version ^= sdl$k_node_rev then 
+	do;
+	call errmsg(sdl$_shr_data,sdl$_revcheck,,);
+	goto exit;
+	end;
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(sdl$gt_filename));
+	    goto exit;
+	end;
+
+	/* first open up the output file */
+	/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename || lang_ext),
+				     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	/* output the little SDL header with time and date info */
+	call sdl$header(sdl$_shr_data, '! ','',line_length);
+
+	/* begin at the root of the tree, and let it go */
+	prefix = '';
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+	if module_flag then	/* EV1-18 */
+	    call putline('!DEC$ END OPTIONS');
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+  
+	close file (output_file);
+exit: 
+	return;
+
+
+
+
+/** print node routine **/
+outputnode:
+    proc (initp,startp,level);
+
+/* parameters:	initp	= address of node to output
+		startp	= address of where we started (i.e. where to stop
+			  in traversing a circular list )
+		level	= level number of aggregate (incremented by 1 with
+			  each sub-aggregate */
+  dcl (p,startp,q,initp) ptr;
+  dcl (buf_length, level) fixed bin(31);
+  dcl (temp1,temp2) char(128) var;
+  dcl nodname char(34) var;
+  dcl end_of_string bit;
+  dcl flush_buffer char(1024) var init('');
+
+    p = initp;
+    do while (p^=startp);
+
+    /* The indentation level is one tab for everything except nested structures */
+    /* Since the first call on OUTPUTNODE is always a root node, this code serves to initialize
+       indentation level. */
+
+	comment_buf = '';
+	indent = tab;
+
+	/* Make a copy of the name, and if it has a leading $ or _, strip it off. */
+	nodname = p->nod$t_name;
+	if length (nodname) ^= 0 then 
+	if substr (nodname,1,1) = '$' | substr (nodname,1,1) = '_' then 
+	    nodname = substr (nodname, 2, length(nodname)-1);
+
+	if length(nodname) > 5 then
+	if substr(nodname,1,5) = 'FILL_' then
+	    nodname = prefix || '$$' || nodname;
+
+	goto case(p->nod$b_type);
+ 
+case(nod$k_rootnode):
+	/* nothing done here except to move on to list of module nodes of which
+	   this is the head */
+	buf='';
+	goto common_2;
+ 
+case(nod$k_commnode):
+	/* Fill the buffer to the comment start position and let the common stuff output the comment line */
+	buf = comment_buf;
+	goto common;
+ 
+case(nod$k_constnode):
+	/* do a straightforward PARAMETER for the constant node */
+
+	/* All constants are put out in Hex form, to avoid inappropriate typing
+	   and conversion (as small integer constants.
+	   It would be nice if the tree contained the radix used in the SDL source
+	   specification of the constant. But lacking that, hex is safest!
+	*/
+	/* EV1-49 If not a mask and the value is negative, use decimal,
+	   so that assignments to INTEGER*2 values don't choke. */
+	if p->nod$w_datatype ^= typ$k_char then 
+	    do;
+	    if p->nod$l_typeinfo >= 0 | p->nod$l_typeinfo < -65536 |
+	       index(nodname,'$M_') ^= 0 |
+	       index(nodname,'$m_') ^= 0
+	    then
+		    buf='PARAMETER '||nodname||' = '||hexval(p->nod$l_typeinfo);
+	    else
+		    buf='PARAMETER '||nodname||' = '||trim(p->nod$l_typeinfo);
+	    goto common;
+	    end;
+
+	/* Is a character constant */
+	buf='CHARACTER*(*) '||nodname;
+	call putline(tab||buf);
+	temp1=p->nod$a_typeinfo2->based_string;
+	call sdl$cvtstr(temp1, temp2, '''''''');
+
+	if length(temp2) = 0 then
+	    do;
+	    buf = 'PARAMETER ('||nodname||' = CHAR(0))';
+	    goto common;
+	    end;
+
+	buf ='PARAMETER ('||nodname||' = '''||temp2||'''';
+	/*
+	 * Break up the string constant if it causes the FORTRAN
+	 * source record to extend beyond column 72.  This little
+	 * algorithm assumes that one tab character will later be
+	 * attached to the source record (buf) immediately before
+	 * the PARAMETER keyword (i.e., the output buffer will
+	 * actually be longer [by one character] when it is
+	 * written to the output file).
+	 */
+	if length(buf) > 61 then 
+	    do;
+	    end_of_string = false;
+	    flush_buffer = substr(buf, 1, 57) || ''' //';
+	    call putline(indent || flush_buffer);
+	    buf_length = length(buf);
+	    buf = '1 ''' || substr(buf, 58, buf_length - 57);
+	    if length(buf) <= 61 then
+	        end_of_string = true;
+	    do while (^end_of_string);
+	        flush_buffer = substr(buf, 1, 57) || ''' //';
+	        call putline(indent || flush_buffer);
+		buf_length = length(buf);
+		buf = '1 ''' || substr(buf, 58, buf_length - 57);
+		if length(buf) <= 61 then
+		    end_of_string = true;
+		end;
+	    end;
+	buf = buf || '//CHAR(0))';
+	goto common;
+ 
+case(nod$k_entrynode):
+	/* declare an external entry point */
+	/* if it's a function, output the datatype */
+	/* */
+	/* EV1-49 If a subroutine, no declaration */
+	if p->nod$w_datatype^=0 & p->nod$w_datatype^=typ$k_void &
+	   types(p->nod$w_datatype)^='' then do;
+		call puttype(p, k_out, level, startp);
+		buf = 'EXTERNAL '||nodname;
+		end;
+	   else
+		buf = '! Subroutine '||nodname;
+	goto common;
+ 
+case(nod$k_itemnode):
+
+	/* jg  Ignore a declared item */
+	if p->nod$v_declared then 
+	    goto common;
+
+	/* Indent four spaces for each level of structure nesting. */
+	indent = tab||copy('    ', level-1);
+
+	/* Output MAP statement for member of union. */
+	if (level>1) &: (p->nod$a_parent->nod$w_datatype = typ$k_union) then 
+	    call putline(indent||'MAP');
+
+	/* EV1-50 - look for based or typedef */
+	if (p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union) &
+	    p->nod$a_typeinfo2 ^= null() &:
+	    ((p->nod$a_typeinfo2->nod$b_type = nod$k_itemnode) &
+	     (p->nod$a_typeinfo2->nod$v_based |
+	      p->nod$a_typeinfo2->nod$v_typedef)) then 
+	    do;
+	    buf = 'RECORD /' || p->nod$a_typeinfo2->nod$t_name || '/ ' || nodname;
+	    if (p->nod$v_dimen) then
+		buf = buf || '(' || trim(p->nod$l_lodim) || ':' || trim(p->nod$l_hidim) || ')';
+	    go to common;
+	    end;
+
+	/* jg
+	 * If type is user, pointing to a structure or union, put out a RECORD
+	 */
+	if p->nod$w_datatype = typ$k_user then 
+	    do;
+	    q = p->nod$a_typeinfo2->nod$a_flink;
+	    if q->nod$w_datatype = typ$k_structure | q->nod$w_datatype = typ$k_union then 
+	        do;
+	        buf = 'RECORD /'||q->nod$t_name||'/ '||nodname;
+		if (p->nod$v_dimen) then
+		    buf = buf || '(' || trim(p->nod$l_lodim) || ':' || trim(p->nod$l_hidim) || ')';
+	        goto common;
+	        end;
+	    end;
+
+	/* Both structures and unions get a structure declaration. */
+	if p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union then 
+	    do;
+	    if level = 1 then 
+		do; /* only put out top level structures.  Flatten the structures. */
+		buf = 'STRUCTURE /'||nodname||'/';
+
+		/* Append any comment on the aggregate declaration 
+		   directly, not through the common code.  Otherwise 
+		   the comment will come out after the members. */
+		if p->nod$a_comment ^= null() then 
+		    do;
+		    buf = line_fill(buf,40);
+		    call putcomment (indent||buf,	    /* EV1-14 */
+				    p->nod$a_comment->based_string);
+		    end;
+		else
+		    call putline(indent||buf);
+		end;
+
+	    /* Unions get a UNION statement. */
+	    if p->nod$w_datatype = typ$k_union then
+		call putline(indent||'UNION');
+
+	    /* Process the members of the structure.  The indentation level must be reset
+		when all the members have been processed. */
+	    call outputnode(p->nod$a_child->nod$a_flink, p->nod$a_child, level+1);
+	    indent = tab||copy('    ', level-1);
+
+	    /* Output an END UNION for unions and an END STRUCTURE for top level structures . */
+
+	    if p->nod$w_datatype = typ$k_union then
+		call putline(indent||'END UNION');
+
+	    if level = 1 then 
+		do;
+		if bitfield_bits ^= 0 then 
+		    do;
+		    bitfield_fill = divide(bitfield_bits+7, 8, 31);
+		    buf = 'BYTE %FILL ('||trim(bitfield_fill)||')';
+		    call putline(indent||buf);
+		    bitfield_bits = 0;
+		    bitfield_fill = 0;
+		    end;
+		call putline(indent||'END STRUCTURE	! '||nodname);
+		end;
+
+	    goto common_3;
+	    end;
+
+	/* For non-structure items, just call puttype and do the common processing. */
+	if p->nod$v_userfill & p->nod$w_datatype = typ$k_vield then
+	    goto common_2;
+
+	call puttype (p, k_buf, level, startp);
+
+	/* jg
+	 * If it's a TYPEDEF'd item, make it a comment
+	 * EV1-50 - look for based or typedef
+	 */
+	if p->nod$v_based | p->nod$v_typedef then
+	    buf = '! ** ' || buf ;
+
+	goto common;
+
+case(nod$k_modulnode):
+
+	if module_flag then	/* EV1-18 */
+	    call putline('!DEC$ END OPTIONS');
+
+	/* put out the module name as a comment */
+	call putline(' ');
+	buf='!*** MODULE '||p->nod$t_name; /* Use original name */
+
+	/* Construct prefix for constructing FILL names */
+	prefix = p->nod$t_name;
+	buf_length = length(prefix);
+	if substr(prefix,1,1) = '$' then do;
+	    buf_length = buf_length - 1;
+	    prefix =  substr(prefix,2,buf_length);
+	    end;
+	if (buf_length > 3) & (substr(prefix,buf_length-2,3) = 'DEF') then
+	    prefix = substr(prefix,1,buf_length-3);
+
+	if p->nod$t_naked ^= '' then
+	    buf=buf || ' IDENT '||p->nod$t_naked;
+	buf=buf||' ***';
+	call putline(buf);
+	buf='';
+	if ^sdl$v_vax_opt then		/* EV1-18 */
+	    do;
+	    call putline('!DEC$ OPTIONS/ALIGN=(RECORDS=PACKED,COMMONS=PACKED)');
+	    module_flag = true;
+	    end;
+	goto common;
+ 
+case(nod$k_parmnode):
+	buf='';
+	goto common_2;
+ 
+case(nod$k_objnode):
+	 /* ignore object nodes-- FORTRAN doesn't care what a pointer is pointing to */
+	buf='';
+	goto common_2;
+ 
+case(nod$k_headnode):
+	 /* nothing done with head nodes-- just use them to move down a circular list */
+	buf='';
+	goto common_2;
+
+case(nod$k_condnode):						/* jg */
+	/* Search for this language in the list */
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common_2 at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+	if process_conditional then 
+	    goto common;
+
+	goto common_2;
+
+case(nod$k_litnode):						/* jg */
+	/* Process literal node */
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+common:
+	/* if there is attached comment, then append it to end of line and output it */
+	if p->nod$a_comment ^= null() & buf^='' & sdl$v_comment_opt then 
+	    buf = line_fill(buf,40);
+
+	if buf^='' then	
+	    buf = indent||buf;
+
+	if p->nod$a_comment^=null() & sdl$v_comment_opt then 
+	    call putcomment (buf, p->nod$a_comment->based_string);
+	else
+	    call putline(buf);
+
+	buf='';
+
+common_2:
+	/* travel down the child node */
+	if process_conditional then 
+	    do;				/* jg */
+	    process_conditional = false;
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,level);
+	    end;
+	else 
+	if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode then
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,level+1);
+
+common_3:
+	/* travel across the circular list to the sibling node */
+
+	/* Output any pending END MAP */
+	if (level>1) &:
+	   (p->nod$b_type = nod$k_itemnode) &
+	   (p->nod$a_parent->nod$w_datatype = typ$k_union) then 
+	   do;
+	    if bitfield_bits ^= 0 then 
+		do;
+		bitfield_fill = divide(bitfield_bits+7, 8, 31);
+		buf = 'BYTE %FILL ('||trim(bitfield_fill)||')';
+		call putline(indent||buf);
+		bitfield_bits = 0;
+		bitfield_fill = 0;
+		end;
+	    call putline(indent||'END MAP');
+	    end;
+
+	/* Handle the COMMON attribute.  For simple scalars, put out
+	   a named common declaration.  For structured variables, a
+	   RECORD declaration is also required.
+	*/
+	if level=1 then 
+	    do;
+	    if p->nod$v_common then 
+		do;
+		if p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union then 
+		    do;
+		    buf = 'RECORD /'||nodname||'/ '||nodname;
+		    if (p->nod$v_dimen) then
+			buf = buf || '(' || trim(p->nod$l_lodim) || ':' || trim(p->nod$l_hidim) || ')';
+		    call putline(tab||buf);
+		    end;
+
+		buf='COMMON /'||nodname||'/ '||nodname;
+		call putline(tab||buf);
+		buf=''; /* EV1-16 */
+		end;
+	    end;
+
+	p = p->nod$a_flink;
+
+    end; /* WHILE */
+
+end outputnode;
+
+
+puttype:
+	proc(p,outflag, lev, start);
+
+/* format the datatype information for an item */
+
+	dcl (p, q, start) ptr;					/* jg */
+	dcl lev fixed bin(31);
+	dcl dim char(32) var;
+	dcl outflag bit(1);
+	dcl nodname char(34) var;
+	dcl (pos,siz) fixed bin(31);		/* Value for constructed bitfield position and size constants */
+	dcl (pos_tag,siz_tag) char(4) var;	/* Tag for constructed bitfield position and size constants */
+
+	dim='';
+
+	/* Make a copy of the name, and if it has a leading $ or _, /*
+	/* strip it off. */
+	nodname = p->nod$t_name;
+	if length (nodname) ^= 0 then do;
+	    if substr (nodname,1,1) = '$' |
+	       substr (nodname,1,1) = '_'
+	    then
+		nodname = substr (nodname, 2, length(nodname)-1);
+	    end;
+
+	/* jg
+	 * If type is user, then get the real type from the reference node
+	 */
+	q = p;
+	do while (q->nod$w_datatype = typ$k_user);
+	    q = q->nod$a_typeinfo2->nod$a_flink;
+	    end;
+
+	if q->nod$w_datatype >= lbound(types,1) &	    /* jak */
+	   q->nod$w_datatype <= hbound(types,1) then 
+		buf=types(q->nod$w_datatype);
+	else 
+		buf = '';
+
+	if q->nod$w_datatype=typ$k_decimal then do;
+		buf='BYTE     ';
+		siz=divide(q->nod$l_typeinfo, 2, 31) + 1;
+		dim=trim(siz);
+		end;
+
+	else if buf = '' & 
+		(q->nod$w_datatype=typ$k_quadword |
+		 q->nod$w_datatype=typ$k_integer_quad | 
+		 q->nod$w_datatype=typ$k_pointer_quad ) then do;
+		buf='INTEGER*4';
+		dim='2';
+		end;
+
+	else if q->nod$w_datatype=typ$k_octaword then do;
+		buf='INTEGER*4';
+		dim='4';
+		end;
+
+	else if q->nod$w_datatype = typ$k_huge_complex then do;
+		call errmsg (sdl$_shr_data, sdl$_typnotsup, p->nod$l_srcline, ('H_FLOATING COMPLEX'));
+		buf='COMPLEX*16';
+		dim='2';
+		end;
+
+	else if q->nod$w_datatype=typ$k_char then do;
+		siz = q->nod$l_typeinfo;
+
+		if q->nod$v_varying	then do;
+		    if (q->nod$b_type  = nod$k_itemnode)	then do;
+
+			/* For VARYING CHARACTER variables, output a structure
+			   definition with fields for the length and text of the
+			   string, and a RECORD definition for a record
+			   with that structure.  The regular PUTTYPE processing
+			   will apply.  For fields, output a structure field.
+			   The dimension is appended directly to the field name
+			   and the PUTTYPE finish up processing is bypassed.
+			*/
+			buf = 'STRUCTURE /'||nodname||'/';
+			if lev > 1
+			   then do;
+				buf = buf||' '||nodname;
+				if q->nod$v_dimen then do;
+				    dim = dim || trim(q->nod$l_lodim)||':'||
+						 trim(q->nod$l_hidim);
+				    buf = buf||'('||dim||')';
+				    end;
+				end;
+			call putline(indent||buf);
+			call putline(indent||'    '||'INTEGER*2 LEN');
+			call putline(indent||'    '||'CHARACTER*'||trim(siz)||' TXT');
+			call putline(indent||'END STRUCTURE');
+			if lev = 1 then
+			    buf = 'RECORD /'||nodname||'/ ';
+			    else do;
+				buf = '';
+				return;
+				end;
+			end;
+		    end;
+		else do;
+		    if siz=0 then siz=1;
+		    if (lev > 1) & (q->nod$l_typeinfo = 0) then
+			buf = '! unsupported type CHARACTER*0';
+		    else
+			buf=buf||'*'||trim(siz);
+		    end;
+		end;
+
+	if q->nod$w_datatype=typ$k_vield then do;
+		pos = q->nod$l_typeinfo2;
+		siz = q->nod$l_typeinfo;
+		buf = 'PARAMETER '||p->nod$t_prefix;
+
+		if substr(buf, length(buf)) > 'a' then do;
+			pos_tag = 'v_';	siz_tag = 's_';
+			end;
+		else do;
+			pos_tag = 'V_';	siz_tag = 'S_';
+			end;
+		if p->nod$t_tag ^= 'V' & p->nod$t_tag ^= 'v' then do;
+			pos_tag = p->nod$t_tag||pos_tag;
+			siz_tag = p->nod$t_tag||siz_tag;
+			end;
+
+		call putline(indent||buf||siz_tag||p->nod$t_naked||' = '||trim(siz));
+		buf = buf||pos_tag||p->nod$t_naked||' = '||trim(pos);
+		bitfield_bits = bitfield_bits + siz;
+
+		/* Allocate fill for bitfields in structures when the end of 
+		   the bitfields are reached */
+		if p->nod$a_flink = start | 
+		   (p->nod$a_flink->nod$b_type = nod$k_itemnode 
+		    & p->nod$a_flink->nod$w_datatype ^= typ$k_vield) then do;
+			bitfield_fill = divide(bitfield_bits+7, 8, 31);
+			call putline(indent||buf);
+			buf = 'BYTE %FILL ('||trim(bitfield_fill)||')';
+			bitfield_bits = 0;
+			end;
+
+		end;
+
+	else do;
+		if buf='' then do;
+			buf='BYTE     ';
+			dim=trim(p->nod$l_fldsiz);
+			end;
+
+		/* If this is a user-declared fill, use %FILL */
+		if p->nod$v_userfill
+		then
+		    buf = buf||' %FILL';
+		else
+		    buf=buf||' '||nodname;
+
+		end;
+	
+/* if there is a dimension, append it */
+	if (p->nod$v_dimen) & 
+	   (p->nod$w_datatype ^= typ$k_vield)	then do;
+		if dim^='' then dim=dim||',';
+		dim=dim||trim(p->nod$l_lodim)||':'||trim(p->nod$l_hidim);
+		end;
+
+	if dim^='' then buf=buf||'('||dim||')';
+ 
+	if (q->nod$w_datatype = typ$k_huge_complex) &:
+	   ((p->nod$a_parent->nod$w_datatype = typ$k_structure) |
+	    (p->nod$a_parent->nod$w_datatype = typ$k_union)) then
+	   buf = 'BYTE %FILL (32)';
+
+	/* jg
+	 * If type is user, append a comment
+	 */
+	if p->nod$w_datatype=typ$k_user then
+	    buf = buf||'  ! type is "'||q->nod$t_name||'"';
+
+	if outflag then do;
+		call putline(indent||buf);
+		buf='';
+		end;
+
+	return;
+end puttype;
+ 
+
+
+/** line_fill **/
+/* fill out the statement part of a short statement to n characters */
+line_fill:	proc(a,n) returns (char(line_length) var);
+	dcl n fixed bin, ntabs fixed bin, nblks fixed bin;
+	dcl a char(*) var;
+	dcl b char(line_length) var;
+	dcl i fixed bin(31);
+
+	/* Set the comment alignment buffer */
+	comment_buf = a;
+	do i = 1 to length(comment_buf);
+	    if substr(comment_buf, i, 1) ^= tab then
+		substr(comment_buf, i, 1) = ' ';
+	end;
+
+	b = a;
+	if length(b) < n then do;
+		ntabs = divide(n,8,31) - divide(length(b),8,31);
+		if ntabs>0 then nblks=mod(n,8); else nblks=n-length(b);
+		b = b || copy(tab,ntabs) || copy(' ',nblks);
+		end;
+	else
+		b = b||' ';
+
+	return (b);
+end line_fill;
+    
+/** hexval **/
+/* generate a FORTRAN hexadecimal constant form */
+HEXVAL:	proc(i) returns (char(11));
+	dcl i fixed bin(31);
+	dcl hexstr char(8);
+
+	dcl ots$cvt_l_tz entry(fixed bin(31),char(*),fixed bin(31) value);
+
+	call ots$cvt_l_tz(i, hexstr, 8);
+
+	return (''''||hexstr||'''X');
+end hexval;
+
+
+PUTCOMMENT: proc(buf_part, comment_part);
+    dcl buf_part char(*) varying;
+    dcl comment_part char(*) varying;
+    dcl comment_remain char(1024) varying;
+
+    if ((length(buf_part) + length(comment_part)) < 100)
+    then
+	call putline(buf_part || ' ! ' || comment_part);
+    else do;
+	call putline(buf_part || ' ! ' ||
+	    substr(comment_part,1,(97-length(buf_part))));
+	comment_remain = substr(comment_part, 98-length(buf_part),
+	    length(comment_part)-(97-length(buf_part)));
+	do while (length(comment_part) > 60);
+	    call putline(tab||tab||tab||tab||tab||'! ' ||substr(comment_part,1,60));
+	    comment_part = substr(comment_part, 61, length(comment_part)-60);
+	    end;
+	end;
+    return;
+end putcomment;
+
+PUTLINE: proc(buf);
+    dcl buf char(1024) var;
+    call sdl$putline(outfile,buf,line_length);
+end putline;
+
+end sdl$output;

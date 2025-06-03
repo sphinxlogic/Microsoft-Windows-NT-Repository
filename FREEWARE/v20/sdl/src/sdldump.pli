@@ -1,0 +1,460 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978-1992						    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Dumps the SDL tree. 
+	Parameters:	outf	-	filename to write the tree to.
+					if none, then sys$output is used.
+
+author:
+	C.T. Pacy
+date:
+	revised 22-DEC-1980	ctp
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   07-Jan-1982	!  PHH	! Change log added.  Replaced NOD$W_FLAGS with NOD$L_FLAGS.
+		!	! Added support for NOD$V_GENERATED.  Use SDL$LIBRARY in
+		!	! %INCLUDEs.
+________________!_______!______________________________________________________
+   19-Apr-1983  |  KD   | Change PRINTNODE routine to dump pointer nodes for
+		|	| BASED AGGREGATE STRUCTURES.
+________________!_______!______________________________________________________
+   13-Nov-1983	|  kd	| IDENT (2-0). Add the NOD$T_TYPENAME field to the dump. 
+________________|_______|______________________________________________________
+   19-Jun-1985	|  kd	| 2-1.  DEFAULT and OPTIONAL flags not being printed.
+________________|_______|______________________________________________________
+    6-Aug-1985	|  kd	| 2-2.  Add default_file_name to OPEN (.dmp).
+________________|_______|______________________________________________________
+    8-Aug-1985	|  kd	| 2-3.  Add a close for the dump file so that multiple
+		|	|	input sources do not get dumped to the same file.
+________________|_______|______________________________________________________
+   29-Aug-1985	|  kd	| 2-4.  Fix problem with file being closed in the wrong
+		|	|	place.
+________________|_______|______________________________________________________
+    6-Mar-1987	|  jw	| T3.1-0  LIST flag not being printed.
+________________|_______|______________________________________________________
+   23-Mar-1987	|  jw	| T3.1-1  Print RTL_STR_DESC flag.
+________________|_______|______________________________________________________
+    2-Apr-1987	|  jw	| X3.1-2  Bumped version edit level and switched to X
+________________|_______|______________________________________________________
+    7-Apr-1987	|  jw	| X3.1-3  Print COMPLEX flag and COMPLEX data types.
+________________|_______|______________________________________________________
+   20-May-1987	|  jw	| X3.1-4  Added the nod$t_return_name field
+________________|_______|______________________________________________________
+   15-Jan-1988	|  jg	| X3.2-0  Print TYPEDEF flag and USER and VOID
+		|	|	  data types.
+		|	|	  Print TYPEINFO2 in hex if typ$k_user or
+		|	|	  a string constant.
+		|	|	  Print the string if it's a string constant.
+		|	|	  Dump the head/object nodes for SIZEOF clause.
+		|	|	  Print the string if it's a string constant.
+________________|_______|______________________________________________________
+   22-Jan-1988	|  jg	| X3.2-1  Print DECLARED flag.
+________________|_______|______________________________________________________
+   15-Feb-1988	|  jg	| X3.2-2  Process literal and conditional nodes
+________________|_______|______________________________________________________
+   17-Feb-1988	|  jg	| X3.2-3  condnode now has object nodes on typeinfo2
+		|	|	  Add endnode type since it now exists.
+________________|_______|______________________________________________________
+   04-May-1988	|  jg	| X3.2-4  Print FORWARD flag.
+________________|_______|______________________________________________________
+   28-Nov-1991  | RMM   | X4      Change declarations prior to building for
+                |       |         Alpha.  Add %include sdlshr.in.
+________________!_______!______________________________________________________
+   16-Mar-1992	|  jak	| EV1-3	Print ALIGN flag and BOUNDARY value.
+________________|_______|______________________________________________________
+   17-Apr-1992	|  jak	| EV1-4	Added more datatypes and nodetypes.
+________________|_______|______________________________________________________
+    5-May-1992	|  jak	| EV1-8	Eliminate "size" field.
+		|	|	Print fields in different order.
+		|	|	Added fields nodeid, marker, initial, maskstr.
+________________|_______|______________________________________________________
+   10-Jun-1992	|  jak	| EV1-14 Added SIGNED and ALIAS flags.
+		|	|	Moved debug procedures to end of module so ident
+		|	|	and module name are associated with DUMP routine.
+________________|_______|______________________________________________________
+   18-Feb-1993	|  jak	| EV1-21 Changed printnode to walk list in loop rather than 
+		|	|   use recursion (!!!).  Changed to not dump TYPEINFO2 for 
+		|	|   structure/union --- not done that way anymore.
+		|	|   Dump typeinfo2 also if has_object or is bound.
+________________|_______|______________________________________________________
+   22-Mar-1993	|  jak	| EV1-21A Made TYPEINFO2 hex if HAS_OBJECT.  Dump new flag bits.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-21A';
+
+
+dump:	proc (outf) options(ident(MODULE_IDENT));
+
+	dcl outf char(128);
+	dcl external_tree_root pointer static external;
+
+	dcl dmpfil file;
+	dcl (outptr,outsiz) fixed bin(31);
+	dcl based_string char(1024) var  based;
+	dcl (datatypes,nodetypes)(0:40) char(32) var;
+	dcl disp ptr;
+
+	%include 'SDL$LIBRARY:sdlnodef.in';
+	%include 'SDL$LIBRARY:sdltypdef.in';
+	%include 'SDL$LIBRARY:sdlshr.in';		/* RMM */
+	%include pli_file_display;
+
+/* init datatypes, nodetypes */
+	datatypes(0)='';
+	datatypes(typ$k_address)='address';
+	datatypes(typ$k_byte)='byte';
+	datatypes(typ$k_char)='character';
+	datatypes(typ$k_boolean)='boolean';
+	datatypes(typ$k_decimal)='decimal';
+	datatypes(typ$k_double)='double';
+	datatypes(typ$k_float)='float';
+	datatypes(typ$k_grand)='grand';
+	datatypes(typ$k_huge)='huge';
+	datatypes(typ$k_longword)='longword';
+	datatypes(typ$k_octaword)='octaword';
+	datatypes(typ$k_quadword)='quadword';
+	datatypes(typ$k_vield)='bitfield';
+	datatypes(typ$k_word)='word';
+	datatypes(typ$k_structure)='structure';
+	datatypes(typ$k_union)='union';
+	datatypes(typ$k_any)='any';
+	datatypes(typ$k_entry)='entry';
+	datatypes(typ$k_double_complex)='double complex';
+	datatypes(typ$k_float_complex)='float complex';
+	datatypes(typ$k_grand_complex)='grand complex';
+	datatypes(typ$k_huge_complex)='huge complex';
+	datatypes(typ$k_user)='user';				/* jg */
+	datatypes(typ$k_void)='void';				/* jg */
+	datatypes(typ$k_integer)='integer';
+	datatypes(typ$k_hardware_address)='hardware address';
+	datatypes(typ$k_hardware_integer)='hardware integer';
+	datatypes(typ$k_pointer_hw)='pointer hw';
+	datatypes(typ$k_pointer_long )='pointer long ';
+	datatypes(typ$k_pointer)='pointer';
+	datatypes(typ$k_pointer_quad)='pointer quad';
+	datatypes(typ$k_integer_byte)='integer byte';
+	datatypes(typ$k_integer_word)='integer word';
+	datatypes(typ$k_integer_long)='integer long';
+	datatypes(typ$k_integer_quad)='integer quad';
+	datatypes(typ$k_integer_hw)='integer hw';
+
+	nodetypes(0)='';
+	nodetypes(nod$k_rootnode)='root node';
+	nodetypes(nod$k_commnode)='comment node';
+	nodetypes(nod$k_constnode)='constant node';
+	nodetypes(nod$k_entrynode)='entry node';
+	nodetypes(nod$k_itemnode)='item node';
+	nodetypes(nod$k_modulnode)='module node';
+	nodetypes(nod$k_parmnode)='parameter node';
+	nodetypes(nod$k_objnode)='object node';
+	nodetypes(nod$k_headnode)='head node';
+	nodetypes(nod$k_typnode)='type node';
+	nodetypes(nod$k_endnode)='end node';			/* jg */
+	nodetypes(nod$k_condnode)='conditional node';		/* jg */
+	nodetypes(nod$k_litnode)='literal node';		/* jg */
+	nodetypes(nod$k_symbnode)='symbol node';
+ 
+
+/*** main ***/
+
+	if outf='' then
+		outf = 'SYS$OUTPUT';
+	open file(dmpfil) title(outf) stream output 
+	    env( default_file_name('.dmp') );
+	outf = ' ';
+
+	/* Get file's LINESIZE attribute */
+	allocate pli_file_display set(disp);
+	call display(dmpfil,disp->pli_file_display);
+	outsiz=disp->pli_file_display.linesize;
+	outptr = 0;
+
+	put file(dmpfil) skip edit('DUMP OF INTERMEDIATE TREE')(a) ;
+	call newline;
+
+	call printnode(external_tree_root);
+
+	close file(dmpfil);
+
+	return;
+
+/*-----------------------------------------------------*/
+printnode:
+    procedure(head);
+
+    dcl (head,p) ptr;
+
+    p = head;
+    do while( p ^= null() );
+
+	call newline;
+
+	call field ('ADDRESS',hex(p));
+	call field ('FLINK',hex(p->nod$a_flink));
+	call field ('BLINK',hex(p->nod$a_blink));
+	call field ('TYPE',nodetypes(p->nod$b_type));           
+	call newline;
+
+	call field ('NODEID',trim(p->nod$l_nodeid));
+	call field ('PARENT',hex(p->nod$a_parent));
+	call field ('CHILD',hex(p->nod$a_child));
+	call field ('SRCLINE',trim(p->nod$l_srcline));
+	call newline;
+
+	call field ('PREFIX',(p->nod$t_prefix));
+	call field ('TAG',(p->nod$t_tag));
+	call field ('NAKED',(p->nod$t_naked));
+	call field ('NAME',(p->nod$t_name));
+	call newline;
+
+	call field ('FLDSIZ',trim(p->nod$l_fldsiz));
+	call field ('OFFSET',trim(p->nod$l_offset));
+	call field ('TYPEINFO',trim(p->nod$l_typeinfo));
+	if p->nod$v_has_object | 
+	   p->nod$w_datatype=typ$k_address |
+	   p->nod$w_datatype=typ$k_entry |
+	   p->nod$w_datatype=typ$k_structure |
+	   p->nod$w_datatype=typ$k_union |
+	   p->nod$w_datatype=typ$k_user |
+	   p->nod$b_type=nod$k_constnode & p->nod$w_datatype=typ$k_char |
+	   p->nod$b_type = nod$k_condnode |
+	   p->nod$b_type = nod$k_litnode then
+		call field ('TYPEINFO2',hex(p->nod$a_typeinfo2));
+	else
+		call field ('TYPEINFO2',trim(p->nod$l_typeinfo2));
+	call newline;
+
+	call field ('BOUNDARY',trim((p->nod$b_boundary)) );
+	call field ('DATATYPE',datatypes(p->nod$w_datatype));
+	call field ('TYPENAME',(p->nod$t_typename));
+	call flags_field (p);
+	call newline;
+
+	call field ('LODIM',trim(p->nod$l_lodim));
+	call field ('HIDIM',trim(p->nod$l_hidim));
+	call field ('INITIAL',trim(p->nod$l_initial));
+
+	if p->nod$v_mask & length(p->nod$t_maskstr) > 0 then 
+		call field ('MASKSTR',p->nod$t_maskstr);
+
+	if length(p->nod$t_marker) > 0 then 
+		call field ('MARKER',p->nod$t_marker);
+
+	if (p->nod$b_type = nod$k_entrynode) & 
+	    (p->nod$w_datatype ^= 0) & 
+	    (p->nod$t_return_name ^= '') then
+	    call field ('RETURN_NAME', (p->nod$t_return_name));
+
+	if (p->nod$b_type=nod$k_constnode &
+	    p->nod$w_datatype=typ$k_char) |
+	   p->nod$b_type = nod$k_litnode then do;
+		call newline;
+		call field ('STRING',p->nod$a_typeinfo2->based_string);
+		end;
+
+	if p->nod$a_comment^=null() then do;
+		call newline;
+		call field ('COMMENT',p->nod$a_comment->based_string);
+		end;
+
+	call newline;
+
+	/* dump any objects, based pointers or named types */
+	if p->nod$a_typeinfo2 ^= null() then 
+	if p->nod$v_has_object |
+	   p->nod$w_datatype=typ$k_address |
+	   p->nod$w_datatype=typ$k_entry |
+	   p->nod$w_datatype=typ$k_user & p->nod$a_typeinfo2->nod$a_parent=p |
+	   p->nod$b_type=nod$k_condnode | 
+	   p->nod$v_bound then
+		call printnode(p->nod$a_typeinfo2);
+
+	/* dump the kids */		
+	if p->nod$a_child ^= null() then 
+		call printnode(p->nod$a_child);
+
+	p = p->nod$a_flink;
+
+	if p = head then 
+	    return;
+
+    end; /* loop */
+
+    end printnode;
+
+
+/*-----------------------------------------------------*/
+flags_field:
+	proc(p);
+
+	dcl p ptr;
+	dcl string char(128) var;
+
+	string='';
+	if p->nod$v_complex then
+		string=string||'COMPLEX ';
+	if p->nod$v_value then
+		string=string||'VALUE ';
+	if p->nod$v_mask then
+		string=string||'MASK ';
+	if p->nod$v_unsigned then
+		string=string||'UNSIGNED ';
+	if p->nod$v_signed then
+		string=string||'SIGNED ';
+	if p->nod$v_common then
+		string=string||'COMMON ';
+	if p->nod$v_global then
+		string=string||'GLOBAL ';
+	if p->nod$v_typedef then
+		string=string||'TYPEDEF ';		/* jg */
+	if p->nod$v_varying then
+		string=string||'VARYING ';
+	if p->nod$v_vardim then
+		string=string||'VARDIM ';
+	if p->nod$v_based then
+		string=string||'BASED ';
+	if p->nod$v_desc then
+		string=string||'DESCRIPTOR ';
+	if p->nod$v_rtl_str_desc then
+		string=string||'RTL_STR_DESC ';
+	if p->nod$v_dimen then
+		string=string||'DIMEN ';
+	if p->nod$v_variable then
+		string=string||'VARIABLE ';
+	if p->nod$v_link then
+		string=string||'LINK ';
+	if p->nod$v_fixed_fldsiz then
+		string=string||'FIXED ';
+	if p->nod$v_in then
+		string=string||'IN ';
+	if p->nod$v_out then
+		string=string||'OUT ';
+	if p->nod$v_userfill then
+		string=string||'FILL ';
+	if p->nod$v_bottom then
+		string=string||'BOTTOM ';
+	if p->nod$v_bound then
+		string=string||'BOUND ';
+	if p->nod$v_generated then
+		string=string||'GENERATED ';
+	if p->nod$v_default then
+		string=string||'DEFAULT ';
+	if p->nod$v_optional then
+		string=string||'OPTIONAL ';
+	if p->nod$v_ref then
+		string=string||'REF ';
+	if p->nod$v_list then
+		string=string||'LIST ';
+	if p->nod$v_declared then
+		string=string||'DECLARED ';		/* jg */
+	if p->nod$v_forward then
+		string=string||'FORWARD ';		/* jg */
+	if p->nod$v_align then
+		string=string||'ALIGN ';		/* jak */
+	if p->nod$v_alias then
+		string=string||'ALIAS ';		/* jak */
+	if p->nod$v_has_object then 
+		string=string||'HAS_OBJECT ';
+	if p->nod$v_offset_fixed then 
+		string=string||'OFFSET_FIXED ';
+	if p->nod$v_length then 
+		string=string||'LENGTH ';
+	if p->nod$v_hidim then 
+		string=string||'HIDIM ';
+	if p->nod$v_lodim then 
+		string=string||'LODIM ';
+	if p->nod$v_initial then 
+		string=string||'INITIAL ';
+	if p->nod$v_base_align then 
+		string=string||'BASE_ALIGN ';
+	if p->nod$v_offset_ref then 
+		string=string||'OFFSET_REF ';
+
+	call field ('FLAGS',string);
+
+end flags_field;
+
+/*-----------------------------------------------------*/
+field:	proc (fname,fvalue);
+	dcl (fname,fvalue) char(*) var;
+	dcl n char(12);
+	dcl v char(1024) var init (' ');
+	dcl i fixed bin;
+ 
+	n=fname||': ';
+	if length(fvalue)<20 then
+		v=n||character(fvalue,20)||' ';
+	else do;
+		v=n||fvalue||' ';
+		i=mod(length(v),33);
+		v=v||copy(' ',33-i);
+		end;
+	if length(v)>outsiz-outptr then 
+		call newline;
+	put file(dmpfil) edit(v)(a);
+	outptr=outptr+length(v);
+	return;
+end field;
+
+/*-----------------------------------------------------*/
+newline: proc;
+	put file(dmpfil) skip;
+	outptr=0;
+end newline;
+ 
+/*-----------------------------------------------------*/
+hex:	proc(p) returns(char(8) var);
+	dcl p ptr;
+	dcl s bit(32) aligned;
+	dcl digit(0:15) char(1) static initial('0','1','2','3','4','5','6',
+			'7','8','9','A','B','C','D','E','F');
+	dcl (i,n) fixed bin(15),r char(8);
+	unspec(s)=unspec(p);
+	do i=1 to 8;
+	unspec(n)=substr(s,4*(i-1)+1,4);
+	substr(r,9-i,1)=digit(n);
+	end;
+	return(r);
+end hex;
+ 
+/*-----------------------------------------------------*/
+
+end dump;
+/*--------------------------------------------------------*/
+deb_dump_tt: proc;
+	call dump ('');
+end deb_dump_tt;
+/*--------------------------------------------------------*/
+deb_dump_file: proc ;
+	call dump ('tree.dmp') ;
+end deb_dump_file ;
+/*--------------------------------------------------------*/

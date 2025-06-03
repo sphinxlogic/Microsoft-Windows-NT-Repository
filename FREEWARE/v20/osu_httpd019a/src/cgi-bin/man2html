@@ -1,0 +1,296 @@
+#!/bin/sh
+## man2html
+##
+## Generates an HTML form for obtaining a man page and converting it to HTML.
+## References to other commands within the man page are converted to HTML
+## hotlinks to this program. Output is MIME type text/html.
+## 
+## Installation:
+##    - Check the value of the PATH variable below.
+##      It must contain all the directories needed by your OS to find commands.
+##
+##    - Check the value of the INDICES variable below.
+##      It must contain a path to all possible location of the 'whatis' manpage
+##      subject database on your system.
+##
+##    - Put this script wherever your other CGI scripts are located.
+##      It is a Bourne Shell Script which means you must be carefull
+##      about what is executing this file and how.
+##
+##    - Edit the value of the SCRIPT variable below to reflect this script's
+##      location. This full pathname is relative to your WWW server.
+##
+## Security:
+##    Maybe I'm really missing something here, but it seems to me that if
+##    your WWW server is running as a user that _nothing_ else runs as,
+##    and the scripts themselves are owned by yet another user then /bin/sh
+##    scripts ought to be as secure as anything else. If you know this to
+##    be incorrect please let me know why. But if I am wrong, well, the
+##    disclaimer handles that!
+##
+## Operation:
+##    man2html accepts GET queries from the WWW server. This means that
+##    all arguments are received through the QUERY_STRING environment
+##    variable. Valid argument strings are:
+##
+##    cgi_command   - A man page or keyword for 'man -k' search.
+##    cgi_section   - A man page section number.
+##    cgi_keyword   - Literal string:
+##		      k  Return result of 'man -k keyword'.
+##                    w  Return whole whatis database. If cgi_section has 
+##                       been defined then report only those commands in
+##                       that section.
+##                    m  Return result of 'man section command'. Default.
+##
+##    If man2html finds your whatis database then three radio buttons are
+##    displayed allowing alternate search methods.
+##
+## Disclaimer:
+##    This work is given to the public domain for its use and enjoyment
+##    provided that all authoring, revision, and disclaimer statements
+##    are maintained with the software and documentation. 
+##
+##    THE OHIO STATE UNIVERSITY, ITS AFFILIATES, AND THE AUTHOR GIVE NO
+##    WARRANTY, EXPRESSED OR IMPLIED, FOR THE SOFTWARE AND/OR DOCUMENTATION
+##    PROVIDED, INCLUDING, WITHOUT LIMITATION, WARRANTY OF MERCHANTABILITY 
+##    AND WARRANTY OF FITNESS FOR A PARTICULAR PURPOSE.
+##    
+## Obtaining this program:
+##    You can try out this program on our WWW server (SunOS) using the
+##    URL below. It can be FTP'd from 
+##
+##    eeftp.eng.ohio-state.edu:/pub/schrock/man2html-1.00.gz
+##
+##    I would like to hear your comments about this program.
+##
+##    James R. Schrock
+##    The Ohio State University
+##    Engineering Computing Services
+##    Electrical Engineering Department & Region-4
+##    2015 Neil Avenue, Dreese Lab, Columbus, Ohio 43210
+##    schrock.7@osu.edu  http:://eewww.eng.ohio-state.edu/~jschrock
+##
+## Modification history
+## Programmer	      Date          Description
+## James R. Schrock   17-May-1995   1.00 Initial design and coding.
+## James R. Schrock   19-May-1995   1.01 Changed title to include the COMMAND.
+##				         Fixed a deficiency in a 'sed' command.
+## James R. Schrock   22-May-1995   1.02 Added customization variable 'SCRIPT'.
+##					 And another minor 'sed' fix.
+## James R. Schrock   24-May-1995   1.03 Significant bug fixes.
+##
+##
+
+# Secure path.
+
+  PATH="/bin:/usr/bin:/usr/ucb:/usr/local/bin"
+  export PATH
+
+# Version and revision date.
+
+  VERSION="v1.03"
+  REVDATE="24-May-1995"
+
+# List of potential locations for the man page database (whatis, windex, etc).
+# The first filename to be found will be used.
+
+  INDICES="/usr/lib/whatis /usr/share/man/windex /usr/man/whatis /usr/local/man/whatis /usr/local/lib/whatis"
+
+# The full filename of this script relative to your WWW server
+
+  SCRIPT="/cgi-bin/man2html"
+
+## --------------------------------------------------------------------
+## add_signature()
+## Write HTML containing version and contact information.
+##
+add_signature()
+{
+   echo "<HR><i>man2html $VERSION</i> * $REVDATE * James R. Schrock * schrock.7@osu.edu"\
+        "<BR>The Ohio State University, Columbus, Ohio"
+}
+
+## --------------------------------------------------------------------
+## filter()
+## The text of each manpage is passed through this filter.  It filters
+## out linefeeds and backspaces; converts HTML special characters into
+## their aliases; and converts strings which look like command references
+## into HTML tags. The order of these conversion is important.
+##
+
+filter()
+{
+   col -b |\
+   sed "s|&|\&amp;|g
+        s|<|\&lt;|g
+        s|>|\&gt;|g
+        s|\"|\&quot;|g
+        s|[a-zA-Z][._a-zA-Z0-9]*[ \t]*([0-9][a-zA-Z]*)|<A HREF=\"${SCRIPT}?cgi_command=&\">&</A>|g"
+}
+
+## --------------------------------------------------------------------
+## Main Program.
+##
+
+  # Find out where the man page database is.
+
+  WHATIS=""
+  for i in $INDICES; do
+	if [ -f "$i" ]; then
+		WHATIS="$i"
+		break
+	fi
+  done
+
+  # Set the type of this file we're returning.
+
+  echo "Content-type: text/html"
+  echo ""
+  echo "<TITLE>Hypertext Manpage Browser</TITLE>"
+
+  # Disclaimer.
+
+  echo "<!--- man2html $VERSION"
+  echo "<!--- James R. Schrock  $REVDATE  schrock.7@osu.edu"
+  echo "<!--- The Ohio State University, Columbus, Ohio 43210"
+  echo "<!--- Engineering Computing Services, Region-4 and Electrical Engineering"
+  echo "<!--- "
+  echo "<!--- This work is given to the public domain for its use and enjoyment"
+  echo "<!--- provided that all authoring, revision, and disclaimer statements"
+  echo "<!--- are maintained with the software and documentation. "
+  echo "<!--- "
+  echo "<!--- THE OHIO STATE UNIVERSITY, ITS AFFILIATES, AND THE AUTHOR GIVE NO"
+  echo "<!--- WARRANTY, EXPRESSED OR IMPLIED, FOR THE SOFTWARE AND/OR DOCUMENTATION"
+  echo "<!--- PROVIDED, INCLUDING, WITHOUT LIMITATION, WARRANTY OF MERCHANTABILITY "
+  echo "<!--- AND WARRANTY OF FITNESS FOR A PARTICULAR PURPOSE."
+  echo "<!--->" 
+
+  # Title and operating system information.
+
+  echo "<H3>Hypertext Manpage Browser (`uname -sr`)</H3>"
+
+  # At the top of each reply build a form so the user can request another
+  # search. If WHATIS is defined then allow 'man -k' type searches as well
+  # as a report of the whole whatis database.
+
+  echo "<FORM METHOD=GET ACTION=\"${SCRIPT}\">"\
+       '<TABLE NOWRAP>'\
+          '<TR><TD>Search topic</TD><TD><INPUT TYPE="text" NAME="cgi_command" SIZE=36></TD>'\
+              '<TD>Section</TD><TD><INPUT TYPE="text" NAME="cgi_section" SIZE=2></TD>'\
+          '</TR></TABLE>'
+
+  if [ -n "$WHATIS" ]; then
+       echo '<INPUT TYPE="radio" NAME="cgi_keyword" VALUE="m" CHECKED> Get manual page for the search topic'\
+            '<BR><INPUT TYPE="radio" NAME="cgi_keyword" VALUE="k"> List all commands matching the search topic'\
+	    '<BR><INPUT TYPE="radio" NAME="cgi_keyword" VALUE="w"> List all topics in the manpage index'
+  fi
+
+  echo '<BR><INPUT TYPE="submit" VALUE="Search">'\
+       '<INPUT TYPE="reset" VALUE="Reset"></FORM><HR>'
+
+  # Make sure we have been envoked properly.
+
+  if [ "$REQUEST_METHOD" != "GET" ]; then
+	echo "<HR>Error (man2html):"\
+ 	     "<BR>Usage error, cannot complete request, REQUEST_METHOD!=GET."\
+	     "<BR>Check your FORM declaration and be sure to use METHOD=\"GET\".<HR>"
+	add_signature
+	exit 1
+  fi
+
+  # If no search arguments, exit gracefully now.
+
+  if [ -z "$QUERY_STRING" ]; then
+	add_signature
+	exit 0
+  fi
+
+  # Save the old internal field separator.
+
+  OIFS="$IFS"
+
+  # The arguments arrived in QUERY_STRING as "name=value&name=value..."
+  # First step, parse the QUERY_STRING at its ambersands.
+
+  IFS="${IFS}&"
+  set $QUERY_STRING
+  Args="$*"
+  IFS="$OIFS"
+
+  # Second step, parse the individual "name=value" tokens.
+  # The server will send us "%28" and "%29" instead of "(" and ")".
+  # And the COMMAND might be of the form "manpage(section)" so parse that, too.
+
+  COMMAND=""
+  SECTION=""
+  KEYWORD=""
+
+  for i in $Args ;do
+
+	IFS="${OIFS}="
+	set $i
+	IFS="${OIFS}"
+
+	case $1 in
+		cgi_command) COMMAND="`echo $2 | sed 's|[\]||g' | sed 's|%28|\)|g' | sed  's|%29|\(|g'`"
+			     if [ -n "$COMMAND" ]; then
+				     IFS="${OIFS}()"
+				     set $COMMAND
+				     IFS="${OIFS}"
+				     COMMAND="$1"
+				     SECTION="$2"
+			     fi
+			     ;;
+		cgi_section) SECTION="$2"
+			     ;;
+		cgi_keyword) KEYWORD="$2"
+			     ;;
+		*) 	     echo "<HR>Warning (man2html):"\
+		   	          "<BR>Unrecognized variable \'$1\' passed by FORM in QUERY_STRING.<HR>"
+			     ;;
+
+	esac
+  done
+
+  # Do the man thing, assuming we've been given a COMMAND to search for.
+  # Obtain the requested man page or whatis entries. Convert any internal
+  # command references to hotlinks which point back to this program.
+
+  echo "<pre>" 
+  if [ "$KEYWORD" = "k" ]; then
+	if [ -n "$COMMAND" ]; then
+##		man - -k $SECTION $COMMAND 2>&1 | col -b | sed "s|[a-zA-Z][._a-zA-Z0-9]*[ \t]*([0-9][a-zA-Z]*)|<A HREF=\"${SCRIPT}?cgi_command=&\">&</A>|g"
+		man - -k $SECTION $COMMAND 2>&1 | filter
+		echo "<TITLE>Hypertext Manpage Browser (${COMMAND})</TITLE>"
+	else
+		echo "No search topic was given."
+	fi
+
+  elif [ "$KEYWORD" = "w" ]; then
+	if [ -r "$WHATIS" ]; then
+		if [ -n "$SECTION" ]; then
+			grep -i "\([ \t]*${SECTION}[ \t]*\)" $WHATIS | sort | uniq | filter
+		else
+			cat $WHATIS | sort | uniq | filter
+		fi
+		echo "<TITLE>Hypertext Manpage Browser (whatis)</TITLE>"
+	else
+		echo "<BR>Warning (man2html):"\
+		     "<BR>The manpage summary database could not be accessed."\
+		     "<BR>Maybe it has not been created? (use 'catman -w')."
+	fi
+
+  elif [ -n "$COMMAND" ]; then
+	man - $SECTION $COMMAND 2>&1 | filter
+	echo "<TITLE>Hypertext Manpage Browser (${COMMAND})</TITLE>"
+  else
+	echo "No search topic was given."
+  fi
+  echo "</pre>"
+
+  add_signature
+  exit 0
+
+# End of file.
+
+

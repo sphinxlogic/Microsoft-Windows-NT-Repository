@@ -1,0 +1,119 @@
+.;******************************************************************************
+.;* Copyright 1995 by Thomas E. Dickey.  All Rights Reserved.                  *
+.;*                                                                            *
+.;* You may freely copy or redistribute this software, so long as there is no  *
+.;* profit made from its use, sale trade or reproduction. You may not change   *
+.;* this copyright notice, and it must be included in any copy made.           *
+.;******************************************************************************
+.; $Id: da.rno,v 1.2 1995/10/23 20:36:52 tom Exp $
+.req	"d0.req"
+.;
+.;
+.hl	Goals
+The design goal for FLIST is to implement a full-screen interface to
+VMS which never hinders, but always aids the user.
+FLIST's design is influenced by three related programs:
+.lm+8
+.b.i-4
+o	EDT, the default VMS text editor is easy to learn and use
+because its most useful operations are provided on the keypad.
+The FLIST's keypad is modeled after EDT's so that an EDT
+user may easily use FLIST.
+FLIST's keypad operations fall into three categories:
+.lm+8
+.b.i-4
+-	Directory sorting and other display modification
+.b.i-4
+-	Status (_?TIME), inspection (BROWSE, VIEW), editing
+.b.i-4
+-	Searching and scrolling
+.b.lm-8
+The EDT design model uses the keypad for the operations which are
+both most frequently used, and which require the least auxiliary
+(argument) information.
+.b.i-4
+o	FLIST (a directory editor running on IBM VM/CMS) represents
+the ultimate in performance.
+Unlike VMS and Unix, on CMS disk directories reside in virtual memory.
+By paying an initial "access" overhead, each user possesses a copy of
+each disk directory which can be rapidly interrogated and modified.
+FLIST runs much faster than any similar program could on VMS or Unix
+for this reason.
+.b.i-4
+o	DIRED (a simple directory editor on Unix)
+shows that a directory editor can run on medium-sized systems.
+.b.lm-8
+FLIST is not a copy of either FLIST or DIRED.
+It is implemented in a more difficult environment than either,
+because of complications imposed by VMS file structures:
+.lm+8
+.b.i-4
+o	FLIST runs (as noted above) in an environment which provides
+ready access to the directory.
+Each and every filename is composed of three tokens (name, type and disk).
+Screen management is performed by a fully integrated display manager.
+.b.i-4
+o	DIRED runs on a system which is superficially similar to VMS.
+Filenames are hierarchical.
+Very crude display management is done, since this is done by each program.
+.lm-8
+
+.hl Tradeoffs
+VMS is more complex than Unix because its file structure is not
+as simple to parse.
+On Unix there is no syntactic difference between filenames and directory
+names.  This is not the case on VMS.
+.b
+Wildcard expansion must be done via the program, rather than automatically
+by the shell.
+While RMS routines are available for processing wildcard lists,
+a list of file specifications must be additionally processed by
+CLI routines (or their equivalent).
+.b
+Version numbers are especially troublesome.
+Neither Unix nor CMS uses them; each filename is unique.
+Version numbers complicate FLIST.
+For example, a user may wish to delete the highest version of a file
+which appears with more than one version.
+FLIST must do the deletion immediately, else in succeeding operations
+the user may edit the "highest" remaining version (resulting in a
+version conflict).
+Thus FLIST is a what-you-see-is-what-you-get editor.
+.;
+.hl+1	Terminal Control
+Screen management is done within FLIST, using the
+low-level screen routines (erase, write, index) provided by VMS.
+Presently, no screen package is provided on VMS which can be used
+to adequately represent a dynamic display such as FLIST's.
+To provide compatibility with both VT52 and VT100, a single display
+window is used (VT52 doesn't support scrolling margins).
+.;
+.hl	Running DCL Commands
+FLIST performs most of the essential file-management commands internally.
+The remainder (COPY, EDIT) are performed by a process spawned for each command.
+While this is simple, it is slow, particularly file-copying:
+.lm+8
+.b.i-4
+o	FLIST parses the command, using RMS to parse the file specifications.
+RMS must do I/O to support its parse.
+.b.i-4
+o	FLIST verifies that the output file is writable,
+requiring more I/O, and determines its name.
+.b.i-4
+o	After the spawned command is completed, FLIST searches for
+the resulting file to append its entry to the display list.
+.b.lm-8
+In short, FLIST both preprocesses and postprocesses spawned commands
+to determine their effect.
+To avoid this completely, one would have to embed the code to perform
+all VMS commands within FLIST.
+This is neither desirable nor feasible.
+.;
+.hl	Interface to CLI and Error Reporting
+FLIST performs its own command parsing to circumvent the VMS error-message
+facility, as well as to provide a good base for the command pre/post-processing.
+The problem with the VMS error facility is that it does not permit
+programs to capture the message-text.
+Because FLIST must display a large variety of command syntax
+and usage errors in a relatively controlled fashion,
+it does the entire job itself.

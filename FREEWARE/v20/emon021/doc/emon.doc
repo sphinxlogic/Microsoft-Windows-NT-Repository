@@ -1,0 +1,194 @@
+	Généralités
+
+Emon est un moniteur ethernet et permet d'afficher /d'analyser les trames
+sur un cable ethernet. l'echantillonage se fait pendant 8 secondes entre
+les affichages a priorite specifiee. l'affichage se fait en trames/8 secondes
+et octets/8 secondes sauf mention contraire. Les 2 premieres lignes contiennent
+a gauche la bande passante ethernet courante/max, au milieu les diverses erreurs
+courantes/total, et a droite le filtre utilise
+
+	Fichier de configuration
+
+le fichier de configuration est pointé par le nom logique emon$cfg, et
+a pour extension par défaut .CFG
+	entrees de controle
+parameter buffers	nb de buffers alloues a emon
+parameter priority	priorité d'échantillonage
+parameter io		nb d'IO simultanées
+parameter device	nom du périph a utiliser (peut aussi être pointé
+			par EMON$DEVICE:)
+parameter 802mode	Ahhhh. Off ou On. Si le driver ethernet fonctionne
+			correctement (V5.5-2 (??) ou PATCH) doit etre ON.
+			Dans le cas contraire: doit être OFF si il n'y a pas de
+			protocole 802/802E a observer et doit être ON s'il n'y
+			a pas de protocole Ethernet à observer. Dans le cas
+			d'un mélange des 2 protocoles, il faut s'attendre
+			a avoir quelques trames bizzares (802 dans ethernet
+			et ethernet dans 802 a partir de V5.4-3, et 802 tronque
+			dans ethernet et ethernet etendu dans 802 avant V5.4-3)
+parameter nopad		Re-Ahhhh. Off ou On. Selon la version de driver/vms...
+			positionne le parameter PAD a OFF si present, sinon
+			ne fait rien. Le mettre a on par defaut, puis, si
+			ca ne demarre pas (SS$_BADPARAM) alors le mettre a off.
+	entrees de dimensionnement 
+	Elles doivent preceder toutes les definitions
+maximum circuit 	# max de couples (station, station, protocole)
+maximum transport	# max de couples (station, protocole)
+maximum system		# max de stations
+maximum protocol	# max de protocoles ethernet
+maximum area		# max d'areas decnet phase IV
+maximum address		adresse max decnet phase IV pour l'ensemble des areas
+maximum map		# max de maps
+maximum 802eprotocol	# max de protocoles 802/802e
+	entrees de definition
+decnet node	a.n <nom>	nom de noeud decnet phase IV
+decnet area	a   <nom>	nom d'area phase IV
+hardware	xx-xx-xx-xx-xx-xx	<nom>	nom de station ethernet
+protocol	xx-xx			<nom>	nom de protocole ethernet
+802eprotocol	xx-xx-xx-xx-xx		<nom>	nom de protocole 802E
+map number	n	name <nom>	nom de la map numéro n
+map node	<nom>	n		mappe le noeud <nom> dans la map # n
+
+	Commandes de contrôle
+
+EXIT
+MAP	<nom>	<numéro de map>
+PRINT	affichage du contenu des bases internes
+SET	ERROR	[HALT/CONTINUE]	arret ou non lors d'une erreur d'echantillonage
+				ethernet
+SHOW	MAP	n	contenu de la map n
+	NODE	<nom>	caracteristiques du noeud <nom>
+SPAWN	[commande]	comme d'habitude
+
+	Filtres
+
+La plupart des commandes permettent de filter les trames selon certains
+criteres:
+/FROM=(n1,...)	nom de la/des station(s) emettrice(s)
+/TO=(n1,...)	nom de la/des station(s) receptrice(s)
+/BETWEEN=((n1,n2),....)
+	couples de stations s'echangeant des messages
+/END_ADDRESS=(n1,...)	nom d'une/des stations emettrice(s) ou receptrice(s)
+/PROTOCOL=(p1,...)	nom du/des protocole(s) choisi(s)
+
+	/from, /to et /protocol peuvent admettre la valeur UNKNOWN
+qui represente alors toutes les stations/protocoles non définis dans le fichier
+de configuration.
+	il est possible de mettre un ~ devant le nom de station, cela signifie
+*toutes* les stations, sauf celle-là.
+
+	commandes
+
+filter switches: switches a l'usage des filtres personnalises:
+
+/FILTER=<nom du filtre>: active le filtre EMON$FILTER_<nom_du_filter>.EXE
+/L3= (protocol=ppppp, from=ffff, to=tttt, end_address=(e1e1e1,e2e2e2),
+      filter=fffff,
+     display=(ddddd,ddddd,ddddd,dddd),events=(eeee,eeee,eee,eee,eee) )
+	parametres a l'usage du filtre
+/L4= (protocol=ppppp, from=ffff, to=tttt, end_address=(e1e1e1,e2e2e2),
+      filter=fffff,
+     display=(ddddd,ddddd,ddddd,dddd),events=(eeee,eeee,eee,eee,eee) )
+	parametres a l'usage du filtre
+/BRIEF
+/FULL
+/DEBUG	filter debug mode
+
+TRACE	[/from/to/protocol/end_address]
+	/TRUNC (D)	tronquer l'affichage a la largeur d'écran
+	/PAD		interpreter les 2 1ers octets de la trame comme 1 longueur
+	/TIME	(D)	afficher l'heure des trames
+	/IOSB		afficher l'IOSB de reception des trames
+	/802_TRAILER	afficher le trailer 802 complet
+	/INITIALIZE     effacer l'ecran avant de commencer a afficher
+	/DATA[=HEX]	afficher les donnees en plus des info. de controle
+	/OUTPUT		mettre la trace dans un fichier
+	/MIN_SIZE	selectionner les trames de taille minimum
+	/ERROR		n'afficher que les trames en erreur
+	[filter switches]
+affiche ou enregistre dans un fichier les trames selectionnees
+
+ANALYZE entree [/from/to/protocol/end_address]
+	entree		fichier issu de la commande trace
+	/TRUNC (D)	tronquer l'affichage a la largeur d'écran
+	/PAD		interpreter les 2 1ers octets de la trame comme 1 longueur
+	/TIME	(D)	afficher l'heure des trames
+	/IOSB		afficher l'IOSB de reception des trames
+	/802_TRAILER	afficher le trailer 802 complet
+	/INITIALIZE (D) effacer l'ecran avant de commencer a afficher
+	/DATA[=HEX]	afficher les donnees en plus des info. de controle
+	/OUTPUT		mettre le resultat interprete dans un fichier
+	/MIN_SIZE	selectionner les trames de taille minimum
+	[filter switches]
+analyse les trames sauvegardees
+
+MONITOR	NODE	<node>	[/protocol/initialize]
+	/TALK		paquets emis seulement
+	/LISTEN		paquets reçus seulement
+	/DELTA (D)	statistiques par intervalle
+	/TOTAL		statistiques pour la duree du test
+surveille un noeud precis
+
+MONITOR TOP
+surveille les maximums de trafic
+
+MONITOR	PROTOCOL	[/from/to/end/protocol/initialize]
+	/RECORD		enregistre les infos dans un fichier
+surveille les protocoles presents sur le cable
+
+MONITOR	MULTICAST	[/from/to/end/protocol/initialize]
+	/RECORD		enregistre les infos dans un fichier
+surveille les trames multicast presentes sur le cable (resultats par seconde)
+
+MONITOR AREA	<area_nb> [/delta/total/protocol/initialize]
+	/PACKETS	statistiques par trames
+	/BYTES		statistiques par octets
+surveille une area decnet phase IV
+
+MONITOR MAP		[/delta/total/byte/packet/protocol/initialize]
+surveille les communications entre maps
+
+MONITOR	SIZE		[/from/to/protocol/end]
+	/FRAME		liste de valeurs de tailles pour tabuler l'affichage
+	/CHECK		arret en cas d'erreur
+affiche des statistiques sur la taille des trames
+
+MONITOR SUMMARY	
+affiche des informations generales sur le trafic ethernet.
+
+
+	considerations systeme
+
+1) NETMBX,PHY_IO	necessaires
+2) ALTPRI	souhaite
+3) LRPCOUNT	beaucoup
+4) BYTLM	a augmenter si %EXQUOTA au demarrage de l'interface
+
+	se documenter pour voir si l'interface ethernet utilisee marche
+bien en mode promiscuous. On se rend assez vite compte si elle ne marche pas
+dans le cas contraire.
+	link avec SYS.STB seulement necessaire pour EXE$GQ_SYSTIME
+
+********************************************************************************
+filtres: ce sont des images partageables linkées contre EMON
+les descriptions des interfaces sont dans trace.h
+un exemple de programmation est dans emon$filter_internet.c
+ne pas oublier de mettre l'image partageable dans sys$share, ou de definir
+un nom logique pointant dessus
+********************************************************************************
+recommendations pour l'utilisation des drivers ethernet
+	je n'ai testé qu'une faible partie des drivers et des versions/patchs
+de VMS. Se renseigner d'abord dans les bases digital pour savoir s'il n'existe
+pas de bug connu sur le driver ethernet en mode promiscuous pour la version/
+le hardware utilisé.
+a partir de la version 2.1, le parametre NOPAD doit etre effectif pour toutes
+les versions de VMS ...
+	VMS v5.5 ... v5.5-2,  series 4000 seulement, je crois :
+			passer le patch CSCPAT_0552017 au minimum
+				 pour eviter les hang fatals a la station. 
+================================================================================
+! Guillaume Gerard                ! PSI    *20807504128505::gerard             !
+! Systems responsible             ! Email  gerard@enst.fr                      !
+! France Telecom University       ! X400   C=FR AD=ATLAS PD=TELECPARIS         !
+================================================================================
+%SYSTEM-W-TMNYFNGRS, too many fingers on keyboard

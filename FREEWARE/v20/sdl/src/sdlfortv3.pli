@@ -1,0 +1,403 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1987	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the FORTRAN language output from the SDL tree.
+
+author:
+	Rich Grove
+date:
+	31-JUL-1981
+
+	revised 22-DEC-1980	ctp
+	revised 30-JUN-1982	ls		version 1.5 changes
+	revised 15-APR-1983	kd		fix accvio bug with FILL attribute
+	revised 10-Apr-1984	kd		make changes necessary to convert
+						to a shareable image for V2.
+	revised 19-Nov-1987	jw  [V3.1-1]	Converted some recursion
+						involving OUTPUTNODE to a
+						DO WHILE in order to prevent an
+						over-consumption of dynamic
+						memory; changed the name of the
+					        first formal parameter of
+						OUTPUTNODE and assigned its
+						value to the "walking" pointer.
+        revised 13-Feb-1990  William R. Vales   Make changes to record
+                             Robert Thomson     dependency data for VMS VDE
+                             [V3.1-VMS1]        system builder. (see CHANGE LOG)
+
+	revised  8-Jun-1992	jak EV1-14	Change first arg of sdl$putline to "outfile".
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-40';
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) 
+	    options(ident(MODULE_IDENT));
+ 
+	%include 'sdl$library:sdlnodef.in';	/* include node structure definition	*/
+	%include 'sdl$library:sdltypdef.in';	/* include data type definitions	*/
+	%include 'sdl$library:sdlmsgdef.in';	/* include error message interface	*/
+	%include 'sdl$library:sdlshr.in';	/* include shared data - shared
+						   with the front end and passed
+						   as an argument to the backends */ 
+        %include 'SDL$LIBRARY:sdlgetfnm.in';
+
+   
+	%replace line_length by 120;
+	%replace lang_ext by '.for';	/* extension for fortran */ 
+	%replace k_buf by '0'b;		/* flags for puttyp */
+	%replace k_out by '1'b;
+ 
+	dcl types(20) char (32) var;	/* the data type equivalents */
+ 
+	types(typ$k_address)	= 'INTEGER*4';
+	types(typ$k_byte)	= 'BYTE     ';
+	types(typ$k_boolean)	= 'BYTE     ';
+	types(typ$k_char)	= 'CHARACTER';
+	types(typ$k_decimal)	= '';
+	types(typ$k_double)	= 'REAL*8   ';
+	types(typ$k_float)	= 'REAL*4   ';
+	types(typ$k_grand)	= 'REAL*8   ';
+	types(typ$k_huge)	= 'REAL*16  ';
+	types(typ$k_longword)	= 'INTEGER*4';
+	types(typ$k_octaword)	= '';
+	types(typ$k_quadword)	= '';
+	types(typ$k_vield)	= '';
+	types(typ$k_word)	= 'INTEGER*2';
+	types(typ$k_structure)	= '';
+	types(typ$k_union)	= '';
+	types(typ$k_any)	= '';
+
+	dcl xptr ptr;			/* pointer to level-1 aggregate */
+	dcl output_file file output record sequential;
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+	dcl buf char(1024) var;
+	dcl based_string char(1024) var based;
+	dcl tab char(1) initial(byte(9));
+
+
+/*** main ***/
+
+/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename || lang_ext),
+				     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+/* output the little SDL header with time and date info */
+	call sdl$header(sdl$_shr_data, '! ','',line_length);
+
+
+/* begin at the root of the tree, and let it go */
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+
+ 
+	return;
+
+
+/** print node routine **/
+outputnode:	proc (initp,startp,level);
+/* parameters:	initp	= address of node to output
+		startp	= address of where we started (i.e. where to stop
+			  in traversing a circular list )
+		level	= level number of aggregate (incremented by 1 with
+			  each sub-aggregate */
+  dcl (initp,p,startp,q) ptr;
+  dcl level fixed bin(31);
+  dcl tmpbuf char(32) var;
+  dcl i fixed bin(31);
+ 
+/*
+ * "p" will walk the associated list, if one exists.
+ */
+  p = initp;
+
+/*
+ * Case on the node type and go do the appropriate processing 
+ */
+  do while (p ^= startp);
+	goto case(p->nod$b_type);
+ 
+case(nod$k_rootnode):
+/* nothing done here except to move on to list of module nodes of which
+this is the head */
+	buf='';
+	goto common_2;
+ 
+case(nod$k_commnode):
+/* clear the buffer and let the common stuff output the comment line */
+	buf='';
+	goto common;
+ 
+case(nod$k_constnode):
+/* do a straightforward PARAMETER for the constant node */
+
+	if index(p->nod$t_name, '_fill_') + index(p->nod$t_name, '$$fill_') ^= 0
+	then
+		goto common_2;
+
+	buf='PARAMETER '||p->nod$t_name||' = ';
+
+/* All constants are put out in Hex form, to avoid inappropriate typing
+   and conversion (as small integer constants.
+   It would be nice if the tree contained the radix used in the SDL source
+   specification of the constant. But lacking that, hex is safest!
+*/
+
+	buf=buf||hexval(p->nod$l_typeinfo);
+	goto common;
+ 
+case(nod$k_entrynode):
+/* declare an external entry point */
+/* if it's a function, output the datatype */
+	if p->nod$w_datatype^=0 & types(p->nod$w_datatype)^='' then
+		call puttype(p, k_out);
+
+	buf='EXTERNAL  '||p->nod$t_name;
+	goto common;
+ 
+case(nod$k_itemnode):
+
+
+	if level=1 then do;
+		xptr=p;		/*initialize xptr to level 1 aggregate */
+		if p->nod$v_common then do;
+			buf='COMMON /'||p->nod$t_name||'/ '||p->nod$t_name;
+			call sdl$putline (outfile, tab||buf,line_length);
+			end;
+		end;
+
+	if p->nod$v_userfill  	/* if user specified FILL attribute  */
+	then			
+	goto common_2;		/* don't output aggregate name symbol*/
+
+	if (level>1) & (p->nod$w_datatype ^= typ$k_vield) then do;
+		buf='EQUIVALENCE ('||
+		    xptr->nod$t_name||'('||trim(p->nod$l_offset+1)||'), '||
+		    p->nod$t_name||')';
+
+		call sdl$putline (outfile, tab||buf,line_length);
+		end;
+
+	call puttype(p, k_buf);
+	goto common;
+ 
+case(nod$k_modulnode):
+/* put out the module name as a comment */
+	call sdl$putline (outfile, ' ',line_length);
+	buf='!*** MODULE '||p->nod$t_name;
+	if p->nod$t_naked ^= '' then
+		buf=buf || ' IDENT '||p->nod$t_naked;
+	buf=buf||' ***';
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+	goto common;
+ 
+case(nod$k_parmnode):
+	buf='';
+	goto common_2;
+ 
+case(nod$k_objnode):
+/* ignore object nodes-- FORTRAN doesn't care what a pointer is pointing to */
+	buf='';
+	goto common_2;
+ 
+case(nod$k_headnode):
+/* nothing done with head nodes-- just use them to move down a circular list */
+	buf='';
+	goto common_2;
+
+common:
+/* if there is attached comment, then append it to end of line and output it */
+	if p->nod$a_comment^=null() & buf^='' then 
+		buf=fill2(buf,40);
+
+	if buf^='' then
+		buf=tab||buf;
+
+	if p->nod$a_comment^=null() then
+		buf=buf||'! '||p->nod$a_comment->based_string;
+
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+
+common_2:
+/* travel down the child node */
+	if p->nod$a_child^=null() then
+		call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,level+1);
+
+common_3:
+/*
+ * Travel across the circular list to the sibling node 
+ */
+        p = p->nod$a_flink;
+
+        end; /* do while */
+
+  return;
+
+/** puttype **/
+/* format the datatype information for an item */
+puttype:	proc(p,outflag);
+	dcl p ptr;
+	dcl dim char(32) var;
+	dcl outflag bit(1);
+	dcl (pos,siz) fixed bin(31);
+
+	dim='';
+	buf=types(p->nod$w_datatype);
+
+	if p->nod$w_datatype=typ$k_decimal then do;
+		buf='BYTE     ';
+		siz=divide(p->nod$l_typeinfo, 2, 31) + 1;
+		dim=trim(siz);
+		end;
+
+	if p->nod$w_datatype=typ$k_quadword then do;
+		buf='INTEGER*4';
+		dim='2';
+		end;
+
+	if p->nod$w_datatype=typ$k_octaword then do;
+		buf='INTEGER*4';
+		dim='4';
+		end;
+
+	if p->nod$w_datatype=typ$k_char then do;
+		siz = p->nod$l_typeinfo;
+
+		if p->nod$v_varying then siz = siz+2;
+
+		if p->nod$v_varying	then do;
+		if (p->nod$b_type  = nod$k_itemnode)	then do;
+		if ^p->nod$v_dimen 	then do;
+			call sdl$putline (outfile, tab||'INTEGER*2 '||p->nod$t_name||'_LEN', line_length);
+			call sdl$putline (outfile, tab||'CHARACTER*'||trim(siz-2)||' '||p->nod$t_name||'_TXT', line_length);
+			call sdl$putline (outfile, tab||'EQUIVALENCE', line_length);
+			call sdl$putline (outfile, tab||'1 ('||p->nod$t_name||'_LEN, '||p->nod$t_name||'),', line_length);
+			call sdl$putline (outfile, tab||'2 ('||p->nod$t_name||'_TXT, '||p->nod$t_name||'(3:))', line_length);
+			end; end; end;
+
+		if siz=0 then siz=1;
+		buf=buf||'*'||trim(siz);
+		end;
+
+	if p->nod$w_datatype=typ$k_vield then do;
+
+		pos = p->nod$l_typeinfo2;
+		siz = p->nod$l_typeinfo;
+		buf = 'PARAMETER '||p->nod$t_prefix;
+
+		call sdl$putline (outfile, tab||buf||'S_'||p->nod$t_naked||' = '||trim(siz), line_length);
+
+		buf = buf||'V_'||p->nod$t_naked||' = '||trim(pos);
+		end;
+
+	else do;
+		if buf='' then do;
+			buf='BYTE     ';
+			dim=trim(p->nod$l_fldsiz);
+			end;
+
+		buf=buf||' '||p->nod$t_name;
+		end;
+
+	
+/* if there is a dimension, append it */
+	if (p->nod$v_dimen) & 
+	   (p->nod$w_datatype ^= typ$k_vield) then do;
+		if dim^='' then dim=dim||',';
+		dim=dim||trim(p->nod$l_lodim)||':'||trim(p->nod$l_hidim);
+		end;
+
+	if dim^='' then buf=buf||'('||dim||')';
+
+ 
+	if outflag then do;
+		call sdl$putline (outfile, tab||buf, line_length);
+		buf='';
+		end;
+
+	if p->nod$w_datatype = typ$k_structure &
+	        p->nod$a_typeinfo2 ^= null() &
+		p->nod$a_typeinfo2->nod$b_type = nod$k_typnode
+		then
+		   call errmsg(sdl$_shr_data, sdl$_typnam,p->nod$l_srcline,);
+
+	return;
+end puttype;
+ 
+end outputnode;
+
+
+/** fill **/
+/* fill out the statement part of a short statement to n characters */
+fill2:	proc(a,n) returns (char(line_length) var);
+	dcl n fixed bin, ntabs fixed bin, nblks fixed bin;
+	dcl a char(*) var;
+	dcl b char(line_length) var;
+
+	b = a;
+	if length(b) < n then do;
+		ntabs = divide(n,8,31) - divide(length(b),8,31);
+
+		if ntabs>0 then nblks=mod(n,8); else nblks=n-length(b);
+
+		b = b || copy(tab,ntabs) || copy(' ',nblks);
+		end;
+	else
+		b = b||' ';
+
+	return (b);
+end fill2;
+
+
+/** hexval **/
+/* generate a FORTRAN hexadecimal constant form */
+HEXVAL:	proc(i) returns (char(11));
+	dcl i fixed bin(31);
+	dcl hexstr char(8);
+
+	dcl ots$cvt_l_tz entry(fixed bin(31),char(*),fixed bin(31) value);
+
+	call ots$cvt_l_tz(i, hexstr, 8);
+
+	return (''''||hexstr||'''X');
+end hexval;
+ 
+ 
+end sdl$output;

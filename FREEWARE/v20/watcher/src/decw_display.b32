@@ -1,0 +1,158 @@
+%TITLE 'DECW_DISPLAY'
+MODULE DECW_DISPLAY (IDENT='V1.0-2') =
+BEGIN
+!++
+! FACILITY: 	    WATCHER
+!
+! ABSTRACT: 	    Gets the value of DECW$DISPLAY in another process's
+!   	    	    job logical name table
+!
+! MODULE DESCRIPTION:
+!
+!   description
+!
+! AUTHOR:   	    M. Madison
+!   	    	    COPYRIGHT © 1993, 1994  MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    21-MAR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   21-MAR-1990	V1.0	Madison	    Initial coding.
+!   05-JUL-1990	V1.0-1	Madison	    Strip leading underscore.
+!   31-OCT-1990	V1.0-2	Madison	    Fix PCB reference.
+!--
+    LIBRARY 'SYS$LIBRARY:LIB';
+
+    LINKAGE
+    	R0JSB = JSB (REGISTER=0) : PRESERVE(1,2,3,4,5) NOTUSED(6,7,8,9,10,11);
+
+    FORWARD ROUTINE
+	DECW_DISPLAY,
+	GET_JIB;
+
+%IF %BLISS(BLISS32E) %THEN
+    MACRO
+    	EXE$EPID_TO_PCB = EXE$CVT_EPID_TO_PCB%;
+%ELSE
+    MACRO ALIAS = %;
+%FI
+
+    EXTERNAL ROUTINE
+    	EXE$EPID_TO_PCB : R0JSB ADDRESSING_MODE (GENERAL),
+	LIB$SYS_FAO 	: BLISS ADDRESSING_MODE (GENERAL),
+    	STR$COPY_R  	: BLISS ADDRESSING_MODE (GENERAL),
+	STR$FREE1_DX	: BLISS ADDRESSING_MODE (GENERAL);
+
+%SBTTL 'DECW_DISPLAY'
+GLOBAL ROUTINE DECW_DISPLAY (PID, DISP_A, ACMODE) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given an external PID, returns the equivalence string of
+!   DECW$DISPLAY, if any, from the PID's job logical name table.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   DECW_DISPLAY pid, disp, acmode
+!
+! pid:	process_id, longword (unsigned), read only, by reference
+! disp: char_string, character string, write only, by descriptor
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	DISP	= .DISP_A	: BLOCK [,BYTE];
+
+    LOCAL
+    	JIB 	    : ALIAS UNSIGNED,
+    	TABNAM	    : BLOCK [DSC$K_S_BLN,BYTE],
+    	DISPLEN	    : ALIAS WORD,
+    	DISPBUF	    : ALIAS VECTOR [255,BYTE],
+    	LNMLST	    : $ITMLST_DECL (ITEMS=1),
+    	ARGLST	    : VECTOR [3],
+    	STATUS;
+
+    ARGLST [0] = 2;
+    ARGLST [1] = .PID;
+    ARGLST [2] = JIB;
+
+    STATUS = $CMKRNL (ROUTIN=GET_JIB, ARGLST=ARGLST);
+    IF NOT .STATUS THEN RETURN .STATUS;
+
+    $INIT_DYNDESC (TABNAM);
+    LIB$SYS_FAO (%ASCID'LNM$JOB_!XL', 0, TABNAM, .JIB);
+
+    $ITMLST_INIT (ITMLST=LNMLST,
+    	(ITMCOD=LNM$_STRING, BUFSIZ=%ALLOCATION (DISPBUF), BUFADR=DISPBUF,
+    	    RETLEN=DISPLEN));
+
+    STATUS = $TRNLNM (TABNAM=TABNAM, LOGNAM=%ASCID'DECW$DISPLAY',
+    	ACMODE=ACMODE, ITMLST=LNMLST);
+    STR$FREE1_DX (TABNAM);
+
+    IF .DISPBUF [0] EQL %C'_' THEN DISPLEN = .DISPLEN-1;
+
+    IF .STATUS THEN STR$COPY_R (DISP, DISPLEN,
+    	    (IF .DISPBUF [0] EQL %C'_' THEN DISPBUF [1] ELSE DISPBUF));
+
+    .STATUS
+
+END; ! DECW_DISPLAY
+
+%SBTTL 'GET_JIB'
+ROUTINE GET_JIB (PID, JIB_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Given a PID, gets a JIB address.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   GET_JIB
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	PCB : REF BLOCK [,BYTE];
+
+    .JIB_A = 0;
+    PCB = EXE$EPID_TO_PCB (.PID);
+    IF .PCB NEQA 0 THEN
+    BEGIN
+    	.JIB_A = .PCB [PCB$L_JIB];
+    	RETURN SS$_NORMAL;
+    END;
+
+    SS$_NONEXPR
+
+END; ! GET_JIB
+
+END
+ELUDOM

@@ -1,0 +1,2085 @@
+        
+       ----------------------------------------
+        
+ 00001 C  FLECS TRANSLATOR (PRELIMINARY VERSION 22.)
+ 00002 C  (FOR A MORE PRECISE VERSION NUMBER, SEE THE STRING SVER)
+ 00003 C      
+ 00004 C  AUTHOR --    TERRY BEYER
+ 00005 C      
+ 00006 C  ADDRESS --   COMPUTING CENTER
+ 00007 C     UNIVERSITY OF OREGON
+ 00008 C     EUGENE, OREGON 97405
+ 00009 C      
+ 00010 C  TELEPHONE -- (503)  686-4416
+ 00011 C      
+ 00012 C  DATE --      NOVEMBER 20, 1974
+ 00013 C      
+ 00014 C---------------------------------------
+ 00015 C      
+ 00016 C  DISCLAIMER
+ 00017 C      
+ 00018 C     NEITHER THE AUTHOR NOR THE UNIVERSITY OF OREGON SHALL BE
+ 00019 C  LIABLE FOR ANY DIRECT OR INDIRECT, INCIDENTAL, CONSEQUENTIAL,
+ 00020 C  OR SPECIFIC DAMAGES OF ANY KIND OR FROM ANY CAUSE WHATSOEVER
+ 00021 C  ARISING OUT OF OR IN ANY WAY CONNECTED WITH THE USE OR
+ 00022 C  PERFORMANCE OF THIS PROGRAM.
+ 00023 C      
+ 00024 C---------------------------------------
+ 00025 C      
+ 00026 C  PERMISSION
+ 00027 C      
+ 00028 C     THIS PROGRAM IS IN THE PUBLIC DOMAIN AND MAY BE ALTERED
+ 00029 C  OR REPRODUCED WITHOUT EXPLICIT PERMISSION OF THE AUTHORC
+ 00030 C---------------------------------------
+ 00031 C      
+ 00032 C  NOTE TO THE PROGRAMMER WHO WISHES TO ALTER THIS CODE
+ 00033 C      
+ 00034 C      
+ 00035 C     THE PROGRAM BELOW IS THE RESULT OF ABOUT SIX MONTHS OF
+ 00036 C  RAPID EVOLUTION IN ADDITION TO BEING THE FIRST SUCH
+ 00037 C  PROGRAM I HAVE EVER WRITTEN.  YOU WILL FIND IT IS UNCOMMENTED,
+ 00038 C  AND IN MANY PLACES OBSCURE.  THE LOGIC IS FREQUENTLY
+ 00039 C  BURIED UNDER A PILE OF PATCHES WHICH BARELY TOLERATE EACH
+ 00040 C  OTHER S EXISTENCE.
+ 00041 C      
+ 00042 C     I PLAN TO WRITE A CLEANER, SMALLER, AND FASTER VERSION OF
+ 00043 C  THIS PROGRAM WHEN GIVEN THE OPPORTUNITY.  IT WAS NEVER
+ 00044 C  MY INTENT TO PRODUCE A PROGRAM MAINTAINABLE BY ANYONE OTHER
+ 00045 C  THAN MYSELF ON THIS FIRST PASS.  NEVERTHLESS PLEASE
+ 00046 C  ACCEPT MY APOLOGIES FOR THE CONDITION OF THE CODE BELOW.
+ 00047 C  I WOULD PREFER IT IF YOU WOULD CONTACT ME AND WAIT FOR
+ 00048 C  THE NEWER VERSION BEFORE MAKING ANY BUT THE MOST NECESSARY
+ 00049 C  CHANGES TO THIS PROGRAM.  YOU WILL PROBABLY SAVE YOURSELF
+ 00050 C  MUCH TIME AND GRIEF.
+ 00051 C      
+ 00052 C---------------------------------------
+ 00053 C  MODIFIED 7-13-79 BY WILLIAM TANENBAUM
+ 00054 C  HARVARD UNIVERSITY PHYSICS DEPARTMENT
+ 00055 C  FOR DIGITAL VAX 11/780 USING CHARACTER DATA TYPE
+ 00056 C  FACTOR OF 4 TO 5 SPEEDUP IN RUN TIME ACHIEVED
+ 00057 C  ALSO ALLOWS EXCLAMATION POINT COMMENTS ON FLECS STATEMENTS
+ 00058 C  ALSO ALLOWS DEBUG LINES FEATURE.
+ 00059 C      
+ 00060 C---------------------------------------------------------------
+ 00061 C      
+ 00062 C  INTEGER DECLARATIONS
+ 00063 C      
+ 00064 C      
+ 00065       IMPLICIT INTEGER*4(A-Z)
+ 00066 C      
+ 00067 C---------------------------------------
+ 00068 C      
+ 00069 C  LOGICAL DECLARATIONS
+ 00070 C      
+ 00071 C      
+ 00072       LOGICAL DOFORT, DOLIST, DEBUGG, COMENT, CFIRST, ENDIF
+ 00073       LOGICAL BADCH , CONT  , DONE  , ENDFIL, ENDPGM, ERLST
+ 00074       LOGICAL FIRST , FOUND , INDENT, INSERT, INVOKE, MINER
+ 00075       LOGICAL NDERR , NIERR , NOPGM , PASS  , SAVED
+ 00076 C      
+ 00077 C---------------------------------------
+ 00078 C      
+ 00079 C  ARRAY DECLARATIONS
+ 00080 C      
+ 00081 C      
+ 00082 C  ARRAYS WHICH HOLD RESULTS OF SCANNERS ANALYSIS
+ 00083       DIMENSION  UTYPE(3), USTART(3), UFIN(3)
+ 00084 C      
+ 00085 C  STACK/TABLE AREA AND POINTER TO TOP OF STACK
+ 00086       DIMENSION STACK(2000)
+ 00087       CHARACTER*8000 CSTAK
+ 00088       EQUIVALENCE (STACK,CSTAK)
+ 00089 C      
+ 00090 C  SYNTAX ERROR STACK AND TOP POINTER
+ 00091       DIMENSION ERRSTK(5)
+ 00092 C      
+ 00093 C---------------------------------------
+ 00094 C      
+ 00095 C  MNEMONIC DECLARATIONS
+ 00096 C      
+ 00097 C      
+ 00098 C  I/O CLASS CODES FOR USE WITH SUBROUTINE PUT
+ 00099       DATA  LISTCL /2/, ERRCL /3/
+ 00100 C      
+ 00101 C  ACTION CODES FOR USE ON ACTION STACK
+ 00102       DATA ACSEQ/1/, AELSE/2/, AFSEQ/3/, ADSEQ/4/, ARSEQ/5/
+ 00103       DATA ATSEQ/6/, AMSEQ/7/, AGRET/8/, ASSEQ/9/
+ 00104 C      
+ 00105 C  TYPE CODES USED BY SCANNERS
+ 00106       DATA UEXP/1/, UFORT/2/, UOWSE/3/, UPINV/4/, UDO/5/
+ 00107 C      
+ 00108 C  TYPE CODES OF CHARACTERS (SUPPLIED BY CHTYPE)
+ 00109 C  WARNING - LOGIC IS SENSITIVE TO THE ORDER OF THESE VALUES.
+ 00110       DATA TLETTR/1/, TDIGIT/2/, THYPHN/3/, TLP/4/, TRP/5/
+ 00111       DATA TBLANK/6/, TOTHER/7/, TEOL/8/
+ 00112 C      
+ 00113 C  TYPE CODES ASSIGNED TO THE VARIABLE CLASS
+ 00114       DATA TCEXP/1/, TELSE/2/, TEND/3/, TEXEC/4/, TFIN/5/, TTO/6/
+ 00115 C      
+ 00116 C  TYPE CODES ASSIGNED TO THE VARIABLE EXTYPE
+ 00117       DATA TCOND/1/, TDO/2/, TFORT/3/, TIF/4/, TINVOK/5/, TRUNTL/6/
+ 00118       DATA TRWHIL/7/, TSELCT/8/, TUNLES/9/, TUNTIL/10/, TWHEN/11/
+ 00119       DATA TWHILE/12/
+ 00120 C      
+ 00121 C  CODES INDICATING SOURCE OF NEXT STATEMENT
+ 00122 C  IN ANALYZE-NEXT-STATEMENT
+ 00123       DATA SETUP /1/, RETRY /2/, READ /3/
+ 00124 C      
+ 00125 C---------------------------------------
+ 00126 C      
+ 00127 C      
+ 00128 C  PARAMETERS
+ 00129 C      
+ 00130 C  THE FOLLOWING VARIABLES ARE PARAMETERS FOR THE PROGRAM.
+ 00131 C  THE MEANING OF EACH IS GIVEN BRIEFLY BELOW. FOR MORE INFORMATION
+ 00132 C  ON THE EFFECT OF THESE PARAMETERS, CONSULT THE SYSTEM MODIFICATION
+ 00133 C  GUIDE.
+ 00134 C      
+ 00135 C      
+ 00136 C  LISTING WIDTH IN CHARACTERS
+ 00137       DATA LWIDTH /132/
+ 00138 C      
+ 00139 C  SIZE OF THE MAIN STACK
+ 00140       DATA MAXSTK /2000/
+ 00141 C      
+ 00142 C  NUMBER OF CHARACTERS PER WORD (PER INTEGER) IN A FORMAT
+ 00143       DATA NCHPWD /4/
+ 00144 C      
+ 00145 C  SIZE OF HASH TABLE FOR PROCEDURE NAMES -  SHOULD BE PRIME.
+ 00146       DATA PRIME /53/
+ 00147 C      
+ 00148 C  SAFETY MARGIN BETWEEN TOP AND MAX AT BEGINNING OF EACH LOOP
+ 00149       DATA SAFETY /35/
+ 00150 C      
+ 00151 C  SEED FOR GENERATION OF STATEMENT NUMBERS
+ 00152       DATA SEEDNO /100000/
+ 00153 C      
+ 00154 C      
+ 00155       CHARACTER*1 CH, CHZERO
+ 00156       BYTE ICH, ICHZER, CHTYP(0:255)
+ 00157       DATA CHTYP/9*7,6,8,21*7,6,7*7,4,5,3*7,3,2*7,10*2,7*7,26*1,6*7,
+ 00158      126*1,133*7/
+ 00159 C     EQUIVALENCE (CHZERO,ICHZER),(CH,ICH)    !TG 4/1/82
+ 00160       EQUIVALENCE (CH,ICH)
+ 00161       DATA ICHZER/'0'/
+ 00162       CHARACTER*80 BLANKS
+ 00163       DATA BLANKS/' '/
+ 00164       CHARACTER* 5 SBLN
+ 00165       CHARACTER*40 SDASH
+ 00166       CHARACTER*30 SENDER
+ 00167       CHARACTER* 5 SENDIF
+ 00168       CHARACTER*53 SGUP1
+ 00169       CHARACTER*44 SGUP2
+ 00170       CHARACTER*54 SICOND
+ 00171       CHARACTER*45 SIELSE
+ 00172       CHARACTER*44 SIFIN
+ 00173       CHARACTER*52 SIFIN2
+ 00174       CHARACTER*45 SIGN
+ 00175       CHARACTER*44 SINSRT
+ 00176       CHARACTER*51 SINS2
+ 00177       CHARACTER*50 SITODM
+ 00178       CHARACTER*39 SIWHEN
+ 00179       CHARACTER* 6 SLINE
+ 00180       CHARACTER*50 SMULER
+ 00181       CHARACTER*42 SNDER1
+ 00182       CHARACTER*44 SNDER2
+ 00183       CHARACTER*46 SNIER1
+ 00184       CHARACTER*44 SNIER2
+ 00185       CHARACTER*37 STABH
+ 00186       CHARACTER*21 SVER
+ 00187       CHARACTER*54 SXER1
+ 00188       CHARACTER*53 SXER2
+ 00189       CHARACTER*50 SXER3
+ 00190       CHARACTER*40 SXER4
+ 00191       CHARACTER*50 SXER5
+ 00192       CHARACTER*40 SXER6
+ 00193 C      
+ 00194       COMMON/FILES/DOFORT,DOLIST,DEBUGG
+ 00195 C      
+ 00196 C---------------------------------------
+ 00197 C      
+ 00198 C  STRING DECLARATIONS
+ 00199 C      
+ 00200 C      
+ 00201 C  THE FOLLOWING ARRAYS ARE USED FOR STORAGE OF WORKING STRINGS
+ 00202 C  AND CORRESPOND TO STRINGS OF THE LENGTHS INDICATED.
+ 00203 C  THE SIZES GIVEN BELOW ARE EXCESSIVE AND SHOULD BE
+ 00204 C  BE REDUCED AFTER CAREFUL ANALYSIS (NO TIME NOW).
+ 00205 C      
+ 00206       CHARACTER*80 SCOMN
+ 00207       CHARACTER*100 SFLX
+ 00208       CHARACTER*100 SHOLD
+ 00209       CHARACTER*200 SLIST
+ 00210       CHARACTER*80 SPINV
+ 00211       CHARACTER*200 SST
+ 00212       DATA SSTMAX /200/
+ 00213 C      
+ 00214 C  THE FOLLOWING STRINGS REPRESENT CONSTANTS
+ 00215 C      
+ 00216       DATA SDASH  /'----------------------------------------'/
+ 00217       DATA SENDER /'***** END statement is missing.'/
+ 00218       DATA SGUP1
+ 00219      1/'***** Translator has used up alloted space for tables.'/
+ 00220       DATA SGUP2  /'***** Translation must terminate immediately.'/
+ 00221       DATA SICOND
+ 00222      1/'*****   (CONDITIONAL or SELECT is apparently missing.)'/
+ 00223       DATA SIELSE /'*****    (ELSE necessary to match line      )'/
+ 00224       DATA SIFIN  /'*****    (FIN necessary to match line      )'/
+ 00225       DATA SIFIN2
+ 00226      1/'*****   (FIN necessary to match line assumed above.)'/
+ 00227       DATA SIGN   /'*****   (No control phrase for FIN to match.)'/
+ 00228       DATA SINSRT /'***** Statement(s) needed before line      )'/
+ 00229       DATA SINS2
+ 00230      1/'***** Statement(s) needed before line assumed below'/
+ 00231       DATA SITODM
+ 00232      1/'*****   (Only TO and END are valid at this point.)'/
+ 00233       DATA SIWHEN /'*****    (WHEN to match following ELSE)'/
+ 00234       DATA SMULER
+ 00235      1/'*****    (Procedure already defined on line      )'/
+ 00236       DATA SNDER1 /'***** The next procedures were invoked on'/
+ 00237       DATA SNDER2 /'***** the lines given but were never defined:'/
+ 00238       DATA SNIER1 /'***** The following procedures were defined on'/
+ 00239       DATA SNIER2 /'***** the lines given but were never invoked:'/
+ 00240       DATA STABH  /'      Procedure Cross-Reference Table'/
+ 00241       DATA SVER   /'(FLECS version 22.60)'/
+ 00242       DATA SXER1
+ 00243      1/'*****  (Invalid character in statement number field.)'/
+ 00244       DATA SXER2
+ 00245      1/'*****  (Recognizable statement followed by garbage.)'/
+ 00246       DATA SXER3
+ 00247      1/'*****   (Left paren does not follow control word.)'/
+ 00248       DATA SXER4  /'*****   (Too few right parentheses.)'/
+ 00249       DATA SXER5
+ 00250      1/'*****    (Valid procedure name does not follow TO)'/
+ 00251       DATA SXER6  /'*****   (Too many right parentheses.)'/
+ 00252 C      
+ 00253 C---------------------------------------
+ 00254 C      
+ 00255 C  MAIN PROGRAM
+ 00256 C      
+ 00257       PERFORM-INITIALIZATION
+ 00258       REPEAT UNTIL (DONE)
+ 00259       .  CALLNO=CALLNO+1
+ 00260       .  CALL OPENF(CALLNO,DONE,SVER)
+ 00261       .  UNLESS (DONE)
+ 00262       .  .  ENDFIL=.FALSE.
+ 00263       .  .  MINCNT=0
+ 00264       .  .  MAJCNT=0
+ 00265       .  .  LINENO=0
+ 00266       .  .  SLINE=' '
+ 00267       .  .  REPEAT UNTIL (ENDFIL)
+ 00268       .  .  .  PREPARE-TO-PROCESS-PROGRAM
+ 00269       .  .  .  PROCESS-PROGRAM
+ 00270       .  .  ...FIN
+ 00271       .  .  CALL CLOSEF(MINCNT,MAJCNT)
+ 00272       .  ...FIN
+ 00273       ...FIN
+ 00274 C     RETURN
+ 00275       WHEN (MAJCNT.EQ.0) CALL EXIT
+ 00276       ELSE CALL SYS$EXIT(%VAL(44))
+        
+       ----------------------------------------
+        
+ 00278       TO ABORT-ENDIF
+ 00279       .  ENDIF=.FALSE.
+ 00280       .  IND=INDEX(SST(1:LSST),'!')
+ 00281       .  CONDITIONAL
+ 00282       .  .  (SST(1:5).NE.' ')
+ 00283       .  .  .  L=INDEX(SST(1:LSST),'ENDIF')
+ 00284       .  .  .  SST(1:LSST+3)=SST(1:L-1)//'CONTINUE'//SST(L+5:LSST+1)
+ 00285       .  .  .  LSST=LSST+3
+ 00286       .  .  .  PUT-ENDIF
+ 00287       .  .  ...FIN
+ 00288       .  .  (IND.NE.0) CALL PUTF(SENDIF,SST(IND:LSST))
+ 00289       .  ...FIN
+ 00290       ...FIN
+        
+       ----------------------------------------
+        
+ 00291       TO ANALYZE-ERRORS-AND-LIST
+ 00292       .  CONDITIONAL
+ 00293       .  .  (SOURCE.EQ.SETUP) SOURCE=RETRY
+ 00294       .  .  (ERROR.EQ.0.AND.ERSTOP.EQ.0)
+ 00295       .  .  .  SOURCE=READ
+ 00296       .  .  .  LIST-FLEX
+ 00297       .  .  ...FIN
+ 00298       .  .  (OTHERWISE)
+ 00299       .  .  .  MINER=(((ERROR.GE.5).AND.(ERROR.LE.6)).OR.
+ 00300      1.  .  .  ((ERROR.GE.13).AND.(ERROR.LE.15)))
+ 00301       .  .  .  MINER=MINER.OR.((ERROR.GE.1).AND.(ERROR.LE.3))
+ 00302      2.  .  .  .OR.(ERROR.EQ.25)
+ 00303       .  .  .  WHEN (MINER)  MINCNT=MINCNT+1
+ 00304       .  .  .  ELSE  MAJCNT=MAJCNT+1
+ 00305       .  .  .  WHEN (ERROR.EQ.0) ERTYPE=1
+ 00306       .  .  .  ELSE
+ 00307       .  .  .  .  CONDITIONAL
+ 00308       .  .  .  .  .  (ERROR.LE.3) INSERT-FIN
+ 00309       .  .  .  .  .  (ERROR.EQ.4) INSERT-ELSE
+ 00310       .  .  .  .  .  (ERROR.LE.6) ERTYPE=3
+ 00311       .  .  .  .  .  (ERROR.EQ.7) INSERT-ELSE
+ 00312       .  .  .  .  .  (ERROR.EQ.8) INSERT-WHEN
+ 00313       .  .  .  .  .  (ERROR.EQ.9) INSERT-TO-DUMMY-PROCEDURE
+ 00314       .  .  .  .  .  (ERROR.EQ.10) INSERT-WHEN-OR-FIN
+ 00315       .  .  .  .  .  (ERROR.LE.12) INSERT-FIN
+ 00316       .  .  .  .  .  (ERROR.LE.15) INSERT-FIN
+ 00317       .  .  .  .  .  (ERROR.EQ.16) INSERT-ELSE
+ 00318       .  .  .  .  .  (ERROR.EQ.17) INSERT-CONDITIONAL
+ 00319       .  .  .  .  .  (ERROR.EQ.18) INSERT-TO-DUMMY-PROCEDURE
+ 00320       .  .  .  .  .  (ERROR.LE.19) INSERT-CONDITIONAL
+ 00321       .  .  .  .  .  (ERROR.EQ.20) INSERT-ELSE
+ 00322       .  .  .  .  .  (ERROR.EQ.21) INSERT-TO-DUMMY-PROCEDURE
+ 00323       .  .  .  .  .  (ERROR.LE.23) INSERT-FIN
+ 00324       .  .  .  .  .  (ERROR.EQ.24) INSERT-ELSE
+ 00325       .  .  .  .  .  (ERROR.EQ.25) ERTYPE=4
+ 00326       .  .  .  .  .  (ERROR.EQ.26) ERTYPE=5
+ 00327       .  .  .  .  ...FIN
+ 00328       .  .  .  ...FIN
+ 00329       .  .  .  SOURCE=READ
+ 00330       .  .  .  SELECT (ERTYPE)
+ 00331       .  .  .  .  (1)
+ 00332       .  .  .  .  .  CALL PUTN(SLINE(2:6),SHOLD(1:LSHOLD),ERRCL)
+ 00333       .  .  .  .  .  DO (I=1,ERSTOP)
+ 00334       .  .  .  .  .  .  SELECT (ERRSTK(I))
+ 00335       .  .  .  .  .  .  .  (1) CALL PUTZ(SXER1,ERRCL)
+ 00336       .  .  .  .  .  .  .  (2) CALL PUTZ(SXER2,ERRCL)
+ 00337       .  .  .  .  .  .  .  (3) CALL PUTZ(SXER3,ERRCL)
+ 00338       .  .  .  .  .  .  .  (4) CALL PUTZ(SXER4,ERRCL)
+ 00339       .  .  .  .  .  .  .  (5) CALL PUTZ(SXER5,ERRCL)
+ 00340       .  .  .  .  .  .  .  (6) CALL PUTZ(SXER6,ERRCL)
+ 00341       .  .  .  .  .  .  ...FIN
+ 00342       .  .  .  .  .  ...FIN
+ 00343       .  .  .  .  ...FIN
+ 00344       .  .  .  .  (2) SOURCE=SETUP
+ 00345       .  .  .  .  (3)
+ 00346       .  .  .  .  .  CALL PUTN(SLINE(2:6),SFLX(1:LSFLX),ERRCL)
+ 00347       .  .  .  .  .  CALL PUTZ(SIGN,ERRCL)
+ 00348       .  .  .  .  ...FIN
+ 00349       .  .  .  .  (4) CALL PUTZ(SENDER,ERRCL)
+ 00350       .  .  .  .  (5)
+ 00351       .  .  .  .  .  CALL PUT(SLINE(2:6),SFLX(1:LSFLX),ERRCL)
+ 00352       .  .  .  .  .  WRITE(SMULER(45:49),'(I5)')MLINE
+ 00353       .  .  .  .  .  CALL PUTZ(SMULER,ERRCL)
+ 00354       .  .  .  .  ...FIN
+ 00355       .  .  .  ...FIN
+ 00356       .  .  ...FIN
+ 00357       .  ...FIN
+ 00358       .  IF (ENDPGM)
+ 00359       .  .  PROCESS-TABLE
+ 00360       .  .  LIST-BLANK-LINE
+ 00361       .  .  CALL PUTZ(SVER,LISTCL)
+ 00362       .  ...FIN
+ 00363       ...FIN
+        
+       ----------------------------------------
+        
+ 00364       TO ANALYZE-NEXT-STATEMENT
+ 00365       .  SELECT (SOURCE)
+ 00366       .  .  (READ) READ-NEXT-STATEMENT
+ 00367       .  .  (SETUP) CONTINUE
+ 00368       .  .  (RETRY)
+ 00369       .  .  .  LINENO=HOLDNO
+ 00370       .  .  .  WRITE(SLINE,'(I6.5)')LINENO
+ 00371       .  .  .  LSFLX=LSHOLD
+ 00372       .  .  .  SFLX(1:LSFLX)=SHOLD(1:LSHOLD)
+ 00373       .  .  ...FIN
+ 00374       .  ...FIN
+ 00375       .  ERROR=0
+ 00376       .  SAVED=.FALSE.
+ 00377       .  NUNITS=0
+ 00378       .  ERSTOP=0
+ 00379       .  CURSOR=0
+ 00380       .  CLASS=0
+ 00381       .  SCAN-STATEMENT-NUMBER
+ 00382       .  SCAN-CONTINUATION
+ 00383       .  WHEN (CONT.OR.PASS)
+ 00384       .  .  CLASS=TEXEC
+ 00385       .  .  EXTYPE=TFORT
+ 00386       .  ...FIN
+ 00387       .  ELSE SCAN-KEYWORD
+ 00388       .  SELECT (CLASS)
+ 00389       .  .  (TEXEC)
+ 00390       .  .  .  SELECT (EXTYPE)
+ 00391       .  .  .  .  (TFORT) CONTINUE
+ 00392       .  .  .  .  (TINVOK) SCAN-GARBAGE
+ 00393       .  .  .  .  (TCOND) SCAN-GARBAGE
+ 00394       .  .  .  .  (TSELCT)
+ 00395       .  .  .  .  .  SCAN-CONTROL
+ 00396       .  .  .  .  .  IF(NUNITS.GT.1)
+ 00397       .  .  .  .  .  .  NUNITS=1
+ 00398       .  .  .  .  .  .  CURSOR=USTART(2)
+ 00399       .  .  .  .  .  .  RESET-GET-CHARACTER
+ 00400       .  .  .  .  .  .  SCAN-GARBAGE
+ 00401       .  .  .  .  .  ...FIN
+ 00402       .  .  .  .  ...FIN
+ 00403       .  .  .  .  (OTHERWISE) SCAN-CONTROL
+ 00404       .  .  .  ...FIN
+ 00405       .  .  ...FIN
+ 00406       .  .  (TFIN) SCAN-GARBAGE
+ 00407       .  .  (TEND) SCAN-GARBAGE
+ 00408       .  .  (TELSE) SCAN-PINV-OR-FORT
+ 00409       .  .  (TTO)
+ 00410       .  .  .  CSAVE=CURSOR
+ 00411       .  .  .  SCAN-PINV
+ 00412       .  .  .  WHEN(FOUND) SCAN-PINV-OR-FORT
+ 00413       .  .  .  ELSE
+ 00414       .  .  .  .  ERSTOP=ERSTOP+1
+ 00415       .  .  .  .  ERRSTK(ERSTOP)=5
+ 00416       .  .  .  .  SAVE-ORIGINAL-STATEMENT
+ 00417       .  .  .  .  LSFLX=CSAVE+15
+ 00418       .  .  .  .  SFLX(CSAVE+1:LSFLX)='DUMMY-PROCEDURE'
+ 00419       .  .  .  .  CURSOR=CSAVE
+ 00420       .  .  .  .  RESET-GET-CHARACTER
+ 00421       .  .  .  .  SCAN-PINV
+ 00422       .  .  .  ...FIN
+ 00423       .  .  ...FIN
+ 00424       .  .  (TCEXP) SCAN-CONTROL
+ 00425       .  ...FIN
+ 00426       .  IF(ERSTOP.GT.0)  CLASS=0
+ 00427       .  LSTLEV=LEVEL
+ 00428       ...FIN
+        
+       ----------------------------------------
+        
+ 00429       TO COMPILE-CEXP
+ 00430       .  WHEN (UTYPE(1).EQ.UEXP)
+ 00431       .  .  WHEN (CFIRST)
+ 00432       .  .  .  IF (ENDIF) PUT-ENDIF
+ 00433       .  .  .  CFIRST=.FALSE.
+ 00434       .  .  .  LSST=UFIN(1)-USTART(1)+13
+ 00435       .  .  .  SST(1:LSST)='      IF'//SFLX(USTART(1):UFIN(1))//'THEN'
+ 00436       .  .  ...FIN
+ 00437       .  .  ELSE
+ 00438       .  .  .  ABORT-ENDIF
+ 00439       .  .  .  LSST=UFIN(1)-USTART(1)+17
+ 00440       .  .  .  SST(1:LSST)='      ELSEIF'//SFLX(USTART(1):UFIN(1))//'THEN'
+ 00441       .  .  ...FIN
+ 00442       .  ...FIN
+ 00443       .  ELSE
+ 00444       .  .  ABORT-ENDIF
+ 00445       .  .  LSST=10
+ 00446       .  .  SST(6:10)=' ELSE'
+ 00447       .  ...FIN
+ 00448       .  STNO=FLXNO
+ 00449       .  PUT-STATEMENT
+ 00450       .  AXSEQ=AFSEQ
+ 00451       .  COMPLETE-ACTION
+ 00452       ...FIN
+        
+       ----------------------------------------
+        
+ 00453       TO COMPILE-CONDITIONAL
+ 00454       .  IF (ENDIF) PUT-ENDIF
+ 00455       .  PUT-CONTINUE-OR-COMMENT
+ 00456       .  CFIRST=.TRUE.
+ 00457       .  TOP=TOP+2
+ 00458       .  STACK(TOP)=ACSEQ
+ 00459       .  STACK(TOP-1)=LINENO
+ 00460       .  LEVEL=LEVEL+1
+ 00461       ...FIN
+        
+       ----------------------------------------
+        
+ 00462       TO COMPILE-DO
+ 00463       .  IF (ENDIF) PUT-ENDIF
+ 00464       .  LSST=UFIN(1)+8-USTART(1)
+ 00465       .  SST(1:LSST)='      DO '//SFLX(USTART(1)+1:UFIN(1)-1)
+ 00466       .  STNO=FLXNO
+ 00467       .  PUT-STATEMENT
+ 00468       .  AXSEQ=ADSEQ
+ 00469       .  COMPLETE-ACTION
+ 00470       ...FIN
+        
+       ----------------------------------------
+        
+ 00471       TO COMPILE-ELSE
+ 00472       .  ABORT-ENDIF
+ 00473       .  TOP=TOP-2
+ 00474       .  LSST=10
+ 00475       .  SST(6:10)=' ELSE'
+ 00476       .  STNO=FLXNO
+ 00477       .  PUT-STATEMENT
+ 00478       .  AXSEQ=AFSEQ
+ 00479       .  COMPLETE-ACTION
+ 00480       ...FIN
+        
+       ----------------------------------------
+        
+ 00481       TO COMPILE-END
+ 00482       .  IF (ENDIF) PUT-ENDIF
+ 00483       .  SORT-TABLE
+ 00484       .  PUT-COPY
+ 00485       .  IF (ENDFIL)   ERROR=25
+ 00486       .  ENDPGM=.TRUE.
+ 00487       ...FIN
+        
+       ----------------------------------------
+        
+ 00488       TO COMPILE-EXEC
+ 00489       .  SELECT (EXTYPE)
+ 00490       .  .  (TFORT) PUT-COPY
+ 00491       .  .  (TIF) COMPILE-IF
+ 00492       .  .  (TUNLES) COMPILE-UNLESS
+ 00493       .  .  (TWHEN) COMPILE-WHEN
+ 00494       .  .  (TWHILE) COMPILE-WHILE
+ 00495       .  .  (TUNTIL) COMPILE-UNTIL
+ 00496       .  .  (TRWHIL) COMPILE-RWHILE
+ 00497       .  .  (TRUNTL) COMPILE-RUNTIL
+ 00498       .  .  (TINVOK) COMPILE-INVOKE
+ 00499       .  .  (TCOND) COMPILE-CONDITIONAL
+ 00500       .  .  (TSELCT) COMPILE-SELECT
+ 00501       .  .  (TDO) COMPILE-DO
+ 00502       .  ...FIN
+ 00503       ...FIN
+        
+       ----------------------------------------
+        
+ 00504       TO COMPILE-FORTRAN
+ 00505       .  IF (ENDIF) PUT-ENDIF
+ 00506       .  LSST=UFIN(2)-USTART(2)+7
+ 00507       .  SST(6:LSST)=' '//SFLX(USTART(2):UFIN(2))
+ 00508       .  STNO=FLXNO
+ 00509       .  IND=INDEX(SST(1:LSST),'!')
+ 00510       .  IF (IND.EQ.0) IND=LSST+1
+ 00511       .  CONDITIONAL
+ 00512       .  .  (STNO.NE.0) PUT-STATEMENT
+ 00513       .  .  (SST(7:IND-1).NE.'CONTINUE') PUT-STATEMENT
+ 00514       .  .  (IND.NE.LSST+1) CALL PUTF(SLINE(2:6),SST(IND:LSST))
+ 00515       .  ...FIN
+ 00516       ...FIN
+        
+       ----------------------------------------
+        
+ 00517       TO COMPILE-IF
+ 00518       .  IF (ENDIF) PUT-ENDIF
+ 00519       .  WHEN (NUNITS.EQ.2.AND.UTYPE(2).EQ.UFORT) PUT-COPY
+ 00520       .  ELSE
+ 00521       .  .  LSST=UFIN(1)-USTART(1)+13
+ 00522       .  .  SST(1:LSST)='      IF'//SFLX(USTART(1):UFIN(1))//'THEN'
+ 00523       .  .  STNO=FLXNO
+ 00524       .  .  PUT-STATEMENT
+ 00525       .  .  AXSEQ=AFSEQ
+ 00526       .  .  COMPLETE-ACTION
+ 00527       .  ...FIN
+ 00528       ...FIN
+        
+       ----------------------------------------
+        
+ 00529       TO COMPILE-INVOKE
+ 00530       .  IF (ENDIF) PUT-ENDIF
+ 00531       .  FIND-ENTRY
+ 00532       .  CALL PUTF(SLINE(2:6),'C'//BLANKS(1:2*FLEVEL+6)//
+ 00533      1.  SFLX(USTART(J):LSFLX))
+ 00534       .  ENTNO=STACK(PENT+1)
+ 00535       .  RETNO=NEWNO(0)
+ 00536       .  MAX=MAX-2
+ 00537       .  STACK(MAX+1)=STACK(PENT+3)
+ 00538       .  STACK(PENT+3)=MAX+1
+ 00539       .  STACK(MAX+2)=LINENO
+ 00540       .  LSST=28
+ 00541       .  SST(6:13)=' ASSIGN '
+ 00542       .  SST(19:23)=' TO I'
+ 00543       .  WRITE(SST(14:18),'(I5)')RETNO
+ 00544       .  WRITE(SST(24:28),'(I5)')ENTNO
+ 00545       .  STNO=FLXNO
+ 00546       .  PUT-STATEMENT
+ 00547       .  LSST=17
+ 00548       .  SST(6:12)=' GO TO '
+ 00549       .  WRITE(SST(13:17),'(I5)')ENTNO
+ 00550       .  PUT-STATEMENT
+ 00551       .  STNO=RETNO
+ 00552       .  PUT-CONTINUE
+ 00553       ...FIN
+        
+       ----------------------------------------
+        
+ 00554       TO COMPILE-RUNTIL
+ 00555       .  IF (ENDIF) PUT-ENDIF
+ 00556       .  ENTNO=NEWNO(0)
+ 00557       .  SST(1:20)='      IF(.TRUE.)GOTO'
+ 00558       .  WRITE(SST(21:25),'(I5)')ENTNO
+ 00559       .  LSST=25
+ 00560       .  STNO=FLXNO
+ 00561       .  PUT-STATEMENT
+ 00562       .  LSST=UFIN(1)-USTART(1)+22
+ 00563       .  SST(6:LSST)=' DO WHILE(.NOT.'//SFLX(USTART(1):UFIN(1))//')'
+ 00564       .  PUT-STATEMENT
+ 00565       .  STNO=ENTNO
+ 00566       .  FLEVEL=FLEVEL+1
+ 00567       .  PUT-CONTINUE
+ 00568       .  FLEVEL=FLEVEL-1
+ 00569       .  AXSEQ=ADSEQ
+ 00570       .  COMPLETE-ACTION
+ 00571       ...FIN
+        
+       ----------------------------------------
+        
+ 00572       TO COMPILE-RWHILE
+ 00573       .  IF (ENDIF) PUT-ENDIF
+ 00574       .  ENTNO=NEWNO(0)
+ 00575       .  SST(1:20)='      IF(.TRUE.)GOTO'
+ 00576       .  WRITE(SST(21:25),'(I5)')ENTNO
+ 00577       .  LSST=25
+ 00578       .  STNO=FLXNO
+ 00579       .  PUT-STATEMENT
+ 00580       .  LSST=UFIN(1)-USTART(1)+15
+ 00581       .  SST(6:LSST)=' DO WHILE'//SFLX(USTART(1):UFIN(1))
+ 00582       .  PUT-STATEMENT
+ 00583       .  STNO=ENTNO
+ 00584       .  FLEVEL=FLEVEL+1
+ 00585       .  PUT-CONTINUE
+ 00586       .  FLEVEL=FLEVEL-1
+ 00587       .  AXSEQ=ADSEQ
+ 00588       .  COMPLETE-ACTION
+ 00589       ...FIN
+        
+       ----------------------------------------
+        
+ 00590       TO COMPILE-SELECT
+ 00591       .  IF (ENDIF) PUT-ENDIF
+ 00592       .  PUT-CONTINUE-OR-COMMENT
+ 00593       .  CFIRST=.TRUE.
+ 00594       .  L=(UFIN(1)-USTART(1))/NCHPWD+4
+ 00595       .  TOP=TOP+L+1
+ 00596       .  WHEN (TOP+SAFETY.LT.MAX)
+ 00597       .  .  STACK(TOP)=ASSEQ
+ 00598       .  .  STACK(TOP-1)=LINENO
+ 00599       .  .  STACK(TOP-2)=L
+ 00600       .  .  I=TOP-L
+ 00601       .  .  IP=4*I
+ 00602       .  .  STACK(I)=UFIN(1)-USTART(1)+1
+ 00603       .  .  CSTAK(IP+1:IP+STACK(I))=SFLX(USTART(1):UFIN(1))
+ 00604       .  ...FIN
+ 00605       .  ELSE GIVE-UP
+ 00606       .  LEVEL=LEVEL+1
+ 00607       ...FIN
+        
+       ----------------------------------------
+        
+ 00608       TO COMPILE-SEQ-FIN
+ 00609       .  IF (ENDIF) PUT-ENDIF
+ 00610       .  PUT-CONTINUE-OR-COMMENT
+ 00611       .  STNO=FLXNO
+ 00612       .  IF (STNO.NE.0.) PUT-CONTINUE
+ 00613       .  POP-STACK
+ 00614       .  LEVEL=LEVEL-1
+ 00615       ...FIN
+        
+       ----------------------------------------
+        
+ 00616       TO COMPILE-SEXP
+ 00617       .  WHEN (UTYPE(1).EQ.UEXP)
+ 00618       .  .  WHEN (CFIRST)
+ 00619       .  .  .  IF (ENDIF) PUT-ENDIF
+ 00620       .  .  .  CFIRST=.FALSE.
+ 00621       .  .  .  I=TOP-STACK(TOP-2)
+ 00622       .  .  .  IP=4*I
+ 00623       .  .  .  LSST=UFIN(1)-USTART(1)+STACK(I)+19
+ 00624       .  .  .  SST(1:LSST)='      IF('//SFLX(USTART(1):UFIN(1))//
+ 00625      1.  .  .  '.EQ.'//CSTAK(IP+1:IP+STACK(I))//')THEN'
+ 00626       .  .  ...FIN
+ 00627       .  .  ELSE
+ 00628       .  .  .  ABORT-ENDIF
+ 00629       .  .  .  I=TOP-STACK(TOP-2)
+ 00630       .  .  .  IP=4*I
+ 00631       .  .  .  LSST=UFIN(1)-USTART(1)+STACK(I)+23
+ 00632       .  .  .  SST(1:LSST)='      ELSEIF('//SFLX(USTART(1):UFIN(1))//
+ 00633      1.  .  .  '.EQ.'//CSTAK(IP+1:IP+STACK(I))//')THEN'
+ 00634       .  .  ...FIN
+ 00635       .  ...FIN
+ 00636       .  ELSE
+ 00637       .  .  ABORT-ENDIF
+ 00638       .  .  LSST=10
+ 00639       .  .  SST(6:10)=' ELSE'
+ 00640       .  ...FIN
+ 00641       .  STNO=FLXNO
+ 00642       .  PUT-STATEMENT
+ 00643       .  AXSEQ=AFSEQ
+ 00644       .  COMPLETE-ACTION
+ 00645       ...FIN
+        
+       ----------------------------------------
+        
+ 00646       TO COMPILE-SIMPLE-FIN
+ 00647       .  IF (ENDIF) PUT-ENDIF
+ 00648       .  SELECT (ACTION)
+ 00649       .  .  (AFSEQ)
+ 00650       .  .  .  STNO=FLXNO
+ 00651       .  .  .  STORE-ENDIF
+ 00652       .  .  ...FIN
+ 00653       .  .  (ADSEQ)
+ 00654       .  .  .  STNO=FLXNO
+ 00655       .  .  .  IF (STNO.NE.0) PUT-CONTINUE
+ 00656       .  .  .  LSST=11
+ 00657       .  .  .  SST(1:11)='      ENDDO'
+ 00658       .  .  .  PUT-STATEMENT
+ 00659       .  .  ...FIN
+ 00660       .  .  (ARSEQ)
+ 00661       .  .  .  STNO=FLXNO
+ 00662       .  .  .  IF (STNO.NE.0) PUT-CONTINUE
+ 00663       .  .  ...FIN
+ 00664       .  ...FIN
+ 00665       .  FLEVEL=FLEVEL-1
+ 00666       .  LEVEL=LEVEL-1
+ 00667       .  TOP=TOP-2
+ 00668       ...FIN
+        
+       ----------------------------------------
+        
+ 00669       TO COMPILE-TO
+ 00670       .  IF (ENDIF) PUT-ENDIF
+ 00671       .  CALL PUTF('     ','C')
+ 00672       .  CALL PUTF('     ','C'//SDASH)
+ 00673       .  CALL PUTF('     ','C')
+ 00674       .  CALL PUTF(SLINE(2:6),'C      '//SFLX(7:LSFLX))
+ 00675       .  FIND-ENTRY
+ 00676       .  WHEN(STACK(PENT+2).NE.0)
+ 00677       .  .  ERROR=26
+ 00678       .  .  MLINE=STACK(PENT+2)
+ 00679       .  .  ENTNO=NEWNO(0)
+ 00680       .  ...FIN
+ 00681       .  ELSE
+ 00682       .  .  ENTNO=STACK(PENT+1)
+ 00683       .  .  STACK(PENT+2)=LINENO
+ 00684       .  ...FIN
+ 00685       .  STNO=FLXNO
+ 00686       .  IF (STNO.NE.0) PUT-CONTINUE
+ 00687       .  STNO=ENTNO
+ 00688       .  PUT-CONTINUE
+ 00689       .  TOP=TOP+2
+ 00690       .  STACK(TOP)=AGRET
+ 00691       .  STACK(TOP-1)=ENTNO
+ 00692       .  UTYPE(1)=0
+ 00693       .  AXSEQ=ARSEQ
+ 00694       .  COMPLETE-ACTION
+ 00695       ...FIN
+        
+       ----------------------------------------
+        
+ 00696       TO COMPILE-UNLESS
+ 00697       .  IF (ENDIF) PUT-ENDIF
+ 00698       .  WHEN (NUNITS.EQ.2.AND.UTYPE(2).EQ.UFORT)
+ 00699       .  .  LSST=+UFIN(1)+UFIN(2)-USTART(1)-USTART(2)+17
+ 00700       .  .  SST(6:LSST)=' IF(.NOT.'//SFLX(USTART(1):UFIN(1))//
+ 00701      1.  .  ')'//SFLX(USTART(2):UFIN(2))
+ 00702       .  .  STNO=FLXNO
+ 00703       .  .  PUT-STATEMENT
+ 00704       .  ...FIN
+ 00705       .  ELSE
+ 00706       .  .  LSST=UFIN(1)-USTART(1)+20
+ 00707       .  .  SST(1:LSST)='      IF(.NOT.'//SFLX(USTART(1):UFIN(1))//')THEN'
+ 00708       .  .  STNO=FLXNO
+ 00709       .  .  PUT-STATEMENT
+ 00710       .  .  AXSEQ=AFSEQ
+ 00711       .  .  COMPLETE-ACTION
+ 00712       .  ...FIN
+ 00713       ...FIN
+        
+       ----------------------------------------
+        
+ 00714       TO COMPILE-UNTIL
+ 00715       .  IF (ENDIF) PUT-ENDIF
+ 00716       .  LSST=UFIN(1)-USTART(1)+22
+ 00717       .  SST(6:LSST)=' DO WHILE(.NOT.'//SFLX(USTART(1):UFIN(1))//')'
+ 00718       .  STNO=FLXNO
+ 00719       .  PUT-STATEMENT
+ 00720       .  AXSEQ=ADSEQ
+ 00721       .  COMPLETE-ACTION
+ 00722       ...FIN
+        
+       ----------------------------------------
+        
+ 00723       TO COMPILE-WHEN
+ 00724       .  IF (ENDIF) PUT-ENDIF
+ 00725       .  TOP=TOP+2
+ 00726       .  STACK(TOP-1)=LINENO
+ 00727       .  STACK(TOP)=AELSE
+ 00728       .  LSST=UFIN(1)-USTART(1)+13
+ 00729       .  SST(6:LSST)=' IF'//SFLX(USTART(1):UFIN(1))//'THEN'
+ 00730       .  STNO=FLXNO
+ 00731       .  PUT-STATEMENT
+ 00732       .  AXSEQ=AFSEQ
+ 00733       .  COMPLETE-ACTION
+ 00734       ...FIN
+        
+       ----------------------------------------
+        
+ 00735       TO COMPILE-WHILE
+ 00736       .  IF (ENDIF) PUT-ENDIF
+ 00737       .  LSST=UFIN(1)-USTART(1)+15
+ 00738       .  SST(6:LSST)=' DO WHILE'//SFLX(USTART(1):UFIN(1))
+ 00739       .  STNO=FLXNO
+ 00740       .  PUT-STATEMENT
+ 00741       .  AXSEQ=ADSEQ
+ 00742       .  COMPLETE-ACTION
+ 00743       ...FIN
+        
+       ----------------------------------------
+        
+ 00744       TO COMPLETE-ACTION
+ 00745       .  WHEN (NUNITS.EQ.1) PUSH-FINSEQ
+ 00746       .  ELSE
+ 00747       .  .  FLEVEL=FLEVEL+1
+ 00748       .  .  CONDITIONAL
+ 00749       .  .  .  (UTYPE(2).EQ.UPINV) COMPILE-INVOKE
+ 00750       .  .  .  (SFLX(USTART(2):UFIN(2)).NE.'CONTINUE')  COMPILE-FORTRAN
+ 00751       .  .  ...FIN
+ 00752       .  .  SELECT (AXSEQ)
+ 00753       .  .  .  (AFSEQ)
+ 00754       .  .  .  .  STNO=0
+ 00755       .  .  .  .  STORE-ENDIF
+ 00756       .  .  .  ...FIN
+ 00757       .  .  .  (ADSEQ)
+ 00758       .  .  .  .  STNO=FLXNO
+ 00759       .  .  .  .  IF (STNO.NE.0) PUT-CONTINUE
+ 00760       .  .  .  .  LSST=11
+ 00761       .  .  .  .  SST(1:11)='      ENDDO'
+ 00762       .  .  .  .  PUT-STATEMENT
+ 00763       .  .  .  ...FIN
+ 00764       .  .  ...FIN
+ 00765       .  .  FLEVEL=FLEVEL-1
+ 00766       .  ...FIN
+ 00767       ...FIN
+        
+       ----------------------------------------
+        
+ 00768       TO FIND-ENTRY
+ 00769       .  WHEN (UTYPE(1).EQ.UPINV) J=1
+ 00770       .  ELSE J=2
+ 00771       .  LSPINV=UFIN(J)-USTART(J)+1
+ 00772       .  SPINV(1:LSPINV)=SFLX(USTART(J):UFIN(J))
+ 00773       .  WHEN (SPINV(1:LSPINV).EQ.'DUMMY-PROCEDURE')
+ 00774       .  .  PENT=PDUMMY
+ 00775       .  .  STACK(PENT+2)=0
+ 00776       .  ...FIN
+ 00777       .  ELSE
+ 00778       .  .  P=MAXSTK-HASH(SPINV(1:LSPINV),PRIME)
+ 00779       .  .  FOUND=.FALSE.
+ 00780       .  .  UNLESS(STACK(P).EQ.0)
+ 00781       .  .  .  REPEAT UNTIL(STACK(P).EQ.0.OR.FOUND)
+ 00782       .  .  .  .  P=STACK(P)
+ 00783       .  .  .  .  IP=4*(P+4)
+ 00784       .  .  .  .  IF (SPINV(1:LSPINV).EQ.CSTAK(IP+1:IP+STACK(P+4))) FOUND=.TRUE.
+ 00785       .  .  .  ...FIN
+ 00786       .  .  ...FIN
+ 00787       .  .  WHEN (FOUND) PENT=P
+ 00788       .  .  ELSE
+ 00789       .  .  .  TMAX=MAX-(6+(LSPINV+NCHPWD-1)/NCHPWD)
+ 00790       .  .  .  WHEN (TMAX.LE.TOP+SAFETY)
+ 00791       .  .  .  .  PENT=PDUMMY
+ 00792       .  .  .  .  STACK(PENT+2)=0
+ 00793       .  .  .  ...FIN
+ 00794       .  .  .  ELSE
+ 00795       .  .  .  .  MAX=TMAX
+ 00796       .  .  .  .  PENT=MAX+2
+ 00797       .  .  .  .  STACK(PENT)=0
+ 00798       .  .  .  .  STACK(P)=PENT
+ 00799       .  .  .  .  STACK(PENT+1)=NEWNO(0)
+ 00800       .  .  .  .  STACK(PENT+2)=0
+ 00801       .  .  .  .  STACK(PENT+3)=0
+ 00802       .  .  .  .  IP=4*(PENT+4)
+ 00803       .  .  .  .  STACK(PENT+4)=LSPINV
+ 00804       .  .  .  .  CSTAK(IP+1:IP+LSPINV)=SPINV(1:LSPINV)
+ 00805       .  .  .  ...FIN
+ 00806       .  .  ...FIN
+ 00807       .  ...FIN
+ 00808       ...FIN
+        
+       ----------------------------------------
+        
+ 00809       TO GENERATE-RETURN-FROM-PROC
+ 00810       .  LSST=18
+ 00811       .  SST(6:13)=' GO TO I'
+ 00812       .  WRITE(SST(14:18),'(I5)')STACK(TOP-1)
+ 00813       .  STNO=FLXNO
+ 00814       .  PUT-STATEMENT
+ 00815       .  TOP=TOP-2
+ 00816       ...FIN
+ 00817 C      
+ 00818 C-----------------------------------------------------------------------------
+ 00819 C      
+        
+       ----------------------------------------
+        
+ 00820       TO GET-CHARACTER
+ 00821 C     .   
+ 00822       .  CURSOR=CURSOR+1
+ 00823       .  WHEN(CURSOR.GT.LSFLX) CHTYPE=TEOL
+ 00824       .  ELSE
+ 00825       .  .  CH = SFLX(CURSOR:CURSOR)
+ 00826 C     .  .  CHTYPE = CHTYP(ICH)                     !TG 4/1/82
+ 00827       .  .  CHTYPE = CHTYP(ICHAR(CH))
+ 00828       .  ...FIN
+ 00829       ...FIN
+ 00830 C      
+ 00831 C------------------------------------------------------------------------------
+ 00832 C      
+        
+       ----------------------------------------
+        
+ 00833       TO GIVE-UP
+ 00834       .  CALL PUTZ(SGUP1,ERRCL)
+ 00835       .  CALL PUTZ(SGUP2,ERRCL)
+ 00836       .  CALL CLOSEF(MINCNT,-1)
+ 00837       ...FIN
+        
+       ----------------------------------------
+        
+ 00838       TO INSERT-CONDITIONAL
+ 00839       .  PREPARE-FOR-INSERTION
+ 00840       .  LSFLX=17
+ 00841       .  SFLX(1:LSFLX)='      CONDITIONAL'
+ 00842       .  CALL PUTZ(SICOND,ERRCL)
+ 00843       ...FIN
+        
+       ----------------------------------------
+        
+ 00844       TO INSERT-ELSE
+ 00845       .  PREPARE-FOR-INSERTION
+ 00846       .  LSFLX=19
+ 00847       .  SFLX(1:LSFLX)='      ELSE CONTINUE'
+ 00848       .  WRITE(SIELSE(40:44),'(I5)')STACK(TOP-1)
+ 00849       .  CALL PUTZ(SIELSE,ERRCL)
+ 00850       ...FIN
+        
+       ----------------------------------------
+        
+ 00851       TO INSERT-FIN
+ 00852       .  PREPARE-FOR-INSERTION
+ 00853       .  LSFLX=9
+ 00854       .  SFLX(1:LSFLX)='      FIN'
+ 00855       .  WHEN (STACK(TOP-1).EQ.0)  CALL PUTZ(SIFIN2,ERRCL)
+ 00856       .  ELSE
+ 00857       .  .  WRITE(SIFIN(39:43),'(I5)')STACK(TOP-1)
+ 00858       .  .  CALL PUTZ(SIFIN,ERRCL)
+ 00859       .  ...FIN
+ 00860       ...FIN
+        
+       ----------------------------------------
+        
+ 00861       TO INSERT-TO-DUMMY-PROCEDURE
+ 00862       .  PREPARE-FOR-INSERTION
+ 00863       .  LSFLX=24
+ 00864       .  SFLX(1:LSFLX)='      TO DUMMY-PROCEDURE'
+ 00865       .  CALL PUTZ(SITODM,ERRCL)
+ 00866       ...FIN
+        
+       ----------------------------------------
+        
+ 00867       TO INSERT-WHEN
+ 00868       .  PREPARE-FOR-INSERTION
+ 00869       .  LSFLX=24
+ 00870       .  SFLX(1:LSFLX)='      WHEN (.TRUE.) STOP'
+ 00871       .  CALL PUTZ(SIWHEN,ERRCL)
+ 00872       ...FIN
+        
+       ----------------------------------------
+        
+ 00873       TO INSERT-WHEN-OR-FIN
+ 00874       .  CONDITIONAL
+ 00875       .  .  (TOP.LE.7)  INSERT-WHEN
+ 00876       .  .  (STACK(TOP-6).EQ.AELSE)  INSERT-FIN
+ 00877       .  .  (OTHERWISE)  INSERT-WHEN
+ 00878       .  ...FIN
+ 00879       ...FIN
+        
+       ----------------------------------------
+        
+ 00880       TO LIST-BLANK-LINE
+ 00881       .  LSTLEV=LEVEL
+ 00882       .  LSLIST=3*LSTLEV+6
+ 00883       .  WHEN (LSTLEV.EQ.0.OR.LSLIST.GT.WWIDTH) CALL PUT(SBLN,' ',LISTCL)
+ 00884       .  ELSE
+ 00885       .  .  SLIST(1:6)=' '
+ 00886       .  .  DO (I=7,LSLIST,3) SLIST(I:I+2)='.  '
+ 00887       .  .  CALL PUT(SBLN,SLIST(1:LSLIST),LISTCL)
+ 00888       .  ...FIN
+ 00889       .  SBLN=' '
+ 00890       ...FIN
+        
+       ----------------------------------------
+        
+ 00891       TO LIST-COMMENT-LINE
+ 00892       .  CURSOR=1
+ 00893       .  RESET-GET-CHARACTER
+ 00894       .  INDENT=.TRUE.
+ 00895       .  I=2
+ 00896       .  REPEAT WHILE (I.LE.6.AND.INDENT)
+ 00897       .  .  GET-CHARACTER
+ 00898       .  .  IF (CHTYPE.NE.TBLANK.AND.CHTYPE.NE.TEOL) INDENT=.FALSE.
+ 00899       .  .  I=I+1
+ 00900       .  ...FIN
+ 00901       .  WHEN (INDENT)
+ 00902       .  .  LSTLEV=LEVEL
+ 00903       .  .  CLASS=0
+ 00904       .  .  LIST-FLEX
+ 00905       .  ...FIN
+ 00906       .  ELSE CALL PUT(SLINE(2:6),SFLX(1:LSFLX),LISTCL)
+ 00907       ...FIN
+        
+       ----------------------------------------
+        
+ 00908       TO LIST-DASHES
+ 00909       .  CALL PUTZ(' ',LISTCL)
+ 00910       .  CALL PUTZ(SDASH,LISTCL)
+ 00911       .  CALL PUTZ(' ',LISTCL)
+ 00912       ...FIN
+        
+       ----------------------------------------
+        
+ 00913       TO LIST-FLEX
+ 00914       .  IF (CLASS.EQ.TTO)   LIST-DASHES
+ 00915       .  IF (LSFLX.LT.7)
+ 00916       .  .  LSFLX=LSFLX+7
+ 00917       .  .  SFLX(LSFLX-6:LSFLX)=' '
+ 00918       .  ...FIN
+ 00919       .  SLIST(1:6)=SFLX(1:6)
+ 00920       .  LSLIST=6
+ 00921       .  UNLESS(LSTLEV.EQ.0.OR.(3*LSTLEV+LSFLX.GT.WWIDTH))
+ 00922       .  .  DO (I=1,LSTLEV)
+ 00923       .  .  .  LSLIST=LSLIST+3
+ 00924       .  .  .  SLIST(LSLIST-2:LSLIST)='.  '
+ 00925       .  .  ...FIN
+ 00926       .  .  IF(CLASS.EQ.TFIN) SLIST(LSLIST-2:LSLIST)='...'
+ 00927       .  ...FIN
+ 00928       .  I=7
+ 00929       .  WHILE (SFLX(I:I).EQ.' '.AND.I.LT.LSFLX) I=I+1
+ 00930       .  LSLIST=LSLIST+LSFLX-I+1
+ 00931       .  SLIST(LSLIST-LSFLX+I:LSLIST)=SFLX(I:LSFLX)
+ 00932       .  IF (COMENT)
+ 00933       .  .  COMENT=.FALSE.
+ 00934       .  .  LSLIST=LSLIST+LSCOMN
+ 00935       .  .  SLIST(LSLIST-LSCOMN+1:LSLIST)=SCOMN
+ 00936       .  ...FIN
+ 00937       .  IF ((.NOT. COMENT) .AND.LSCOMN.NE.0)    !added 7-30-82 by HARN
+ 00938       .  .  LSLIST=LSLIST+LSCOMN                    !(rutgers) to preserve
+ 00939       .  .  SLIST(LSLIST-LSCOMN+1:LSLIST)=SCOMN     !comments after keyword
+ 00940       .  .  LSCOMN=0                                !declaration of multi-line
+ 00941       .  ...FIN                                     !structure.
+ 00942       .  IF (LSLIST.GT.WWIDTH)                   !Syntax corrected 11-10-95
+ 00943       .  .  LSLIST=LSFLX                            !by Steve Lionel (Digital)
+ 00944       .  .  SLIST(1:LSLIST)=SFLX(1:LSFLX)
+ 00945       .  ...FIN
+ 00946       .  WHEN (ERLST)
+ 00947       .  .  CALL PUT(SLINE(2:6),SLIST(1:LSLIST),ERRCL)
+ 00948       .  .  ERLST=.FALSE.
+ 00949       .  ...FIN
+ 00950       .  ELSE CALL PUT(SLINE(2:6),SLIST(1:LSLIST),LISTCL)
+ 00951       ...FIN
+        
+       ----------------------------------------
+        
+ 00952       TO PERFORM-INITIALIZATION
+ 00953       .  CALLNO=0
+ 00954       .  SBLN=' '
+ 00955       .  WWIDTH=LWIDTH-6
+ 00956       .  REFNO=LWIDTH-15
+ 00957       .  ERLST=.FALSE.
+ 00958       .  ENDIF=.FALSE.
+ 00959       ...FIN
+        
+       ----------------------------------------
+        
+ 00960       TO POP-STACK
+ 00961       .  TOPTYP=STACK(TOP)
+ 00962       .  SELECT (TOPTYP)
+ 00963       .  .  (ASSEQ) TOP=TOP-STACK(TOP-2)-1
+ 00964       .  .  (ACSEQ) TOP=TOP-2
+ 00965       .  .  (ARSEQ) TOP=TOP-2
+ 00966       .  .  (ADSEQ) TOP=TOP-2
+ 00967       .  .  (AFSEQ) TOP=TOP-2
+ 00968       .  .  (AELSE) TOP=TOP-2
+ 00969       .  .  (ATSEQ) TOP=TOP-1
+ 00970       .  .  (AMSEQ) TOP=TOP-1
+ 00971       .  .  (AGRET) TOP=TOP-2
+ 00972       .  ...FIN
+ 00973       ...FIN
+        
+       ----------------------------------------
+        
+ 00974       TO PREPARE-FOR-INSERTION
+ 00975       .  ERTYPE=2
+ 00976       .  SAVE-ORIGINAL-STATEMENT
+ 00977       .  LINENO=0
+ 00978       .  SLINE=' '
+ 00979       .  IF (SOURCE.EQ.READ)
+ 00980       .  .  WHEN (HOLDNO.LE.0) CALL PUTZ(SINS2,ERRCL)
+ 00981       .  .  ELSE
+ 00982       .  .  .  WRITE(SINSRT(39:43),'(I5)')HOLDNO
+ 00983       .  .  .  CALL PUTZ(SINSRT,ERRCL)
+ 00984       .  .  ...FIN
+ 00985       .  ...FIN
+ 00986       ...FIN
+        
+       ----------------------------------------
+        
+ 00987       TO PREPARE-TO-PROCESS-PROGRAM
+ 00988       .  DUMMY=NEWNO(SEEDNO)
+ 00989       .  ENDPGM=.FALSE.
+ 00990       .  MAX=MAXSTK-(PRIME+4)
+ 00991       .  PDUMMY=MAX+1
+ 00992       .  DO (I=MAX,MAXSTK)  STACK(I)=0
+ 00993       .  TOP=1
+ 00994       .  STACK(TOP)=AMSEQ
+ 00995       .  COMENT=.FALSE.
+ 00996       .  ERROR=0
+ 00997       .  FIRST=.TRUE.
+ 00998       .  NOPGM=.FALSE.
+ 00999       .  SOURCE=READ
+ 01000       .  LEVEL=0
+ 01001       .  FLEVEL=0
+ 01002       .  LSTLEV=0
+ 01003       .  LIST-DASHES
+ 01004       ...FIN
+        
+       ----------------------------------------
+        
+ 01005       TO PROCESS-PROGRAM
+ 01006       .  REPEAT UNTIL (ENDPGM)
+ 01007       .  .  IF(TOP+SAFETY.GT.MAX) GIVE-UP
+ 01008       .  .  ACTION=STACK(TOP)
+ 01009       .  .  SELECT (ACTION)
+ 01010       .  .  .  (AGRET) GENERATE-RETURN-FROM-PROC
+ 01011       .  .  .  (OTHERWISE)
+ 01012       .  .  .  .  ANALYZE-NEXT-STATEMENT
+ 01013       .  .  .  .  SELECT (ACTION)
+ 01014       .  .  .  .  .  (AMSEQ)
+ 01015       .  .  .  .  .  .  SELECT(CLASS)
+ 01016       .  .  .  .  .  .  .  (TEXEC) COMPILE-EXEC
+ 01017       .  .  .  .  .  .  .  (TEND)
+ 01018       .  .  .  .  .  .  .  .  WHEN (NOPGM) ENDPGM=.TRUE.
+ 01019       .  .  .  .  .  .  .  .  ELSE  COMPILE-END
+ 01020       .  .  .  .  .  .  .  ...FIN
+ 01021       .  .  .  .  .  .  .  (TFIN) ERROR=5
+ 01022       .  .  .  .  .  .  .  (TELSE) ERROR=8
+ 01023       .  .  .  .  .  .  .  (TTO)
+ 01024       .  .  .  .  .  .  .  .  STACK(TOP)=ATSEQ
+ 01025       .  .  .  .  .  .  .  .  COMPILE-TO
+ 01026       .  .  .  .  .  .  .  ...FIN
+ 01027       .  .  .  .  .  .  .  (TCEXP) ERROR=17
+ 01028       .  .  .  .  .  .  ...FIN
+ 01029       .  .  .  .  .  ...FIN
+ 01030       .  .  .  .  .  (ASSEQ)
+ 01031       .  .  .  .  .  .  SELECT (CLASS)
+ 01032       .  .  .  .  .  .  .  (TCEXP) COMPILE-SEXP
+ 01033       .  .  .  .  .  .  .  (TFIN) COMPILE-SEQ-FIN
+ 01034       .  .  .  .  .  .  .  (TEND) ERROR=3
+ 01035       .  .  .  .  .  .  .  (TELSE) ERROR=12
+ 01036       .  .  .  .  .  .  .  (TTO) ERROR=15
+ 01037       .  .  .  .  .  .  .  (TEXEC) ERROR=23
+ 01038       .  .  .  .  .  .  ...FIN
+ 01039       .  .  .  .  .  ...FIN
+ 01040       .  .  .  .  .  (ACSEQ)
+ 01041       .  .  .  .  .  .  SELECT(CLASS)
+ 01042       .  .  .  .  .  .  .  (TCEXP) COMPILE-CEXP
+ 01043       .  .  .  .  .  .  .  (TFIN) COMPILE-SEQ-FIN
+ 01044       .  .  .  .  .  .  .  (TEND) ERROR=2
+ 01045       .  .  .  .  .  .  .  (TELSE) ERROR=11
+ 01046       .  .  .  .  .  .  .  (TTO) ERROR=14
+ 01047       .  .  .  .  .  .  .  (TEXEC) ERROR=22
+ 01048       .  .  .  .  .  .  ...FIN
+ 01049       .  .  .  .  .  ...FIN
+ 01050       .  .  .  .  .  (AELSE)
+ 01051       .  .  .  .  .  .  SELECT(CLASS)
+ 01052       .  .  .  .  .  .  .  (TELSE) COMPILE-ELSE
+ 01053       .  .  .  .  .  .  .  (TEND) ERROR=4
+ 01054       .  .  .  .  .  .  .  (TFIN) ERROR=7
+ 01055       .  .  .  .  .  .  .  (TTO) ERROR=16
+ 01056       .  .  .  .  .  .  .  (TCEXP) ERROR=20
+ 01057       .  .  .  .  .  .  .  (TEXEC) ERROR=24
+ 01058       .  .  .  .  .  .  ...FIN
+ 01059       .  .  .  .  .  ...FIN
+ 01060       .  .  .  .  .  (ATSEQ)
+ 01061       .  .  .  .  .  .  SELECT (CLASS)
+ 01062       .  .  .  .  .  .  .  (TTO) COMPILE-TO
+ 01063       .  .  .  .  .  .  .  (TEND) COMPILE-END
+ 01064       .  .  .  .  .  .  .  (TFIN) ERROR=6
+ 01065       .  .  .  .  .  .  .  (TELSE) ERROR=9
+ 01066       .  .  .  .  .  .  .  (TCEXP) ERROR=18
+ 01067       .  .  .  .  .  .  .  (TEXEC) ERROR=21
+ 01068       .  .  .  .  .  .  ...FIN
+ 01069       .  .  .  .  .  ...FIN
+ 01070       .  .  .  .  .  (OTHERWISE)
+ 01071       .  .  .  .  .  .  SELECT(CLASS)
+ 01072       .  .  .  .  .  .  .  (TEXEC) COMPILE-EXEC
+ 01073       .  .  .  .  .  .  .  (TFIN) COMPILE-SIMPLE-FIN
+ 01074       .  .  .  .  .  .  .  (TEND) ERROR=1
+ 01075       .  .  .  .  .  .  .  (TELSE) ERROR=10
+ 01076       .  .  .  .  .  .  .  (TTO) ERROR=13
+ 01077       .  .  .  .  .  .  .  (TCEXP) ERROR=19
+ 01078       .  .  .  .  .  .  ...FIN
+ 01079       .  .  .  .  .  ...FIN
+ 01080       .  .  .  .  ...FIN
+ 01081       .  .  .  .  UNLESS (NOPGM) ANALYZE-ERRORS-AND-LIST
+ 01082       .  .  .  ...FIN
+ 01083       .  .  ...FIN
+ 01084       .  ...FIN
+ 01085       ...FIN
+        
+       ----------------------------------------
+        
+ 01086       TO PROCESS-TABLE
+ 01087       .  UNLESS (PTABLE.EQ.0)
+ 01088       .  .  TABLCL=LISTCL
+ 01089       .  .  LIST-DASHES
+ 01090       .  .  CALL PUTZ(STABH,LISTCL)
+ 01091       .  .  CALL PUTZ(' ',LISTCL)
+ 01092       .  .  P=PTABLE
+ 01093       .  .  NDERR=.FALSE.
+ 01094       .  .  NIERR=.FALSE.
+ 01095       .  .  REPEAT UNTIL (P.EQ.0)
+ 01096       .  .  .  IF (STACK(P+2).EQ.0)
+ 01097       .  .  .  .  NDERR=.TRUE.
+ 01098       .  .  .  .  MAJCNT=MAJCNT+1
+ 01099       .  .  .  ...FIN
+ 01100       .  .  .  IF (STACK(P+3).EQ.0)
+ 01101       .  .  .  .  NIERR=.TRUE.
+ 01102       .  .  .  .  MINCNT=MINCNT+1
+ 01103       .  .  .  ...FIN
+ 01104       .  .  .  PRODUCE-ENTRY-LISTING
+ 01105       .  .  .  P=STACK(P)
+ 01106       .  .  ...FIN
+ 01107       .  .  IF (NDERR)
+ 01108       .  .  .  CALL PUTZ(SNDER1,ERRCL)
+ 01109       .  .  .  CALL PUTZ(SNDER2,ERRCL)
+ 01110       .  .  .  LIST-BLANK-LINE
+ 01111       .  .  .  P=PTABLE
+ 01112       .  .  .  TABLCL=ERRCL
+ 01113       .  .  .  REPEAT UNTIL (P.EQ.0)
+ 01114       .  .  .  .  IF (STACK(P+2).EQ.0) PRODUCE-ENTRY-LISTING
+ 01115       .  .  .  .  P=STACK(P)
+ 01116       .  .  .  ...FIN
+ 01117       .  .  ...FIN
+ 01118       .  .  IF (NIERR)
+ 01119       .  .  .  CALL PUTZ(SNIER1,ERRCL)
+ 01120       .  .  .  CALL PUTZ(SNIER2,ERRCL)
+ 01121       .  .  .  LIST-BLANK-LINE
+ 01122       .  .  .  P=PTABLE
+ 01123       .  .  .  TABLCL=ERRCL
+ 01124       .  .  .  REPEAT UNTIL (P.EQ.0)
+ 01125       .  .  .  .  IF(STACK(P+3).EQ.0) PRODUCE-ENTRY-LISTING
+ 01126       .  .  .  .  P=STACK(P)
+ 01127       .  .  .  ...FIN
+ 01128       .  .  ...FIN
+ 01129       .  ...FIN
+ 01130       ...FIN
+        
+       ----------------------------------------
+        
+ 01131       TO PRODUCE-ENTRY-LISTING
+ 01132       .  SST(1:7)=' '
+ 01133       .  IF (STACK(P+2).NE.0) WRITE(SST(1:6),'(I6.5)')STACK(P+2)
+ 01134       .  IP=4*(P+4)
+ 01135       .  CALL PUTZ(SST(2:7)//CSTAK(IP+1:IP+STACK(P+4)),TABLCL)
+ 01136       .  QP=STACK(P+3)
+ 01137       .  UNTIL (QP.EQ.0)
+ 01138       .  .  LSST=4
+ 01139       .  .  SST(1:4)=' '
+ 01140       .  .  UNTIL(QP.EQ.0.OR.LSST.GT.REFNO)
+ 01141       .  .  .  LSST=LSST+7
+ 01142       .  .  .  WRITE(SST(LSST-6:LSST),'(I7.5)')STACK(QP+1)
+ 01143       .  .  .  QP=STACK(QP)
+ 01144       .  .  ...FIN
+ 01145       .  .  CALL PUTZ(SST(1:LSST),TABLCL)
+ 01146       .  ...FIN
+ 01147       .  CALL PUTZ(' ',LISTCL)
+ 01148       ...FIN
+        
+       ----------------------------------------
+        
+ 01149       TO PUSH-FINSEQ
+ 01150       .  TOP=TOP+2
+ 01151       .  STACK(TOP-1)=LINENO
+ 01152       .  STACK(TOP)=AXSEQ
+ 01153       .  LEVEL=LEVEL+1
+ 01154       .  FLEVEL=FLEVEL+1
+ 01155       ...FIN
+        
+       ----------------------------------------
+        
+ 01156       TO PUT-CONTINUE
+ 01157       .  LSST=14
+ 01158       .  SST(6:14)=' CONTINUE'
+ 01159       .  PUT-STATEMENT
+ 01160       ...FIN
+        
+       ----------------------------------------
+        
+ 01161       TO PUT-CONTINUE-OR-COMMENT
+ 01162       .  STNO=FLXNO
+ 01163       .  CONDITIONAL
+ 01164       .  .  (STNO.NE.0) PUT-CONTINUE
+ 01165       .  .  (COMENT)
+ 01166       .  .  .  COMENT=.FALSE.
+ 01167       .  .  .  CALL PUTF(SLINE(2:6),SCOMN(1:LSCOMN))
+ 01168       .  .  ...FIN
+ 01169       .  ...FIN
+ 01170       ...FIN
+        
+       ----------------------------------------
+        
+ 01171       TO PUT-COPY
+ 01172       .  IF (ENDIF) PUT-ENDIF
+ 01173       .  WHEN (LSFLX.LT.7.OR.PASS) CALL PUTF(SLINE(2:6),SFLX(1:LSFLX))
+ 01174       .  ELSE
+ 01175       .  .  CH = SFLX(9:9)
+ 01176 C     .  .  IF (LSFLX.GE.9.AND.SFLX(1:8).EQ.' '.AND.CHTYP(ICH).EQ.TDIGIT)
+ 01177       .  .  IF (LSFLX.GE.9.AND.SFLX(1:8).EQ.' '.AND.CHTYP(ICHAR(CH)).EQ.TDIGIT)
+ 01178       .  .  .  SFLX(6:6) = CH
+ 01179       .  .  .  SFLX(9:9) = ' '
+ 01180       .  .  ...FIN
+ 01181       .  .  I=7
+ 01182       .  .  WHILE (SFLX(I:I).EQ.' '.AND.I.LT.LSFLX) I=I+1
+ 01183       .  .  LSST=LSFLX+7-I
+ 01184       .  .  SST(6:6)=SFLX(6:6)
+ 01185       .  .  SST(7:LSST)=SFLX(I:LSFLX)
+ 01186       .  .  STNO=FLXNO
+ 01187       .  .  PUT-STATEMENT
+ 01188       .  ...FIN
+ 01189       ...FIN
+        
+       ----------------------------------------
+        
+ 01190       TO PUT-ENDIF
+ 01191       .  ENDIF=.FALSE.
+ 01192       .  IND=INDEX(SST(1:LSST),'!')
+ 01193       .  IF (IND.EQ.0)
+ 01194       .  .  IND=LSST+1
+ 01195       .  .  SST(IND:IND)=' '
+ 01196       .  ...FIN
+ 01197       .  LSAV=LSST
+ 01198       .  LSST=IND-1
+ 01199       .  WHEN (LSST.LE.72)
+ 01200       .  .  WHEN (LSAV.GE.IND)CALL PUTF(SENDIF,SST(1:LSST)//SST(IND:LSAV))
+ 01201       .  .  ELSE              CALL PUTF(SENDIF,SST(1:LSST))
+ 01202       .  ...FIN
+ 01203       .  ELSE
+ 01204       .  .  WHEN (LSAV.GE.IND)CALL PUTF(SLINE(2:6),SST(1:72)//SST(IND:LSAV))
+ 01205       .  .  ELSE    CALL PUTF(SLINE(2:6),SST(1:72))
+ 01206       .  .  S=73
+ 01207       .  .  REPEAT UNTIL (S.GT.LSST)
+ 01208       .  .  .  L=S+65
+ 01209       .  .  .  IF (L.GT.LSST) L=LSST
+ 01210       .  .  .  CALL PUTF(SENDIF,'     1'//SST(S:L))
+ 01211       .  .  .  S=S+66
+ 01212       .  .  ...FIN
+ 01213       .  ...FIN
+ 01214       ...FIN
+        
+       ----------------------------------------
+        
+ 01215       TO PUT-STATEMENT
+ 01216       .  IF (ENDIF) PUT-ENDIF
+ 01217       .  IF (COMENT)
+ 01218       .  .  COMENT=.FALSE.
+ 01219       .  .  SST(LSST+1:LSST+LSCOMN)=SCOMN(1:LSCOMN)
+ 01220       .  .  LSST=LSST+LSCOMN
+ 01221       .  ...FIN
+ 01222       .  WRITE(SST(1:5),'(I5.0)')STNO
+ 01223       .  STNO=0
+ 01224       .  FLXNO=0
+ 01225       .  NB=2*FLEVEL
+ 01226       .  SST(LSST+1:LSST+1)='!'
+ 01227       .  I=0
+ 01228       .  REPEAT UNTIL (SST(I:I).EQ.'!')
+ 01229       .  .  I=I+1
+ 01230       .  .  IF (SST(I:I).EQ.'''')I=INDEX(SST(I+1:LSST+1),'''')+I+1
+ 01231       .  ...FIN
+ 01232       .  SST(LSST+1:LSST+1)=' '
+ 01233       .  LSAV=LSST
+ 01234 C     .  IF (LSAV.LT.I) LSAV=I   !CLNS   LSAV SOMETIMES <I
+ 01235       .  LSST=I-1
+ 01236       .  WHEN (LSST.LE.72-NB)
+ 01237       .  .  WHEN(NB.NE.0)
+ 01238       .  .  .  WHEN (LSAV.GE.I)
+ 01239       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//BLANKS(1:NB)//SST(7:LSST)//
+ 01240      1.  .  .  .  SST(I:LSAV))
+ 01241       .  .  .  ...FIN
+ 01242       .  .  .  ELSE
+ 01243       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//BLANKS(1:NB)//SST(7:LSST))
+ 01244       .  .  .  ...FIN
+ 01245       .  .  ...FIN
+ 01246       .  .  ELSE
+ 01247       .  .  .  WHEN (LSAV.GE.I)
+ 01248       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//SST(7:LSST)//SST(I:LSAV))
+ 01249       .  .  .  ...FIN
+ 01250       .  .  .  ELSE
+ 01251       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//SST(7:LSST))
+ 01252       .  .  .  ...FIN
+ 01253       .  .  ...FIN
+ 01254       .  ...FIN
+ 01255       .  ELSE
+ 01256       .  .  WHEN(NB.NE.0)
+ 01257       .  .  .  WHEN (LSAV.GE.I)
+ 01258       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//BLANKS(1:NB)//SST(7:72-NB)//
+ 01259      1.  .  .  .  SST(I:LSAV))
+ 01260       .  .  .  ...FIN
+ 01261       .  .  .  ELSE CALL PUTF(SLINE(2:6),SST(1:6)//BLANKS(1:NB)//SST(7:72-NB))
+ 01262       .  .  ...FIN
+ 01263       .  .  ELSE
+ 01264       .  .  .  WHEN (LSAV.GE.I)
+ 01265       .  .  .  .  CALL PUTF(SLINE(2:6),SST(1:6)//SST(7:72-NB)//
+ 01266      1.  .  .  .  SST(I:LSAV))
+ 01267       .  .  .  ...FIN
+ 01268       .  .  .  ELSE CALL PUTF(SLINE(2:6),SST(1:6)//SST(7:72-NB))
+ 01269       .  .  ...FIN
+ 01270       .  .  S=73-NB
+ 01271       .  .  REPEAT UNTIL (S.GT.LSST)
+ 01272       .  .  .  L=S+65
+ 01273       .  .  .  IF (L.GT.LSST) L=LSST
+ 01274       .  .  .  CALL PUTF(SLINE(2:6),'     1'//SST(S:L))
+ 01275       .  .  .  S=S+66
+ 01276       .  .  ...FIN
+ 01277       .  ...FIN
+ 01278       ...FIN
+ 01279 C      
+ 01280 C-------------------------------------------------------------------------------
+ 01281 C      
+        
+       ----------------------------------------
+        
+ 01282       TO READ-NEXT-STATEMENT
+ 01283 C     .   
+ 01284       .  REPEAT UNTIL (FOUND)
+ 01285       .  .  CALL GET(LSFLX,LINENO,SFLX,ENDFIL)
+ 01286       .  .  WRITE(SLINE,'(I6.5)') LINENO
+ 01287 C     .  .   
+ 01288       .  .  IF (FIRST)
+ 01289       .  .  .  FIRST=.FALSE.
+ 01290       .  .  .  IF(ENDFIL) NOPGM=.TRUE.
+ 01291       .  .  ...FIN
+ 01292 C     .  .   
+ 01293       .  .  IF (ENDFIL)
+ 01294       .  .  .  LSFLX = 9
+ 01295       .  .  .  SFLX(1:LSFLX) = '      END'
+ 01296       .  .  .  LINENO = 0
+ 01297       .  .  .  SLINE = ' '
+ 01298       .  .  ...FIN
+ 01299 C     .  .   
+ 01300       .  .  CH = SFLX(1:1)
+ 01301 C     .  .   
+ 01302       .  .  CONDITIONAL
+ 01303 C     .  .  .   
+ 01304       .  .  .  (LSFLX.EQ.0)
+ 01305       .  .  .  .  SBLN=SLINE(2:6)
+ 01306       .  .  .  .  LIST-BLANK-LINE
+ 01307       .  .  .  .  FOUND=.FALSE.
+ 01308       .  .  .  ...FIN
+ 01309 C     .  .  .   
+ 01310       .  .  .  (CH.EQ.'C'.OR.CH.EQ.'!')
+ 01311       .  .  .  .  LIST-COMMENT-LINE
+ 01312       .  .  .  .  CALL PUTF(SLINE(2:6),SFLX(1:LSFLX))
+ 01313       .  .  .  .  FOUND=.FALSE.
+ 01314       .  .  .  ...FIN
+ 01315 C     .  .  .   
+ 01316       .  .  .  (CH.EQ.'D')
+ 01317 C     .  .  .  .   
+ 01318       .  .  .  .  WHEN (DEBUGG)
+ 01319       .  .  .  .  .  FOUND=.TRUE.
+ 01320       .  .  .  .  .  SFLX(1:1)=' '
+ 01321       .  .  .  .  ...FIN
+ 01322 C     .  .  .  .   
+ 01323       .  .  .  .  ELSE
+ 01324       .  .  .  .  .  LIST-COMMENT-LINE
+ 01325       .  .  .  .  .  CALL PUTF(SLINE(2:6),SFLX(1:LSFLX))
+ 01326       .  .  .  .  .  FOUND=.FALSE.
+ 01327       .  .  .  .  ...FIN
+ 01328 C     .  .  .  .   
+ 01329       .  .  .  ...FIN
+ 01330 C     .  .  .   
+ 01331       .  .  .  (OTHERWISE) FOUND=.TRUE.
+ 01332 C     .  .  .   
+ 01333       .  .  ...FIN
+ 01334 C     .  .   
+ 01335       .  ...FIN
+ 01336 C     .   
+ 01337       ...FIN
+ 01338 C      
+ 01339 C------------------------------------------------------------------------------
+ 01340 C      
+        
+       ----------------------------------------
+        
+ 01341       TO RESET-GET-CHARACTER
+ 01342 C     .   
+ 01343       .  CURSOR=CURSOR-1
+ 01344       .  GET-CHARACTER
+ 01345       ...FIN
+ 01346 C      
+ 01347 C------------------------------------------------------------------------------
+ 01348 C      
+        
+       ----------------------------------------
+        
+ 01349       TO REVERSE-LIST
+ 01350 C     .   
+ 01351       .  LL = 0
+ 01352       .  LR = STACK(LP)
+ 01353 C     .   
+ 01354       .  UNTIL (LR.EQ.0)
+ 01355       .  .  LT=STACK(LR)
+ 01356       .  .  STACK(LR)=LL
+ 01357       .  .  LL=LR
+ 01358       .  .  LR=LT
+ 01359       .  ...FIN
+ 01360 C     .   
+ 01361       .  STACK(LP)=LL
+ 01362       ...FIN
+ 01363 C      
+ 01364 C------------------------------------------------------------------------------
+ 01365 C      
+        
+       ----------------------------------------
+        
+ 01366       TO SAVE-ORIGINAL-STATEMENT
+ 01367 C     .   
+ 01368       .  UNLESS (SAVED)
+ 01369       .  .  SAVED=.TRUE.
+ 01370       .  .  HOLDNO=LINENO
+ 01371       .  .  LSHOLD=LSFLX
+ 01372       .  .  SHOLD(1:LSHOLD)=SFLX(1:LSFLX)
+ 01373       .  ...FIN
+ 01374 C     .   
+ 01375       ...FIN
+ 01376 C      
+ 01377 C----------------------------------------------------------------------------
+ 01378 C      
+        
+       ----------------------------------------
+        
+ 01379       TO SCAN-CONTINUATION
+ 01380       .  GET-CHARACTER
+ 01381 C     .   
+ 01382       .  CONDITIONAL
+ 01383 C     .  .   
+ 01384       .  .  (CHTYPE.EQ.TEOL) CONT=.FALSE.
+ 01385 C     .  .   
+ 01386       .  .  (CH.EQ.'0'.OR.CH.EQ.' ') CONT=.FALSE.
+ 01387 C     .  .   
+ 01388       .  .  (OTHERWISE) CONT=.TRUE.
+ 01389       .  ...FIN
+ 01390 C     .   
+ 01391       .  IF (CH.EQ.'0') SFLX(6:6)=' '
+ 01392       ...FIN
+ 01393 C      
+ 01394 C----------------------------------------------------------------------------
+ 01395 C      
+        
+       ----------------------------------------
+        
+ 01396       TO SCAN-CONTROL
+ 01397 C     .   
+ 01398       .  WHILE (CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01399       .  START=CURSOR
+ 01400 C     .   
+ 01401       .  WHEN (CHTYPE.NE.TLP)
+ 01402       .  .  ERSTOP=ERSTOP+1
+ 01403       .  .  ERRSTK(ERSTOP)=3
+ 01404       .  .  SAVE-ORIGINAL-STATEMENT
+ 01405       .  .  LSFLX=LSFLX-1
+ 01406       .  .  SFLX(START:LSFLX)='('//SFLX(START:LSFLX-1)
+ 01407       .  ...FIN
+ 01408 C     .   
+ 01409       .  ELSE
+ 01410       .  .  PCNT=1
+ 01411       .  .  FOUND=.TRUE.
+ 01412 C     .  .   
+ 01413       .  .  REPEAT UNTIL (PCNT.EQ.0.OR..NOT.FOUND)
+ 01414       .  .  .  GET-CHARACTER
+ 01415       .  .  .  SELECT (CHTYPE)
+ 01416       .  .  .  .  (TRP) PCNT=PCNT-1
+ 01417       .  .  .  .  (TLP) PCNT=PCNT+1
+ 01418       .  .  .  .  (TEOL) FOUND=.FALSE.
+ 01419       .  .  .  ...FIN
+ 01420       .  .  ...FIN
+ 01421       .  .  UNLESS (FOUND)
+ 01422       .  .  .  ERSTOP=ERSTOP+1
+ 01423       .  .  .  ERRSTK(ERSTOP)=4
+ 01424       .  .  .  SAVE-ORIGINAL-STATEMENT
+ 01425       .  .  .  DO (I=1,PCNT)
+ 01426       .  .  .  .  LSFLX=LSFLX+1
+ 01427       .  .  .  .  SFLX(LSFLX:LSFLX+1)=')'
+ 01428       .  .  .  ...FIN
+ 01429       .  .  .  CURSOR=LSFLX
+ 01430       .  .  .  RESET-GET-CHARACTER
+ 01431       .  .  ...FIN
+ 01432       .  ...FIN
+ 01433       .  GET-CHARACTER
+ 01434       .  NUNITS=NUNITS+1
+ 01435       .  UTYPE(NUNITS)=UEXP
+ 01436       .  USTART(NUNITS)=START
+ 01437       .  UFIN(NUNITS)=CURSOR-1
+ 01439 CLNS    warn if too many paren
+ 01440       .  PCNT=0
+ 01441       .  UNTIL (CHTYPE.EQ.TEOL .OR. CH.EQ.'''' .OR. CH.EQ.'!')
+ 01442       .  .  SELECT (CHTYPE)
+ 01443       .  .  .  (TRP) PCNT=PCNT-1
+ 01444       .  .  .  (TLP) PCNT=PCNT+1
+ 01445       .  .  ...FIN
+ 01446       .  .  GET-CHARACTER
+ 01447       .  ...FIN
+ 01448       .  IF(CH.EQ.'''') PCNT=0   ! can't handle lines with quoted strs
+ 01449       .  CONDITIONAL
+ 01450       .  .  (PCNT.LT.0)
+ 01451       .  .  .  ERSTOP=ERSTOP+1
+ 01452       .  .  .  ERRSTK(ERSTOP)=6
+ 01453       .  .  .  SAVE-ORIGINAL-STATEMENT
+ 01454       .  .  ...FIN
+ 01455       .  .  (PCNT.GT.0)
+ 01456       .  .  .  ERSTOP=ERSTOP+1
+ 01457       .  .  .  ERRSTK(ERSTOP)=4
+ 01458       .  .  .  SAVE-ORIGINAL-STATEMENT
+ 01459       .  .  ...FIN
+ 01460       .  ...FIN
+ 01462 CLNS    restore character pointer
+ 01463       .  CURSOR=UFIN(NUNITS)
+ 01464       .  GET-CHARACTER
+ 01466       .  IF(SFLX(START:CURSOR-1).EQ.'(OTHERWISE)')UTYPE(NUNITS)=UOWSE
+ 01467       .  SCAN-PINV-OR-FORT
+ 01468       ...FIN
+        
+       ----------------------------------------
+        
+ 01470       TO SCAN-GARBAGE
+ 01471       .  WHILE (CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01472       .  IF(CHTYPE.NE.TEOL)
+ 01473       .  .  WHEN (CH.EQ.'!')
+ 01474       .  .  .  COMENT=.TRUE.
+ 01475       .  .  .  LSCOMN=LSFLX-CURSOR+1
+ 01476       .  .  .  SCOMN(1:LSCOMN)=SFLX(CURSOR:LSFLX)
+ 01477       .  .  ...FIN
+ 01478       .  .  ELSE
+ 01479       .  .  .  ERSTOP=ERSTOP+1
+ 01480       .  .  .  ERRSTK(ERSTOP)=2
+ 01481       .  .  .  SAVE-ORIGINAL-STATEMENT
+ 01482       .  .  ...FIN
+ 01483       .  .  LSFLX=CURSOR-1
+ 01484       .  ...FIN
+ 01485       ...FIN
+        
+       ----------------------------------------
+        
+ 01486       TO SCAN-KEYWORD
+ 01487       .  GET-CHARACTER
+ 01488       .  WHILE (CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01489       .  SELECT (CHTYPE)
+ 01490       .  .  (TLETTR)
+ 01491       .  .  .  START=CURSOR
+ 01492       .  .  .  INVOKE=.FALSE.
+ 01493       .  .  .  BADCH=.FALSE.
+ 01494       .  .  .  REPEAT UNTIL (BADCH)
+ 01495       .  .  .  .  GET-CHARACTER
+ 01496       .  .  .  .  CONDITIONAL
+ 01497       .  .  .  .  .  (CHTYPE.LE.TDIGIT) CONTINUE
+ 01498       .  .  .  .  .  (CHTYPE.EQ.THYPHN) INVOKE=.TRUE.
+ 01499       .  .  .  .  .  (OTHERWISE) BADCH=.TRUE.
+ 01500       .  .  .  .  ...FIN
+ 01501       .  .  .  ...FIN
+ 01502       .  .  .  WHEN (INVOKE)
+ 01503       .  .  .  .  CLASS=TEXEC
+ 01504       .  .  .  .  EXTYPE=TINVOK
+ 01505       .  .  .  .  NUNITS=1
+ 01506       .  .  .  .  UTYPE(1)=UPINV
+ 01507       .  .  .  .  USTART(1)=START
+ 01508       .  .  .  .  UFIN(1)=CURSOR-1
+ 01509       .  .  .  ...FIN
+ 01510       .  .  .  ELSE
+ 01511       .  .  .  .  CLASS=TEXEC
+ 01512       .  .  .  .  EXTYPE=TFORT
+ 01513       .  .  .  .  UNLESS (CH.EQ.'=')
+ 01514       .  .  .  .  .  SELECT (CURSOR-START)
+ 01515       .  .  .  .  .  .  (2)
+ 01516       .  .  .  .  .  .  .  CONDITIONAL
+ 01517       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'IF') EXTYPE=TIF
+ 01518       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'TO') CLASS=TTO
+ 01519       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'DO')
+ 01520       .  .  .  .  .  .  .  .  .  WHILE(CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01521       .  .  .  .  .  .  .  .  .  WHEN (CHTYPE.EQ.TDIGIT) EXTYPE=TFORT
+ 01522       .  .  .  .  .  .  .  .  .  ELSE EXTYPE=TDO
+ 01523       .  .  .  .  .  .  .  .  ...FIN
+ 01524       .  .  .  .  .  .  .  ...FIN
+ 01525       .  .  .  .  .  .  ...FIN
+ 01526       .  .  .  .  .  .  (3)
+ 01527       .  .  .  .  .  .  .  CONDITIONAL
+ 01528       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'FIN') CLASS=TFIN
+ 01529       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'END') CLASS=TEND
+ 01530       .  .  .  .  .  .  .  ...FIN
+ 01531       .  .  .  .  .  .  ...FIN
+ 01532       .  .  .  .  .  .  (4)
+ 01533       .  .  .  .  .  .  .  CONDITIONAL
+ 01534       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'WHEN') EXTYPE=TWHEN
+ 01535       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'ELSE')
+ 01536       .  .  .  .  .  .  .  .  .  CLASS=TELSE
+ 01537       .  .  .  .  .  .  .  .  .  NUNITS=1
+ 01538       .  .  .  .  .  .  .  .  .  UTYPE(1)=UOWSE
+ 01539       .  .  .  .  .  .  .  .  ...FIN
+ 01540       .  .  .  .  .  .  .  ...FIN
+ 01541       .  .  .  .  .  .  ...FIN
+ 01542       .  .  .  .  .  .  (5)
+ 01543       .  .  .  .  .  .  .  CONDITIONAL
+ 01544       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'WHILE') EXTYPE=TWHILE
+ 01545       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'UNTIL') EXTYPE=TUNTIL
+ 01546       .  .  .  .  .  .  .  ...FIN
+ 01547       .  .  .  .  .  .  ...FIN
+ 01548       .  .  .  .  .  .  (6)
+ 01549       .  .  .  .  .  .  .  CONDITIONAL
+ 01550       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'REPEAT')
+ 01551       .  .  .  .  .  .  .  .  .  WHILE(CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01552       .  .  .  .  .  .  .  .  .  START=CURSOR
+ 01553       .  .  .  .  .  .  .  .  .  WHILE(CHTYPE.EQ.TLETTR) GET-CHARACTER
+ 01554       .  .  .  .  .  .  .  .  .  CONDITIONAL
+ 01555       .  .  .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'WHILE') EXTYPE=TRWHIL
+ 01556       .  .  .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'UNTIL') EXTYPE=TRUNTL
+ 01557       .  .  .  .  .  .  .  .  .  ...FIN
+ 01558       .  .  .  .  .  .  .  .  ...FIN
+ 01559       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'SELECT') EXTYPE=TSELCT
+ 01560       .  .  .  .  .  .  .  .  (SFLX(START:CURSOR-1).EQ.'UNLESS') EXTYPE=TUNLES
+ 01561       .  .  .  .  .  .  .  ...FIN
+ 01562       .  .  .  .  .  .  ...FIN
+ 01563       .  .  .  .  .  .  (11)
+ 01564       .  .  .  .  .  .  .  IF (SFLX(START:CURSOR-1).EQ.'CONDITIONAL') EXTYPE=TCOND
+ 01565       .  .  .  .  .  .  ...FIN
+ 01566       .  .  .  .  .  ...FIN
+ 01567       .  .  .  .  ...FIN
+ 01568       .  .  .  ...FIN
+ 01569       .  .  ...FIN
+ 01570       .  .  (TLP) CLASS=TCEXP
+ 01571       .  .  (OTHERWISE)
+ 01572       .  .  .  CLASS=TEXEC
+ 01573       .  .  .  EXTYPE=TFORT
+ 01574       .  .  ...FIN
+ 01575       .  ...FIN
+ 01576       ...FIN
+        
+       ----------------------------------------
+        
+ 01577       TO SCAN-PINV
+ 01578       .  WHILE(CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01579       .  FOUND=.FALSE.
+ 01580       .  WHEN (CHTYPE.EQ.TLETTR)
+ 01581       .  .  START=CURSOR
+ 01582       .  .  REPEAT UNTIL (CHTYPE.GT.THYPHN)
+ 01583       .  .  .  GET-CHARACTER
+ 01584       .  .  .  IF(CHTYPE.EQ.THYPHN) FOUND=.TRUE.
+ 01585       .  .  ...FIN
+ 01586       .  ...FIN
+ 01587       .  ELSE
+ 01588       .  .  IF (CH.EQ.'!')
+ 01589       .  .  .  COMENT=.TRUE.
+ 01590       .  .  .  LSCOMN=LSFLX-CURSOR+1
+ 01591       .  .  .  SCOMN(1:LSCOMN)=SFLX(CURSOR:LSFLX)
+ 01592       .  .  .  LSFLX=CURSOR-1
+ 01593       .  .  ...FIN
+ 01594       .  ...FIN
+ 01595       .  IF (FOUND)
+ 01596       .  .  NUNITS=NUNITS+1
+ 01597       .  .  UTYPE(NUNITS)=UPINV
+ 01598       .  .  USTART(NUNITS)=START
+ 01599       .  .  UFIN(NUNITS)=CURSOR-1
+ 01600       .  ...FIN
+ 01601       ...FIN
+        
+       ----------------------------------------
+        
+ 01602       TO SCAN-PINV-OR-FORT
+ 01603       .  WHILE (CHTYPE.EQ.TBLANK) GET-CHARACTER
+ 01604       .  UNLESS (CHTYPE.EQ.TEOL)
+ 01605       .  .  CSAVE=CURSOR
+ 01606       .  .  SCAN-PINV
+ 01607       .  .  WHEN(FOUND) SCAN-GARBAGE
+ 01608       .  .  ELSE
+ 01609       .  .  .  UNLESS (COMENT)
+ 01610       .  .  .  .  NUNITS=NUNITS+1
+ 01611       .  .  .  .  UTYPE(NUNITS)=UFORT
+ 01612       .  .  .  .  USTART(NUNITS)=CSAVE
+ 01613       .  .  .  .  UFIN(NUNITS)=LSFLX
+ 01614       .  .  .  ...FIN
+ 01615       .  .  ...FIN
+ 01616       .  ...FIN
+ 01617       ...FIN
+        
+       ----------------------------------------
+        
+ 01618       TO SCAN-STATEMENT-NUMBER
+ 01619       .  FLXNO=0
+ 01620       .  PASS=.FALSE.
+ 01621       .  DO (I=1,5)
+ 01622       .  .  GET-CHARACTER
+ 01623       .  .  SELECT (CHTYPE)
+ 01624       .  .  .  (TBLANK) CONTINUE
+ 01625 C     .  .  .  (TDIGIT) FLXNO=FLXNO*10+ICH-ICHZER      !TG 4/1/82
+ 01626       .  .  .  (TDIGIT) FLXNO = FLXNO*10 + ICHAR(CH) - ICHZER
+ 01627       .  .  .  (TEOL) CONTINUE
+ 01628       .  .  .  (OTHERWISE)  PASS=.TRUE.
+ 01629       .  .  ...FIN
+ 01630       .  ...FIN
+ 01631       ...FIN
+        
+       ----------------------------------------
+        
+ 01632       TO SORT-TABLE
+ 01633       .  P=MAX
+ 01634       .  STACK(MAX)=0
+ 01635       .  ITEMP=MAXSTK-PRIME+1
+ 01636       .  DO (I=ITEMP,MAXSTK)
+ 01637       .  .  UNLESS (STACK(I).EQ.0)
+ 01638       .  .  .  STACK(P)=STACK(I)
+ 01639       .  .  .  REPEAT UNTIL (STACK(P).EQ.0)
+ 01640       .  .  .  .  P=STACK(P)
+ 01641       .  .  .  .  LP=P+3
+ 01642       .  .  .  .  REVERSE-LIST
+ 01643       .  .  .  ...FIN
+ 01644       .  .  ...FIN
+ 01645       .  ...FIN
+ 01646       .  Q=MAX-1
+ 01647       .  STACK(Q)=0
+ 01648       .  UNTIL (STACK(MAX).EQ.0)
+ 01649       .  .  P=STACK(MAX)
+ 01650       .  .  STACK(MAX)=STACK(P)
+ 01651       .  .  QM=Q
+ 01652       .  .  QP=STACK(QM)
+ 01653       .  .  INSERT=.FALSE.
+ 01654       .  .  UNTIL (INSERT)
+ 01655       .  .  .  IP=4*(P+4)
+ 01656       .  .  .  IQ=4*(QP+4)
+ 01657       .  .  .  CONDITIONAL
+ 01658       .  .  .  .  (QP.EQ.0)  INSERT=.TRUE.
+ 01659       .  .  .  .  (CSTAK(IP+1:IP+STACK(P+4)).LT.CSTAK(IQ+1:IQ+STACK(QP+4)))
+ 01660       .  .  .  .  .  INSERT=.TRUE.
+ 01661       .  .  .  .  ...FIN
+ 01662       .  .  .  .  (OTHERWISE)
+ 01663       .  .  .  .  .  QM=QP
+ 01664       .  .  .  .  .  QP=STACK(QM)
+ 01665       .  .  .  .  ...FIN
+ 01666       .  .  .  ...FIN
+ 01667       .  .  ...FIN
+ 01668       .  .  STACK(P)=QP
+ 01669       .  .  STACK(QM)=P
+ 01670       .  ...FIN
+ 01671       .  PTABLE=STACK(Q)
+ 01672       ...FIN
+        
+       ----------------------------------------
+        
+ 01673       TO STORE-ENDIF
+ 01674       .  LSST=11
+ 01675       .  SST(1:11)='      ENDIF'
+ 01676       .  SENDIF=SLINE(2:6)
+ 01677       .  ENDIF=.TRUE.
+ 01678       .  IF (COMENT)
+ 01679       .  .  COMENT=.FALSE.
+ 01680       .  .  SST(LSST+1:LSST+LSCOMN)=SCOMN(1:LSCOMN)
+ 01681       .  .  LSST=LSST+LSCOMN
+ 01682       .  ...FIN
+ 01683       .  WRITE(SST(1:5),'(I5.0)')STNO
+ 01684       .  STNO=0
+ 01685       .  FLXNO=0
+ 01686       .  NB=2*FLEVEL
+ 01687       .  SST(1:LSST+NB)=SST(1:6)//BLANKS(1:NB)//SST(7:LSST)
+ 01688       .  LSST=LSST+NB
+ 01689       ...FIN
+ 01690       END
+        
+       ----------------------------------------
+        
+             Procedure Cross-Reference Table
+        
+       00278 ABORT-ENDIF
+             00438  00444  00472  00628  00637
+        
+       00291 ANALYZE-ERRORS-AND-LIST
+             01081
+        
+       00364 ANALYZE-NEXT-STATEMENT
+             01012
+        
+       00429 COMPILE-CEXP
+             01042
+        
+       00453 COMPILE-CONDITIONAL
+             00499
+        
+       00462 COMPILE-DO
+             00501
+        
+       00471 COMPILE-ELSE
+             01052
+        
+       00481 COMPILE-END
+             01019  01063
+        
+       00488 COMPILE-EXEC
+             01016  01072
+        
+       00504 COMPILE-FORTRAN
+             00750
+        
+       00517 COMPILE-IF
+             00491
+        
+       00529 COMPILE-INVOKE
+             00498  00749
+        
+       00554 COMPILE-RUNTIL
+             00497
+        
+       00572 COMPILE-RWHILE
+             00496
+        
+       00590 COMPILE-SELECT
+             00500
+        
+       00608 COMPILE-SEQ-FIN
+             01033  01043
+        
+       00616 COMPILE-SEXP
+             01032
+        
+       00646 COMPILE-SIMPLE-FIN
+             01073
+        
+       00669 COMPILE-TO
+             01025  01062
+        
+       00696 COMPILE-UNLESS
+             00492
+        
+       00714 COMPILE-UNTIL
+             00495
+        
+       00723 COMPILE-WHEN
+             00493
+        
+       00735 COMPILE-WHILE
+             00494
+        
+       00744 COMPLETE-ACTION
+             00451  00469  00479  00526  00570  00588  00644  00694  00711  00721  00733  00742
+        
+       00768 FIND-ENTRY
+             00531  00675
+        
+       00809 GENERATE-RETURN-FROM-PROC
+             01010
+        
+       00820 GET-CHARACTER
+             00897  01344  01380  01398  01414  01433  01446  01464  01471  01487  01488  01495  01520  01551  01553  01578  01583
+             01603  01622
+        
+       00833 GIVE-UP
+             00605  01007
+        
+       00838 INSERT-CONDITIONAL
+             00318  00320
+        
+       00844 INSERT-ELSE
+             00309  00311  00317  00321  00324
+        
+       00851 INSERT-FIN
+             00308  00315  00316  00323  00876
+        
+       00861 INSERT-TO-DUMMY-PROCEDURE
+             00313  00319  00322
+        
+       00867 INSERT-WHEN
+             00312  00875  00877
+        
+       00873 INSERT-WHEN-OR-FIN
+             00314
+        
+       00880 LIST-BLANK-LINE
+             00360  01110  01121  01306
+        
+       00891 LIST-COMMENT-LINE
+             01311  01324
+        
+       00908 LIST-DASHES
+             00914  01003  01089
+        
+       00913 LIST-FLEX
+             00296  00904
+        
+       00952 PERFORM-INITIALIZATION
+             00257
+        
+       00960 POP-STACK
+             00613
+        
+       00974 PREPARE-FOR-INSERTION
+             00839  00845  00852  00862  00868
+        
+       00987 PREPARE-TO-PROCESS-PROGRAM
+             00268
+        
+       01005 PROCESS-PROGRAM
+             00269
+        
+       01086 PROCESS-TABLE
+             00359
+        
+       01131 PRODUCE-ENTRY-LISTING
+             01104  01114  01125
+        
+       01149 PUSH-FINSEQ
+             00745
+        
+       01156 PUT-CONTINUE
+             00552  00567  00585  00612  00655  00662  00686  00688  00759  01164
+        
+       01161 PUT-CONTINUE-OR-COMMENT
+             00455  00592  00610
+        
+       01171 PUT-COPY
+             00484  00490  00519
+        
+       01190 PUT-ENDIF
+             00286  00432  00454  00463  00482  00505  00518  00530  00555  00573  00591  00609  00619  00647  00670  00697  00715
+             00724  00736  01172  01216
+        
+       01215 PUT-STATEMENT
+             00449  00467  00477  00512  00513  00524  00546  00550  00561  00564  00579  00582  00642  00658  00703  00709  00719
+             00731  00740  00762  00814  01159  01187
+        
+       01282 READ-NEXT-STATEMENT
+             00366
+        
+       01341 RESET-GET-CHARACTER
+             00399  00420  00893  01430
+        
+       01349 REVERSE-LIST
+             01642
+        
+       01366 SAVE-ORIGINAL-STATEMENT
+             00416  00976  01404  01424  01453  01458  01481
+        
+       01379 SCAN-CONTINUATION
+             00382
+        
+       01396 SCAN-CONTROL
+             00395  00403  00424
+        
+       01470 SCAN-GARBAGE
+             00392  00393  00400  00406  00407  01607
+        
+       01486 SCAN-KEYWORD
+             00387
+        
+       01577 SCAN-PINV
+             00411  00421  01606
+        
+       01602 SCAN-PINV-OR-FORT
+             00408  00412  01467
+        
+       01618 SCAN-STATEMENT-NUMBER
+             00381
+        
+       01632 SORT-TABLE
+             00483
+        
+       01673 STORE-ENDIF
+             00651  00755
+        
+        
+       (FLECS version 22.60)
+        
+       ----------------------------------------
+        

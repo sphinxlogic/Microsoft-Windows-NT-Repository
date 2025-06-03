@@ -1,0 +1,337 @@
+MODULE bannercube (IDENT = 'V01-004',
+			ADDRESSING_MODE (NONEXTERNAL=WORD_RELATIVE),
+			ADDRESSING_MODE (EXTERNAL=GENERAL)) =
+BEGIN
+
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1984 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+
+!++
+! FACILITY:  User Interface System (UIS)
+!
+! ABSTRACT:
+!
+!	This module creates and mantains the workstation banner cube
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS operating system.  Unprivileged, any mode.
+!
+! AUTHOR:  CW Hobbs, recoded from CUBE.FOR		23-Apr-1985
+!
+! Modified by:
+!
+!--
+
+! Include files
+!
+REQUIRE 'BANNER';
+
+! Table of contents
+!
+FORWARD ROUTINE
+    cube_ast: NOVALUE,			! Ast routine
+    cube_setup: NOVALUE,		! One time, paged setups
+    cube_rotate: NOVALUE;		! 'NULL' process - spin the cube
+
+external routine lib$put_output : addressing_mode(general);
+
+EXTERNAL
+    lcl : BLOCK [lcl_c_length, BYTE] ADDRESSING_MODE (WORD_RELATIVE);
+
+! Play some PSECT games so that BLISS will use lots of different base
+! registers and therefore keep all displacements at byte disp  (µVAX I
+! is much faster at byte disp)
+
+npag_own_ro
+
+    one    : INITIAL (%E '1'),
+    minus1 : INITIAL (%E'-1'),
+
+! Factors, alpha=beta=theta=1.2
+
+    rtc	: INITIAL (%E'0.99978068'),	! cos(2*pi*theta/360)
+    rts : INITIAL (%E'0.02094242'),	! sin(2*pi*theta/360)
+    rac	: INITIAL (%E'0.99978068'),	! cos(2*pi*alpha/360)
+    ras	: INITIAL (%E'0.02094242'),	! sin(2*pi*alpha/360)
+    rbc : INITIAL (%E'0.99978068'),	! cos(2*pi*beta/360)
+    rbs : INITIAL (%E'0.02094242'),	! sin(2*pi*beta/360)
+
+    L	: VECTOR [24,LONG] PRESET (
+		[0]  = 0,	[1]  = 1,	[2]  = 1,	[3]  = 2,
+		[4]  = 2,	[5]  = 3,	[6]  = 3,	[7]  = 0,
+		[8]  = 4,	[9]  = 5,	[10] = 5,	[11] = 6,
+		[12] = 6,	[13] = 7,	[14] = 7,	[15] = 4,
+		[16] = 0,	[17] = 4,	[18] = 1,	[19] = 5,
+		[20] = 2,	[21] = 6,	[22] = 3,	[23] = 7),
+
+    INIT_X0 : VECTOR [8, LONG] PRESET (
+		[0]  = %E'-.5',	[1]  = %E'.5',	[2]  = %E'.5',	[3]  = %E'-.5',
+		[4]  = %E'-.5',	[5]  = %E'.5',	[6]  = %E'.5',	[7]  = %E'-.5'),
+    INIT_Y0 : VECTOR [8, LONG] PRESET (
+		[0]  = %E'.5',	[1]  = %E'.5',	[2]  = %E'-.5',	[3]  = %E'-.5',
+		[4]  = %E'.5',	[5]  = %E'.5',	[6]  = %E'-.5',	[7]  = %E'-.5'),
+    INIT_Z0 : VECTOR [8, LONG] PRESET (
+		[0]  = %E'-.5',	[1]  = %E'-.5',	[2]  = %E'-.5',	[3]  = %E'-.5',
+		[4]  = %E'.5',	[5]  = %E'.5',	[6]  = %E'.5',	[7]  = %E'.5');
+
+PSECT
+    GLOBAL = %NAME ('_NPAG_own_RW_0')	(WRITE, NOEXECUTE);
+
+GLOBAL
+    cub_tr_id,				! Transformation ID for the window
+    zmin,
+    X0	: VECTOR [8, LONG],		! Keep X0-Y0-Z0 for a MOVC
+    Y0	: VECTOR [8, LONG],
+    Z0	: VECTOR [8, LONG];
+
+PSECT
+    GLOBAL = %NAME ('_NPAG_own_RW_1')	(WRITE, NOEXECUTE);
+
+GLOBAL
+    XR	: VECTOR [8, LONG],
+    YR	: VECTOR [8, LONG],
+    ZR	: VECTOR [8, LONG];
+
+PSECT
+    GLOBAL = %NAME ('_NPAG_own_RW_2')	(WRITE, NOEXECUTE);
+
+GLOBAL
+
+! Keep the following structure   X-Y-XX-YY   so that a MOVC can be used to
+! save the previous state
+
+    X	: VECTOR [8, LONG],
+    Y	: VECTOR [8, LONG],
+    XX	: VECTOR [8, LONG],
+    YY	: VECTOR [8, LONG],
+
+    cube_timer : VECTOR [2, LONG];
+
+pag_plit;
+pag_code;
+
+GLOBAL ROUTINE cube_setup (cu_minx, cu_miny, cu_maxx, cu_maxy) : NOVALUE =
+
+!-
+!	This is the entry point for setting up the cube
+!
+! Inputs:
+!
+!	cu_minx...	- Rectangle specifying where cube should be placed
+!
+!	lcl_l_vd_id	- Display ID of the display to include the cube
+!
+! Outputs:
+!
+!-
+
+BEGIN
+LOCAL
+    status;				! Routine status
+
+! Create a transformation for the cube's window
+!
+cub_tr_id = uis$create_transformation (lcl[lcl_l_vd_id], minus1, minus1, one, one,
+						      cu_minx,  cu_miny,  cu_maxx,  cu_maxy);
+
+! Setup UIS for the cube
+!
+status = uis$begin_segment (lcl[lcl_l_vd_id]);
+uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_1], %REF (9));		! atb#1 erase
+uis$set_writing_mode(lcl[lcl_l_vd_id], lcl[lcl_l_cons_0], lcl[lcl_l_cons_2], %REF (3));		! atb#2 complement
+
+! Make sure that all gets purged soon
+!
+lcl[lcl_v_ws_purged] = 0;
+
+! Convert the cube timer AST to a quadword
+!
+$bintim (timbuf=%ASCID '0 06:00:00', timadr=cube_timer);
+
+! Trigger the AST, and leave
+!
+cube_ast ();
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE cube_ast : NOVALUE =
+
+!-
+!	This triggers a cube reset.  This takes care of rounding
+!	errors which accumulate over time.
+!
+! Implicit Inputs:
+!
+!	lcl	- local data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+! Set flag that we need to prepare the initial state
+!
+lcl[lcl_v_init_cube] = 1;
+
+! Request another timer AST, and leave
+!
+$SETIMR (efn = asynch_efn1,
+	 daytim = cube_timer,
+	 astadr = cube_ast);
+
+RETURN;
+END;
+
+npag_plit;
+npag_code;
+
+GLOBAL ROUTINE cube_rotate : NOVALUE =
+
+!-
+!	This routine spins the cube in its little window.  Note that all setup
+!	code is in CUBE_SETUP to reduce the number of pages which need to be
+!	resident during this "null" process.
+!
+! Implicit Inputs:
+!
+!	cub	- cube data block
+!
+! Outputs:
+!
+!	None
+!-
+
+BEGIN
+
+! Loop forever spinning the cube
+!
+WHILE 1
+DO
+    BEGIN
+
+    IF .lcl[lcl_v_init_cube]
+    THEN
+	BEGIN
+	lcl[lcl_v_init_cube] = 0;
+	CH$MOVE (%ALLOCATION(x0) + %ALLOCATION(y0) + %ALLOCATION(z0), init_x0[0], x0[0]);
+	CH$FILL (0, %ALLOCATION(xr) + %ALLOCATION(yr) + %ALLOCATION(zr) + %ALLOCATION(x) + 
+		    %ALLOCATION(y)  + %ALLOCATION(xx) + %ALLOCATION(yy), xr[0]);
+	uis$erase (cub_tr_id, minus1, minus1, one, one);
+	END;
+
+    INCR i FROM 0 TO 7
+    DO
+	BEGIN
+	xr[.i] = .x0[.i];
+	yr[.i] = ADD_F (MUL_F(.y0[.i],.rbc), MUL_F(.z0[.i],.rbs));
+	zr[.i] = SUB_F (MUL_F(.y0[.i],.rbs), MUL_F(.z0[.i],.rbc));
+	END;
+
+    INCR i FROM 0 TO 7
+    DO
+	BEGIN
+	x0[.i] = ADD_F (MUL_F(.xr[.i],.rtc), MUL_F(.yr[.i],.rts));
+	y0[.i] = SUB_F (MUL_F(.xr[.i],.rts), MUL_F(.yr[.i],.rtc));
+	z0[.i] = .zr[.i];
+	END;
+
+    INCR i FROM 0 TO 7
+    DO
+	BEGIN
+	xr[.i] = ADD_F (MUL_F(.x0[.i],.rac), MUL_F(.z0[.i],.ras));
+	yr[.i] = .y0[.i];
+	zr[.i] = SUB_F (MUL_F(.x0[.i],.ras), MUL_F(.z0[.i],.rac));
+	END;
+
+    zmin = %E'9999.0';
+    INCR i FROM 0 TO 7
+    DO
+	BEGIN
+	IF CMPF (zr[.i], zmin) LSS 0
+	THEN
+	    zmin = .zr[.i];
+	END;
+
+! Integerize points
+!
+    INCR i FROM 0 TO 7
+    DO
+	BEGIN
+	IF .zmin EQL .zr[.i]	! Integer check is OK
+	THEN
+	    BEGIN
+	    x[.i] = y[.i] = .minus1;
+	    END
+	ELSE
+	    BEGIN
+	    x[.i] = .xr[.i];
+	    y[.i] = .yr[.i];
+	    END;
+	END;
+
+    INCR j FROM 0 TO 23 BY 2
+    DO
+	BEGIN
+	IF   (CMPF (xx[.L[.j]], minus1) GTR 0)
+ 	  AND
+	     (CMPF (xx[.L[.j+1]], minus1) GTR 0)
+	THEN
+	    BEGIN
+	    uis$plot (cub_tr_id, lcl[lcl_l_cons_1],
+			xx[.L[.j]],   yy[.L[.j]],
+			xx[.L[.j+1]], yy[.L[.j+1]]);
+	    END;
+	IF   (CMPF (x[.L[.j]], minus1) GTR 0)
+ 	  AND
+	     (CMPF (x[.L[.j+1]], minus1) GTR 0)
+	THEN
+	    BEGIN
+	    uis$plot (cub_tr_id, lcl[lcl_l_cons_2],
+			x[.L[.j]],   y[.L[.j]],
+			x[.L[.j+1]], y[.L[.j+1]]);
+	    END;
+	END;
+
+! Copy X and Y to XX and YY
+
+    CH$MOVE (%ALLOCATION(xx) + %ALLOCATION(yy), x[0], xx[0]);
+
+    END;
+
+! We never get to here...
+!
+!uis$end_segment (lcl[lcl_l_vd_id]);
+
+RETURN;
+END;
+
+END
+ELUDOM

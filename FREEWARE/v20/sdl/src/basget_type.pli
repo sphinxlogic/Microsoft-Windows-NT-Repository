@@ -1,0 +1,232 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1993	                                            *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    17-Jun-1986	|  pc	| Adding BASIC$ to QUADWORD and OCTAWORD.
+________________!_______!______________________________________________________
+     9-Apr-1987	|  jw	| X3.1-0  Added BASIC$F_, BASIC$D_, BASIC$G_ and
+		|	|	  BASIC$H_FLOATING COMPLEX data types.
+________________!_______!______________________________________________________
+     1-Feb-1988	|  jg	| X3.2-0  User defined types
+________________!_______!______________________________________________________
+    30-Sep-1993	|  pjh  | X3.?-?  Added INTEGER*, POINTER*, and HARDWARE*, as 
+                |       |         well as added a BASIC$H_FLOATING_COMPLEX_AXP
+________________!_______!______________________________________________________
+    01-OCT-1993 |  bjm  | V3.?-?+1 Use a global to pass bitfield for alpha
+________________!_______!______________________________________________________
+    17-Oct-1994 |  RC   | EV1-40  Correct bit field case of length 9.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* GET_TYPE get the type of an item and puts it in a buffer	*/
+/*								*/
+/****************************************************************/
+
+get_type: proc(cur_node, typ_buf);
+
+					    /********************/
+					    /*			*/
+					    /* GET_TYPE		*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdlshr.in';
+
+/* decalre variables */
+declare
+    alpha_opt bit (1) aligned globalref,
+
+    cur_node pointer,			    /* pointer to the current node  */
+    typ_buf char(*) var;		    /* buffer to put the type in    */
+
+/* declare external routines */
+
+
+/* implement a case statement with goto's (yuc)		    */
+/* depending on the item's data type goto a particular case */
+
+    goto case(cur_node->nod$w_datatype);
+
+	CASE(TYP$k_BYTE):
+	    typ_buf = 'BYTE';
+	    goto END_CASE;
+
+	CASE(TYP$k_WORD):
+	    typ_buf = 'WORD';
+	    goto END_CASE;
+
+	CASE(TYP$k_LONGWORD):
+	    typ_buf = 'LONG';
+	    goto END_CASE;
+
+	CASE(TYP$k_QUADWORD):
+	    typ_buf = 'BASIC$QUADWORD';
+	    goto END_CASE;
+
+	CASE(TYP$k_OCTAWORD):
+	    typ_buf = 'BASIC$OCTAWORD';
+	    goto END_CASE;
+
+	CASE(TYP$k_FLOAT):
+	    typ_buf = 'SINGLE';
+	    goto END_CASE;
+
+	CASE(TYP$k_DOUBLE):
+	    typ_buf = 'DOUBLE';
+	    goto END_CASE;
+
+	CASE(TYP$k_GRAND):
+	    typ_buf = 'GFLOAT';
+	    goto END_CASE;
+
+	CASE(TYP$k_HUGE):
+             if alpha_opt then
+                typ_buf = 'BASIC$HFLOAT_AXP';
+             else
+                typ_buf = 'HFLOAT';
+	    goto END_CASE;
+
+	CASE(TYP$k_FLOAT_COMPLEX):
+	    typ_buf = 'BASIC$F_FLOATING_COMPLEX';
+	    goto END_CASE;
+
+	CASE(TYP$k_DOUBLE_COMPLEX):
+	    typ_buf = 'BASIC$D_FLOATING_COMPLEX';
+	    goto END_CASE;
+
+	CASE(TYP$k_GRAND_COMPLEX):
+	    typ_buf = 'BASIC$G_FLOATING_COMPLEX';
+	    goto END_CASE;
+
+	CASE(TYP$k_HUGE_COMPLEX):
+             if alpha_opt then
+                typ_buf = 'BASIC$H_FLOATING_COMPLEX_AXP';
+             else
+        	typ_buf = 'BASIC$H_FLOATING_COMPLEX';
+	    goto END_CASE;
+
+	CASE(TYP$k_DECIMAL):
+	    typ_buf = 'DECIMAL (' || trim(cur_node->nod$l_typeinfo) ||
+		       ',' || trim(cur_node->nod$l_typeinfo2) || ')';
+	    goto END_CASE;
+
+	case(TYP$K_BOOLEAN): 
+	    typ_buf = 'BYTE';
+	    goto END_CASE;
+
+	case(TYP$K_VIELD):
+ /*************** TEMPERARY FIX FOR BITS ******************/
+
+	    if( cur_node->nod$l_fldsiz > 0 & cur_node->nod$l_fldsiz <= 8 )
+	    then
+		typ_buf = 'BYTE';
+	    else
+	    if( cur_node->nod$l_fldsiz > 8 & cur_node->nod$l_fldsiz <= 16 )
+	    then
+		typ_buf = 'WORD';
+	    else
+	    if( cur_node->nod$l_fldsiz > 16  & cur_node->nod$l_fldsiz <= 32)
+	    then
+		typ_buf = 'LONG';
+	    else do;
+		/* calculate byte array */
+		typ_buf = 'BYTE(' || trim(ceil(cur_node->nod$l_fldsiz/8) )  || ')';
+	    end;
+
+	    goto END_CASE;
+
+
+	case(TYP$K_CHAR):
+	    typ_buf = 'STRING';
+	    goto END_CASE;
+
+	case(TYP$K_ANY):
+	    typ_buf = 'ANY';
+	    goto END_CASE;
+
+	case(TYP$K_ADDRESS):
+	    typ_buf = 'LONG';
+	    goto END_CASE;
+
+	case(TYP$K_UNION): ;
+	case(TYP$K_STRUCTURE):
+	    typ_buf = cur_node->nod$a_typeinfo2->nod$t_name;
+	    goto END_CASE;
+
+	case(TYP$K_USER):
+	    typ_buf = cur_node->nod$a_typeinfo2->nod$a_flink->nod$t_name;
+	    goto END_CASE;
+
+
+        case(TYP$K_INTEGER_BYTE):
+	    typ_buf = 'BYTE';
+	    goto END_CASE;
+
+        case(TYP$K_INTEGER_WORD):
+	    typ_buf = 'WORD';
+	    goto END_CASE;
+
+        case(TYP$K_INTEGER): ;
+        case(TYP$K_INTEGER_LONG): ;
+        case(TYP$K_POINTER): ;
+        case(TYP$K_POINTER_LONG):
+	    typ_buf = 'LONG';
+	    goto END_CASE;
+
+        case(TYP$K_INTEGER_QUAD): ;
+        case(TYP$K_POINTER_QUAD):
+	    typ_buf = 'BASIC$QUADWORD';
+	    goto END_CASE;
+
+        case(TYP$K_INTEGER_HW): ;
+        case(TYP$K_POINTER_HW): ;
+        case(TYP$K_HARDWARE_INTEGER): ;
+        case(TYP$K_HARDWARE_ADDRESS):
+             if alpha_opt then
+                typ_buf = 'BASIC$QUADWORD';
+             else
+        	typ_buf = 'LONG';
+	    goto END_CASE;
+
+	END_CASE:
+
+end get_type;

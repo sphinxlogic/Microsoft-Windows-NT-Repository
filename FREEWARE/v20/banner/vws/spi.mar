@@ -1,0 +1,29 @@
+SPC_MODES:				; Collect all modes counters at once.
+					; NOTE: A buffer must be passed which
+					;       is large enough to handle all
+					;       8 mode counts for each processor
+					;       which is active.
+					;
+	CLRL	(R7)				; Make sure node count is initially zero.
+	TSTL	(R10)+				; Position user buffer address one longword ahead
+	MOVL	#8,R3				; Set initial buffer size
+	MOVL	G^SMP$GL_ACTIVE_CPUS,R8		; Get copy of active CPU mask (A bit set indicates an active CPU)	
+20$:
+	FFS	#0,#32,R8,R5			; Get next active bit
+	BEQL	40$				; Branch if no more active CPU's
+	ADDL2	#<<8*4>+1>,R3			; Add in the size of this CPU's data
+	CMPL	R6,R3				; Check it against user supplied buffer area
+	BLSS	40$				; Branch if we've exceeded user buffer area
+	MOVL	G^SMP$GL_CPU_DATA[R5],R9	; Get modes base address for this CPU
+	INCL	(R7)				; Count this CPU
+	MOVB	R5,(R10)+			; Identify this node
+	MOVL	CPU$L_KERNEL+<4*4>(R9),(R10)+	; Get Interrupt ticks
+	MOVL	CPU$L_KERNEL+<6*4>(R9),(R10)+	; Get MP Synchronization time (Kernel mode spin time)
+	MOVL	CPU$L_KERNEL(R9),(R10)+		; Get kernel ticks
+	MOVQ	CPU$L_KERNEL+<1*4>(R9),(R10)+	; Get executive and supervisor ticks
+	MOVL	CPU$L_KERNEL+<3*4>(R9),(R10)+	; Get user ticks
+	MOVL	CPU$L_KERNEL+<5*4>(R9),(R10)+	; Get compatibility ticks
+	MOVL	CPU$L_NULLCPU(R9),(R10)+	; Get idle time
+	BBSC	R5,R8,20$			; Clear that bit and get next CPU
+40$:	MOVL	R7,R4				; Set user buffer address
+	RSB					; and return

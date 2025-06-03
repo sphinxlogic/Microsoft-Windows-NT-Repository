@@ -1,0 +1,230 @@
+<FRONT_MATTER>
+
+<TITLE_PAGE>
+<TITLE>(NSQUERY User's Manual)
+<ABSTRACT>(October, 1993)
+<P>This manual contains information about the use of NSQUERY, a program
+for testing Internet domain service (RFC 1035) name servers.
+<ENDABSTRACT>
+<REVISION_INFO>(This is a revised manual.)
+<REVISION_INFO>(Operating System and Version:\VMS V5.0 or later)
+<REVISION_INFO>(Software Version:\NSQUERY V3.0-2)
+<ENDTITLE_PAGE>(Matthew Madison<LINE>MadGoat Software)
+
+<COPYRIGHT_PAGE>
+<PRINT_DATE>(11 October 1993)
+<p>Permission is granted to copy and redistribute this document for
+no commercial gain.
+<P>The information in this document is subject to change without notice 
+and should not be construed as a commitment by the author.
+The author assumes no responsibility for any errors that 
+may appear in this document.
+<p><emphasis>(DISCLAIMER:\bold)   The author, the author's employer,
+    and MadGoat Software make no representations or warranties with
+    respect to the  contents hereof and specifically disclaim any
+    implied warranties of merchantability or fitness  for any particular purpose.
+<P>The following are trademarks of Digital Equipment Corporation:
+<TABLE>
+<TABLE_ATTRIBUTES>(SINGLE_SPACED)
+<TABLE_SETUP>(3\20\20)
+<TABLE_ROW>(DEC\ULTRIX\VAX)
+<TABLE_ROW>(VAXcluster\VMS\)
+<ENDTABLE>
+<MARK>
+<P>MultiNet is a registered trademark of TGV, Inc.
+<ENDMARK>
+<COPYRIGHT_DATE>(1993\MadGoat Software.  All Rights Reserved.)
+<ENDCOPYRIGHT_PAGE>
+
+<PREFACE>(3)
+<P>This document is intended for users of the NSQUERY program.
+The reader is expected to be familiar with, or at least have access to,
+the information about the Internet Domain Naming Service, such as
+Internet RFC's 1034 and 1035.
+<HEAD1>(System Requirements)
+<p>NSQUERY requires VMS V5.0 or later and either TGV MultiNet or another TCP/IP
+package supported by the author's NETLIB package, version V1.2 or later.
+Refer to the NETLIB release notes for information on supported TCP/IP
+products.
+<ENDPREFACE>
+<ENDFRONT_MATTER>
+<CHAPTER>(Installing NSQUERY)
+<P>NSQUERY comes in both source and object form.  You may either recompile
+the program from sources or simply link the provided object code to create
+the NSQUERY executable.
+
+<p>To just create the executable from the object code provided in the
+distribution kit, just execute the LINK.COM command procedure provided in
+the kit.
+
+<p>For rebuilding from source code, use the BUILD.COM command procedure
+provided or the MMS description file also in the kit.  You may need to
+modify these files before using them.
+
+<head1>(Alternate Network Transports)
+<p>NSQUERY is provided with access routines for two network transports:
+MultiNet (using its $QIO interface) and NETLIB (which interfaces to several
+different TCP/IP packages).  If you have a TCP/IP package that isn't directly
+supported, or you just don't want to install the NETLIB package to support it,
+you can write your own network access routines.  The files NETWORK_MULTINET.C
+and NETWORK_NETLIB.C can be used as examples or modified as needed for use
+with your TCP/IP package's API.
+
+
+<CHAPTER>(Using NSQUERY)
+<P>
+NSQUERY is designed to be invoked as a DCL <quote>(foreign command):
+<INTERACTIVE>
+<S>($ )<U>(NSQ*UERY :== $disk:[dir]NSQUERY)
+<ENDINTERACTIVE>
+<P>
+The command description on the following pages describes the qualifiers
+and parameters available with NSQUERY.
+<COMMAND_SECTION>
+<COMMAND>(NSQUERY\Issue a Name Service Query)
+
+<OVERVIEW>
+<P>This command issues a query to an Internet domain server and displays
+the resultant reply.
+<ENDOVERVIEW>
+
+<FORMAT>
+<FCMD>(NSQUERY)
+<FPARMS>(query-name [server])
+<ENDFORMAT>
+<QUAL_LIST>
+<QPAIR>(/PORT=number\/PORT=53)
+<QPAIR>(/PROTOCOL=proto\/PROTOCOL=UDP)
+<QPAIR>(/[NO]RECURSIVE\/NORECURSIVE)
+<QPAIR>(/TYPE=qtype\/TYPE=ALL)
+<QPAIR>(/CLASS=qclass\/CLASS=INTERNET)
+<ENDQUAL_LIST>
+<PARAMDEFLIST>
+<PARAMITEM>(query-name)
+<PARAMDEF>
+Name about which information should be obtained.  This should be
+an internet dotted domain-style name.  If <emphasis>(query-name) is
+a numeric IP address in dotted decimal form (e.g., 128.113.1.5),
+NSQUERY will automatically make an inverse query by reversing the
+address segments and adding <quote>(.IN-ADDR.ARPA).
+<PARAMITEM>(server)
+<PARAMDEF>
+Server to be queried.  If omitted, NSQUERY translates the logical
+name NSQ_SERVER to obtain the server name.  If there is no such logical
+name or it cannot be translated, NSQUERY prompts for the name of the
+server.  If the server's name has multiple addresses, all addresses are
+obtained and each is tried until a query is successfully sent and reply
+received.
+<ENDPARAMDEFLIST>
+
+<DESCRIPTION>
+<P>All resource records defined in RFC 1035 are interpreted by NSQUERY.
+Refer to that RFC for information about the abbreviations used in the
+resource record display.  All <quote>(time-to-live) values are displayed
+as VMS delta-time strings.  Authoritative
+responses and truncated messages are noted before the resource records
+are displayed.
+<ENDDESCRIPTION>
+
+<QUALDEFLIST>
+<QUALITEM>(/PORT=port)
+<QUALDEF>
+Directs the query to the specified TCP or UDP port.  If omitted,
+port 53 (the port used by most, if not all, domain servers) is used.
+<QUALITEM>(/PROTOCOL=proto)
+<QUALDEF>
+Selects either <KEYWORD>(TCP) or <KEYWORD>(UDP) protocol.  The default
+is UDP.  UDP is generally used for simple domain queries; TCP is generally
+only used for major domain system events, such as zone transfers.
+<QUALITEM>(/[NO]RECURSIVE)
+<QUALDEF>
+Sets the <emphasis>(recursion desired) bit in the query.  If the server
+being queried supports recursion and does not have the requested information
+cached, it will make queries of other servers on your behalf until the
+query is answered.  NSQUERY will notify you if the server does not support
+recursive queries.
+<QUALITEM>(/TYPE=qtype)
+<QUALDEF>
+Selects the type of resource record to be returned about the name.
+The default is ALL, which selects all available resource record types.
+Available types are as follows:
+<TABLE>(Resource record types)
+<TABLE_SETUP>(2\15)
+<TABLE_HEADS>(Type/QType\Description)
+<TABLE_ROW>(A\host address)
+<TABLE_ROW>(NS\authoritative name server)
+<TABLE_ROW>(MD\mail destination (obsolete))
+<TABLE_ROW>(MF\mail forwarder (obsolete))
+<TABLE_ROW>(CNAME\canonical name for an alias)
+<TABLE_ROW>(SOA\start of zone authority)
+<TABLE_ROW>(MB\mailbox domain name (experimental))
+<TABLE_ROW>(MG\mail group member (experimental))
+<TABLE_ROW>(MR\mail rename domain name (experimental))
+<TABLE_ROW>(NULL\null resource record)
+<TABLE_ROW>(WKS\well-known service description)
+<TABLE_ROW>(PTR\domain name pointer)
+<TABLE_ROW>(HINFO\host information)
+<TABLE_ROW>(MINFO\mailbox or mail list information)
+<TABLE_ROW>(MX\mail exchange)
+<TABLE_ROW>(TXT\text strings)
+<TABLE_ROW>(AXFR\complete zone transfer)
+<TABLE_ROW>(MAILB\all mailbox-related records (MB, MG, MR))
+<TABLE_ROW>(MAILA\all mail agent records (obsolete))
+<ENDTABLE>
+<P>
+Refer to RFC 1035 for a complete description of resource record types and
+their uses.  Note that not all servers support all record types.  You
+should probably never attempt to use the AXFR query type.
+<QUALITEM>(/CLASS=qclass)
+<QUALDEF>
+Selects the class of resource records to be returned.  The default is
+INTERNET.  Available <keyword>(qclass) values are:
+<TABLE>(Resource record classes)
+<TABLE_SETUP>(2\15)
+<TABLE_HEADS>(Class/QClass\Description)
+<TABLE_ROW>(INTERNET\the Internet)
+<TABLE_ROW>(CSNET\the CSNET class (obsolete))
+<TABLE_ROW>(CHAOSNET\the CHAOS class)
+<TABLE_ROW>(HESIOD\the Hesiod class)
+<TABLE_ROW>(ALL\all classes)
+<ENDTABLE>
+<p>
+For more information about resource record class values, see RFC 1035.
+Note that not all servers support all classes; most servers' authority
+extends only over Internet-class information.
+<ENDQUALDEFLIST>
+
+<EXAMPLE>(Sample NSQUERY output)
+<EXAMPLE_ATTRIBUTES>(MULTIPAGE\WIDE)
+<DISPLAY>(WIDE\MAXIMUM)
+$ NSQUERY RPI.EDU NETSERV1.ITS.RPI.EDU
+
+%NSQUERY-I-TRYNS, trying address 128.113.1.5...
+%NSQUERY-I-AUTHRESP, authoritative response
+%NSQUERY-I-QUERYOK, query operation completed successfully
+
+QUERY  #1: QName=RPI.EDU., QType=255, QClass=1
+
+ANSWER #1: RPI.EDU., SOA, INTERNET,    0 12:00:00
+    Primary NS: rpi.edu.
+    Responsible: hostmaster.rpi.edu.
+    Serial=600072, Refresh=   1 06:00:00, Retry=   0 00:20:00
+    Expire=  41 16:00:00, Minimum=   0 12:00:00
+ANSWER #2: RPI.EDU., A, INTERNET,    0 12:00:00, Addr=128.113.1.7
+ANSWER #3: RPI.EDU., NS, INTERNET,    0 12:00:00, NS=netserv1.its.rpi.edu.
+ANSWER #4: RPI.EDU., NS, INTERNET,    0 12:00:00, NS=netserv2.its.rpi.edu.
+ANSWER #5: RPI.EDU., NS, INTERNET,    0 12:00:00, NS=columbia.edu.
+ANSWER #6: RPI.EDU., NS, INTERNET,    0 12:00:00, NS=n2ngw.nyser.net.
+ANSWER #7: RPI.EDU., HINFO, INTERNET,    0 12:00:00, CPU=SUN-3/280, OS=UNIX
+
+ADDTNL #1: netserv1.its.rpi.edu., A, INTERNET,    0 12:00:00, Addr=128.113.1.5
+ADDTNL #2: netserv2.its.rpi.edu., A, INTERNET,    1 00:00:00, Addr=128.113.1.3
+ADDTNL #3: columbia.edu., A, INTERNET,    0 21:27:26, Addr=128.59.16.1
+ADDTNL #4: columbia.edu., A, INTERNET,    0 21:27:26, Addr=128.59.32.1
+ADDTNL #5: n2ngw.nyser.net., A, INTERNET,    1 22:57:35, Addr=192.35.82.2
+ADDTNL #6: n2ngw.nyser.net., A, INTERNET,    0 00:00:56, Addr=128.145.198.2
+<ENDDISPLAY>
+
+<ENDEXAMPLE>
+
+<ENDCOMMAND_SECTION>

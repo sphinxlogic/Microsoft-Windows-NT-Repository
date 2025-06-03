@@ -1,0 +1,186 @@
+The following are a number of commonly asked questions with NEWS. These
+answers may prove useful...
+
+
+-------------------------------------------------------------------
+We are running news, but I am having problems making news post items
+successfully. I believe my main problems are a lack of understanding of
+how the files news_post.cc & mailpaths. interact with the automatic
+moderator address produced by news.
+-------------------------------------------------------------------
+ 
+firstly the mailpaths file:
+ 
+My original design was to store the moderator internet address of moderated
+newsgroups in the data record of the newsgroup. This allowed the news manager
+to supply the moderator address when a newsgroup was created, and all attempted
+postings to that newsgroup would be re-directed as mail to the specified
+address. 
+ 
+HOWEVER there was a problem with this approach - there is no automatic USENET
+control mailing which lists the moderator addresses of moderated newsgroups!!
+All the checkgroups posting contains is the binary information moderated or
+unmoderated!! 
+ 
+This led me into investigating the Unix approach - Unix uses a number of
+"backbone" sites. These backbone sites do contain an up-to-date list of the
+moderators of all network newsgroups, and are also configured to forward all
+moderated newsgroup postings on to the correct moderator. The scheme used in
+addressing the moderator via a backbone site is one where a posting to
+comp.net.animals (say) is directed to the address "comp-net-animals@backbone" 
+ 
+The Unix approach is to use a config file "mailpaths". This file contains
+newsgroup names, and the internet address of the moderator, 1 per line. The
+"special" name "backbone" matches all newsgroups, and the address may contain
+the string "%s", which requires the newsgroup name to be substituted, with '_'
+replacing all '.' characters in the newsgroup name. The scan of the file is
+first match. 
+ 
+When a checkgroups message comes in, NEWS automatically creates a command
+file and sends it to usenet for manual execution. This sets the "moderated"
+status for each group which has the "(moderated)" phrase at the end of 
+each line in the checkgroups list. Fine. The moderator name which results
+appears to be set to "newsgroup-name@munnari.oz".
+ 
+Now this implies that each site does not need to maintain a list of net
+newsgroup moderators - the backbone site will do all that - and also there is
+no need to store the moderator address for each newsgroup - most moderated
+newsgroups will be addressed to the backbone site for forwarding. Therefore I
+introduced the mailpaths file into VMS NEWS - on the basis that it is better
+that the management configuration of NEWS is as similar as possible between
+Unix and VMS - in this way the VMS site can use the config files of an adjacent
+Unix site for the initial configuration into the net. 
+ 
+----------------------------------------------------------------------------
+Why then do I need the mailpaths. file? What's the relationship between the
+two?
+--------------------------------------------------------------------------
+ 
+Ok so the mailpaths file is used to determine the address of the moderator
+for moderated newsgroups.
+ 
+The news_post.cc file was introduced to address an anomoly in the USENET with
+the INFOVAX list. As you may be aware some USENET newsgroups do not actually
+originate on the USENET, but are "fed" from a ARPANET (or BITNET, UUNET, ...)
+mailing list. This implies that any postings into the USENET newsgroup must be
+also posted back to the original mailing list for correct distribution through
+the complete domain of subscribers to that conference. 
+ 
+With comp.os.vms the back mailing of postings to the arpanet mailing list site
+was NOT being performed - postings into USENET would circulate only within the
+USENET, and more than half of the full reader set would not get a copy. Now the
+"standard" USENET solution, which would be to set up the newsgroup as a
+moderated newsgroup, with the moderator address being the orginal mailing
+distribution point, was not used for comp.os.vms, and this newsgroup was an
+unmoderated newsgroup!! 
+ 
+In response to this I introduced the .CC file, which would carbon copy any
+local postings in a nominated newsgroup to an internet address, and I used it
+to include the entry: 
+	comp.os.vms 	info-vax@kl.sri.com
+The effect was that postings to this newsgroup would circulate through the
+USENET in the usual manner, but would also be mailed directly to the ARPANET
+mailing point for wider distribution 
+ 
+I have since found out that this "bug" in the setup of this newsgroup has been
+fixed, and that the entry for comp.os.vms is no longer required!! However I
+have left the ability for the local newsmanager to set up carbon copies of
+local postings to be sent to a nominated address with the .CC file. 
+ 
+-------------------------------------------------------------------------
+Where do unmoderated groups get their posting address set up?
+-------------------------------------------------------------------------
+ 
+For network groups it is the responsibility of the backbone site -
+other sites do not need to carry this information.
+ 
+For locally defined newsgroups, then the moderator address needs to be added
+to the mailpaths file. This can be done with the command:
+    SET NEWSGROUP/MOD="address"
+ 
+------------------------------------------------------------------------
+From my research over the last day or two, I believe that mailpaths.
+should be set up from the first part of the moderator list which is usually
+sent to one of the NEWS administration newsgroups (news.admin), and that
+news_post.cc is set up from the second part of that moderator list.
+ 
+However, this list does nor seem to be exhaustive (comp.os.vms is missing,
+perhaps others too). Is there a general rule about what gets on that 
+moderator list and what is left off? 
+------------------------------------------------------------------------
+ 
+As I have intimated above, within australia, for those newsgroups
+distributed throughout australia you should use the following entries:
+ 
+news_post.cc		- no entries required
+ 
+mailpaths:		- 1 entry
+	backbone	%s@munnari.oz
+ 
+ 
+You may need further entries for locally defined newsgroups
+ 
+	
+----------------------------------------------------------------------
+Thanks for your time. Its a pity an ANU NEWS mailing list doesn't exist
+a la INFO-PMDF...it would be extremely welcome!
+----------------------------------------------------------------------
+ 
+I agree, but there are relevant considerations which, to date, have made
+this impossible. And I must admit I don't think that this will change
+in the near future ... cest la vie
+ 
+ 
+______________________________________________________________________
+From:	VAX4::CHILL        "Ian Hill, Snr Education Programmer" 21-SEP-1988 17:18
+To:	VAX6::IN%"'PSI%AUSTPAC.0505249626002::SYSNET'@mail.curtin.edu.au",CHILL       
+Subj:	RE: Advice re moderator setup for ANU NEWS 5.4
+ 
+Now here's my own explanation of how things fit together...David Morrison
+at Newcastle was having troubles with moderated newsgroups so we started 
+working at it together via email. The following came out of a series of trials
+and SEEMS to fit what actually happens.
+
+Our news.sys is as follows:
+ 
+vax3:world,sys,comp,sci,rec,news,misc,soc,talk,aus,\
+curtin,junk,control,general::
+ 
+The mailpaths. file is updated whenever you do a cre/news/mod or
+change the moderator setting for a newsgroup.
+ 
+Here's our file. 
+ 
+curtin.test chill@admin.curtin.edu.au
+backbone %s@munnari.oz
+ 
+The backbone line causes items for any moderated network newsgroups to be
+sent to munnari.oz, with newsgroup names transformed by replacing all 
+periods by hyphens. This is done because they keep up-to-date moderator lists
+(saves us the hassle!). 
+ 
+Local moderated newsgroups get sent to the address next to their 
+entry in mailpaths (we have only my test one).
+ 
+The tricky part is setting the moderator address. Firstly, you need to
+set up your news_address.cnf file to correctly transform the addresses
+news generates into addresses which pmdf/decnet can handle. Here's our
+news_address.cnf file:
+ 
+# this is an example address cnf file
+*@acad.curtin.*  vax3::\001
+*@admin.curtin.* vax4::\001
+*@*       "in::""\001@\002"""
+*::*      \001::\002
+*         \001
+ 
+Note that mail from acad or admin nodes get sent to the particular decnet
+node, while any other rfc822 style addresses get sent to in::"user@address"
+So that our mail machine (which has PMDF on it) can correctly forward the
+mail onwards.
+ 
+Now, When someone posts an item to a moderated newsgroup, it gets sent to
+the moderator via mail. The moderator then extracts it, and posts it. As 
+long as the moderator address is set to exactly (EXACTLY) the address
+that news has dreamed up for the user (who is the moderator in this case),
+it will allow the posting.

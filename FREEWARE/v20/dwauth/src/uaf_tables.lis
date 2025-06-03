@@ -1,0 +1,371 @@
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   1
+X-1                                                                       3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (1)
+
+                                     0000     1 	.TITLE	UAF_TABLES - Various tables
+                                     0000     2 	.IDENT	/X-1/
+                                     0000     3 
+                                     0000     4 	.ENABL	DBG
+                                     0000     5 
+                                     0000     6 	$DSCDEF
+                                     0000     7 	$NSAEVTDEF
+                                     0000     8 	$SSDEF
+                                     0000     9 	$TPADEF
+                                     0000    10 	$UAFDEF
+                                     0000    11 	$UAIDEF
+                                     0000    12 
+                                     0000    13 	$ITMTABDEF
+                                     0000    14  
+                                     0000    15 ;++
+                                     0000    16 ; FACILITY:	Authorization record maintenance utility
+                                     0000    17 ; 
+                                     0000    18 ; FUNCTIONAL DESCRIPTION:
+                                     0000    19 ; 
+                                     0000    20 ;	This module contains various tables that are not easily created
+                                     0000    21 ;	in the C language.  However, they are trivial to create in Macro.
+                                     0000    22 ; 
+                                     0000    23 ; AUTHOR:	L. Mark Pilant		CREATION-DATE:	8-Oct-1993
+                                     0000    24 ; 
+                                     0000    25 ; MODIFIED BY: 
+                                     0000    26 ; 
+                                     0000    27 ;--
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   2
+X-1                                                                       3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (3)
+
+                                     0000    29 
+                                     0000    30 ; Set up the TPARSE tables needed to parse a UIC string.
+                                     0000    31 
+                                     0000    32 	$INIT_STATE	UIC_STATE, UIC_KEY
+                                     0000    33 
+                                     0000    34 	$STATE	GET_UIC
+                                     0000    35 	$TRAN	TPA$_IDENT,TPA$_EXIT,,,CONVERTED_UIC
+                                     0000    36 
+                                     0000    37 	$END_STATE
+                                     0000    38 
+                                 00000000    39 	.PSECT	$OWN$,NOEXE,LONG
+                                     0000    40 
+                                     0000    41 CONVERTED_UIC::						; Global storage
+                           00000000  0000    42 	.LONG	0					; Storage for the converted UIC
+                                     0004    43 
+                                     0004    44 TPARSE_BLOCK::
+                           00000008  0004    45 	.LONG	TPA$K_COUNT0				; TPARSE arg block size
+                           00000002  0008    46 	.LONG	TPA$M_ABBREV				; Only unique abbreviations
+                  00000000 00000000  000C    47 	.LONG	0,0					; Input descriptor
+00000000 00000000 00000000 00000000  0014    48 	.LONG	0,0,0,0,0				; Remaining arg block
+                           00000000  0024       
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   3
+X-1                                                                       3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+                                     0028    50 
+                                     0028    51 ; Set up the item table needed by xxxUAI to validate the item entries.
+                                     0028    52 
+                                     0028    53 	.MACRO		ITEM	CODE,OFFSET,SIZE=0,SUBSET_TYPE=0,FLAGS,AUDIT_TYPE
+                                     0028    54 
+                                     0028    55 	..SAVE=		.
+                                     0028    56 	..ITEM_BASE=	UAI_ITM_TAB + <UAI$_'CODE * UAF$C_ITM_ENT_LENGTH>
+                                     0028    57 	.=		..ITEM_BASE
+                                     0028    58 
+                                     0028    59 ; Because auditing is not currently supported in the DECwindows Authorize
+                                     0028    60 ; utility, the following block of code has been commented out.  This was also
+                                     0028    61 ; done because only OpenVMS/VAX Version 6.0 has the necessary symbols defined.
+                                     0028    62 
+                                     0028    63 	.=		..ITEM_BASE + UAF$L_ITM_ENT_AUDIT_0	; In first longword
+                                     0028    64 	.LONG		0					; No auditing
+                                     0028    65 	.=		..ITEM_BASE + UAF$L_ITM_ENT_AUDIT_4	; In second longword
+                                     0028    66 	.LONG		0					; No auditing
+                                     0028    67 
+                                     0028    68 ;	.=		..ITEM_BASE + UAF$L_ITM_ENT_AUDIT_0
+                                     0028    69 ;.IF	NB,		AUDIT_TYPE
+                                     0028    70 ;	..TMP		= nsa$v_sysuaf_'AUDIT_TYPE
+                                     0028    71 ;.IF	LT,		..TMP-32				; First or second longword?
+                                     0028    72 ;	.=		..ITEM_BASE + UAF$L_ITM_ENT_AUDIT_0	; In first longword
+                                     0028    73 ;	.LONG		1@..TMP
+                                     0028    74 ;.IFF
+                                     0028    75 ;	.=		..ITEM_BASE + UAF$L_ITM_ENT_AUDIT_4	; In second longword
+                                     0028    76 ;	.LONG		1@<..TMP-32>
+                                     0028    77 ;.ENDC ;	LT,		..TMP-32
+                                     0028    78 ;.ENDC ;	NB,		AUDIT_TYPE
+                                     0028    79 
+                                     0028    80 	.=		..ITEM_BASE + UAF$W_ITM_ENT_BASE
+                                     0028    81 	.WORD		OFFSET
+                                     0028    82 	.=		..ITEM_BASE + UAF$W_ITM_ENT_SIZE
+                                     0028    83 	.WORD		SIZE
+                                     0028    84 	.=		..ITEM_BASE + UAF$B_ITM_ENT_SUBTYP
+                                     0028    85 	.BYTE		uaf$c_itm_ent_'SUBSET_TYPE
+                                     0028    86 	.=		..ITEM_BASE + UAF$B_ITM_ENT_FLAGS
+                                     0028    87 .IF	DIF,		<FLAGS>,0
+                                     0028    88 .IF	NB,		<FLAGS>
+                                     0028    89 	..FLAGS		= 0
+                                     0028    90 .IRP	FLG,<FLAGS>
+                                     0028    91 	..FLAGS		= ..FLAGS + uaf$m_itm_flg_'FLG
+                                     0028    92 .ENDR ;	FLG,<FLAGS>
+                                     0028    93 	.BYTE		..FLAGS
+                                     0028    94 .ENDC ;	NB,		<FLAGS>
+                                     0028    95 .ENDC ;	DIF,		<FLAGS>,0
+                                     0028    96 	.=		..SAVE
+                                     0028    97 
+                                     0028    98 	.ENDM		ITEM;	OFFSET,SIZE,SUBSET_TYPE,FLAGS,AUDIT_TYPE
+                                     0028    99 
+                                     0028   100 ; Build the table.
+                                     0028   101 
+                                 00000028   102 	.PSECT	$OWN$,NOEXE,LONG
+                                     0028   103 
+                                     0028   104 UAI_ITM_TAB::
+                                     0028   105 	ITEM RTYPE,		UAF$B_RTYPE,		1,	SUBSET_COPY,	NOP
+                                     0028   106 	ITEM RTYPE,		UAF$B_RTYPE,		1,	SUBSET_COPY,	NOP
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   4
+X-1                                                                       3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+                                     0028   107 	ITEM VERSION,		UAF$B_VERSION,		1,	SUBSET_COPY,	NOP
+                                     0028   108 	ITEM USRDATOFF,		UAF$W_USRDATOFF,	2,	SUBSET_COPY
+                                     0028   109 	ITEM USERNAME,		UAF$T_USERNAME,		32,	SUBSET_COPY,	<NOP,VAR>
+                                     0028   110 	ITEM USERNAME_TAG,	UAF$T_USERNAME_TAG,	1,	SUBSET_COPY
+                                     0028   111 	ITEM UIC,		UAF$L_UIC,		4,	SUBSET_UIC,	0,		UIC
+                                     0028   112 	ITEM MEM,		UAF$W_MEM,		2,	SUBSET_COPY,	0,		UIC
+                                     0028   113 	ITEM GRP,		UAF$W_GRP,		2,	SUBSET_UIC,	0,		UIC
+                                     0028   114 	ITEM SUB_ID,		UAF$L_SUB_ID,		4,	SUBSET_COPY
+                                     0028   115 	ITEM PARENT_ID,		UAF$Q_PARENT_ID,	8,	SUBSET_COPY
+                                     0028   116 	ITEM ACCOUNT,		UAF$T_ACCOUNT,		32,	SUBSET_COPY,	<SPFILL,VAR>,	ACCOUNT
+                                     0028   117 	ITEM OWNER,		UAF$T_OWNER,		32,	SUBSET_COPY,	<SPFILL,VAR>,	OWNER
+                                     0028   118 	ITEM DEFDEV,		UAF$T_DEFDEV,		32,	SUBSET_COPY,	<SPFILL,VAR>,	DEVICE
+                                     0028   119 	ITEM DEFDIR,		UAF$T_DEFDIR,		64,	SUBSET_COPY,	<SPFILL,VAR>,	DIRECTORY
+                                     0028   120 	ITEM LGICMD,		UAF$T_LGICMD,		64,	SUBSET_COPY,	<SPFILL,VAR>,	LGICMD
+                                     0028   121 	ITEM DEFCLI,		UAF$T_DEFCLI,		32,	SUBSET_COPY,	<SPFILL,VAR>,	CLI
+                                     0028   122 	ITEM CLITABLES,		UAF$T_CLITABLES,	32,	SUBSET_COPY,	<SPFILL,VAR>,	CLITABLES
+                                     0028   123 	ITEM PWD,		UAF$Q_PWD,		8,	SUBSET_COPY,	0,		PASSWORD
+                                     0028   124 	ITEM PWD2,		UAF$Q_PWD2,		8,	SUBSET_COPY,	0,		PASSWORD2
+                                     0028   125 	ITEM LOGFAILS,		UAF$W_LOGFAILS,		2,	SUBSET_COPY,	0,		LOGFAILS
+                                     0028   126 	ITEM SALT,		UAF$W_SALT,		2,	SUBSET_COPY,	0,		SALT
+                                     0028   127 	ITEM ENCRYPT,		UAF$B_ENCRYPT,		1,	SUBSET_COPY,	0,		ENCRYPT
+                                     0028   128 	ITEM ENCRYPT2,		UAF$B_ENCRYPT2,		1,	SUBSET_COPY,	0,		ENCRYPT2
+                                     0028   129 	ITEM PWD_LENGTH,	UAF$B_PWD_LENGTH,	1,	SUBSET_COPY,	0,		PWDMINIMUM
+                                     0028   130 	ITEM EXPIRATION,	UAF$Q_EXPIRATION,	8,	SUBSET_COPY,	0,		EXPIRATION
+                                     0028   131 	ITEM PWD_LIFETIME,	UAF$Q_PWD_LIFETIME,	8,	SUBSET_COPY,	0,		PWDLIFETIME
+                                     0028   132 	ITEM PWD_DATE,		UAF$Q_PWD_DATE,		8,	SUBSET_COPY,	0,		PWD_DATE
+                                     0028   133 	ITEM PWD2_DATE,		UAF$Q_PWD2_DATE,	8,	SUBSET_COPY,	0,		PWD2_DATE
+                                     0028   134 	ITEM LASTLOGIN_I,	UAF$Q_LASTLOGIN_I,	8,	SUBSET_COPY,	0,		LASTLOGIN_I
+                                     0028   135 	ITEM LASTLOGIN_N,	UAF$Q_LASTLOGIN_N,	8,	SUBSET_COPY,	0,		LASTLOGIN_N
+                                     0028   136 	ITEM PRIV,		UAF$Q_PRIV,		8,	SUBSET_MASK,	0,		PRIVILEGES
+                                     0028   137 	ITEM DEF_PRIV,		UAF$Q_DEF_PRIV,		8,	SUBSET_MASK,	0,		DEFPRIVILEGES
+                                     0028   138 ;	ITEM MIN_CLASS,		UAF$R_MIN_CLASS,	20,	SUBSET_COPY,	0,		MIN_CLASS
+                                     0028   139 ;	ITEM MAX_CLASS,		UAF$R_MAX_CLASS,	20,	SUBSET_COPY,	0,		MAX_CLASS
+                                     0028   140 	ITEM FLAGS,		UAF$L_FLAGS,		4,	SUBSET_COPY,	0,		FLAGS
+                                     0028   141 	ITEM NETWORK_ACCESS_P,	UAF$B_NETWORK_ACCESS_P,	3,	SUBSET_COPY,	0,		NETWORK
+                                     0028   142 	ITEM NETWORK_ACCESS_S,	UAF$B_NETWORK_ACCESS_S,	3,	SUBSET_COPY,	0,		NETWORK
+                                     0028   143 	ITEM BATCH_ACCESS_P,	UAF$B_BATCH_ACCESS_P,	3,	SUBSET_COPY,	0,		BATCH
+                                     0028   144 	ITEM BATCH_ACCESS_S,	UAF$B_BATCH_ACCESS_S,	3,	SUBSET_COPY,	0,		BATCH
+                                     0028   145 	ITEM LOCAL_ACCESS_P,	UAF$B_LOCAL_ACCESS_P,	3,	SUBSET_COPY,	0,		LOCAL
+                                     0028   146 	ITEM LOCAL_ACCESS_S,	UAF$B_LOCAL_ACCESS_S,	3,	SUBSET_COPY,	0,		LOCAL
+                                     0028   147 	ITEM DIALUP_ACCESS_P,	UAF$B_DIALUP_ACCESS_P,	3,	SUBSET_COPY,	0,		DIALUP
+                                     0028   148 	ITEM DIALUP_ACCESS_S,	UAF$B_DIALUP_ACCESS_S,	3,	SUBSET_COPY,	0,		DIALUP
+                                     0028   149 	ITEM REMOTE_ACCESS_P,	UAF$B_REMOTE_ACCESS_P,	3,	SUBSET_COPY,	0,		REMOTE
+                                     0028   150 	ITEM REMOTE_ACCESS_S,	UAF$B_REMOTE_ACCESS_S,	3,	SUBSET_COPY,	0,		REMOTE
+                                     0028   151 	ITEM PRIMEDAYS,		UAF$B_PRIMEDAYS,	1,	SUBSET_COPY,	0,		PRIMEDAYS
+                                     0028   152 	ITEM PRI,		UAF$B_PRI,		1,	SUBSET_VALUE,	0,		PRIORITY
+                                     0028   153 	ITEM QUEPRI,		UAF$B_QUEPRI,		1,	SUBSET_VALUE,	0,		QUEPRIORITY
+                                     0028   154 	ITEM MAXJOBS,		UAF$W_MAXJOBS,		2,	SUBSET_VALUE,	0,		MAXJOBS
+                                     0028   155 	ITEM MAXACCTJOBS,	UAF$W_MAXACCTJOBS,	2,	SUBSET_VALUE,	0,		MAXACCTJOBS
+                                     0028   156 	ITEM MAXDETACH,		UAF$W_MAXDETACH,	2,	SUBSET_VALUE,	0,		MAXDETACH
+                                     0028   157 	ITEM PRCCNT,		UAF$W_PRCCNT,		2,	SUBSET_VALUE,	0,		PRCLM
+                                     0028   158 	ITEM BIOLM,		UAF$W_BIOLM,		2,	SUBSET_VALUE,	0,		BIOLM
+                                     0028   159 	ITEM DIOLM,		UAF$W_DIOLM,		2,	SUBSET_VALUE,	0,		DIOLM
+                                     0028   160 	ITEM TQCNT,		UAF$W_TQCNT,		2,	SUBSET_VALUE,	0,		TQELM
+                                     0028   161 	ITEM ASTLM,		UAF$W_ASTLM,		2,	SUBSET_VALUE,	0,		ASTLM
+                                     0028   162 	ITEM ENQLM,		UAF$W_ENQLM,		2,	SUBSET_VALUE,	0,		ENQLM
+                                     0028   163 	ITEM FILLM,		UAF$W_FILLM,		2,	SUBSET_VALUE,	0,		FILLM
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   5
+X-1                                                                       3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+                                     0028   164 	ITEM SHRFILLM,		UAF$W_SHRFILLM,		2,	SUBSET_VALUE,	0,		SHRFILLM
+                                     0028   165 	ITEM WSQUOTA,		UAF$L_WSQUOTA,		4,	SUBSET_VALUE,	0,		WSQUOTA
+                                     0028   166 	ITEM DFWSCNT,		UAF$L_DFWSCNT,		4,	SUBSET_VALUE,	0,		WSDEFAULT
+                                     0028   167 	ITEM WSEXTENT,		UAF$L_WSEXTENT,		4,	SUBSET_VALUE,	0,		WSEXTENT
+                                     0028   168 	ITEM PGFLQUOTA,		UAF$L_PGFLQUOTA,	4,	SUBSET_VALUE,	0,		PGFLQUOTA
+                                     0028   169 	ITEM CPUTIM,		UAF$L_CPUTIM,		4,	SUBSET_CPU,	0,		CPUTIME
+                                     0028   170 	ITEM BYTLM,		UAF$L_BYTLM,		4,	SUBSET_VALUE,	0,		BYTLM
+                                     0028   171 	ITEM PBYTLM,		UAF$L_PBYTLM,		4,	SUBSET_VALUE,	0,		PBYTLM
+                                     0028   172 	ITEM JTQUOTA,		UAF$L_JTQUOTA,		4,	SUBSET_VALUE,	0,		JTQUOTA
+                                     0028   173 	ITEM PROXY_LIM,		UAF$W_PROXY_LIM,	2,	SUBSET_VALUE,	RDONLY
+                                     0028   174 	ITEM PROXIES,		UAF$W_PROXIES,		2,	SUBSET_VALUE,	RDONLY
+                                     0028   175 	ITEM ACCOUNT_LIM,	UAF$W_ACCOUNT_LIM,	2,	SUBSET_VALUE,	RDONLY
+                                     0028   176 	ITEM ACCOUNTS,		UAF$W_ACCOUNTS,		2,	SUBSET_VALUE,	RDONLY
+                                     0028   177 	ITEM USER_DATA,		UAF$W_USRDATOFF,	255,	SUBSET_COPY,	VAR,		USER_DATA
+                                     0028   178 	ITEM PASSWORD,		UAF$Q_PWD,		32,	SUBSET_COPY,	<VAR,WRTONLY>,	PASSWORD
+                                     0028   179 	ITEM PASSWORD2,		UAF$Q_PWD2,		32,	SUBSET_COPY,	<VAR,WRTONLY>,	PASSWORD2
+                                     0028   180 ;	ITEM DEF_CLASS,		UAF$R_DEF_CLASS,	20,	SUBSET_COPY,	0,		DEF_CLASS
+                                     0028   181 
+                                     0028   182 	.END
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   6
+Symbol table                                                              3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+$$$FLG                         = FFFFFFFF    D            UAF$C_ITM_ENT_SUBSET_VALUE     = 00000002    D            
+$$$KEY                         = FFFFFFFF    D            UAF$L_BYTLM                    = 00000230    D            
+$$$KFG                         = FFFFFFFF    D            UAF$L_CPUTIM                   = 0000022C    D            
+$$$MOD                         = 00000000    D            UAF$L_DFWSCNT                  = 00000220    D            
+$$KEYTAB                       = 00000000 R  D  03        UAF$L_FLAGS                    = 000001D4    D            
+..FLAGS                        = 0000000C    D            UAF$L_ITM_ENT_AUDIT_0          = 00000000    D            
+..ITEM_BASE                    = 000004C8 R  D  05        UAF$L_ITM_ENT_AUDIT_4          = 00000004    D            
+..SAVE                         = 00000028 R  D  05        UAF$L_JTQUOTA                  = 00000238    D            
+CONVERTED_UIC                    00000000 RG D  05        UAF$L_PBYTLM                   = 00000234    D            
+GET_UIC                          00000000 R  D  02        UAF$L_PGFLQUOTA                = 00000228    D            
+TPA$K_COUNT0                   = 00000008    D            UAF$L_SUB_ID                   = 00000028    D            
+TPA$M_ABBREV                   = 00000002    D            UAF$L_UIC                      = 00000024    D            
+TPA$_ALPHA                     = 000001EE    D            UAF$L_WSEXTENT                 = 00000224    D            
+TPA$_ANY                       = 000001ED    D            UAF$L_WSQUOTA                  = 0000021C    D            
+TPA$_BLANK                     = 000001F2    D            UAF$M_ITM_FLG_NOP              = 00000010    D            
+TPA$_DECIMAL                   = 000001F3    D            UAF$M_ITM_FLG_RDONLY           = 00000001    D            
+TPA$_DIGIT                     = 000001EF    D            UAF$M_ITM_FLG_SPFILL           = 00000002    D            
+TPA$_EOS                       = 000001F7    D            UAF$M_ITM_FLG_VAR              = 00000008    D            
+TPA$_EXIT                      = FFFFFFFF    D            UAF$M_ITM_FLG_WRTONLY          = 00000004    D            
+TPA$_FAIL                      = FFFFFFFE    D            UAF$Q_DEF_PRIV                 = 000001A4    D            
+TPA$_FILESPEC                  = 000001EA    D            UAF$Q_EXPIRATION               = 0000016C    D            
+TPA$_HEX                       = 000001F5    D            UAF$Q_LASTLOGIN_I              = 0000018C    D            
+TPA$_IDENT                     = 000001EC    D            UAF$Q_LASTLOGIN_N              = 00000194    D            
+TPA$_KEYWORD                   = 00000100    D            UAF$Q_PARENT_ID                = 0000002C    D            
+TPA$_LAMBDA                    = 000001F6    D            UAF$Q_PRIV                     = 0000019C    D            
+TPA$_MAXKEY                    = 000000DC    D            UAF$Q_PWD                      = 00000154    D            
+TPA$_OCTAL                     = 000001F4    D            UAF$Q_PWD2                     = 0000015C    D            
+TPA$_STRING                    = 000001F0    D            UAF$Q_PWD2_DATE                = 00000184    D            
+TPA$_SUBXPR                    = 000001F8    D            UAF$Q_PWD_DATE                 = 0000017C    D            
+TPA$_SYMBOL                    = 000001F1    D            UAF$Q_PWD_LIFETIME             = 00000174    D            
+TPA$_UIC                       = 000001EB    D            UAF$T_ACCOUNT                  = 00000034    D            
+TPARSE_BLOCK                     00000004 RG D  05        UAF$T_CLITABLES                = 00000134    D            
+UAF$B_BATCH_ACCESS_P           = 000001DE    D            UAF$T_DEFCLI                   = 00000114    D            
+UAF$B_BATCH_ACCESS_S           = 000001E1    D            UAF$T_DEFDEV                   = 00000074    D            
+UAF$B_DIALUP_ACCESS_P          = 000001EA    D            UAF$T_DEFDIR                   = 00000094    D            
+UAF$B_DIALUP_ACCESS_S          = 000001ED    D            UAF$T_LGICMD                   = 000000D4    D            
+UAF$B_ENCRYPT                  = 00000168    D            UAF$T_OWNER                    = 00000054    D            
+UAF$B_ENCRYPT2                 = 00000169    D            UAF$T_USERNAME                 = 00000004    D            
+UAF$B_ITM_ENT_FLAGS            = 0000000F    D            UAF$T_USERNAME_TAG             = 00000023    D            
+UAF$B_ITM_ENT_SUBTYP           = 0000000E    D            UAF$W_ACCOUNTS                 = 00000242    D            
+UAF$B_LOCAL_ACCESS_P           = 000001E4    D            UAF$W_ACCOUNT_LIM              = 00000240    D            
+UAF$B_LOCAL_ACCESS_S           = 000001E7    D            UAF$W_ASTLM                    = 00000214    D            
+UAF$B_NETWORK_ACCESS_P         = 000001D8    D            UAF$W_BIOLM                    = 0000020E    D            
+UAF$B_NETWORK_ACCESS_S         = 000001DB    D            UAF$W_DIOLM                    = 00000210    D            
+UAF$B_PRI                      = 00000204    D            UAF$W_ENQLM                    = 00000216    D            
+UAF$B_PRIMEDAYS                = 00000202    D            UAF$W_FILLM                    = 00000218    D            
+UAF$B_PWD_LENGTH               = 0000016A    D            UAF$W_GRP                      = 00000026    D            
+UAF$B_QUEPRI                   = 00000205    D            UAF$W_ITM_ENT_BASE             = 00000008    D            
+UAF$B_REMOTE_ACCESS_P          = 000001F0    D            UAF$W_ITM_ENT_SIZE             = 0000000A    D            
+UAF$B_REMOTE_ACCESS_S          = 000001F3    D            UAF$W_LOGFAILS                 = 00000164    D            
+UAF$B_RTYPE                    = 00000000    D            UAF$W_MAXACCTJOBS              = 00000208    D            
+UAF$B_VERSION                  = 00000001    D            UAF$W_MAXDETACH                = 0000020A    D            
+UAF$C_ITM_ENT_LENGTH           = 00000010    D            UAF$W_MAXJOBS                  = 00000206    D            
+UAF$C_ITM_ENT_SUBSET_COPY      = 00000000    D            UAF$W_MEM                      = 00000024    D            
+UAF$C_ITM_ENT_SUBSET_CPU       = 00000004    D            UAF$W_PRCCNT                   = 0000020C    D            
+UAF$C_ITM_ENT_SUBSET_MASK      = 00000001    D            UAF$W_PROXIES                  = 0000023E    D            
+UAF$C_ITM_ENT_SUBSET_UIC       = 00000003    D            UAF$W_PROXY_LIM                = 0000023C    D            
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   7
+Symbol table                                                              3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+UAF$W_SALT                     = 00000166    D            UAI$_PWD_DATE                  = 0000001B    D            
+UAF$W_SHRFILLM                 = 0000021A    D            UAI$_PWD_LENGTH                = 00000018    D            
+UAF$W_TQCNT                    = 00000212    D            UAI$_PWD_LIFETIME              = 0000001A    D            
+UAF$W_USRDATOFF                = 00000002    D            UAI$_QUEPRI                    = 00000030    D            
+UAI$_ACCOUNT                   = 0000000B    D            UAI$_REMOTE_ACCESS_P           = 0000002C    D            
+UAI$_ACCOUNTS                  = 00000047    D            UAI$_REMOTE_ACCESS_S           = 0000002D    D            
+UAI$_ACCOUNT_LIM               = 00000046    D            UAI$_RTYPE                     = 00000001    D            
+UAI$_ASTLM                     = 00000038    D            UAI$_SALT                      = 00000015    D            
+UAI$_BATCH_ACCESS_P            = 00000026    D            UAI$_SHRFILLM                  = 0000003B    D            
+UAI$_BATCH_ACCESS_S            = 00000027    D            UAI$_SUB_ID                    = 00000009    D            
+UAI$_BIOLM                     = 00000035    D            UAI$_TQCNT                     = 00000037    D            
+UAI$_BYTLM                     = 00000041    D            UAI$_UIC                       = 00000006    D            
+UAI$_CLITABLES                 = 00000011    D            UAI$_USERNAME                  = 00000004    D            
+UAI$_CPUTIM                    = 00000040    D            UAI$_USERNAME_TAG              = 00000005    D            
+UAI$_DEFCLI                    = 00000010    D            UAI$_USER_DATA                 = 00000048    D            
+UAI$_DEFDEV                    = 0000000D    D            UAI$_USRDATOFF                 = 00000003    D            
+UAI$_DEFDIR                    = 0000000E    D            UAI$_VERSION                   = 00000002    D            
+UAI$_DEF_PRIV                  = 00000020    D            UAI$_WSEXTENT                  = 0000003E    D            
+UAI$_DFWSCNT                   = 0000003D    D            UAI$_WSQUOTA                   = 0000003C    D            
+UAI$_DIALUP_ACCESS_P           = 0000002A    D            UAI_ITM_TAB                      00000028 RG D  05        
+UAI$_DIALUP_ACCESS_S           = 0000002B    D            UIC_KEY                          00000000 RG D  03        
+UAI$_DIOLM                     = 00000036    D            UIC_STATE                        00000000 RG D  02        
+UAI$_ENCRYPT                   = 00000016    D            
+UAI$_ENCRYPT2                  = 00000017    D            
+UAI$_ENQLM                     = 00000039    D            
+UAI$_EXPIRATION                = 00000019    D            
+UAI$_FILLM                     = 0000003A    D            
+UAI$_FLAGS                     = 00000023    D            
+UAI$_GRP                       = 00000008    D            
+UAI$_JTQUOTA                   = 00000043    D            
+UAI$_LASTLOGIN_I               = 0000001D    D            
+UAI$_LASTLOGIN_N               = 0000001E    D            
+UAI$_LGICMD                    = 0000000F    D            
+UAI$_LOCAL_ACCESS_P            = 00000028    D            
+UAI$_LOCAL_ACCESS_S            = 00000029    D            
+UAI$_LOGFAILS                  = 00000014    D            
+UAI$_MAXACCTJOBS               = 00000032    D            
+UAI$_MAXDETACH                 = 00000033    D            
+UAI$_MAXJOBS                   = 00000031    D            
+UAI$_MEM                       = 00000007    D            
+UAI$_NETWORK_ACCESS_P          = 00000024    D            
+UAI$_NETWORK_ACCESS_S          = 00000025    D            
+UAI$_OWNER                     = 0000000C    D            
+UAI$_PARENT_ID                 = 0000000A    D            
+UAI$_PASSWORD                  = 00000049    D            
+UAI$_PASSWORD2                 = 0000004A    D            
+UAI$_PBYTLM                    = 00000042    D            
+UAI$_PGFLQUOTA                 = 0000003F    D            
+UAI$_PRCCNT                    = 00000034    D            
+UAI$_PRI                       = 0000002F    D            
+UAI$_PRIMEDAYS                 = 0000002E    D            
+UAI$_PRIV                      = 0000001F    D            
+UAI$_PROXIES                   = 00000045    D            
+UAI$_PROXY_LIM                 = 00000044    D            
+UAI$_PWD                       = 00000012    D            
+UAI$_PWD2                      = 00000013    D            
+UAI$_PWD2_DATE                 = 0000001C    D            
+UAF_TABLES                      - Various tables                         22-NOV-1993 11:27:19  VAX MACRO V5.4-3            Page   8
+Psect synopsis                                                            3-NOV-1993 11:26:31  UAF_TABLES.MAR;9                  (5)
+
+
+                                                +----------------+
+                                                ! Psect synopsis !
+                                                +----------------+
+
+PSECT name                      Allocation          PSECT No.  Attributes     
+----------                      ----------          ---------  ----------     
+.  ABS  .                       00000000  (    0.)  00 (  0.)  NOPIC   USR   CON   ABS   LCL NOSHR NOEXE NORD  NOWRT NOVEC BYTE  
+$ABS$                           00000000  (    0.)  01 (  1.)  NOPIC   USR   CON   ABS   LCL NOSHR   EXE   RD    WRT NOVEC BYTE  
+_LIB$STATE$                     00000008  (    8.)  02 (  2.)    PIC   USR   CON   REL   LCL   SHR   EXE   RD  NOWRT NOVEC BYTE  
+_LIB$KEY0$                      00000000  (    0.)  03 (  3.)    PIC   USR   CON   REL   LCL   SHR   EXE   RD  NOWRT NOVEC WORD  
+_LIB$KEY1$                      00000000  (    0.)  04 (  4.)    PIC   USR   CON   REL   LCL   SHR   EXE   RD  NOWRT NOVEC WORD  
+$OWN$                           000004D8  ( 1240.)  05 (  5.)  NOPIC   USR   CON   REL   LCL NOSHR NOEXE   RD    WRT NOVEC LONG  
+
+                                             +------------------------+
+                                             ! Performance indicators !
+                                             +------------------------+
+
+Phase                    Page faults    CPU Time       Elapsed Time   
+-----                    -----------    --------       ------------   
+Initialization                   27     00:00:00.02    00:00:00.28
+Command processing             1122     00:00:00.14    00:00:01.08
+Pass 1                          641     00:00:00.59    00:00:01.79
+Symbol table sort                 2     00:00:00.06    00:00:00.06
+Pass 2                           52     00:00:00.13    00:00:00.75
+Symbol table output               1     00:00:00.00    00:00:00.00
+Psect synopsis output             2     00:00:00.00    00:00:00.00
+Cross-reference output            0     00:00:00.00    00:00:00.00
+Assembler run totals           1865     00:00:00.94    00:00:03.96
+
+The working set limit was 2162 pages.
+87862 bytes (172 pages) of virtual memory were used to buffer the intermediate code.
+There were 70 pages of symbol table space allocated to hold 1054 non-local and 0 local symbols.
+182 source lines were read in Pass 1, producing 79 object records in Pass 2.
+33 pages of virtual memory were used to define 25 macros.
+
+                                            +--------------------------+
+                                            ! Macro library statistics !
+                                            +--------------------------+
+
+Macro library name                           Macros defined      
+------------------                           --------------      
+WORK209:[PILANT.HACK.DWAUTH.BL2]UAFPVTLIB.MLB           1        
+CLU$COMMON:[SYSLIB]LIB.MLB;1                            2        
+SYS$COMMON:[SYSLIB]STARLET.MLB;5                       12        
+TOTALS (all libraries)                                 15        
+
+1383 GETS were required to define 15 macros.
+
+There were no errors, warnings or information messages.
+
+MACRO/LIST=UAF_TABLES/OBJECT=UAF_TABLES UAF_TABLES+SYS$LIBRARY:LIB/LIB+SYS$DISK:[]UAFPVTLIB/LIB

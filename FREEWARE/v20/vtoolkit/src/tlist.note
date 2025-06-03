@@ -1,0 +1,357 @@
+tlist.note - TList widget documentation
+
+*******************************************************************************
+* VToolkit (1995) 	"If it doesn't use VToolkit, it isn't cool!"	      *
+* (c) Steve Klein							      *
+* Unpublished rights reserved under the copyright laws of the United States.  *
+*******************************************************************************
+
+This document describes the TList widget.
+
++----------------------+
+| Modification History |
++----------------------+
+
+09-Apr-1991 (sjk) Add TListNcolorNameList resource, allowing applications
+    to supply a list of color names to the TList widget rather than
+    requiring a color table (pixmap).
+
+03-Apr-1991 (sjk) Major new update.  MOTIF compatibility.
+    Added TListNscrollDelay resource.  Added horizontal scrolling.
+    Use standard toolkit scrollbars.  Move color table definition
+    to UIL.  Support more than two fonts.
+
+    Existing applications that use the TList widget will have to be
+    modified slightly.  The UIL hierarchy must be changed to create
+    the toolkit scrollbars and a containing VFrame widget.  If the
+    application uses colored lines in the TList widget, a change must
+    be made in the way that the color table is loaded.  See the sample
+    programs for details.
+
+06-Sep-1990 (sjk) Update.
+
+26-Mar-1990 (sjk) Added TListReset special routine.  This routine allows the
+    application to clear the TList window and message history.
+
+20-Feb-1990 (sjk) Added TListNwordWrap resource.  When enabled (the default),
+    the word wrap logic splits long messages across multiple lines.
+
+31-Jan-1990 (sjk) Packaging.
+
++---------+
+| Preface |
++---------+
+
+This note documents the TList widget.  The TList widget is a custom widget
+designed to handle a scrolling, dynamic message list with a limited history.
+
+The TList widget works under both the DECwindows (XUI) and MOTIF (OSF)
+toolkits.  It is operating-system-portable.  Two sample programs are provided.
+
+The TList widget supports live scrolling.  Scrolling can be done either
+with the scrollbars or by "grabbing" the list by pressing MB1 over the
+message region and moving the pointer outside (above or below) the window.
+While the list is grabbed, updates are saved and posted only after MB1
+has been released.
+
+The TList widget supports multiple colors, and multiple fonts.
+
+This documentation is accompanied by C-language widget sources and
+two sample programs.  The TList widget is part of the VToolkit package.
+
+The TList package itself includes the following files:
+
+	tlist.note	- this file
+	tlist.c		- widget sources
+	tlist.h		- include file for C programs using the TList widget
+	tlist.uil	- include file for UIL programs using the TList widget
+
+	testtlist.c	- exerciser program
+	testtlist.uil	- XUI UIL sources for testtlist.c
+	testtlistm.uil	- MOTIF UIL sources for testtlist.c
+
+	btrap.c		- broadcast message trapper
+	btrap.uil	- XUI UIL sources for btrap program
+	btrapm.uil	- MOTIF UIL sources for btrap program
+
+Other VToolkit files are needed to build the widget and test programs.
+
+To use the TList widget in your own applications, link with vtklib.olb
+(vtkmlib.olb for MOTIF).  See the sample programs for more details.
+
+This software is provided as-is with no formal support.  However, I
+welcome suggestions and comments.  I hope you find this code useful.
+
+-steve klein-
+
++-----------+
+| Resources |
++-----------+
+
+The TList widget is a subclass of Core and inherits all the Core resources.
+
+The TList widget has these widget-specific resources:
+
+TListNcolorList
+TListNcolorNameList
+TListNfontTable
+TListNforeground
+TListNmarginWidth
+TListNmarginHeight
+TListNmaxLineCnt
+TListNscrollDelay
+TListNscrollFactor
+TListNwordWrap
+
++----------
+|
+	TListNcolorList (pixmap, default = 0)
+
+This resource specifies the palette of colors available to the TList widget
+to display its text.  To define this color list using UIL, it is necessary
+to create a small pixmap containing one pixel of each color.  Only the first
+row of pixels in this pixmap is used.
+
+If a color list is supplied, any coloridx value specified by the application
+is interpreted as a zero-based index into this list.  Color index values
+greater than the number of colors in the color list are reduced modulus
+the color list size.
+
+If no color list is supplied, all text is drawn in the widget's foreground
+color.  Coloridx values specified by the application are ignored.
+
+This resource cannot be changed after the widget has been realized.
+|
++----------
+
++----------
+|
+	TListNcolorNameList (address of list of strings, default = 0)
+
+This resource specifies the list of colors available to the TList widget
+to display its text.  This resource allows the application to supply
+a list of ASCII color names.  (The TListNcolorList resource requires
+a pixmap, easily created with UIL but more difficult to create in a
+program.)
+
+If a color list is supplied with the TListNcolorList resource, this resource
+is ignored.  Otherwise, there is no difference whether the color list is
+supplied with the TListNcolorList or the TListNcolorNameList resource.
+
+The following code fragment shows how to create a color name list.  Entries
+that cannot be translated into a named color are given the widget's
+default foreground color (TListNforeground).  The color name list must
+be terminated with a zero entry.
+
+	static char *colorNamesA[] = {
+	    "xxx",			/* fallback to foreground */
+	    "red", 	
+	    "orange", 	
+	    "yellow", 	
+	    "green", 	
+	    "blue", 	
+	    "magenta", 	
+	    (char *)0			/* terminate list with a zero entry */
+	};
+
+This resource cannot be changed after the widget has been realized.
+|
++----------
+
++----------
+|
+	TListNfontTable (fontList, default = XtFontDefault)
+
+This resource specifies a list of fonts available to the TList widget to
+display its text.
+
+If a font table is supplied, any fontidx value specified by the application
+is interpreted as a zero-based index into this list.  Font index values
+greater than the number of fonts in the font table are reduced modulus
+the font table size.
+
+If no font table is supplied, all text is drawn in the default font.
+
+This resource cannot be changed after the widget has been realized.
+|
++----------
+
++----------
+|
+	TListNforeground (pixel, default = XtDefaultForeground)
+
+This resource specifies the default foreground color to be used by the
+TList widget to display its text if no color list is supplied.
+
+This resource cannot be changed after the widget has been realized.
+|
++----------
+
++----------
+|
+	TListNmarginHeight (int, default = 6)
+
+This resource specifies the number of margin pixels at the top and bottom
+of the TList window.
+|
++----------
+
++----------
+|
+	TListNmarginWidth (int, default = 8)
+
+This resource specifies the number of margin pixels at the left and right
+of the TList window.
+|
++----------
+
++----------
+|
+	TListNmaxLineCnt (int, default = 200)
+
+This resource specifies the number of lines of text to be retained by the
+widget.  When additional lines are added to the list, the widget automatically
+discards the oldest lines as needed to avoid exceeding this line limit.
+
+This resource cannot be changed after the widget has been realized.
+|
++----------
+
++----------
+|
+	TListNscrollDelay (int, default = 0)
+
+This resource specifies the delay, in milliseconds (1/1000th of a second)
+that the TList widget will wait before displaying new lines that have been
+added to the list.
+
+If this value is zero, the TList widget immediately updates the window to
+show new lines as they are added.
+
+If this value is non-zero, the TList widget buffers and delays the addition
+of new lines to the window.  This is useful if lines are added to the list
+in a burst and it is desirable to scroll them smoothly into the window allowing
+the user to read them before they disappear.
+|
++----------
+
++----------
+|
+	TListNscrollFactor (int, default = 4)
+
+This resource specifies the smooth scroll speed factor.  The higher the
+number, the SLOWER the smooth scroll will be.  Smooth scrolling is also
+proportional to the distance the user has pulled the pointer out of the
+TList window.
+|
++----------
+
++----------
+|
+	TListNwordWrap (int, default = dynamic)
+
+This resource specifies whether the TList widget should word-wrap lines
+that are wider than the TList window.
+
+If word wrapping is enabled, a horizontal scrollbar is not needed and will
+have no effect even if present.
+
+If word wrapping is disabled, a horizontal scrollbar may be used to view
+the entire width of the messages.  Smooth scrolling also works in the
+horizontal direction.
+
+If no explicit setting is supplied for this resource, the TList widget
+will enable word wrapping if-and-only-if there is no horizontal scrollbar
+present in the TList widget's (parent) VFrame.
+|
++----------
+
++---------------------+
+| Special Entrypoints |
++---------------------+
+
+The TList widget implements the following special entrypoints:
+	
++----------
+|
+	void TListAddLine(w, textP, fontidx, coloridx)
+	    Widget w;		/* TList widget ID */
+	    char *textP;	/* ASCIZ (single-line) message text */
+	    int fontidx;	/* font index
+	    int coloridx;	/* color index */
+|
++----------
+
+Use TListAddLine to add a message line to the TList widget.
+When a line is added to the list, the widget automatically positions the
+list so that the new line is visible.  If the user has grabbed the window
+(MB1 was pressed in the window), then window updates are temporarily frozen. 
+New messages will be displayed when the user releases MB1.
+
+[Widget w]	The widget ID of the TList widget.
+
+[char *textP]	The single-line text as a zero-terminated ASCII string.
+		Tab characters and newline characters are not supported.
+
+[int fontidx]	Index into the TList widget's font table.  If no font
+		table was supplied, this value is ignored.
+
+[int coloridx]	Index into the TList widget's color list.  If no color
+		list was supplied, this value is ignored.
+
++----------
+|
+	void TListReset(w)
+	    Widget w;		/* TList widget ID */
+|
++----------
+
+Use TListAddLine to clear the message window and the history list.
+The TList widget is restored to its initial, empty state.
+
++----------+
+| Creation |
++----------+
+
+The TList widget works together with the VFrame widget and the standard
+toolkit scrollbar widget to provide its functionality.
+
+The TList widget can be created either through UIL or through program
+calls to XtCreateWidget.  The TList widget must be a member of a widget
+hierarchy as follows.  The <parent> widget would typically be a dialog
+box (attached or normal) or a main window.  The VFrame widget parents
+the VList, and the two optional scroll-bars.
+
+                          ...
+                           |
+                        <parent>
+                           |
+                +---+---+--+--+---+---+
+                |   |   |     |   |   |
+              siblings...     |  other siblings...
+                              |
+                           vFrame
+                              |
+                +------+------+--+
+                |      |         |
+                |      |         |
+            hScroll vScroll    tList
+
+If you use UIL, you must register the TList and VFrame widget
+classes with DRM.  You must put the following lines in your application
+program before attempting to create any TList widgets:
+
+    DwtInitializeDRM ();                /* register toolkit widgets */
+    TListInitializeDRM ();           	/* register TList widget */
+    VFrameInitializeDRM ();          	/* register VFrame widget */
+
+In your UIL file, you must include these lines:
+
+    include file 'decw$include:dwtappl.uil';    /* DWT definitions */
+    include file 'tlist.uil';                   /* TList widget definition */
+    include file 'vframe.uil';                  /* VFrame widget definition */
+
+(See the sample programs for the MOTIF equivalent and for more information.)
+
+
+[END]

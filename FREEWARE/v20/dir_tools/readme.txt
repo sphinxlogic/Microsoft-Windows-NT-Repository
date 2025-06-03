@@ -1,0 +1,69 @@
+You should first define a logical MISC to point to the directory where you will
+be storing these files.
+
+EX: define misc rd$user:[brivan.common.misc]
+
+
+New Features:	SET_DEF.COM has been updated to store a user specified number of
+		"last" symbols.  You will be able to type 'LAST3' to goto the
+		3rd saved directory.  To set the number of saved directories,
+		type: 'SDF/SET=20' to save 20 directories.  All of the saved
+		directories can be listed by typing: 'sdf/list'
+
+		NOTE:	To make this change, the symbol SDF (or whatever you
+			want, ie CD) must be defined with SDF= in the
+			definition.
+
+
+
+SET_DEF.COM   - Will change the directory and the prompt to match the directory.
+                It will also setup the symbols 'LAST' to point to the (oddly
+                enough) last directory so that all you have to type is LAST to
+                go back to where you came from.
+
+		Create the symbol "SDF:==@misc:SET_DEF SDF="
+
+
+DOWN.COM      - Will allow you to easily change your directory to a lower level.
+                Such as typing 'DOWN wo' will change your directory to a lower
+                level directory starting with 'wo'.  If there are more than one
+                directory starting wil wo, it will list them with a associated
+                number.  You will then be able to type 'DOWN wo/2' to go to the
+                2nd list directory.  DOWN.COM uses SET_DEF.COM.
+
+		Create the symbol "DOWN :== @misc:DOWN DOWN="
+
+
+FIND_DIR.COM  - Will find a driectory down a tree of sub-directories.  It will
+                then define a symbol and a logical so it will be easier to get
+                there again.  Such as if you have a sub-directory [.work] and
+                you type 'FIND work' (no pun intended) it will start at the root
+                directory and scan down the list until it finds the [.work]
+                directory.  Then it will define a symbol WORK that looks like
+		'WORK == @MISC:SET_DEF par= disk:[brivan.common.misc.WORK]'. 
+		Now all you have to do is type: 'WORK' to set your default
+		there.  It will also define a logical called work to point to
+		that directory.
+
+		Create the symbol "FIND :== @misc:FIND"
+
+
+DEF_DIR.COM   - Will define a logical to point to your current directory.  If
+                your current directory is disk:[bubba.stimy.stuff].  Typing
+                'DEF_DIR it' will define a logical 'IT' to point towards
+                disk:[bubba.stimy.stuff].  So, all you need to is type 'SDF it'
+                to get back there.  You may want the logical defined in the
+                SYSTEM table (if you have priv's).  So, using the above example,
+                type "DEF_DIR/system it" will define IT in the SYSTEM table.
+
+		Create the symbol "DEFDIR :== @misc:DEF_DIR params="
+
+ACROSS.COM    - Will maintain a datafile with all directories in it.  This will
+                allow you to change to any directory on any disk easily.  Such
+                as 'ASDF stuf' will change your default to any directory
+                starting with stuf.  Just like the DOWN.COM file, it will list
+                all directories if it finds more than one.  This program has
+                LOTS-O-OPTIONS to make it work the way you want it to.  It also
+                uses SET_DEF.COM
+
+                Create the symbol "ASDF :== @misc:across params="

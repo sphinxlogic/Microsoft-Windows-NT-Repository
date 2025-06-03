@@ -1,0 +1,382 @@
+<TITLE>Routine Analyzer Source File Analysis - list.c</TITLE>
+<H2><A NAME="s10025d80">list.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00012.html#s1001bb80">Next file in section</a>; <A HREF="ranalyzer_src00012.html#s10014580">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+  209 <A HREF="#d10020780">find_list_entry</A>
+  263 <A HREF="#d10025e80">find_ordered_entry</A>
+   27 <A HREF="#d1001d000">insert_list_entry</A>
+   99 <A HREF="#d1001ba80">insert_ordered_entry</A>
+  161 <A HREF="#d1001d380">remove_list_entry</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Generic Support Library					    */
+     4: /*									    */
+     5: /*  MODULE:	List Management						    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains routines to manage doubly-linked	    */
+    11: /*  lists of application objects. It supports addition of entries to and    */
+    12: /*  removal of entries from lists, for both ordered and unordered lists, as */
+    13: /*  well as list searching.						    */
+    14: /*									    */
+    15: /*  REVISION HISTORY:							    */
+    16: /*									    */
+    17: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    18: /*									    */
+    19: /*	Original version.						    */
+    20: /*									    */
+    21: /****************************************************************************/
+    22: 
+    23: #include &lt;stdio.h&gt;
+    24: #include "list.h"
+    25: 
+    26: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1001d000">ROUTINE</A> <A HREF="ranalyzer_xrf00009.html#x1001d000">insert_list_entry</A>. Go to: 
+<A HREF="#d1001ba80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    27: void *insert_list_entry(
+    28: /* Adds an item to a list at a given insertion point.			    */
+    29: 
+    30:     LIST    *aList,
+    31: 	    /* (MODIFY, BY ADDR):					    */
+    32: 	    /* List to which item is to be added. The list pointers may be  */
+    33: 	    /* updated, and the item count will be incremented.		    */
+    34: 
+    35:     LIST_ENTRY_HDR
+    36: 	    *aPrevious,
+    37: 	    /* (MODIFY, BY ADDR):					    */
+    38: 	    /* Insertion point in list. Item is added following this one,   */
+    39: 	    /* linked through flink field; if NULL ptr is passed here, item */
+    40: 	    /* is added at head of list.				    */
+    41: 
+    42:     LIST_ENTRY_HDR
+    43: 	    *aItem
+    44: 	    /* (MODIFY, BY ADDR):					    */
+    45: 	    /* Item to be added. It is linked to aPrevious through blink    */
+    46: 	    /* field; if no aPrevious item is specified, blink is NULL.	    */
+    47: 
+    48: )	/* Returns aItem, ptr to added item.				    */
+    49: 	/*****************************************************************--*/
+    50: 
+    51: {
+    52:     if (aPrevious == NULL) {
+    53: 
+    54: 	/*+								    */
+    55: 	/*  Item is to be added at head of list. First, link it to first    */
+    56: 	/*  entry and clear its backlink. Next, if list is empty, make item */
+    57: 	/*  last; otherwise, link the first entry back to it. Finally, make */
+    58: 	/*  item first.							    */
+    59: 	/*-								    */
+    60: 	
+    61: 					    /* Set item links.		    */
+    62: 	set_entry_flink(aItem, list_first(aList));
+    63: 	set_entry_blink(aItem, NULL);
+    64: 	if (isempty_list(aList)) {	    /* Empty list, item is last.    */
+    65: 	    set_list_last(aList, aItem);
+    66: 	}
+    67: 	else {				    /* Link first to item.	    */
+    68: 	    set_entry_blink(list_first(aList), aItem);
+    69: 	}
+    70: 	set_list_first(aList, aItem);	    /* Item is first.		    */
+    71:     }
+    72:     else {
+    73: 
+    74: 	/*+								    */
+    75: 	/*  Item is to be added following an existing entry.  First, link   */
+    76: 	/*  it to existing entries forward and back (aPrevious is the	    */
+    77: 	/*  previous entry, and its forward link points to the next entry). */
+    78: 	/*  Next, if previous entry is currently last, make this item last; */
+    79: 	/*  otherwise, link the next entry back to this item.  Finally,	    */
+    80: 	/*  link previous entry forward to this one.			    */
+    81: 	/*-								    */
+    82: 
+    83: 					    /* Set item links.		    */
+    84: 	set_entry_flink(aItem, entry_flink(aPrevious));
+    85: 	set_entry_blink(aItem, aPrevious);
+    86: 	if (islast_entry(aPrevious)) {	    /* Previous entry used to be    */
+    87: 	    set_list_last(aList, aItem);    /* last, now item is.	    */
+    88: 	}
+    89: 	else {				    /* Link next back to item.	    */
+    90: 	    set_entry_blink(entry_flink(aPrevious), aItem);
+    91: 	}
+    92: 	set_entry_flink(aPrevious, aItem);  /* Link prev forward to item.   */
+    93:     }
+    94:     inc_list_entries(aList);		    /* Update entry count.	    */
+    95:     return aItem;
+    96: }
+</PRE>
+END insert_list_entry. Go to: <A HREF="#d1001d000">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    97: 
+    98: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1001ba80">ROUTINE</A> <A HREF="ranalyzer_xrf00010.html#x1001ba80">insert_ordered_entry</A>. Go to: 
+<A HREF="#d1001d380">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    99: void *insert_ordered_entry(
+   100: /* Adds an item to a list according to the list order specified by a	    */
+   101: /* comparator routine.							    */
+   102: 
+   103:     LIST    *aList,
+   104: 	    /* (MODIFY, BY ADDR):					    */
+   105: 	    /* List to which item is to be added. The list pointers may be  */
+   106: 	    /* updated, and the item count will be incremented.		    */
+   107: 
+   108:     LIST_ENTRY_HDR
+   109: 	    *aItem,
+   110: 	    /* (MODIFY, BY ADDR):					    */
+   111: 	    /* Item to be added. Its links will be updated to point to	    */
+   112: 	    /* other list entries.					    */
+   113: 
+   114:     int	    (* aComparator)()
+   115: 	    /* (EXEC, BY ADDR):						    */
+   116: 	    /* Routine that compares item to existing items in list. The    */
+   117: 	    /* routine must have the following interface:		    */
+   118: 	    /*								    */
+   119: 	    /*	    int comparator(listitem, aItem)			    */
+   120: 	    /*								    */
+   121: 	    /* where listitem is a ptr to an item from the list, and aItem  */
+   122: 	    /* is the item being added here. The comparator returns 0 if    */
+   123: 	    /* they are equal, less than 0 if list_item should precede	    */
+   124: 	    /* aItem in the list, and greater than 0 if list_item should    */
+   125: 	    /* follow aItem in the list.				    */
+   126: 	    
+   127: 
+   128: )	/* Returns aItem, ptr to added item.				    */
+   129: 	/*****************************************************************--*/
+   130: 
+   131: {
+   132:     LIST_ENTRY_HDR			    /* Current record ptr.	    */
+   133: 	    *listitem;
+   134: 
+   135:     /*+									    */
+   136:     /*	If the list is empty, just put this item at the front. Otherwise,   */
+   137:     /*	search for appropriate insertion point using the comparator	    */
+   138:     /*	routine. If the end of the list is reached without finding a	    */
+   139:     /*	greater entry, this item should be last, so append it to the list.  */
+   140:     /*	Otherwise, insert it in the list in front of the greater item.	    */
+   141:     /*-									    */
+   142: 
+   143:     if (isempty_list(aList)) {
+   144: 	prepend_list_entry(aList, aItem);
+   145:     }
+   146:     else {				 
+   147: 	for (listitem = list_first(aList);  /* Search list.		    */
+   148: 	    listitem != NULL &amp;&amp; (*aComparator)(listitem, aItem) &lt; 0; 
+   149: 	    listitem = entry_flink(listitem));
+   150: 	if (listitem == NULL) {		    /* None greater.		    */
+   151: 	    append_list_entry(aList, aItem);
+   152: 	}
+   153: 	else {				    /* Found greater entry.	    */
+   154: 	    insert_list_entry(aList, entry_blink(listitem), aItem);
+   155: 	}
+   156:     }
+   157:     return aItem;
+   158: }
+</PRE>
+END insert_ordered_entry. Go to: <A HREF="#d1001ba80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   159:         
+   160: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1001d380">ROUTINE</A> <A HREF="ranalyzer_xrf00017.html#x1001d380">remove_list_entry</A>. Go to: 
+<A HREF="#d10020780">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   161: void *remove_list_entry(
+   162: /* Removes an item from a list.						    */
+   163: 
+   164:     LIST    *aList,
+   165: 	    /* (MODIFY, BY ADDR)					    */
+   166: 	    /* List from which item is to be removed. The list pointers may */
+   167: 	    /* be updated, and the item count will be decremented.	    */
+   168: 
+   169:     LIST_ENTRY_HDR
+   170: 	    *aItem
+   171: 	    /* (MODIFY, BY ADDR)					    */
+   172: 	    /* Item to be removed.					    */
+   173: 
+   174: )	/* Returns aItem, ptr to removed item.				    */
+   175: 	/*****************************************************************--*/
+   176: 
+   177: {
+   178:     /*+									    */
+   179:     /*	First break and reform links in front of item. If item is the first */
+   180:     /*	entry, make the next first; otherwise, link previous entry forward  */
+   181:     /*	to next one. Next break and reform links following entry. If item   */
+   182:     /*	is the last entry, make the previous one last; otherwise, link next */
+   183:     /*	entry back to previous one. Finally, stomp the links in item so	    */
+   184:     /*	they can't accidentally be followed and update the entry count.	    */
+   185:     /*-									    */
+   186: 
+   187:     if (aItem == NULL) {		    /* Unspecified entry cannot be  */
+   188: 	return NULL;			    /* removed.			    */
+   189:     }
+   190:     if (isfirst_entry(aItem)) {		    /* Make next entry first?	    */
+   191: 	set_list_first(aList, entry_flink(aItem));
+   192:     }
+   193:     else {				    /* Or link previous to next.    */
+   194: 	set_entry_flink(entry_blink(aItem), entry_flink(aItem));
+   195:     }
+   196:     if (islast_entry(aItem)) {		    /* Make previous entry last?    */
+   197: 	set_list_last(aList, entry_blink(aItem));
+   198:     }
+   199:     else {				    /* Or link next to previous.    */
+   200: 	set_entry_blink(entry_flink(aItem), entry_blink(aItem));
+   201:     }
+   202:     set_entry_flink(aItem, NULL);	    /* Stomp links in this entry.   */
+   203:     set_entry_blink(aItem, NULL);
+   204:     dec_list_entries(aList);		    /* Update entry count.	    */
+   205:     return aItem;
+   206: }
+</PRE>
+END remove_list_entry. Go to: <A HREF="#d1001d380">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   207: 
+   208: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10020780">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10020780">find_list_entry</A>. Go to: 
+<A HREF="#d10025e80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   209: LIST_ENTRY_HDR *find_list_entry(
+   210: /* Searches for an item in a list without regard to any ordering.	    */
+   211: 
+   212:     LIST    *aList,
+   213: 	    /* (READ, BY ADDR):						    */
+   214: 	    /* List to search.						    */
+   215: 
+   216:     LIST_ENTRY_HDR
+   217: 	    *aItem,
+   218: 	    /* (READ, BY ADDR): 					    */
+   219: 	    /* Item containing information be located. Note that any item   */
+   220: 	    /* that meets the comparison will satisfy the search.	    */
+   221: 
+   222:     int	    (* aComparator)()
+   223: 	    /* (EXEC, BY ADDR):						    */
+   224: 	    /* Routine that compares item to existing items in list. See    */
+   225: 	    /* the aComparator parameter of routine insert_ordered_entry    */
+   226: 	    /* for a description.					    */
+   227: 
+   228: )	/* Returns ptr to found entry if found, or NULL if not found.	    */
+   229: 	/*****************************************************************--*/
+   230: 
+   231: {
+   232:     LIST_ENTRY_HDR			    /* Current record ptr.	    */
+   233: 	    *listitem;
+   234:     int	    cmpstat;			    /* Comparison status.	    */
+   235: 
+   236:     /*+									    */
+   237:     /*	If the list is empty, matching item cannot be in it. Otherwise,	    */
+   238:     /*	scan list for matching item. If end of list found, entry is not in  */
+   239:     /*	it.								    */
+   240:     /*-									    */
+   241: 
+   242: 					    /* Ignore missing item, and	    */
+   243: 					    /* don't search empty list.	    */
+   244:     if (aItem == NULL || isempty_list(aList)) {
+   245:     	return NULL;
+   246:     }
+   247:     else {				   
+   248: 	for (listitem = list_first(aList);  /* Scan list for match.	    */
+   249: 	    listitem != NULL &amp;&amp;
+   250: 	    (cmpstat = (*aComparator)(listitem, aItem)) != 0; 
+   251: 	    listitem = entry_flink(listitem)) {
+   252: 	}
+   253: 	if (cmpstat == 0) {
+   254: 	    return listitem;		    /* Entry found, return it.	    */
+   255: 	}
+   256: 	else {
+   257: 	    return NULL;		    /* Entry not found.		    */
+   258: 	}
+   259:     }
+   260: }
+</PRE>
+END find_list_entry. Go to: <A HREF="#d10020780">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   261:         
+   262: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025e80">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10025e80">find_ordered_entry</A>. Go to: 
+<A HREF="#d10018080">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   263: LIST_ENTRY_HDR *find_ordered_entry(
+   264: /* Searches for an item in an ordered list according to the order specified */
+   265: /* by a comparator routine.						    */
+   266: 
+   267:     LIST    *aList,
+   268: 	    /* (READ, BY ADDR):						    */
+   269: 	    /* List to search.						    */
+   270: 
+   271:     LIST_ENTRY_HDR
+   272: 	    *aItem,
+   273: 	    /* (READ, BY ADDR): 					    */
+   274: 	    /* Item containing information be located. Note that any item   */
+   275: 	    /* that meets the comparison will satisfy the search.	    */
+   276: 
+   277:     int	    (* aComparator)()
+   278: 	    /* (EXEC, BY ADDR):						    */
+   279: 	    /* Routine that compares item to existing items in list. See    */
+   280: 	    /* the aComparator parameter of routine insert_ordered_entry    */
+   281: 	    /* for a description.					    */
+   282: 
+   283: )	/* Returns ptr to found entry if found, or NULL if not found.	    */
+   284: 	/*****************************************************************--*/
+   285: 
+   286: {
+   287:     LIST_ENTRY_HDR			    /* Current record ptr.	    */
+   288: 	    *listitem;
+   289:     int	    cmpstat;			    /* Comparison status.	    */
+   290: 
+   291:     /*+									    */
+   292:     /*	If the list is empty, matching item cannot be in it. Otherwise,	    */
+   293:     /*	scan list for matching item or next greater one.  If end of list or */
+   294:     /*	greater entry found, entry is not in it.			    */
+   295:     /*-									    */
+   296: 
+   297: 					    /* Ignore missing item, and	    */
+   298: 					    /* don't search empty list.	    */
+   299:     if (aItem == NULL || isempty_list(aList)) {
+   300: 	return NULL;
+   301:     }
+   302:     else {				   
+   303: 	for (listitem = list_first(aList);  /* Scan list for match.	    */
+   304: 	    listitem != NULL &amp;&amp;
+   305: 	    (cmpstat = (*aComparator)(listitem, aItem)) &lt; 0; 
+   306: 	    listitem = entry_flink(listitem)) {
+   307: 	}
+   308: 	if (cmpstat == 0) {
+   309: 	    return listitem;		    /* Entry found, return it.	    */
+   310: 	}
+   311: 	else {
+   312: 	    return NULL;		    /* Entry not found.		    */
+   313: 	}
+   314:     }
+   315: }
+</PRE>
+END find_ordered_entry. Go to: <A HREF="#d10025e80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   316:         
+<HR>
+END OF FILE
+
+TOTAL: 5 routines, 56 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00012.html#s1001bb80">Next file in section</a>; <A HREF="ranalyzer_src00012.html#s10014580">Previous file in section</a>.<P>

@@ -1,0 +1,2288 @@
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+    								Version 8.4
+    								Jun 1993
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+This software is copyright but may be freely distributed without charge to
+anyone. All copyright and ownership notices must remain intact. No warranties
+are offered as to the suitability of this software for any purpose; any
+errors arising from its use are entirely the responsibility of the user.
+
+(C) Andy Harper,
+    Kings College London,
+    England
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+1. INTRODUCTION
+
+Version 8.4 of VMS_SHARE is a new release containing a number of new features
+and bug fixes.
+
+
+2. NEW FEATURES
+
+2.1 Automatic inclusion of e-mail address in share header
+
+This release has significantly enhanced the facility whereby an owner
+identification string is inserted at the head of an archive file.  It is now
+possible to have the e-mail address worked out automatically in most cases and
+added. A number of logical names control this action.
+
+The electronic mail address is worked out by determining the username and the
+sitename and constructing the form "username@sitename".  The sitename is
+determined by examining a number of logical names known to exist when specific
+networking packages are installed on the system. The TCP/IP packages from CMU.
+Multinet, Wollongong, Pony Express and TCPWARE are supported, together with
+DECUS UUCP, the MX mailer, and the UK Coloured Book Software package. If the
+sitename cannot be determined, then a null e-mail address is used.
+Alternatively, the logical name SHARE_EMAIL_ADDRESS may be defined with the
+appropriate e-mail address string and this will override all of the above.
+
+The SHARE_REAL_NAME logical is now used to insert the user's real name into the
+e-mail address string. For instance, without SHARE_REAL_NAME defined, the
+e-mail address string might be:
+
+     F.Bloggs@wallop.nether.univ.edu
+
+With SHARE_REAL_NAME defined to "Frederick Bloggs", then the e-mail string is
+defined as:
+
+     Frederick Bloggs <F.Bloggs@wallop.nether.univ.edu>
+
+This string is then used as the identification of the sender at the head of the
+share file. The whole string may be overridden by defining the logical name
+SHARE_IDENT, in which case, the translation of this logical name is used as the
+identifying string.
+
+Finally, if no logical names exist and no sitename can be automatically
+determined, the username of the current user is used by itself.
+
+[ Thanks to Earle Ake - Ake@dayvd.dayton.saic.com - For this suggestion and
+most of the coding and package interfacing work]
+
+
+
+2.2 PAKEXTRACT Updated
+
+Version 1.1 of PAKEXTRACT is included with this release. This not only extracts
+the individual parts from the MAIL folder but will automatically join the
+parts together in the right order for unpacking, and remove the initial mail
+headers that might confuse things.  This action can be suppressed by an
+additional parameter NOJOIN.
+
+The subject lines recognized in MAIL can now have forms like:
+
+   package n|m
+   package n\m
+
+and will be recognized as valid package parts.
+
+PAKEXTRACT also includes better and more complete error checking than version
+1.0
+
+
+2.3 Logging Level
+
+The maximum logging level has been increased from 2 to 4, with additional
+messages added.
+
+With level 4 logging set, messages are issued during the encoding of a file
+showing the progress made as a percentage of the total size. Messages are
+issued at approximately 3% intervals but the interval may be larger for small
+files. The check is made at the end of each record processed.
+
+With level 3 logging set, a message is displayed as each part of the share
+file is written out, giving the part name and its size.
+
+An additional log message has been added at level 2 which displays the number
+of parts created at the end of the packaging operation.
+
+An additional log message has been added at level 1 (see use of /SPLIT below).
+
+
+
+2.4 Log Messages Include Current Time
+
+All informational progress messages now include the current time; previously
+only some of them did.
+
+
+
+2.5 New /TEMPORARY Qualifier
+
+A new qualifier /TEMPORARY=filename is now recognized. This allows the default
+name of the temporary file used by VMS_SHARE to be changed. Its use on the
+command line overrides that set up by the SHARE_TEMP logical name and the
+internal default.
+
+
+
+2.6 New /WORK Qualifier
+
+Later versions of TPU, on which much of VMS_SHARE is layered, support a /WORK
+qualifier to specify a workfile used for virtual storage when a buffer exceeds
+the current virtual memory capacity. VMS_SHARE now supports a similar
+qualifier.  This can be useful when the default workfile is on a disk that has
+insufficient quota or space for the paged out virtual buffer and another disk
+exists which does have sufficient space.
+
+/WORK=filename  specifies a file to be used as the workfile.
+
+The logical name SHARE_WORK can be defined with a similar name to set the
+default for all executions. Use of the qualifier overrides this setting.
+
+Note that the /WORK qualifier is not supported on early versions of TPU; in this
+instance, a warning message will be issued and the qualifier will simply be
+ignored.
+
+
+
+2.7 New /[NO]SHARE Qualifier
+
+The /[NO]SHARE qualifier will cause the output share file [not] to be created. 
+
+/SHARE, which is the default, causes the share file parts to be written out as
+they are generated. This is the default action of all previous versions.
+
+/NOSHARE causes creation of the share parts to continue but they are not
+written to disk. This can be useful for testing the software without producing
+anything or for determining the memory requirements for a particular package
+without actually creating it.
+
+The new logical name SHARE_SHARE may be defined with a true or false value to
+set the default.
+
+
+
+2.8 New /[NO]SPLIT[=nnn] Qualifier
+
+With very large single source files, VMS_SHARE can run extremely slowly. This
+is a function of the available virtual memory, the size of the file being
+packaged and the amount of scratch disk space available for TPU's work file (if
+this is available).  This is because that part of the file which cannot fit in
+the available virtual memory is kept in the work file and copied in and out of
+memory as required. For large files that require many modifications, this can
+result in (a) the work file growing to an enormous size and (b) the paging rate
+for the user process becoming so high that little encoding work gets done.
+
+The /SPLIT[=nnn] qualifier is an aid to improving things. In effect, it causes
+VMS_SHARE to process the files in chunks of "nnn" blocks at a time. Each chunk
+is processed, written to the part file and then the next part is processed. As
+many RECORDS as possible are processed in a chunk. The default value for "nnn"
+is a function of the user's WSEXTENT quota (Currently, it is WSEXTENT less
+twice the selected part size, but no less than 1000 blocks!). By choosing "NNN"
+sufficiently small to allow a chunk to be entirely contained within memory, the
+need to use the scratch file is reduced and the process paging rate drops
+dramatically.  The downside is, of course, that the input file must be read
+multiple times in order to get each chunk; however, this is normally much
+faster than the alternative of paging everything in and out.
+
+If /NOSPLIT is specified, then the old behaviour is retained; in this case, the
+large file is not split into smaller parts and is processed as a single entity
+in memory.
+
+The default is /SPLIT, with automatic determination of the block size.
+
+The new logical SHARE_SPLIT may be defined with a numeric value to specify the
+default splitting size;  a zero value requests no splitting.
+
+A new logging message has been added at level 1 to display details of the
+splitting. This message gives the chunk number, the range of records being
+processed and the total number of records in the file.
+
+
+
+2.9 New /[NO]NAME[=identifier] Qualifier
+
+This new Qualifier allows a package identifier to be written into the share
+file to indicate the name of the package.  This means that the particular
+package stored in a share file can still be identified independently of the
+file name of that share file.
+
+/NONAME  Does not write an identifying package name into the sharefile header.
+
+/NAME    Writes an identifying package name into the sharefile header; the
+         name is taken from the name part of the output share file.
+
+/NAME=xx Writes an identifying package name into the sharefile header; the
+         name is taken from the qualifier value (`xx' in this example).
+
+
+/NAME is the default; /NONAME restores the behaviour of earlier versions of
+VMS_SHARE that did not write package names into the header.
+
+
+
+2.10 New /[NO]SPACE_ENCODE Qualifier
+
+Previous versions of VMS_SHARE have treated the space character in various
+ways. This version introduces a new qualifier to control how the space
+characters are treated.
+
+The /SPACE_ENCODE qualifier treats spaces as troublesome characters and all
+occurrences of space are replaced by the usual quoted form of `20.  This makes
+it extremely unlikely that share files will be affected by mailers which filter
+blanks, particularly trailing blanks, as there are none to alter.
+
+The /NOSPACE_ENCODE qualifier treats spaces as ordinary characters, except
+where they appear at the end of a line in the share file. In this case, the
+trailing blank will be quoted if there is room in the line, or the trailing
+blank(s) will be moved to the start of the next continuation line. This
+generally gives a shorter share file, but one which is slightly more
+susceptible to mailers that mishandle blanks. However, experience has shown
+that only trailing blanks are adversely affected by mailers so this option
+should not prevent successful transfer.
+
+The default is /SPACE_ENCODE, to preserve compatibility with previous versions
+of VMS_SHARE. This default can be overridden by defining the logical name
+SHARE_SPACE_ENCODE with a TRUE or FALSE value.
+
+As an example of the space savings, here are the results of running VMS_SHARE
+on the supplied TEST.TXT file with all combinations of compression and space
+encoding:
+
+                 		|    Compression
+                         	|  0	  1      2
+                ----------------+------------------
+                Space Encoding  |
+                                |
+                    ON		|  70%	  16%    5%
+                                |
+                    OFF		|   7%    -2%  -20%
+
+A negative value indicates an overall reduction in the size of the file buffer;
+a positive value indicates an increase. It is clear that not selecting space
+encoding produces significant savings in this case.  However, the results are
+specific to this one file and similarities should not be expected on other
+files.
+
+
+
+2.11  Display file statistics on unpack
+
+When a share file is unpacked, the size of the expected file is now displayed. 
+This is an approximation of the expected size based on the description
+contained in the technical guide. It should be within a block or so for all
+reasonable part sizes.
+
+Also displayed is the number of the current file in the set and the total
+number of files expected. This helps to give an idea of the progress of the
+unpacking phase.
+
+
+
+3. BUG FIXES
+
+3.1 Displayed Filename Formats
+
+Finally fixed the bugs that forced filenames to be displayed in their full
+format on some logging messages. They are now displayed in the form in which
+the user specifies them.
+
+
+3.2 Check added to the /VERSION Qualifier
+
+No check was made on the /VERSION Qualifier for a value specification. If one
+is supplied, an error message is now generated.
+
+
+
+3.3 Check for Sequential Files
+
+When VMS_SHARE packages a file, it retains only the essential record format and
+record attribute information. All other file attributes are lost. This means
+that it cannot correctly restore files with other essential attributes, such as
+relative files and indexed files.
+
+VMS_SHARE now checks for, and refuses to package, files which are not of a
+SEQUENTIAL type. If it is necessary to package files of other types, they
+should be collected into a BACKUP saveset first.
+
+
+
+3.4 Mark and Range Management
+
+VMS_SHARE creates a large number of marks and ranges in the file buffer during
+the processing operation. Previously, these marks and ranges were not removed
+and so the amount of memory used to keep track of them grew and grew as the
+packaging proceeded. This version now removes marks and ranges once they are no
+longer useful. This should prevent the virtual memory requirements of the
+package from growing uncontrollably.
+
+Note:  If the /DEBUG qualifier has been specified, a message is issued at the
+start of each use of the work buffer displaying the number of residual marks
+and ranges that have been deleted. These should nearly always be zero, but
+occasionally shows non-zero values where marks/ranges cannot be deleted after
+use due to their mode of use! This is nothing to worry about.
+
+The created share file also contains code to delete marks as they are no longer
+required.
+
+
+3.5 Use of the EDIT/TPU  /NOJOURNAL Qualifier
+
+Although there is no definite evidence for it, empirical evidence from a number
+of users suggests that the use of the /NOJOURNAL qualifier on the EDIT/TPU
+command used within VMS_SHARE is slightly faster in operation than the default.
+Therefore, it has been added to the appropriate command line.
+
+Note:  /JOURNAL is documented as being a qualifier that is interpreted by the
+application and not by TPU itself; VMS_SHARE does not check for a /JOURNAL
+qualifier and, logically, it should make no difference to its operation.
+
+
+
+3.6 Bug In Terminate_Part
+
+The terminate part routine is responsible for adding the start/end of part
+markers to the parts.  Under a rare condition where an empty buffer was seen by
+this routine, an error was signalled trying to test the value of a non-existent
+character.
+
+A check has now been inserted to ensure that there is a character to test.
+
+
+
+
+4. CHANGES IN OPERATION
+
+4.1 Old Features Removed
+
+As announced in the release notes of a previous version, the ability to specify
+file exclusions via the logical names SHARE_EXCLUDE_DIRS, SHARE_EXCLUDE_NAMES,
+SHARE_EXCLUDE_TYPES, SHARE_EXCLUDE_FILES has been removed. All file exclusions
+are now specified through the SHARE_EXCLUDE logical and the /EXCLUDE qualifier.
+
+Because of the way that files are located, checking that an input file looked
+like a sharefile part was redundant. This check has now been removed.
+
+
+
+4.2 New Part Splitting Algorithm
+
+The part splitting algorithm used in previous versions was an attempt to improve
+the speed by means of a binary search algorithm. However, because of the method
+of implementation by TPU of certain movement routines it could prove to be much
+slower in operation than a straight linear scan, particularly for very large
+files and small part sizes..  The algorithm now uses a much simpler technique
+to determine where to split parts and should be generally faster.
+
+
+
+4.3 Encoding mechanisms
+
+The algorithms and code used for encoding the buffer have been completely
+rewritten for several reasons:
+
+  o  To reduce virtual memory requirements caused by `bugs' in TPU
+
+  o  To Speed up the LZ compression option
+
+  o  To add support for the /NOSPACE_ENCODE Qualifier
+
+The most important of these is the virtual memory requirement bug, which is
+discussed in 6.3 below.  The code has been modified to remove the currently
+processed line to a string buffer first and then re-insert the line as it is
+encoded. This circumvents the problem described.
+
+The space encoding option requires additional tests to be made to ensure that
+trailing blanks are not left at the end of a line, where they might be removed
+by a mailer.
+
+The LZ compression option has been modified to search for matching substrings
+over the current line only - previously it went back as far as it could in the
+buffer within the 255 byte limit. This has two knock-on effects.  It speeds up
+the LZ compression somewhat, with a minimal impact on the effectiveness of the
+compression; and it circumvents the bug in TPU described in 6.1 below because a
+simpler decompression algorithm can be used which avoids the bug.
+
+It is hoped to improve the LZ compression in a future release, when the bug in
+TPU has been fixed.
+
+All of the routines involved in encoding the buffer have been rewritten. Each
+now concentrates on one very simple task wherever feasible to aid understanding
+of the logic involved (and hence reduce the incidence of bugs..).
+
+
+
+5. DOCUMENTATION CHANGES
+
+The PAKEXTRACT help file has been updated to include details of the additional
+features.
+
+The VMS_SHARE help file has been updated with the new features; details of the
+removed features have been deleted and a new section has been added showing
+what messages get displayed for each level of logging.
+
+The VMS_SHARE user guide has been updated with details of the new qualifiers.
+
+There are minor corrections to the technical guide.
+
+
+
+6. MISCELLANEOUS NOTES
+
+6.1 TPU Internal Error
+
+Files compressed with VMS_SHARE using the /COMPRESS=2 option sometimes fail to
+unpack, and generate an Internal TPU Error. This is a known bug with TPU up to
+and including the version available with OpenVMS 6.0
+
+It is strongly suggested that anyone generating such share files with a version
+of VMS_SHARE prior to 8.4 should double check that they will unpack
+successfully before sending them on to anyone. If they do fail, then recreate
+them avoiding the use of /COMPRESS=2.  The problem does not occur for files
+packaged with this release as the code has been rewritten to use a simpler
+unpacking algorithm that bypasses the necessary conditions.
+
+Digital have been informed of this bug and, at the time of writing, a fix is
+awaited.
+
+
+
+6.2 Insufficient Virtual Memory
+
+If the user has insufficient PGFLQUOTA and/or insufficient scratch space in the
+TPU work file, then VMS_SHARE can fail while packaging big files. This normally
+manifests itself as an `Insufficient Virtual Memory' error message.
+
+In previous releases, this error was not trapped and packaging erroneously
+continued.  Now it is trapped as an error and packaging is aborted. The cure is
+to obtain an increase in the PGFLQUOTA and/or TPU work file space before trying
+again.
+
+
+
+6.3  TPU Record Management
+
+TPU holds each record in a memory buffer. When a record is split, using
+SPLIT_LINE, another record buffer of the same size is allocated for that part
+of the buffer moved to the next record. However, the previous memory area
+oocupied by the data is not freed until the original record is deleted.
+
+Because VMS_SHARE performs a lot of record splitting; the amount of virtual
+memory used grows considerably. This is a design flaw (bug?) in TPU. This
+release has circumvented the bug by removing the original line from the buffer
+and then putting the encoded version back section by section. This is slightly
+slower than before but eliminates the problem of excessive virtual
+memory/workfile requirements.
+
+
+
+
+7. TESTING
+
+This version of VMS_SHARE has only been tested on VMS 5.5-2 but is believed to
+work on all versions from VMS 5.0 to OpenVMS 5.5-2 and on Alpha OpenVMS. 
+However, it is not supported formally on any version of VMS other than the one
+on which it has been tested.
+
+The share files generated by VMS_SHARE are believed to unpack correctly on all
+versions of TPU from VMS 4.4 onwards unless the /LONGLINES option is selected,
+in which case VMS 5.4 is the minimum release needed. On Alpha, any version of
+OpenVMS is permitted.
+
+
+
+8. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+    								Version 8.3
+    								Feb 1993
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+This software is copyright but may be freely distributed without charge to
+anyone. All copyright and ownership notices must remain intact. No warranties
+are offered as to the suitability of this software for any purpose; any
+errors arising from its use are entirely the responsibility of the user.
+
+(C) Andy Harper,
+    Kings College London,
+    England
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+1. INTRODUCTION
+
+Version 8.3 of VMS_SHARE is a major release which contains two new features.
+The main intent however is to fix a number of bugs and errors in documentation.
+
+
+2. NEW FEATURES
+
+2.1 Alpha Support
+
+This release now supports the ALPHA series of machines.  Previously, when
+packing or unpacking files, the current version of VMS was checked to see if it
+was consistent with the requirements of VMS_SHARE.  This check is now bypassed
+on alpha systems as all required features exist on the OpenVMS supplied with
+Alpha. Generated share files will also now unpack on Alpha systems without
+error.
+
+
+[ Thanks to Earle Ake - Ake@dayvd.dayton.saic.com - For the checking code ]
+
+
+2.2 New Utility - PAKEXTRACT
+
+An initial version of a utility called PAKEXTRACT is supplied with this
+release. It is designed to assist the recipient of a package in the task of
+extracting the parts from MAIL.
+
+Briefly:
+
+    @PAKEXTRACT package number-of-parts [mail-folder]
+
+will scan the specified mail folder (default: NEWMAIL) looking for SUBJECT
+headers that begin:
+
+    package.nnn-OF-mmm
+
+where:
+    package is the name of the package
+    nnn     is the part number
+    mmm     is the total number of parts
+
+This is the format in which the current PAKMAIL utility generates the subject
+lines. However it should also recognize the format of subject lines generated
+by earlier versions of PAKMAIL, namely:
+
+   package.n_OF_m
+or package  n/m
+
+Once a part is found, it is written to an external file whose name is
+"package.nnn-OF-mmm".
+
+Documentation on this facility is included in the new PAKEXTRACT.HLP module,
+and in the user guide.  The best place for technical details however is the
+source code.
+
+
+3. BUG FIXES
+
+3.1 VMS_SHARE HELP File
+
+The HELP file describing VMS_SHARE contained a formatting error under the
+description of the SHARE_EXCLUDE logical name. The word /EXCLUDE erroneously
+appeared in column 1 causing HELP to format the entry badly on subsequent
+display. This has been corrected.
+
+[Thanks go to Ken Fairfield - fairfield@scs.slac.stanford.edu - for this
+bugfix]
+
+
+3.2. Erroneous Descriptions of old logical names 
+
+Under the Old_logical_names section in the HELP file, the descriptions of the
+SHARE_EXCLUDE_xxx logicals mistakenly stated that the file exclusions specified
+by them were not overridden if the /EXCLUDE qualifier were used. In fact, use
+of the /EXCLUDE qualifier specifically overrides any exclusions specified by
+any logical names and the descriptions in help have been modified accordingly.
+
+
+3.3  Handling of the [000000] Directory
+
+When the current directory was the top level [000000], file specifications
+containing "[000000" at the start of the directory part were handled
+erroneously, and resulted in a bad file specification. This has now been fixed.
+
+[Thanks go to Luke Brennan - Brennan@coco.cchs.su.oz.au - for this bug report]
+
+
+3.4 PAKMAIL Reads end of file
+
+If an end of file (CTRL/Z) was entered at one of the PAKMAIL prompts, a jump to
+a non-existent label was attempted. The missing label has been added.
+
+
+
+4. CHANGES IN OPERATION
+
+NONE
+
+
+5. DOCUMENTATION CHANGES
+
+All documentation has been updated to reflect the addition of alpha support and
+to correct minor typing errors.
+
+
+6. MISCELLANEOUS NOTES
+
+7. TESTING
+
+This version of VMS_SHARE has only been tested on VMS 5.5-2 but is believed to
+work on all versions from VMS 5.0 to OpenVMS 5.5-2 and on Alpha OpenVMS. 
+However, it is not supported formally on any version of VMS other than the one
+on which it has been tested.
+
+The share files generated by VMS_SHARE are believed to unpack correctly on all
+versions of TPU from VMS 4.4 onwards unless the /LONGLINES option is selected,
+in which case VMS 5.4 is the minimum release needed. On Alpha, any version of
+OpenVMS is permitted.
+
+
+
+8. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+    								Version 8.2
+    								Jan 1993
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+This software is copyright but may be freely distributed without charge to
+anyone. All copyright and ownership notices must remain intact. No warranties
+are offered as to the suitability of this software for any purpose; any
+errors arising from its use are entirely the responsibility of the user.
+
+(C) Andy Harper,
+    Kings College London,
+    England
+
+- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+
+1. INTRODUCTION
+
+Version 8.2 of VMS_SHARE is a major release which fixes a number of bugs and
+makes a number of new features available.
+
+
+
+2. NEW FEATURES
+
+2.1  File Exclusion
+
+The new /EXCLUDE=filelist qualifier may be used to exclude a set of files from
+the packaging operation.  `Filelist' is a comma separated list of full or
+partial file name specifications. Each field in a filename specification (Field
+= DIRECTORY, NAME, TYPE or VERSION part) may be omitted or may be a specific
+directory, name, type or version in the usual format. Fields which are omitted
+are assumed to match anything. Files which match the specification are excluded
+from the packaging operation.
+
+Some examples:
+
+  /EXCLUDE=.FOR		Exclude all files with a .FOR file type
+
+  /EXCLUDE=.EXE,.OBJ	Exclude all files with a .EXE or a .OBJ file type
+
+  /EXCLUDE=DUMMY.DAT	Exclude any file called DUMMY.DAT regardless of
+			directory or version
+
+  /EXCLUDE=;1		Exclude all version 1 files
+
+  /EXCLUDE=[X]DUMMY.DAT	Exclude all versions of the file DUMMY.DAT in directory
+			[X]
+
+Wildcards are not permitted, although an `*' can be used in the usual place
+ONLY to specify a complete field (NOT partial fields). For example:
+
+  /EXCLUDE=*.FOR	Is allowed and excludes all files with a type of .FOR
+
+  /EXCLUDE=X*.FOR	Is NOT allowed as the asterisk is used to match only
+			part of the name field and not the whole field.
+
+
+The default is to include all files specified by the user's parameter list.
+However the new SHARE_EXCLUDE logical name may be defined with a list of
+exclusions to override this default.  Use of the /EXCLUDE qualifier overrides
+the setting of this logical name for any given run.
+
+Note that this qualifier and logical name makes redundant the following logical
+names:
+
+   SHARE_EXCLUDE_DIRS	To exclude directories
+   SHARE_EXCLUDE_FILES	To exclude specific filenames
+   SHARE_EXCLUDE_NAMES	To exclude files with specific names
+   SHARE_EXCLUDE_TYPES	To exclude specific file types
+
+These logical names  are still recognized in addition to the SHARE_EXCLUDE
+logical name, but the effect is overridden if the /EXCLUDE qualifier is used.
+They will be removed in a future release of the software.
+
+
+2.2 New Compression Mechanism
+
+Previous releases have supported a simple compression mechanism based on
+run-length encoding, which is a simple but unsophisticated algorithm for
+reducing the size of the packaged files by encoding sequences of the same
+character into a shorter sequence. This version introduces an additional
+technique based on the algorithm popularly referred to as Lempel-Ziv encoding,
+where substrings are encoded into a form that points back to a previous
+occurrence of the same substring. This results in a more significant
+compression ratio at the expense of more CPU time to package the file.
+
+The `official' Lempel-Ziv algorithm has been substantially modified to take
+into account the additional constraints of this application. As such, it is not
+as effective as `real' Lempel-Ziv but appears to do a reasonable job in the
+majority of files with which it has been tested. As before, selection of this
+compression technique may be of little benefit in some cases and is very much
+slower than selecting no compression; therefore it is NOT selected by default.
+
+To allow user selection of this mechanism, the /COMPRESS qualifier (and
+corresponding logical name SHARE_COMPRESS) has been modified to accept a
+numeric parameter. The value specifies the compression mechanism to be used.
+
+Currently:
+
+   /COMPRESS=0		Specifies no additional compression
+   /COMPRESS=1		Specifies run-length encoding
+   /COMPRESS=2		Specifies the modified Lempel-Ziv compression
+
+Other values are not permitted. /COMPRESS by itself is the same as /COMPRESS=1;
+/NOCOMPRESS is the same as /COMPRESS=0
+
+NOTE: it is NOT intended that this form of compression should supplant that
+which can be obtained by external means, such as the ZIP utility, which can
+always be used if required. However, it has the advantage of being easy to use
+and not requiring the recipient to have any external decompression tools.
+
+
+
+2.3 Support for VFC files
+
+This release introduces support for the record format VFC, and associated fixed
+control area.
+
+
+2.4 Enhanced /LOG qualifier
+
+The /LOG qualifier may, like /COMPRESS, now take a numeric parameter to specify
+the level of logging required - /LOG=n. Permitted values are 0, 1 and 2.
+
+/LOG=0 specifies no logging output is to be produced. It is equivalent to
+/NOLOG.
+
+/LOG=1 specifies that minimal logging should be produced, just a summary of
+each file as it is processed, a final summary of the number of parts
+generated, and a note about the package index file if one has been requested.
+It is equivalent to /LOG with no parameter.
+
+/LOG=2 specifies that additional logging is to be produced over and above that
+of level 1. Currently, this produces a summary of the file encoding statistics
+before and after encoding as an aid in determining the effectiveness of the
+compression. Previously, this output was part of the /DEBUG facility and
+therefore required privileges. The corresponding debug messages have been
+removed and the facility is available to all users through /LOG.
+
+Additional log messages and levels of logging may be added in future releases.
+
+
+
+2.5 Strip Directory and Version Numbers
+
+Recent previous releases have preserved the subdirectory structure of the
+packaged files and the version numbers. Some older releases did not. Some users
+have requested an option that allows the older behaviour to be reinstated.
+
+As a result, two new qualifiers have been added that allow the user to select
+whether directories and/or version numbers are retained in the sharefile.
+
+The new qualifier /[NO]DIRECTORY selects the [no] directory structure
+preservation option. If preserved, then the directory structure will be
+recreated when the share file is unpacked. If not preserved, then all files
+will be created in the directory current at the time of unpacking. The logical
+name SHARE_DIRECTORY may be defined to specify the default, with /DIRECTORY
+being the default otherwise.
+
+The new qualifier /[NO]VERSION selects the [no] version number preservation
+option. If preserved, then the version numbers are retained when the share file
+is unpacked and a file with the same version number will cause the unpacking of
+that particular file to be skipped. If not preserved, then a new version of the
+file will be created regardless, with a warning message if a lower numbered
+version already exists. The logical name SHARE_VERSION may be defined to
+specify the default, with /VERSION being the default otherwise.
+
+[Thanks to Wolfgang Moeller - Moeller@gwdgv1.dnet.gwdg.de - for this suggestion]
+
+
+
+2.6 DEBUG Now Shows Rejected Files
+
+If a file which matches the user specified input files is not selected because
+of the value of the /EXCLUDE, /AFTER or /BEFORE qualifiers, selecting the
+/DEBUG qualifier will show which of these qualifiers caused it to be rejected.
+
+Level 2 debug is required for this.
+
+
+
+2.7 New PAKMAIL Utility
+
+The PAKMAIL utility has been extensively revised. In particular, it now
+recognizes an optional list of parts as a parameter. This allows a user to send
+a subset of the full package should, for example, a number of users fail to
+receive some of the parts.  The User guide and on-line help give further
+details of this.
+
+[Thanks to Richard Levitte - Levitte@ttt.kth.se - for this suggestion]
+
+
+
+3. BUG FIXES
+
+
+3.1 Debug Messages
+
+In some early releases of version 8.1, some of the debug messages were always
+active. This was due to a faulty definition of their debug level (as 0 rather
+than 1) internally. The debug level associated with these messages has been
+corrected.
+
+
+
+3.2 PAKMAIL
+
+The PAKMAIL utility, used to mail out parts of a package, was modified in
+version 8.1 to reflect the new part format of nnn-OF-mmm. A bug in the code
+prevented this working correctly when the number of parts exceeded 9. This has
+now been corrected and works for any number of parts.
+
+
+
+3.3 Check for Same Subdirectory
+
+The check on whether a file was in the same subdirectory was faulty, leading to
+a DCL error message about undefined symbols rather than the correct message.
+This has been corrected.
+
+[Thanks to Wolfgang Moeller - Moeller@gwdgr1.dnet.gwdg.de - for this bugfix]
+
+
+
+3.4 File scanning
+
+In some early version of VMS (around 5.3 and earlier), there was a dcl bug that
+prevented nested loops containing gosubs from working correctly. After several
+iterations, DCL would fail to find labels that were definitely present.  This
+situation could arise in that part of the code which scans the user's file
+specifications and locates matching files. To avoid the problem, the code has
+been split into two sections, circumventing the bug.
+
+Note that the bug appears to no longer exist on VMS 5.5.
+
+[Thanks to Foetes Macrides - MACRIDES@WFEB2.BITNET - for this bugfix]
+
+
+3.5 Check for same device
+
+The check on the filename to make sure it exists on the current device was
+inside rather than outside a loop. This resulted in one message for each file
+that matched a wildcarded file spec on the device. The check has been moved
+outside the loop and is now issued once when the wildcarded pattern is first
+used; the pattern is not used if the device is invalid.
+
+Note that this check is suppressed if the /NODIRECTORY option is requested.
+
+
+3.6 Check for invalid file specifications
+
+The input file specification supplied by the user is now checked for valid
+syntax. Any invalid file specifications cause an abort.
+
+
+
+3.7 Check for missing parameters in non-interactive mode
+
+If any of the required parameters are not supplied on the command line, the
+user is prompted for them. However, if the mode of the process is not
+INTERACTIVE, the user cannot be prompted; therefore an error message is issued
+in such modes.
+
+
+3.8 Problems with checksumming
+
+Due to the problems described in section 6.1 of these release notes, the
+checksum mechanism cannot always be used. Under such circumstances the file
+cannot be packaged either. Previous releases inserted a check into the created
+share file on the assumption that the checksum might fail but the packaging
+would not. However, this cannot happen so the appropriate code segment has been
+removed from the created share file.
+
+Should a file not be able to be checksummed at the packaging stage, an
+appropriate message is issued and the file is ignored.
+
+
+
+3.9 Check on Output Directory/FileName
+
+If the output directory was non-existent, or there was a syntax error in the
+output file specification, the share file parts were created in the current
+directory with strange names.  A check has now been included to validate the
+output file.
+
+
+
+3.10 Checks on Qualifier Formats
+
+More checks have been added to the qualifier parsing code to ensure that
+qualifiers that need values have them, and that those which don't require them
+do not have them specified.
+
+
+
+3.11 Input File Patterns
+
+A warning message is now issued if any of the input file specifications do not
+match at least one file. The message is given for each pattern that fails to
+match.
+
+
+
+3.12 Parameter File Creation
+
+Additional checks are now made on the creation of the parameter file, to ensure
+that all parameters have been correctly written.
+
+
+3.13 Null file types
+
+Null file types were processed badly in some places; all known instances of
+this have been corrected and should now work properly as with any other file
+type.
+
+[Thanks to Richard Levitte - Levitte@ttt.kth.se - for this bugfix]
+
+
+
+4. CHANGES IN OPERATION
+
+The compression routines have all been completely re-written. The only new code
+is that dealing with the LZ encoding.
+
+
+
+
+5. DOCUMENTATION CHANGES
+
+The user guide has been completely re-written. Details on the new features have
+been added and descriptions of all the qualifiers have been moved to a separate
+qualifier reference section.
+
+The HELP file has been updated with details of the new qualifiers (/EXCLUDE,
+/DIRECTORY and /VERSION) and the new logical names corresponding to them.
+Most of the logical name descriptions have been rewritten so that the reader is
+referred to the corresponding qualifier rather than duplicating information.
+
+
+
+6. MISCELLANEOUS NOTES
+
+6.1 Record Length Problems
+
+The release notes for version 8.1 outlined some problems with long records,
+whereby TPU and the CHECKSUM utility were failing to read certain files with
+longish lines in them.  The reason for this is now clear, although a solution
+has not yet presented itself.
+
+Essentially, each file header contains TWO fields describing the size of each
+record; the first is the maximum record size, which contains the longest line
+that may appear in the file - a zero value here signifies no upper limit on the
+length - and is used by many system utilities, TPU included, to determine the
+size of the record buffer; the second is the length of the longest record that
+is currently written to the file.
+
+The problem arise when each of these conditions is true:
+
+(a) The MRS value is zero, which causes TPU and CHECKSUM to allocate default
+    record buffer sizes of about 2048 bytes.
+
+(b) The longest record in the file exceeds the default record buffer length.
+
+Unfortunately, DCL's lexical function f$file_attributes only allows a procedure
+to see the MRS value and NOT the longest record value. It is therefore
+impossible to predict in advance which files are going to cause problems during
+packaging.
+
+The CHECKSUM utility suffers from a similar problem and consequently will not
+checksum files with an MRS value of 0 and a longest record greater than 2048
+bytes.
+
+It is hoped that future developments in VMS may allow this problem to be
+circumvented. In the short term, the simplest workaround is to use the CONVERT
+utility to create a new version of the file with the MRS value set to the size
+of the longest record. The longest record can be determined by using
+
+   DUMP/HEADER/BLOCK=C:0 file
+
+and looking for the RMS attributes section. Once the size of the longest record
+is obtained, call it `nnn', use the CONVERT utility as follows:
+
+   CONVERT/FDL=SYS$INPUT file file
+   RECORD
+    SIZE nnn
+   ^Z
+
+This new copy of the file will then be correctly processed by VMS_SHARE
+
+
+
+7. TESTING
+
+This version of VMS_SHARE has only been tested on VMS 5.5-1 but is believed to
+work on all versions from VMS 5.0 to VMS 5.5-1.  However, it is not supported 
+formally on any version of VMS other than the one on which it has been tested.
+
+The share files generated by VMS_SHARE are believed to unpack correctly on all
+versions of TPU from VMS 4.4 onwards unless the /LONGLINES option is selected,
+in which case VMS 5.4 is the minimum release needed.
+
+
+
+8. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+
+    								Version 8.1
+    								Sep 1992
+
+
+1. INTRODUCTION
+
+Version 8.1 of VMS_SHARE is a major release which fixes a number of bugs and
+makes a number of new features available.
+
+
+
+2. NEW FEATURES
+
+2.1 Date Based File Selection
+
+The selection of files for packaging can now be modified on the basis of the
+access dates associated with each file. The usual VMS qualifiers for this are
+supported:
+
+  /SINCE[=date]		Select files accessed since a specific date
+  /BEFORE[=date]	Select files accessed before a specific date
+  /BACKUP		Use the last backup date as the basis of date selection
+  /CREATED		Use the create date as the basis of date selection
+  /EXPIRED		Use the expiration date as the basis of date selection
+  /MODIFIED		Use the last modified date as the basis of date selection
+
+All sensible combinations of these are recognized. /SINCE and /BEFORE together
+specify a range of dates; use of /BACKUP, /CREATED, /EXPIRED and /MODIFIED
+together is allowed, but only the last one specified has any effect (the
+default is /MODIFIED if none are given).
+
+For example:
+
+  $ VMS_SHARE *.* PACKAGE /CREATED /SINCE=1-JAN-1992 /BEFORE=TODAY
+	Selects all files created this year
+
+
+There is one deviation from the usual behaviour of these qualifiers. If any
+part of the time field is omitted it takes on the CURRENT time values rather
+than the values at midnight, so that:
+
+         /SINCE=TODAY  and /SINCE=1-AUG-1992               are NOT equivalent
+but      /SINCE=TODAY  and /SINCE=1-AUG-1992:00:00:00.00   are equivalent.
+
+Note also the use of a : to separate the date and time fields. Spaces are not
+allowed and quoted times are not recognized correctly.
+
+A missing date/time spec (I.E. just /SINCE or just /BEFORE) defaults, as usual,
+to "TODAY".
+
+
+
+2.2 Confirmation of Selected Files
+
+Users can now elect to confirm each file selected via the new /CONFIRM
+qualifier. This works similarly to /CONFIRM on the DELETE, PURGE, COPY commands
+etc. A Y response selects the file, a N response does not. The default response
+is N.
+
+Use of this option in any non-interactive mode results in a warning and
+/CONFIRM is ignored.
+
+By default, confirmation is turned off. A new logical name SHARE_CONFIRM may be
+defined with a true or false value to override the default. The /[NO]CONFIRM
+qualifier on the command line overrides the setting of the logical name.
+
+
+
+2.3 Debugging
+
+The debugging facility at level 1 now includes additional messages detailing
+the size of a file buffer before and after encoding. This provides two useful
+functions. First, it allows a comparison of the normal encoding algorithm with
+the run-length encoding compression algorithm; second, it gives a useful
+progress monitoring function when packaging a large collection of files.
+
+The messages produced are similar to these:
+
+       Begin buffer encoding, n lines, b bytes
+
+and    End   buffer encoding, n lines, b bytes, change = x%
+
+The change field is given as a percentage increase or decrease in the size of
+the buffer. Usually, it will increase because of the encoding applied to
+non-printable characters. Use of run-length compression would normally show a
+smaller increase.
+
+Debugging now requires EITHER SYSPRV OR SETPRV to be in the user's AUTHORIZED
+privileges. Previously only SYSPRV was recognized and had to be in the user's
+CURRENT privileges. This means that users can now select debugging without
+needing to specifically turn on privileges.
+
+
+2.4 New SHARE_UNPACK_TEMP Logical
+
+The new logical name SHARE_UNPACK_TEMP can be used to override the default
+choice of temporary filename used when unpacking a share file.  Previously, the
+unpacking code used the same name "SHARE_TEMP" as that used by VMS_SHARE itself
+when encoding.  If not specified, the default name is:
+SYS$SCRATCH:SHARE_UNPACK_TEMP.pid
+
+
+
+2.5 Small Part Sizes
+
+Under certain conditions (with small part sizes), it was possible for the
+procedure to generate a buffer that was not allowed to be split but was too big
+for the part buffer.  A suitable error message was issued and the procedure
+aborted.
+
+The message produced now includes additional information stating the minimum
+part size required to encode the particular non-splittable buffer.
+
+
+3. BUG FIXES
+
+A number of minor bugs have been fixed.
+
+
+3.1 Checksums on Files with Long Records
+
+The long lines support introduced in version 8.0 showed up a problem with the
+undocumented DCL command - CHECKSUM.  It appears that this will not handle
+files with long records (the exact length seems unclear but it appears to be
+about 2048 bytes).  This means that VMS_SHARE is unable to provide checksum
+verification for such files at present.
+
+Previously, the code would provide an obscure error message at the point where
+the checksum was calculated, fail to produce a new checksum, and use a
+previously calculated checksum as the value passed in the share file; this had
+the effect of giving errors on a subsequent unpacking operation.
+
+Now, the code attempts to detect when the checksum cannot be determined and
+gives messages at both the packing and unpacking stages, warning that
+verification of the file cannot be made.
+
+
+
+3.2  Creation of the Package Index File
+
+Due to a coding error, the package index file was always being created. This
+has been fixed and the file is now created only when requested by the
+/PACKAGE_INDEX qualifier or the SHARE_PACKAGE_INDEX logical name.
+
+
+
+3.3 Deletion of Temporary Files Following Unpacking
+
+Due to a coding error within the generated share file, the temporary files so
+created were not being correctly deleted if the checksum validation check was
+successfully passed. They were deleted on a checksum failure.  This problem has
+now been fixed by ensuring that the deletion of scratch files code takes place
+irrespective of any checksum status.
+
+
+
+3.4 Erroneous Note in Release-Notes for Version 8.0
+
+Section 3.5 of the previous release notes (Long DCL Lines) erroneously refers
+to a problem about splitting parts across DCL continuation lines. In fact, this
+problem did not exist in the released version and refers only to a problem that
+existed during the development stage. Please ignore this problem description.
+
+A number of other minor corrections were made to these release notes, and the
+corrected version may be found at the end of these release notes.
+
+
+
+3.5 MFD Check
+
+In the DCL routine `Check_out_File', a check is made to see if the current
+directory is the MFD [000000]. This check was incorrectly coded and could
+affect operation if the current directory was indeed [000000]. This check has
+now been corrected and should now correctly generate the subdirectory paths.
+
+
+
+3.6 Non Negatable Qualifiers
+
+Error messages are now issued for qualifiers that may not be negated. For
+example:  /NOPART_SIZE.
+
+
+3.7 Failures to Create Temporary Files
+
+More error checks have been introduced during the creation and writing of
+various intermediate files.
+
+
+
+4. CHANGES IN OPERATION
+
+The following changes in operation have occurred.
+
+
+4.1 Debug Facility
+
+The /DEBUG facility has been modified.
+
+The maximum debug level is now 4 rather than 3. Most debug messages have been
+increased to a higher level and new ones inserted at level 1 to show the BEFORE
+and AFTER state of the file buffer (see paragraph above under new features).
+The use of /DEBUG=1 now provides a simple progress check on the state of the
+packing, listing each file as it is read in, each file buffer before and after
+encoding, and each part as it is written out.
+
+
+4.2 ShareFile Unpack Code
+
+The TPU code created in the share file to unpack each file has been modified to
+be more modular. Some coding reductions have been introduced to slightly
+increase the unpacking speed.
+
+
+
+5. DOCUMENTATION CHANGES
+
+Documentation has been updated to reflect the new date based selection, the
+confirmation qualifier, the new debug levels, the new SHARE_UNPACK_TEMP logical
+and the checksum limitation.
+
+
+
+6. MISCELLANEOUS NOTES
+
+6.1  Long line support
+
+With the addition of long line support, a check is included on the maximum
+record size of a file before it is selected for packaging. The maximum record
+size is obtained using the DCL lexical function f$file_attributes with the
+"MRS" item code.  Under certain conditions, as yet unknown, this DCL lexical
+returns a wildly inaccurate value. The only common factor so far seems to be
+that the files are the output from the DOCUMENT utility; it has been seen only
+on the .TXT and .PS files output by this. DIR/FULL on the file shows the
+CORRECT record length.
+
+Currently, there is nothing that VMS_SHARE can do about this. The effect is
+either to reject files erroneously because the record length is seen as much
+too large, or to accept files erroneously because the record length is seen as
+aceptable. Use of the long lines support option will accept both files and
+correctly package them.
+
+Without long lines support, the only known workaround is to use the editor to
+make a null correction to the file and force a new version to be created (EVE
+works fine for this) thus rewriting the record length based on the actual data
+in the file. Following this, the file can be packaged without the use of the
+long lines support option.
+
+
+
+7. TESTING
+
+This version of VMS_SHARE has only been tested on VMS 5.5-1 but is believed to
+work  on all versions from VMS 5.0 to VMS 5.5-1.  However, it is not supported 
+formally on any version of VMS other than the one on which it has been tested.
+
+The share files generated by VMS_SHARE are believed to unpack correctly on all
+versions of TPU from VMS 4.4 onwards unless the /LONGLINES option is selected,
+in which case VMS 5.4 is the minimum release needed.
+
+
+
+8. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+
+    								Version 8.0
+    								Sep 1992
+
+
+1. INTRODUCTION
+
+Version 8.0 of VMS_SHARE is a major release. It introduces some new features
+for users and fixes several bugs.
+
+
+
+2. NEW FEATURES
+
+The following new features are included.
+
+2.1  Parameters and Qualifiers on Command Line
+
+Most VMS_SHARE options and parameters can now be supplied directly on the
+command line. The logical names previously used to modify defaults are still
+accepted and behave as before but the use of a command line qualifier to set a
+value overrides that set by the logical name.
+
+New command line format:
+
+  $ VMS_SHARE  files  sharefile [qualifiers]
+
+where qualifiers can be any or all of:
+
+  /COMPRESS	Turns on the run-length compression option. Should be used
+		with caution as it can take considerably longer to encode the
+		files. /NOCOMPRESS turns off compression and overrides the
+		new SHARE_COMPRESS logical name. See the separate paragraph
+		on this below.
+
+  /DEBUG[=n]	Turn on extensive debugging messages. /NODEBUG turns off the
+		messages and overrides the new SHARE_DEBUG logical name. See
+		the separate paragraph on this below.
+
+  /LOG		Turn on informational logging messages. Note that some messages
+		used to appear by default. This is no longer the case. To be
+                consistent with the rest of VMS, messages are off by default.
+		/NOLOG will turn off messages and override the SHARE_LOG
+		logical name.
+
+  /LONGLINES    Allows the packaging of files with records longer than 960
+                characters (the limit in older versions of TPU). However, this
+                is only allowed if running on a version of VMS which is 5.4 or
+                later. /NOLONGLINES will disable the long line support and
+		override the new SHARE_LONGLINES logical name. See the
+		separate paragraph on this below.
+
+  /PACKAGE_INDEX[=suffix]
+		Creates a package file, suitable for use by file servers,
+		listing the filenames of each part created. /NOPACKAGE_INDEX
+		will disable the creation of this file, overriding the new
+		SHARE_PACKAGE_INDEX logical name. The optional suffix value
+		specifies the file type given to the created file. See the
+		separate paragraph on this below.
+
+  /PART_SIZE=nn	Specifies the part size to be generated. Overrides the
+		SHARE_PART_SIZE logical name.
+
+
+Qualifiers may appear anywhere in the command line (although, because VMS_SHARE
+is a DCL procedure, they may not appear directly after the command verb!).
+
+
+
+2.2 Support for Various Record Formats
+
+This version introduces support for various record formats, including VARIABLE
+length records with all the carriage control options, FIXED length records of
+any size up to the maximum supported record length, and each of the STREAM
+record formats.
+
+Previous versions have supported only those files with a variable length record
+format and CR Carriage control attributes (the standard file type created by
+TPU when it writes a file).
+
+This mechanism is implemented by recording the file attributes in the share
+file, and passing them to the CONVERT utility for processing once the file has
+been decoded and written out in its normal variable length format.
+
+Using this facility, it is now practical to directly package .OBJ and .EXE
+files; if the long line support is selected, it is possible to directly package
+backup savesets, thus allowing any type of file to be packaged.  BACKUP
+requires a minimum /BLOCK_SIZE specification of 2048, which in turn requires
+the long lines support. Therefore this is possible only with VMS 5.4 or later
+at both the creation and the unpacking ends. See the paragraph on long lines
+support below.
+
+[Thanks go to Mark Pizzolato - mark@infocomm.com - for this suggestion]
+
+
+2.3 Optional Run-Length Encoding of Files
+
+For files which contain long runs of similar characters, the new run-length
+encoding facility may be of help in reducing the size of the share files. A
+simple algorithm is applied to the files so that runs of 6 or more characters
+are compressed to a 5 character sequence thus:
+
+    &nnZZ
+
+where "&" is a new flag character that introduces a run-length compression
+sequence, "nn" is the length count as a 2-digit hex number, and "ZZ" is the
+2-digit hex encoding of the repeated character's ASCII code.  Although the
+minimum run length is 6 before compression is applied, a special check is made
+for a run of 2 or more characters that would ordinarily be quoted in the
+existing form of:
+
+    `ZZ
+
+as this results in a smaller sequence of characters.
+
+Because this feature can be time consuming, it is optional. The normal default
+is NOCOMPRESS. A new logical name SHARE_COMPRESS may be defined to alter the
+default.  The /[NO]COMPRESS qualifier on the command line may be used to
+override the default.
+
+[Thanks go to Mark Pizzolato - mark@infocomm.com - for this suggestion]
+
+
+2.4 Long Lines Option
+
+VMS_SHARE now supports files with record lengths up to 65535 bytes. This is due
+to the later versions of TPU (since VMS 5.4) supporting much longer records.
+Older versions of TPU restricted the maximum line lengths to 960 bytes.
+
+In order to maintain compatibility, TPU uses the old length of 960 as the
+maximum record length by default. The new /LONGLINES qualifier requests that
+the long line support be used, allowing records up to 65535 bytes to be
+packaged.
+
+The use of /LONGLINES has some caveats of course. Firstly, it can only be used
+if VMS_SHARE is running on a version of VMS 5.4 or greater; if not, an error
+message is issued if long line support is selected. Secondly, the generated
+share file will require at least VMS 5.4 to unpack (normally only VMS 4.4 or
+greater is required); this is because the TPU code used to unpack must also
+have the long line support, which is not available in earlier versions.
+
+To summarize:
+
+  Without /LONGLINES (The default):
+       The minimum VMS required to run is 5.0
+       Records are restricted to 960 characters
+       The minimum VMS required to unpack is VMS 4.4
+
+  With /LONGLINES:
+       The minimum VMS required to run is VMS 5.4   
+       Records can be up to 65535 characters
+       The minimum VMS required to unpack is VMS 5.4
+
+
+Long line support is off by default. The default can be modified by defining
+the new logical name SHARE_LONGLINES to either TRUE or FALSE as appropriate.
+This default can be overridden by the presence of the /LONGLINES qualifier on
+the VMS_SHARE command line - /LONGLINES enables support, /NOLONGLINES disables
+it.
+
+
+2.5 New Logical SHARE_EXCLUDE_FILES
+
+In addition to excluding files from the packing process by name, type and
+directory, a new logical name SHARE_EXCLUDE_FILES can be defined to exclude
+specific filenames (I.E. combined NAME and TYPE).
+
+For example:
+
+   $ define SHARE_EXCLUDE_FILES "NAME.TMP,X.DAT"
+	will exclude any file whose name is "NAME.TMP" or "X.DAT" in any of
+	the directories which VMS_SHARE is searching.
+
+[Thanks go to Joe Meadows - JOE@FHCRCVAX.BITNET - for this suggestion]
+
+
+2.6	New Format for Share File Part Names
+
+To make it easier to keep track of the parts that make up a share file, the
+naming convention has been changed. Previously it was "sharefile'n'" where "n"
+was a part number (from 1 upwards). The new format changes the suffix to be
+"nnn-OF-mmm" where "nnn" is a part number and "mmm" is the total number of
+parts generated.  Typical filename might be:  SHARE.078-OF-100  meaning part 78
+out of a total of 100 parts.
+
+The parts are renamed to this format once the TPU packing code has completed.
+
+[Thanks to Dick Munroe - munroe@dmc.com - For this suggestion]
+
+
+
+2.7 Automatic Creation of Share Part Index File
+
+Many mail based file servers recognize a `package' file. This is a file which
+contains the names of other files to be sent.  The user can specify this single
+file and receive all the files whose names are contained in the package file.
+
+Such a package file can now be created automatically.  It is not created by
+default. The new logical name SHARE_PACKAGE_INDEX can be defined to a TRUE or
+FALSE value to modify the default (TRUE causes its creation). The new
+/[NO]PACKAGE_INDEX qualifier overrides any default.
+
+The file so created has the form:
+
+   name.$PACKAGE
+
+where `name' is the NAME part of the output sharefile and `$PACKAGE' is the
+fixed file extension. It is created in the same directory as the sharefile
+parts.  Its contents are a list of the individual parts of the sharefile, one
+per line. Only the NAME and TYPE of the sharefile parts are listed.
+
+The suffix ".$PACKAGE" is the default; this can be overridden by specifying it
+as the value of the /PACKAGE_INDEX qualifier. For example:
+
+  /PACKAGE_INDEX=.LIBRARY
+
+which would change the default from ".$PACKAGE" to ".LIBRARY".
+
+The logical name SHARE_PACKAGE_INDEX can also be defined with a suffix value,
+rather than a TRUE or FALSE value, and this will modify the default to be that
+suffix.
+
+
+2.8 Debug Facility
+
+The debug facilities have been revised in a number of ways. First, debugging is
+now controlled via a qualifier on the command line or, if not specified, by the
+setting of the new logical name SHARE_DEBUG. Second, several levels of
+debugging are recognized, from 0 (/NODEBUG) through 1 (/DEBUG) through n
+(/DEBUG=n) up to a maximum n of 3. Each level gives progressively more
+debugging information and includes all the debugging output for lower levels.
+
+Higher levels of debugging (greater than 1) are intended for really difficult
+problems.
+
+The SHARE_DEBUG logical can be defined with either a TRUE/FALSE value or an
+integer value. FALSE is equivalent to an integer value of 0 and specifies no
+debugging (the default), TRUE is equivalent to a debugging level of 1. Values
+higher than 3 are treated as 3, values lower than 0 are treated as 0.
+
+Finally, debugging may only be specified if the user has SYSPRV. If not, the
+debugging level is set to 0 regardless of what was specified.
+
+The debugging output has also been made more compact (I.E. less verbose) than
+in previous versions.
+
+
+
+2.9 New logicals SHARE_UNPACK_LOG and SHARE_UNPACK_VERIFY
+
+In previous versions, the SHARE_LOG and SHARE_VERIFY logical names affected
+both the VMS_SHARE utility and the unpacking of the packaged share file. For
+example, defining SHARE_VERIFY to TRUE would cause both to be verified when
+run.
+
+This release introduces two new logicals which affect ONLY the unpacking of the
+sharefile - SHARE_UNPACK_VERIFY turns on/off verification of the code and
+SHARE_UNPACK_LOG turns on/off logging of each file unpacked.  The old logicals
+SHARE_LOG and SHARE_VERIFY still exist but affect only the VMS_SHARE utility
+itself.
+
+Note:  Because logging is off by default in both VMS_SHARE and the generated
+share file, no messages will be produced unless the appropriate logical is
+defined to be TRUE (or the /LOG qualifier is used on the VMS_SHARE command).
+
+
+
+3. BUG FIXES
+
+The following bugs have been fixed.
+
+
+3.1 Removal of Spurious Dot in UNPACKING Message
+
+The unpack code gives the message `Unpacking file xxxx.'. The extra dot at the
+end of the message was fouling attempts to cut/paste the filename with a double
+click in a windows environment and has been removed.
+
+[Thanks go to Claude Barbe - barbe@sdrvx2.sinet.slb.com - for this amendment]
+
+
+3.2 Part Splitting
+
+The part splitting algorithm has been modified to more accurately compute the
+size of a part written to disk. The part generating code has been generally
+recoded to remove the possibility of a final empty part being created when the
+data exactly fills the buffer.
+
+
+3.3 Coding Overhaul
+
+Most of the VMS_SHARE code has been extensively overhauled and rewritten so as
+to be more reliable and check for more things. The general approach to the
+problem is similar to previous versions however.
+
+
+3.4 Character Encoding and Line Wrapping
+
+A particular area of concern in previous versions has been the method of
+encoding characters such that intermediate lines created do not exceed the
+maximum record length imposed by TPU. This has been solved by performing all
+encoding in a single pass over the buffer and taking whatever action is
+necessary as each character is examined. Decoding is effected similarly, so
+that no intermediate long lines should arise.
+
+A side effect of this means that the built-in SEARCH cannot be effectively used
+and buffer encoding is considerably slower, even without selection of the
+run-length compression code. However, the benefits of the new features and the
+increased reliability should compensate for this. Future releases will try to
+improve on the speed of packing.
+
+
+
+3.5 Long DCL Lines
+
+Most of the lines of DCL created in the share file are less than the maximum
+line length of 79 characters. However, it was previously possible for the CALL
+UNPACK line, generated for each file, to extend past the end of this maximum.
+This could happen for very long file names and, with the addition of file
+attribute recording in this release, is more likely to occur.
+
+To avoid the problem, the line length is now checked between each parameter and
+a DCL continuation inserted if necessary.  The check is fairly simple minded
+and a really long filename could still defeat it but most files should pass
+through unscathed.
+
+
+3.6 Verification During Share File Unpacking
+
+Due to a coding error, defining the SHARE_LOG logical to verify the unpacking
+of the share file did not work correctly. In fact, defining it to TRUE had the
+opposite effect of turning off the messages and vice versa.  The default action
+was to display these messages and this worked correctly.
+
+
+
+4. CHANGES IN OPERATION
+
+The following major changes in operation have occurred.
+
+
+4.1 Minimum VMS Requirements
+
+Due to the use of a number of features of DCL that gave recently been
+introduced (mainly the block IF, used for clarity of code), the minimum version
+of VMS required to encode files is now version 5.0. Attempts to use the package
+on earlier versions will result in an error message. However the generated
+share file will unpack on all versions from VMS 4.4 onwards; if the /LONGLINES
+qualifier is used, then the share file will unpack only on versions of VMS from
+5.4 onwards.
+
+It is felt that the vast majority of users are now running at least VMS 5.0 and
+therefore the downside is minimal.  These users will still be able to unpack
+share files created without the /LONGLINES option.
+
+
+4.2 Encoding of Space characters
+
+In previous versions, the space character was not treated as a troublesome
+character. In practice, many files may have leading or trailing blanks removed
+or added on their journey through the network. This version treats blanks as
+quotable characters to prevent this problem. As a consequence, the code which
+used to quote spaces if they appeared at ends of lines has been removed and the
+code to determine where to split lines is less complex; there is no need to
+hunt for the last non-blank.
+
+This amendment reduces the complexity of the unpacking code in the generated
+sharefile as there is no need for an additional pass over the data to sort out
+any trailing blanks. Any blank characters encountered while unpacking are
+simply ignored.
+
+Share files may be slightly longer with this mechanism but choosing run-length
+encoding should reduce the size due to long runs of blanks being found in most
+text or program files.
+
+
+4.3 PAKMAIL Updated
+
+The PAKMAIL utility, supplied with VMS_SHARE to mail out all the parts of the
+package has been updated to reflect the new part format of nnn-OF-mmm.
+
+
+
+5. DOCUMENTATION CHANGES
+
+The user guide and help file have both been updated to reflect the new support
+for record formats, run-length compression, the new command-line parameters,
+and the other miscellaneous enhancements. The technical information guide has
+been amended slightly for similar reasons.
+
+
+
+6. TESTING
+
+This version of VMS_SHARE has only been tested on VMS 5.5-1 but is believed to
+work  on all versions from VMS 5.0 to VMS 5.5-1.  However, it is not supported 
+formally on any version of VMS other than the one on which it has been tested.
+
+The share files generated by VMS_SHARE are believed to unpack correctly on all
+versions of TPU from VMS 4.4 onwards unless the /LONGLINES option is selected,
+in which case VMS 5.4 is the minimum release needed.
+
+
+
+7. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+
+
+    								Version 7.2-007
+    								Feb 1990
+
+
+1. INTRODUCTION
+
+Version 7.2-007  of VMS_SHARE is a maintenance release that merely fixes a
+number of known bugs. It introduces no new features for the user.
+
+
+
+2. NEW FEATURES
+
+There are no new features with this release
+
+
+
+
+3. BUG FIXES
+
+The following bugs have been fixed.
+
+
+3.1 Version Check					(7.2-001)
+
+Both the VMS_SHARE code and the created share file include checks on the 
+version of VMS under which they run. This ensures that attempts to run on 
+unsupported (ie very OLD) versions of VMS are trapped with a suitable warning. 
+In previous versions, this check was not altogether correct because it assumed 
+that the version number obtained with  f$getsyi("VERSION")  started with the 
+letter "V".  In some releases, this is not the case - there are "A" and "B" 
+versions around at least! Usually to be found in mixed version clusters.
+
+The fix corrects this problem by stripping off the "V" and just comparing the 
+numeric part.
+
+
+3.2 Use of /NOLOG					(7.2-002)
+
+With the inclusion of a "SET SYMBOL/SCOPE=(NOLOCAL,NOGLOBAL)" command in a 
+previous release of VMS_SHARE, the use of the /NOLOG qualifiers on certain 
+commands in the generated share file is redundant.  These have been removed 
+and will make the share file very slightly shorter.
+
+
+3.3 Variable names in the share file			(7.2-003)
+
+The TPU unpacking code placed into the share file uses several variables 
+to hold relevant information. To save space, these have been changed to be 
+single letter variable names where possible. In some instances, the code is 
+restructured to remove the variables altogether.
+
+
+3.4 Part Separator Check and Infinite Looping Problems	(7.2-004)
+
+Because VMS_SHARE allows the share file to be created in multiple parts for 
+ease of mailing, it includes flags to allow it to skip over any intervening 
+'garbage', typically mail headers and mail signatures.  Two special flag lines
+are inserted - one at the end of a part and one at the start of a part. 
+
+The unpacking code however did not fully check for the start of part flag line 
+and consequently could be confused by mail headers or mail signatures that 
+looked like the start of flag lines. The code has been tightened up to more 
+fully check that the line found is a real start of part. This avoids problems 
+of the code being stuck in infinite CPU gobbling loops.
+
+
+
+3.5 Replacement of EXIT					(7.2-006)
+
+It has been reported that, under VMS 5.3, VMS_SHARE runs into problems at the 
+TPU 'EXIT' statement.  The exact problem is unclear but seems related to the 
+flushing of buffers. To circumvent the problem, EXIT has been replaced by 
+'QUIT' in both VMS_SHARE and the generated share file.
+
+
+
+3.6 Suppression of TPU messages.			(7.2-007)
+
+Because TPU produces unwanted informational messages when it starts, the code 
+diverts these to NL: via a user mode logical name assignment.  However this 
+has the side effect of also suppressing any TPU error messages.  To allow 
+these error messages to be seen if something is wrong, the share file now only 
+assigns the output to NL: if verification is OFF (see the logical name 
+SHARE_VERIFY). If verification is on, all output comes to SYS$OUTPUT.
+
+
+
+
+
+4. CHANGES IN OPERATION
+
+The following major changes in operation have occurred.
+
+
+4.1 Encoding of Special Characters			(7.2-005)
+
+Previous versions encoded troublesome characters using a 3 digit decimal 
+representation of the ASCII code prefixed by an escape character.  This 
+release uses a hex encoding thus saving 1 byte for each escaped character.
+
+For small files, the file may be slightly longer because of the extra code
+necessary to unpack hex characters. For long files, small space savings should
+occur. 
+
+
+5. DOCUMENTATION CHANGES
+
+A number of minor changes have been applied to the user guide and to the 
+technical info documents. No new information has been added.
+
+
+
+6. TESTING
+
+This version of VMS_SHARE has been tested on VMS 5.1-1 but is believed to work 
+on all versions from VMS 4.4 to VMS 5.3.  However, it is not supported 
+formally on any version of VMS other than the one on which it has been tested.
+
+
+
+7. PREVIOUS RELEASE NOTES
+
+Release notes for previous versions are appended at the end. These give 
+details of changes and bug fixes for those versions.
+
+		V M S _ S H A R E   B U G   F I X E S
+
+    			 Version 7.1-004
+
+
+
+
+1. INTRODUCTION
+
+This document is an addendum to the main release notes for VMS_SHARE 
+describing all the bugs fixed since the last major release 7.1-001
+
+
+
+2. BUG FIX DESCRIPTIONS
+
+2.1 Verification					(7.1-002)
+
+VMS_SHARE now turns verification of the DCL code on or off based on the 
+definition of the logical name SHARE_VERIFY. Previously no attempt was made to 
+alter the verification setting. The environment is restored on exit.
+
+If SHARE_VERIFY is defined as TRUE (or 1 or YES etc.) then verification is 
+enabled. If defined as FALSE (or 0 or NO etc.) or is not defined at all, 
+verification is disabled.
+
+Note that this logical defines verification both for VMS_SHARE itself and for 
+any unpack operations performed on the created archive.
+
+Note also that if the user has no READ access to the procedure (recommended) 
+then verification is always disabled.
+
+The .HLP file has been updated to include a reference to this logical and its 
+definitions.
+
+NOTE that the Version 7.1 release notes contain a comment that this logical 
+name has been removed. This was true with release 7.1-001 of VMS_SHARE but the 
+logical has been reinstated with release 7.1-002
+
+
+
+2.2 Symbol Redefinition					(7.1-002)
+
+VMS_SHARE now uses the SET SYMBOL command to insulate itself from any symbol 
+definitions made by the user. Both local and global definitions of any DCL
+symbols are ignored.  If VMS_SHARE exits normally then the original setting is 
+restored. However, an abnormal exit may cause the new settings to be retained. 
+This may cause confusion if a user is unaware of what has happened.
+
+Previously any external symbol definitions matching commands used internally 
+to VMS_SHARE would cause unexpected actions and usually cause VMS_SHARE to 
+fail.
+
+
+
+2.3 Spurious Rejection of certain files			(7.1-002)
+
+VMS_SHARE contains code to reject any attempt to include the output files in 
+the packed archive on the grounds that packing an archive into itself is not 
+sensible. However the code for this check was faulty due to an undocumented 
+'feature' of the f$integer lexical which returns 1 if a string starts with 
+T or Y (in other words, does a conversion from boolean to integer where T,Y = 
+1 and F, N = 0). This caused some perfectly valid filenames to be rejected on
+the grounds that they had the same name as the output file.
+
+As an example, if the output file is specified as 'V' then invalid input files
+would be anything starting with this name followed by a number, such as 'V.1',
+'V.2' etc. The bug also caused files 'V.T' and 'V.Y' to be invalid. 
+
+The code has now been fixed by avoiding the use of f$integer until the string 
+has been checked with f$type to make sure it really is a number.
+
+
+
+2.4 Movement Of Generated CUT HERE line			(7.1-003)
+
+The inclusion of the verification option (SHARE_VERIFY) was inadvertently 
+placed BEFORE rather than AFTER the ' ...   CUT HERE   ... ' line in the 
+generated share file. It has now been moved to its proper place ensuring that 
+cutting on the indicated line does not remove the VERIFY option.
+
+
+
+2.5 Angle Brackets in Directory names			(7.1-004)
+
+If the parameters to VMS_SHARE, or the current default directory, contained 
+angle brackets around directory specifications (For example, <TEST> rather 
+than the more normal [TEST]) then VMS_SHARE treated each file as invalid 
+because it was not designed to handle the <> notation, which is perfectly 
+valid VMS syntax.
+
+This problem has been cured by ensuring that all occurrences of <..> notation 
+are translated to the more normal [..] notation before processing the 
+filenames. The way in which this is done relys on a little known feature of 
+the f$parse lexical function:
+
+   f$parse(P1,"[]")  will translate any <..> directory to [..]
+
+   f$parse(P1,"<>")  will translate any [..] directory to <..>
+
+However if P1 contains a version number the conversion is not done! (WHY this 
+should be so is a mystery at this time)
+
+
+
+2.6 Check for correct VMS version in created share file	(7.1-004)
+
+The check for a minimum revision of VMS was incorrect. The current version, 
+obtained with f$getsyi("VERSION") was being checked against "4.4" instead of 
+"V4.4".
+
+
+
+2.7 Check for correct VMS version in main procedure	(7.1-004)
+
+No check was made in the main VMS_SHARE procedure for the correct minimum 
+revision of VMS required. This would cause it to fail if run on a pre-VMS 4.4 
+system. A check has now been included.
+
+
+
+2.8 Information on errors in HELP			(7.1-004)
+
+Explanations of the error codes for both VMS_SHARE and PAKMAIL have been 
+included into the HELP files for the utilities. There are also some minor 
+editorial changes to the help text.
+
+
+
+2.9 User Guide						(7.1-004)
+
+A preliminary user guide is issued with this release. This describes the 
+rationale behind VMS_SHARE, from the user's viewpoint and details of how to 
+use both VMS_SHARE and PAKMAIL. Details of unpacking share files are included 
+also.
+
+
+
+2.10 Location of Break Point				(7.1-004)
+
+Corrected the check for a null buffer in the routine which locates the optimum 
+break point for a share file part.
+
+
+2.11 Part Separator Insertion				(7.1-004)
+
+Corrected the check for the right part separator, GOTO/label or special flag 
+lines, by only checking the line below the separation point and not the lines 
+on either side.  This ensures that the GOTO/LABEL code is only used when the 
+split point immediately precedes DCL code.
+
+
+
+3. KNOWN PROBLEMS
+
+There are no known problems at this time.
+
+
+
+
+Andy Harper
+9-AUG-1989
+
+        			V M S _ S H A R E
+
+    			   R E L E A S E   N  O T E S
+
+
+
+    								Version 7.1
+    								Aug 1989
+
+
+1. INTRODUCTION
+
+Version 7.1 of VMS_SHARE has been completely rewritten to eliminate long
+standing bugs, and to improve performance by utilising new algorithms for the
+packing and upacking of files. Details of the changes from the previous
+versions are given below.
+
+
+
+2. NEW FEATURES
+
+2.1 Subdirectories
+
+VMS_SHARE now supports subdirectories.  The user may package a series of files
+existing in the directory tree within/below the current directory. The
+directory structure will be recreated at the unpacking stage as an equivalent
+tree beneath the current directory. All required directories are automatically 
+created as required.
+
+For example:
+
+    $ VMS_SHARE [.TPU...]*.*,[.DATA]*.* PACKAGE.SHAR
+        Will package the directory tree beneath [.TPU] and the subdirectory
+        [.DATA].  During unpacking, these subdirectories will be created
+        automatically below the current directory.
+
+
+It was originally decided to make the directory handling a bit like BACKUP, 
+allowing any directory to be packaged and individual items to be selected at
+unpack time. However this proved to be extremely difficult in DCL and so was
+abandoned. It may appear in a future release.  In order to prevent files
+appearing in essentially random directories it was decided to adopt the above
+compromise. It retains sufficient flexibility to deal with most package 
+structures but maintains a known directory structure that will avoid files 
+being placed randomly as far as the receiving user is concerned.
+
+
+
+2.2 DEBUG code
+
+To assist those who enhance and develop VMS_SHARE, a large amount of
+debug/trace code is included into the source.  By redefining a simple global
+constant value, this debug code can be turned on or off to assist in tracking
+down faults.
+
+
+
+
+2.3 New Part Splitting Algorithms
+
+The algorithms used for splitting parts have been extensively redesigned to
+ensure minimal use of memory for buffers. Essentially, VMS_SHARE now uses only
+enough memory to hold the sum of two parts and the largest file. We read a
+single file, add as much as possible to the part buffer and then write the
+part buffer, removing the equivalent info from the original file buffer.
+
+The algorithm for finding the optimum part breakpoint now uses a binary search
+instead of a sequential search for speed.
+
+
+
+
+2.4 New Unpacking Algorithms
+
+The algorithm used to unpack code, embedded in the TPU code stored in the
+output share file, has been redesigned to need less error checking and hence
+less code.  The TPU code is also packed more compactly than before giving
+improved compilation speed as well as execution speed. 
+
+
+
+
+2.5 Error and Status Messages
+
+VMS_SHARE now produces messages similar to the standard VMS form. Messages are
+produced to keep the user informed of progress (these normally go to
+sys$output) and error messages (which normally go to sys$error).
+
+Initial informational messages from TPU, as it reads in the source, are also
+printed. It is hoped that in a future release some way can be found to turn
+this off.
+
+
+
+2.6 Exclusion Files
+
+By defining certain logical names, it is possible to force the exclusion of 
+particular files from the sharefile. There are three possibilities: exclusion 
+by directory, exclusion by name, and exclusion by type.
+
+Each logical name may be defined as a comma separated list of items (the list 
+MUST be enclosed within quotes). Any file that matches is excluded from the
+sharefile. Wildcards are not permitted. Each must be a fixed string. 
+
+Thanks go to Joe Meadows (JOE@BITNET.FHCRCVAX) for the general idea and basic
+mechanism. 
+
+
+
+2.6.1 SHARE_EXCLUDE_DIRS
+
+This logical is a list of directory names (in their full format). Any file 
+with the same directory name is automatically excluded.
+
+For example:
+
+   DEFINE SHARE_EXCLUDE_DIRS "[X],[X.Y],[X.Y.Z],[TWEETY]"
+
+excludes any file in any of the listed directories.
+
+If this logical is absent, then no files are excluded on the basis of their 
+full directory name.
+
+
+2.6.2 SHARE_EXCLUDE_NAMES
+
+This logical is a list of filenames. Any file with the a matching NAME part is
+automatically excluded. 
+
+For example:
+
+   DEFINE SHARE_EXCLUDE_NAMES "MAIN,TRACE,MAIN_CLD"
+
+
+If this logical is absent, then no files are excluded on the basis of their 
+filename.
+
+
+2.6.3 SHARE_EXCLUDE_TYPES
+
+This logical is a list of file types. Any file with a matching TYPE part is 
+automatically excluded. Files with a type of .DIR are automatically excluded 
+as these are directory files with no valid contents at the time of unpacking.
+
+For example:
+
+   DEFINE SHARE_EXCLUDE_TYPES ".OBJ,.EXE"
+
+excludes any file with a type of .OBJ, .EXE or .DIR
+
+If this logical is absent, then no files are excluded on the basis of their 
+file type (except .DIR).
+
+
+
+3. BUG FIXES
+
+A number of long standing bugs have been fixed.
+
+
+
+3.1 Bad split points
+
+Occasionally, the split point was chosen badly such that the part separators
+were wrong. In particular, the $GOTO/Label: sequence could appear right after
+the $COPY command due to the method by which use of $GOTO was decided. This
+algorithm has been redesigned and the problem should no longer occur.
+
+
+
+3.2 Hangs During Trailing Blank Processing
+
+When wrapping lines containing trailing blanks, the code would sometimes hang
+in an infinite loop or fail to split on a non-blank character. This has now
+been fixed.
+
+
+
+3.3 Temporary Files
+
+All temporary files now have a unique name derived from the PID of the current 
+process and are created in the SYS$SCRATCH directory by default. The choice of 
+temporary filename and location may be overridden by defining the logical name 
+SHARE_TEMP to whatever is desired.
+
+
+
+
+4. CHANGES IN OPERATION
+
+There are several significant changes in the operation of VMS_SHARE.
+
+
+
+4.1 Name of Share File
+
+Previously, the share file name was suffixed by a string of the form '_n_OF_m'
+where 'n' was the part number and 'm' was the total no of parts.
+
+The share file name is now suffixed only by the 'n' value - part number. This
+change is a consequence of the new algorithms used to create the parts,
+whereby the total number of parts is not known at the time of writing a
+particular part to a file.
+
+
+
+4.2 Obsolete logical names
+
+Logical names supported in previous versions of VMS_SHARE to control 
+verification of the operation of the package are no longer supported. These 
+functions have been replaced by the new debugging code.
+
+These logicals were  SHARE_VERIFY  and  SHARE_DISPLAY.
+
+
+
+4.3 CHECKSUM display
+
+Messages regarding checksums are now suppressed if they are correct, making it 
+easier to spot those that are incorrect.
+
+
+
+
+4.4 Version Numbers
+
+The original version numbers of the packaged files are preserved at the 
+unpacking stage. Previously, all files created would have a version number of 
+1. This change allows multiple versions of the same file to be packaged if 
+required.
+
+
+
+4.5 Check Output File Existence
+
+During unpacking, the output file is checked to see if it already exists. If 
+it does, then the file is not overwritten. Instead the file is skipped and a 
+message written to that effect.  This prevents the previous problem where the 
+existence of the file caused the new version to be ignored without comment and 
+a checksum failure to be produced.
+
+
+
+
+5.0 TESTING
+
+The software has been tested under VMS 4.7 and VMS 5.1-1. It should be noted 
+that this version of VMS_SHARE is not supported on other versions of VMS, 
+although it is believed to work on all versions between 4.4 and 5.1-1
+inclusive. 

@@ -1,0 +1,110 @@
+Here's a sample build of the database.
+
+1. Start with a simple record-per-person text file.  You will have to write
+a description of the field position to field number mapping using the field
+numbers in the configuration file.  A sample file is EM411.TXT and is
+described by EM411.QI_MAKE using the field descriptions in DATABASE.CNF.
+
+[file EM411.TXT]
+TANNER,BRUCE G                TANNER      COMPUTER SERVICES   SR SYSTEMS PROG    216401327
+
+
+2. Run QI_MAKE to format the file from (1) as a record-per-field file,
+   DATABASE.DAT.  QI_MAKE reads EM411.TXT and EM411.QI_MAKE and writes
+   DATABASE.DAT.  The employee number (01327) is added to a base (811000000)
+   to make the ID field.  See QI_MAKE.DOC.
+
+   $ QI_MAKE := $device:[path]QI_MAKE
+   $ QI_MAKE EM411.TXT DATABASE.DAT
+
+[file DATABASE.DAT]
+81100132701000Tanner Bruce G
+81100132704000tanner@cerritos.edu
+81100132731000Computer Services
+81100132732000Sr Systems Prog
+81100132710000(310) 860-2451 ext 2164
+81100132713000(310) 467-5005
+81100132730000Cerritos College
+81100132790000person
+81100132792000cerritos-proxy
+81100132720000Cerritos College
+81100132720010Computer Services
+8110013272002011110 Alondra Blvd.
+81100132720030Norwalk, CA 90650
+
+
+3. Run QI_ADD_SOUNDEX to add the soundex information to the database.
+   See QI_ADD_SOUNDEX.DOC.
+
+  $ QI_ADD_SOUNDEX := $device:[path]QI_ADD_SOUNDEX
+  $ QI_ADD_SOUNDEX DATABASE.DAT
+
+
+4. Run QI_ADD_ALIAS to add an alias field to the database.
+   See QI_ADD_ALIAS.DOC.
+
+  $ QI_ADD_ALIAS := $device:[path]QI_ADD_ALIAS
+  $ QI_ADD_ALIAS DATABASE.DAT
+
+
+5. Run QI_BUILD to create the .INDEX and .DATA files:
+   BUILD reads DATABASE.DAT and DATABASE.CNF (Not CSO_CONFIG) and creates
+   DATABASE.INDEX and DATABASE.DATA.  See QI_BUILD.DOC.
+
+  $ QI_BUILD := $device:[path]QI_BUILD
+  $ QI_BUILD DATABASE.DAT /DATA
+
+
+6. Point the CSO logical names to the files:
+
+ $ DEFINE /SYSTEM/EXEC CSO_CONFIG device:[path]DATABASE.CNF
+ $ DEFINE /SYSTEM/EXEC CSO_INDEX device:[path]DATABASE.INDEX
+ $ DEFINE /SYSTEM/EXEC CSO_DATA device:[path]DATABASE.DATA
+ $ DEFINE /SYSTEM/EXEC CSO_LOG device:[path]QI.LOG
+ $ DEFINE /SYSTEM/EXEC CSO_SITEINFO device:[path]SITEINFO.TXT
+ $ DEFINE /SYSTEM/EXEC CSO_DOMAIN my.domain
+ $ DEFINE /SYSTEM/EXEC CSO_MAILDOMAIN my.domain
+ $ DEFINE /SYSTEM/EXEC CSO_HELPLIB device:[path.]/TRANSLATE=CONCEAL
+
+7. Create the help file directories:
+
+ $ CREATE/DIRECTORY CSO_HELPLIB:[NATIVE]
+ $ CREATE/DIRECTORY CSO_HELPLIB:[PH]
+ $ CREATE/DIRECTORY CSO_HELPLIB:[<any other client that uses help>]
+
+8. Set up the QI server, as described in WHAT.TXT.
+
+9. Set up a gopher link to the QI server:
+
+Name=Phone Book
+Type=2
+Path=
+Port=105
+Host=+
+
+
+10. Run Gopher or PH (available from ftp.cso.uiuc.edu) or telnet to query the
+server:
+
+$ telnet /port=105 cerritos.edu
+Trying... Connected to CERRITOS.EDU.
+
+query tanner
+102:There was 1 match to your request.
+-200:1:           Name: Tanner, Bruce G
+-200:1:          Alias: Bruce.Tanner
+-200:1:          Email: tanner@cerritos.edu
+-200:1:          Phone: (310) 860-2451 ext 2164
+-200:1:        Address: Cerritos College
+-200:1:               : Computer Services
+-200:1:               : 11110 Alondra Blvd.
+-200:1:               : Norwalk, CA 90650
+-200:1:        College: Cerritos College
+-200:1:     Department: Computer Services
+-200:1:          Title: Sr Systems Prog
+200:Ok.
+exit
+200:Bye!
+
+Connection closed by Foreign Host
+  

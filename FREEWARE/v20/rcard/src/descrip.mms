@@ -1,0 +1,18 @@
+.IFDEF __MATTS_MMS__
+.ELSE
+EXE = .EXE
+OBJ = .OBJ
+.ENDIF
+
+.IFDEF __ALPHA__
+CC = CC/STANDARD=VAXC
+SHAREOPTS =
+.ELSE
+SHAREOPTS = ,VAXC.OPT/OPTIONS
+!SHAREOPTS = ,GNU_CC:[000000]OPTIONS.OPT/OPTIONS		!For GNU C
+.ENDIF
+
+rcard$(exe)	: rcard$(obj)
+	$(link)$(linkflags)/NOTRACE $(MMS$SOURCE)$(SHAREOPTS)
+
+rcard$(obj) :	rcard.c

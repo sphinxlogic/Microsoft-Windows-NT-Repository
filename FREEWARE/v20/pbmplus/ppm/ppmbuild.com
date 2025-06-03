@@ -1,0 +1,107 @@
+$	Define/Nolog	PBM$	[-.PBM]
+$	Define/Nolog	PGM$	[-.PGM]
+$	Define/Nolog	C$INCLUDE	PBM$,PGM$,[-]
+$	Define/Nolog	DECC$USER_INCLUDE C$INCLUDE
+$	Qual	:= "/DEFINE=(SYSV,PBM,PGM)"
+$
+$	CC 'QUAL' 'P1' GIFTOPPM
+$	CC 'QUAL' 'P1' GOULDTOPPM
+$	CC 'QUAL' 'P1' ILBMTOPPM
+$	CC 'QUAL' 'P1' IMGTOPPM
+$	CC 'QUAL' 'P1' LIBPPM1
+$	CC 'QUAL' 'P1' LIBPPM2
+$	CC 'QUAL' 'P1' LIBPPM3
+$	CC 'QUAL' 'P1' LIBPPM4
+$	CC 'QUAL' 'P1' LIBPPM5
+$	CC 'QUAL' 'P1' MTVTOPPM
+$	CC 'QUAL' 'P1' PCXTOPPM
+$	CC 'QUAL' 'P1' PGMTOPPM
+$	CC 'QUAL' 'P1' PI1TOPPM
+$	CC 'QUAL' 'P1' PICTTOPPM
+$	CC 'QUAL' 'P1' PJTOPPM
+$	CC 'QUAL' 'P1' PPMDITHER
+$	CC 'QUAL' 'P1' PPMFORGE
+$	CC 'QUAL' 'P1' PPMHIST
+$	CC 'QUAL' 'P1' PPMMAKE
+$	CC 'QUAL' 'P1' PPMMERGE
+$	CC 'QUAL' 'P1' PPMPAT
+$	CC 'QUAL' 'P1' PPMQUANT
+$	CC 'QUAL' 'P1' PPMRELIEF
+$	CC 'QUAL' 'P1' PPMTOACAD
+$	CC 'QUAL' 'P1' PPMTOGIF
+$	CC 'QUAL' 'P1' PPMTOICR
+$	CC 'QUAL' 'P1' PPMTOILBM
+$	CC 'QUAL' 'P1' PPMTOPCX
+$	CC 'QUAL' 'P1' PPMTOPGM
+$	CC 'QUAL' 'P1' PPMTOPI1
+$	CC 'QUAL' 'P1' PPMTOPICT
+$	CC 'QUAL' 'P1' PPMTOPJ
+$	CC 'QUAL' 'P1' PPMTOPUZZ
+$	CC 'QUAL' 'P1' PPMTORGB3
+$	CC 'QUAL' 'P1' PPMTOSIXEL
+$	CC 'QUAL' 'P1' PPMTOTGA
+$	CC 'QUAL' 'P1' PPMTOUIL
+$	CC 'QUAL' 'P1' PPMTOXPM
+$	CC 'QUAL' 'P1' PPMTOYUV
+$	CC 'QUAL' 'P1' QRTTOPPM
+$	CC 'QUAL' 'P1' RAWTOPPM
+$	CC 'QUAL' 'P1' RGB3TOPPM
+$	CC 'QUAL' 'P1' SLDTOPPM
+$	CC 'QUAL' 'P1' SPCTOPPM
+$	CC 'QUAL' 'P1' SPUTOPPM
+$	CC 'QUAL' 'P1' TGATOPPM
+$	CC 'QUAL' 'P1' XIMTOPPM
+$	CC 'QUAL' 'P1' XPMTOPPM
+$	CC 'QUAL' 'P1' YUVTOPPM
+$
+$	Lib/Create/Object LIBPPM.OLB	LIBPPM1.OBJ,LIBPPM2.OBJ,LIBPPM3.OBJ,-
+					LIBPPM4.OBJ,LIBPPM5.OBJ
+$
+$	Link_Libs	= ",LIBPPM/LIB"	+ ",PGM$:LIBPGM/LIB" + -
+			  ",PBM$:LIBPBM/LIB"	+ ""
+$
+$	Link GIFTOPPM	'Link_Libs'
+$	Link GOULDTOPPM	'Link_Libs'
+$	Link ILBMTOPPM	'Link_Libs'
+$	Link IMGTOPPM	'Link_Libs'
+$	Link MTVTOPPM	'Link_Libs'
+$	Link PCXTOPPM	'Link_Libs'
+$	Link PGMTOPPM	'Link_Libs'
+$	Link PI1TOPPM	'Link_Libs'
+$	Link PICTTOPPM	'Link_Libs'
+$	Link PJTOPPM	'Link_Libs'
+$	Link PPMDITHER	'Link_Libs'
+$	Link PPMFORGE	'Link_Libs'
+$	Link PPMHIST	'Link_Libs'
+$	Link PPMMAKE	'Link_Libs'
+$	Link PPMPAT	'Link_Libs'
+$	Link PPMQUANT	'Link_Libs'
+$	Link PPMRELIEF	'Link_Libs'
+$	Link PPMTOACAD	'Link_Libs'
+$	Link PPMTOGIF	'Link_Libs'
+$	Link PPMTOICR	'Link_Libs'
+$	Link PPMTOILBM	'Link_Libs'
+$	Link PPMTOPCX	'Link_Libs'
+$	Link PPMTOPGM	'Link_Libs'
+$	Link PPMTOPI1	'Link_Libs'
+$	Link PPMTOPICT	'Link_Libs'
+$	Link PPMTOPJ	'Link_Libs'
+$	Link PPMTOPUZZ	'Link_Libs'
+$	Link PPMTORGB3	'Link_Libs'
+$	Link PPMTOSIXEL	'Link_Libs'
+$	Link PPMTOTGA	'Link_Libs'
+$	Link PPMTOUIL	'Link_Libs'
+$	Link PPMTOXPM	'Link_Libs'
+$	Link PPMTOYUV	'Link_Libs'
+$	Link QRTTOPPM	'Link_Libs'
+$	Link RAWTOPPM	'Link_Libs'
+$	Link RGB3TOPPM	'Link_Libs'
+$	Link SLDTOPPM	'Link_Libs'
+$	Link SPCTOPPM	'Link_Libs'
+$	Link SPUTOPPM	'Link_Libs'
+$	Link TGATOPPM	'Link_Libs'
+$	Link XIMTOPPM	'Link_Libs'
+$	Link XPMTOPPM	'Link_Libs'
+$	Link YUVTOPPM	'Link_Libs'
+$
+$	Exit

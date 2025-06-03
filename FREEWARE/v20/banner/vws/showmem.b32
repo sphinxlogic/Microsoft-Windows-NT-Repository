@@ -1,0 +1,676 @@
+From:	STAR::UG::HIDER "Paul Hider, ZKO3-2/S30  28-Apr-1988 1643" 28-APR-1988 16:45:28.65
+To:	STAR::HOBBS
+CC:	
+Subj:	banner suggestion
+
+CW,
+
+I am cleaning up by dumps on WORK3!
+
+The attached little program examines the two UIS system pools and the current
+process P1 UIS pool.  I was thinking that a neat enhacement would be to
+have this info available in the banner.  The one thing which seems
+to give us the most trouble at the moment is the UIS P1 pool for
+VWS$EMULATORS..
+
+Thought you might like to consider it...
+
+Paul.
+
+
+
+	.TITLE	SHOW$MEMORY - SHOW MEMORY RESOURCES
+	.IDENT	'V04-000'
+
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1978, 1980, 1982, 1984 BY				    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+
+;++
+; FACILITY:	SHOW COMMAND
+;
+; ABSTRACT:
+;
+;	This image implements the SHOW MEMORY command option.
+;
+; ENVIRONMENT:
+;
+;	Runs in User, Exec and Kernel mode. Raises IPL to ASTDEL and MAILBOX.
+;	Holds PGDYNMTX Mutex to collect paged pool statistics.
+;	Holds I/O Data Base Mutex to determine paging device.
+;
+; AUTHOR : Thomas S. Clark, Creation Date: 30-Jul-1980
+;
+; MODIFIED BY:
+;
+;--
+	.PAGE
+	.SBTTL	DECLARATIONS
+
+;
+; INCLUDE FILES:
+;
+
+	.nocross
+	$DDBDEF				;DDB DEFINITIONS
+	$DVIDEF				;$GETDVI REQUEST CODES
+	$FCBDEF				;FCB DEFINITIONS
+	$IPLDEF				;IPL DEFINITIONS
+	$IRPDEF				;IRP DEFINITIONS
+	$JPIDEF				;$GETJPI REQUEST CODES
+	$NDTDEF				;ADAPTER TYPE CODES
+	$PCBDEF				;PROC CTL BLK DEFINITIONS
+	$PFLDEF				;PAGING FILE DEFINITIONS
+	$PFNDEF				;PFN DATABASE DEFINITIONS
+	$PRDEF				;PROCESSOR REGISTER NUMBERS
+	$RPBDEF				;RESTART PARAMETER BLOCK DEFS
+	$SSDEF				;SYSTEM STATUS CODES
+	$UCBDEF				;UCB DEFINITIONS
+	$WCBDEF				;WCB DEFINITIONS
+	.cross
+
+.library 'shrlib$:VWSSYSDEF'
+	$qvbdef
+
+
+.library 'shrlib$:uis'
+	$uissysdef
+	$uisdef
+
+;
+; MACROS:
+;
+
+;
+; MACRO TO CALL SHOW$PRINT_MSG TO TYPE A LINE(S)
+;
+	.MACRO	TYPEMSG	MESSAGEID,ARGLIST
+		.IF	B,ARGLIST
+		PUSHL	#0
+		.IFF
+		PUSHAL	G^ARGLIST
+		.ENDC
+		PUSHAL	MESSAGEID
+		CALLS	#2,G^SHOW$WRITE_LINE
+	.ENDM	TYPEMSG 
+
+;
+; EQUATED SYMBOLS:
+;
+;	LENGTHS FOR PAGING AND SWAP FILE NAMES
+;
+
+	SHOW$C_MEM_SHORT_NAME == 40	; 40 characters for single-line display
+	SHOW$C_MEM_LONG_NAME  == 78	; 78 characters for full display
+
+
+	EVENT_FLAG = 1			; Event flag for $GETJPI use
+
+;
+; BIT FIELD DEFINITIONS FOR QUALIFIER PRESENCE LONGWORD
+;
+
+	_VIELD	MEMORY,0,<-
+		<PHYS,,M>,-		; /PHYSICAL_MEMORY
+		<SLOT,,M>,-		; /SLOTS
+		<POOL,,M>,-		; /POOL
+		<FILE,,M>,-		; /FILES
+		<FULL,,M>,-		; /FULL
+		<ALL,,M>,-		; /ALL
+		>
+
+;
+; OWN STORAGE:
+;
+
+	.PSECT	SHOW$RWDATA	LONG,RD,WRT,NOEXE
+	.ALIGN	LONG			; LOCATION COUNTER BACK TO LONGWORD 
+
+;LOCKED_CODE_RANGE:			; Range of code that executes 
+;	.ADDRESS	BEGIN_LOCKED_CODE	; above ASTDEL
+;	.ADDRESS	END_LOCKED_CODE - 1
+
+MEMORY_L_BITLIS:
+	.LONG	0			; QUALIFIER BIT LIST
+
+HEADER_LIST:
+	.LONG	0,0			; TIME/DATE TO FORCE CURRENT TIME/DATE
+
+;
+;	MEMORY FAO ARGUMENT LIST
+;
+
+QVB:	.BLKL	1
+QBE:	.BLKL	1
+QVSSDESC:	.BLKL	2
+dev:	.ascid	/SYS$WORKSTATION/
+chan:	.blkl	1
+iosb:	.blkl	2
+
+SHOW_MEM_PHY:
+MEM_MB_1:
+	.BLKL	1			; SPACE FOR PHYSICAL COUNT IN MB (INTEGER)
+	.LONG	MEM_MB_DESC		; DESCRIPTOR FOR FRACTIONAL MB COUNT
+MEM_PHY_PAGES:
+	.BLKL	1			; SPACE FOR COUNT OF PHYSICAL PAGES
+MEM_FREE_PAGES:
+	.BLKL	1			; SPACE FOR COUNT OF FREE PAGES
+MEM_USED_PAGES:
+	.BLKL	1			; SPACE FOR COUNT OF PAGES IN USE
+MEM_MODF_PAGES:
+	.BLKL	1			; SPACE FOR COUNT OF MODIFIED PAGES
+
+MEM_BAD_LIST:
+	.BLKL	1			; SPACE FOR SIZE OF BAD PAGE LIST
+MEM_BAD_PAGES:
+	.BLKL	1			; SPACE FOR COUNT OF BAD PAGES
+MEM_OTHER_PAGES:
+	.BLKL	1			; COUNT OF OTHER PAGES ON BAD PAGE LIST
+MEM_BOOT_PAGES:
+	.BLKL	1			; PAGES DISCARDED DURING BOOTSTRAP
+
+MEM_MB_DESC:
+	.LONG	2			; DESCRIPTOR FOR FRACTIONAL PART
+	.BLKL	1			; OF COUNT IN MB
+MEM_MB_TEXT:
+	.ASCII	/00  25  50  75  /	; FRACTIONS
+
+LOCAL_MEMORY:
+	.BLKL	1			; TOTAL AMOUNT OF LOCAL MEMORY
+SHARED_MEMORY:
+	.BLKL	1			; TOTAL AMOUNT OF MULTIPORT MEMORY
+
+;
+;	LAST PARAGRAPH FAO ARGUMENT LISTS
+;
+
+PARA_VMS:
+	.BLKL	1			; SPACE FOR SIZE OF VMS
+
+;
+;	SLOT FAO ARGUMENT LIST
+;
+
+SHOW_SLOTS_LIST:
+SLOTS_TOTAL:
+	.BLKL	1			; SPACE FOR TOTAL # OF SLOTS
+SLOTS_FREE:
+	.BLKL	1			; SPACE FOR # OF FREE SLOTS
+SLOTS_RES:
+	.BLKL	1			; SPACE FOR # OF RESIDENT SLOTS
+SLOTS_NONRES:
+	.BLKL	1			; SPACE FOR # OF "NON-RESIDENT" SLOTS
+
+; FAO argument list for variable sized pool displays
+
+SHOW_POOL_LIST:
+MEM_TYPE:
+	.BLKL	1
+POOL_NAME:
+	.BLKL	1			; ADDRESS OF STRING DESCRIPTOR OF AREA
+LEVEL_TYPE:
+	.BLKL	1
+
+
+SHOW_POOL_LIST2:
+POOL_SIZE:
+	.BLKL	1			; ADDRESS OF DESCRIPTOR OF SIZE PARAMETER
+SHOW_POOL_LIST3:
+SHOW_POOL_LIST4:
+POOL_TOTAL:
+	.BLKL	1			; SPACE FOR TOTAL SIZE OF POOL IN BYTES
+POOL_TOTAL_PAGES:
+	.BLKL	1			; SPACE FOR TOTAL SIZE OF POOL IN PAGES
+SHOW_POOL_LIST5:
+POOL_FREE:
+	.BLKL	1			; SPACE FOR FREE BYTES IN POOL
+POOL_INUSE:
+	.BLKL	1			; SPACE FOR BYTES IN USE IN POOL
+SHOW_POOL_LIST6:
+POOL_MAX_BLOCK:
+	.BLKL	1			; SIZE OF LARGEST BLOCK IN POOL
+POOL_MIN_BLOCK:
+	.BLKL	1			; SIZE OF SMALLEST BLOCK IN POOL
+SHOW_POOL_LIST7:
+POOL_FREE_COUNT:
+	.BLKL	1			; COUNT OF NUMBER OF HOLES IN POOL
+POOL_FREE_LEQU_32:
+	.BLKL	1			; COUNT OF HOLES 32 BYTES OR SMALLER
+
+; Text descriptors that describe each portion of dynamic memory
+
+
+level_table:	.long	lvl0,lvl0,lvl1,lvl2,lvl3,lvl4
+
+lvl0:	.ascid	/non-ast level/
+lvl1:	.ascid	/ast level 1/
+lvl2:	.ascid	/ast level 2/
+lvl3:	.ascid	/ast level 3/
+lvl4:	.ascid	/ast level 4/
+
+MEM_QVSS:	.ascid	/QVSS /
+MEM_SYSTEM:	.ascid	/SYSTEM /
+MEM_P0:		.ascid	/P0 /
+MEM_P1:		.ascid	/P1 /
+
+NPAGEDYN_DESC:
+	.ASCID	\Nonpaged Dynamic Memory      \
+
+PAGEDYN_DESC:
+	.ASCID	\Paged Dynamic Memory \
+
+PRCALLREG_DESC:
+	.ASCID	\Process Dynamic Memory Area  \
+
+BYTES_SIZE_DESC:
+	.ASCID	\bytes\
+
+PAGEDYN_SIZE_DESC:
+	.ASCID	\PAGEDYN\
+
+SRP_NAME_DESC:
+	.ASCID	\SRP\
+
+SRPLIST_DESC:
+	.ASCID	\Small Packet (SRP)\
+
+SRP_SIZE_DESC:
+	.ASCID	\SRPSIZE\
+
+IRP_NAME_DESC:
+	.ASCID	\IRP\
+
+IRPLIST_DESC:
+	.ASCID	\I/O Request Packet (IRP)\
+
+IRP_SIZE_DESC:
+	.ASCID	\fixed\
+
+LRP_NAME_DESC:
+	.ASCID	\LRP\
+
+LRPLIST_DESC:
+	.ASCID	\Large Packet (LRP)\
+
+LRP_SIZE_DESC:
+	.ASCID	\LRPSIZE + 80\
+
+;
+; Text descriptors for the output of SHOW MEMORY
+;
+
+SHOW$_MEM_HEAD1:
+	.ASCID	\              Workstation Memory Resources on !%D\
+SHOW$_MEM_MEMO1:
+	.ASCID	\!/Physical Memory Usage (pages):     Total        Free      In Use    Modified\
+SHOW$_MEM_MEMO2:
+	.ASCID	\  Main Memory !10<(!UL.!ASMb)!>         !7UL     !7UL     !7UL     !7UL\
+
+SHOW$_MEM_MEMO3:
+	.ASCID	\!/  Bad Pages                        Total     Dynamic  I/O Errors      Static!/\-
+    		   \                                 !7UL     !7UL     !7UL     !7UL\
+SHOW$_MEM_PARA1:
+    	.ASCID	\!/Of the physical pages in use, !UL pages are permanently allocated to VMS.\
+
+SHOW$_MEM_POOL1:
+	.ASCID	\!/Dynamic Memory Usage (bytes):      Total        Free      In Use     Largest\
+SHOW$_MEM_POOL2:
+	.ASCID	\  !29AS!+!9UL   !+!9UL   !9UL   !9UL\
+SHOW$_MEM_POOL_FULL1:
+	.ASCID	\!/!AS!AS (!AS)\
+SHOW$_MEM_POOL_FULL2:
+	.ASCID	\    !25<Current Size (!AS)!>!9UL    Current Total Size (pages) !7UL\
+SHOW$_MEM_POOL_FULL3:
+	.ASCID	\    !25<Initial Size (bytes)!>!9UL    Initial Size (pages)       !7UL\
+SHOW$_MEM_POOL_FULL4:
+	.ASCID	\    !25<Maximum Size (NPAGEVIR)!>!9UL    Maximum Size (pages)       !7UL\
+SHOW$_MEM_POOL_FULL5:
+	.ASCID	\    !25<Free Space (bytes)!>!9UL    Space in Use (bytes)     !9UL\
+SHOW$_MEM_POOL_FULL6:
+	.ASCID	\    !25<Size of Largest Block!>!9UL    Size of Smallest Block   !9UL\
+SHOW$_MEM_POOL_FULL7:
+	.ASCID	\    !25<Number of Free Blocks!>!9UL    Free Blocks LEQU 32 Bytes!9UL\
+
+	ASSUME SHOW$C_MEM_SHORT_NAME EQ 40
+	ASSUME SHOW$C_MEM_LONG_NAME  EQ 78
+
+
+	.SBTTL	SHOW$MEMORY Show System Memory Resources
+;++
+; Functional Description:
+;
+;	This routine retrieves information about various system resources,
+;	formats and prints it on SYS$OUTPUT.
+;
+; Calling Sequence:
+;
+;	CALLS	#0,SHOW$MEMORY
+;
+;		The routine is actually called by the CLI as a result of
+;		parsing parameter MEMORY on the SHOW command. 
+;
+; Input Parameters:
+;
+;	None
+;
+; Implicit Input:
+;
+;	Qualifiers specified on the SHOW MEMORY command
+;
+; Output Parameters:
+;
+;	None
+;
+; Implicit Output:
+;
+;	Memory resource information is displayed on SYS$OUTPUT.
+;
+; Completion Codes:
+;
+;	SS$_NORMAL		Normal completion
+;	SS$_LKWSETFUL		Error in locking data for elevated IPL
+;--
+
+	.PSECT	SHOW$CODE BYTE,RD,NOWRT,EXE
+
+	.ENTRY	SHOW$MEMORY,0		; SHOW MEMORY resources routine
+
+;10$:	$LKWSET_S	LOCKED_CODE_RANGE	; Lock code in working set
+;	BLBC	R0,90$			; Exit if error occurred
+					; Will be unlocked by image rundown
+
+	CALLS	#0,OPEN_OUTPUT	
+
+;  Print header line for all displays
+
+	TYPEMSG	SHOW$_MEM_HEAD1,HEADER_LIST
+
+	CALLS	#0,INIT_QBE		; find workstation
+	BLBC	R0,90$
+	CALLS	#0,POOL			; Print variable-sized pool usage
+60$:	MOVZWL	#SS$_NORMAL,R0		; Store status
+90$:
+	RET				;  and exit
+
+	.SBTTL	SHOW POOL USAGE
+;+
+;	SHOW PAGED AND NON-PAGED POOL USAGE
+;	
+;	THIS CODE MUST NOT PAGEFAULT WHILE AT ELEVATED IPL; THEREFORE
+;	IT (AND THE DATA ITEMS IT REFERENCES) ARE LOCKED IN THE WORKING
+;	SET PRIOR TO THE ROUTINE BEING CALLED.
+;
+;	THIS ROUTINE DISPLAYS THE TOTAL NUMBER OF BYTES IN EACH POOL,
+;	THE NUMBER OF BYTES IN USE, AND THE NUMBER OF FREE BYTES.
+;	THE NON-PAGED POOL IS SUBDIVIDED INTO THE FIXED LENGTH LOOKASIDE
+;	LISTS AND THE VARIABLE-LENGTH SEGMENTS. THE FIXED LENGTH NON-PAGED
+;	POOL IS SUBDIVIDED INTO IRP PACKETS AND BIG BLOCKS.
+;-
+
+POOL:
+	.WORD	^M<R2>				; Save R2
+
+	MOVAB	MEM_SYSTEM,MEM_TYPE
+	MOVL	G^uis$gl_usb,r0
+	pushl	usb$a_uw_pool(r0)
+	CALLS	#1,POOL_PAGEDYN
+
+	MOVAB	MEM_QVSS,MEM_TYPE
+	MOVL	QBE,R2
+	PUSHL	QBE$A_UW_POOL(R2)		; ard
+	CALLS	#1,POOL_PAGEDYN
+
+;	MOVAB	MEM_P0,MEM_TYPE
+;	MOVL	G^uis$ga_p0_pool,-(SP)
+;	CALLS	#1,POOL_PAGEDYN
+
+	MOVAB	MEM_P1,MEM_TYPE
+	MOVL	G^uis$ga_p1_pool,-(SP)
+	CALLS	#1,POOL_PAGEDYN
+
+	RET					; That's all for SHOW MEMORY
+
+	.SUBTITLE	POOL_PAGEDYN	Scan paged Dynamic Memory
+
+;+
+;	POOL_PAGEDYN	Scan paged Dynamic Memory
+;
+;  This routine scans paged pool and returns current usage information.
+;
+;  Calling sequence:
+;
+;	CALLS	#0,POOL_PAGEDYN
+;
+;  Input parameters:
+;
+;
+;  Output parameters:
+;
+;	POOL_TOTAL	Total amount of space set aside for this area
+;
+;	POOL_FREE	Total amount of unallocated (free) space
+;
+;	POOL_INUSE	Amount of space currently in use (TOTAL - FREE)
+;
+;	POOL_FREE_COUNT	Number of discontiguous free blocks
+;
+;	POOL_MAX_BLOCK	Size of largest contiguous area
+;
+;	POOL_MIN_BLOCK	Size of smallest unallocated block
+;-
+
+.entry	POOL_PAGEDYN,^M<R2,R3,R4,R5,R6,R7,r8,R9>	; Save some registers
+
+;	MOVAL	G^EXE$GL_NONPAGED,R2	; Get nonpaged pool listhead
+;	DSBINT	(R2)+			; Set IPL for pool access
+
+	MOVL	4(AP),R8		; ard
+
+	CLRL	R9
+5$:	MOVAL	ARD$G_FREE_LISTS(R8)[R9],R2
+	TSTL	(R2)
+	BEQL	10$
+	BSBW	SCAN_SINGLY_LINKED_LIST	; Get free space, minimum, and maximum
+;	ENBINT				; Allow interrupts
+	MOVL	R3,POOL_FREE_COUNT	; Save total number of free blocks,
+	MOVL	R4,POOL_FREE_LEQU_32	;  count of blocks 32 bytes or smaller,
+	MOVL	R5,POOL_FREE		;  total number of free bytes,
+	MOVL	R6,POOL_MAX_BLOCK	;  size of maximum block,
+	MOVL	R7,POOL_MIN_BLOCK	;  and size of minimum block
+
+	movab	level_table,r0
+	MOVL	(r0)[R9],level_type
+	MOVAW	L^PAGEDYN_DESC,L^POOL_NAME	;  add a name identifier,
+	MOVAW	L^PAGEDYN_SIZE_DESC,L^POOL_SIZE	;  and a size identifier.
+;	MOVL	G^SGN$GL_PAGEDYN,R0		; Get total pool size
+	clrl	r0
+	CLRL	R2				; Indicate not nonpaged pool
+	BSBW	DISPLAY_POOL			;  and print the information
+10$:	INCL	R9
+	CMPL	#5,R9
+	BGEQ	5$
+	MOVZWL	#SS$_NORMAL,R0
+	RET
+
+	.SUBTITLE	SCAN_SINGLY_LINKED_LIST	Scan memory-ordered list
+
+;+
+;  Functional Description:
+;
+;	This routine scans a memory-ordered singly linked list of blocks and
+;	returns the total amount of free space , the number of free blocks,
+;	the number of free blocks 32 bytes or smaller, and the sizes of the
+;	largest and smallest blocks. 
+;
+;  Calling sequence:
+;
+;	BSBW	SCAN_SINGLY_LINKED_LIST
+;
+;  Input parameter:
+;
+;	R2	Address of listhead for pool area.
+;
+;  Output parameters:
+;
+;	R3	Number of distinct free blocks
+;	R4	Number of free blocks 32 bytes or smaller
+;	R5	Total amount of free space
+;	R6	Size of largest block
+;	R7	Size of smallest block
+;
+;  This routine assumes that the caller has taken whatever synchronization
+;  measures are necessary for the pool area being scanned.
+;-
+
+SCAN_SINGLY_LINKED_LIST:
+	CLRQ	R3			; Clear two free block counters
+	CLRQ	R5			; Set sum and maximum to zero
+	MCOML	#0,R7			; Set minimum to "infinite"
+	MOVL	(R2),R2			; Get contents of first block
+	BEQL	40$			; If zero, then pool is empty
+10$:	INCL	R3			; Count another free block
+	ADDL2	4(R2),R5		; Count this block in sum
+	CMPL	#32,4(R2)		; Is block 32 bytes or smaller?
+	BLSSU	15$			; Branch if larger than 32 bytes
+	INCL	R4			; Otherwise, count another "small" block
+15$:	CMPL	4(R2),R6		; Is this block bigger than maximum?
+	BLEQU	20$			; Branch if not bigger
+	MOVL	4(R2),R6		; Otherwise, record new maximum
+20$:	CMPL	4(R2),R7		; Is this block smaller than minimum?
+	BGEQU	30$			; Branch if not smaller
+	MOVL	4(R2),R7		; Otherwise, record new minimum
+30$:	MOVL	(R2),R2			; Get next block
+	BNEQ	10$			; Go back to top of loop if more
+	RSB				; Return to caller
+
+; This pool area is empty. Set minimum size to zero.
+
+40$:	CLRL	R7			; Set minimum to zero
+	RSB				; Return to caller
+
+END_LOCKED_CODE:			; End of code that executes above IPL 2
+
+	.SUBTITLE	DISPLAY_POOL Output Routine for Dynamic Memory Displays
+
+;+
+; Functional Description:
+;
+;	This routine performs the common output and display functions for
+;	the three variable sized dynamic memory areas. The routine decides
+;	whether a normal or full display is requested. If a full display
+;	is being produced, and thnonpaged dynaimc memory is the area being
+;	displayed, two additional lines of output are produced.
+;
+; Calling Sequence:
+;
+;	BSBW	DISPLAY_POOL
+;
+; Input Parameters:
+;
+;	R0	Size in bytes of area being displayed
+;
+;	R8	ard 
+;
+; Implicit Input:
+;
+;	Setting of MEMORY_V_FULL bit in MEMORY_L_BITLIS
+;
+;	Contents of cells in FAO parameter list for pool displays
+;
+; Output Parameters:
+;
+;	Several cells in FAO parameter list for pool displays
+;
+;		POOL_TOTAL
+;		POOL_INUSE
+;		POOL_TOTAL_PAGE	(full display only)
+;
+; Implicit Output:
+;
+;	Displays of pool statistics for specified pool area are written
+;	to SYS$OUTPUT.
+;-
+
+DISPLAY_POOL:
+	MOVL	ard$l_start_size(R8),R0	; Get initial pool size ***?
+	MOVL	R0,POOL_TOTAL		; Store pool size in FAO parameter list
+	SUBL3	POOL_FREE,R0,POOL_INUSE	; INUSE = TOTAL - FREE
+	ADDL2	#511,R0			; Round size to next page boundary
+	ASHL	#-9,R0,POOL_TOTAL_PAGES	; Convert to page count
+;	BBS	#MEMORY_V_FULL,MEMORY_L_BITLIS,10$	; Was /FULL specified?
+;	TYPEMSG	SHOW$_MEM_POOL2,SHOW_POOL_LIST	; No. Print normal display
+;	RSB				;  and return to caller
+
+; A full display was requested in the SHOW MEMORY command
+
+10$:	TYPEMSG	SHOW$_MEM_POOL_FULL1,SHOW_POOL_LIST
+;***	TYPEMSG	SHOW$_MEM_POOL_FULL2,SHOW_POOL_LIST2
+
+; Skip next two displays unless nonpaged pool
+
+	MOVL	ard$l_start_size(R8),POOL_TOTAL	; Get initial pool size
+	ADDL3	#511,POOL_TOTAL,R0	; Round up to next page boundary
+	ASHL	#-9,R0,POOL_TOTAL_PAGES	; Convert to pages
+	TYPEMSG	SHOW$_MEM_POOL_FULL3,SHOW_POOL_LIST3
+;	MOVL	G^SGN$GL_NPAGEVIR,POOL_TOTAL	; Get maximum pool size
+;	ADDL3	#511,POOL_TOTAL,R0	; Round up to next page boundary
+;	ASHL	#-9,R0,POOL_TOTAL_PAGES	; Convert to pages
+;	TYPEMSG	SHOW$_MEM_POOL_FULL4,SHOW_POOL_LIST4
+	
+20$:	TYPEMSG	SHOW$_MEM_POOL_FULL5,SHOW_POOL_LIST5	; Display usage data
+	TYPEMSG	SHOW$_MEM_POOL_FULL6,SHOW_POOL_LIST6	; Display upper bound
+	TYPEMSG	SHOW$_MEM_POOL_FULL7,SHOW_POOL_LIST7	; Display lower bound
+	RSB				; Return to caller
+
+
+
+
+
+.entry	init_qbe, ^M<r10,r11>
+
+	tstl	qvb		; been here before
+	beql	5$
+	brw	7$
+5$:
+	$assign_s chan = chan,devnam=dev
+	blbc	r0,10$
+	movl	#io$c_qv_getsys,r0
+	moval	qvssdesc,r1
+	$qiow_s func = #io$_sensemode,- ; Ask for ptr of QVSS block
+		chan = chan,-
+		efn  = #0,-
+		iosb = iosb,-
+		P1   = (r0),-	; ITEM CODE
+		p2   = r1		; Store QVSS descriptor here
+	blbc	r0,10$
+	movzwl	iosb,r0			; Get final I/O status
+	blbc	r0,10$
+	
+	movl	qvssdesc+4,R11		;
+	movl	R11,qvb
+	movl	qvb$l_context(r11),R10
+	movl	R10,qbe
+7$:	movl	#1,r0
+10$:	ret
+
+
+	.END	SHOW$MEMORY

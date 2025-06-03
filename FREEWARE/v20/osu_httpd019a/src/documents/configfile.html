@@ -1,0 +1,439 @@
+<HTML>
+<HEAD>
+<TITLE>Configuration rules file</TITLE>
+</HEAD>
+<BODY>
+<H1>Format of rules file</H1>
+The server configurations file (a.k.a rules file) is a text file that the
+server reads at program startup.  It contains commands (rules) that
+customize the server operation for a particular environment.
+<DL>
+<DT><H2>Directory:</H2><DT>
+<DD>
+  Select link to jump directly to section of interest.
+  <DL>
+    <DT><A HREF="#transrules">Translation Rules</A></DT>
+    <DD>
+	<A HREF="#rule_exec">exec</A>, <A HREF="#rule_fail">fail</A>,
+	<A HREF="#rule_map">map</A>, <A HREF="#rule_pass">pass</A>,
+	<A HREF="#rule_redirect">redirect</A>,
+	<A HREF="#rule_userdir">userdir</A>,
+	<A HREF="#rule_usermap">usermap</A>
+    </DD>
+    <DT><A HREF="#dmaprules">Data Mapping Rules</A></DT>
+    <DD>
+	<A HREF="#rule_suffix">suffix</A>,
+	<A HREF="#rule_presentation">presentation</A>
+    </DD>
+    <DT><A HREF="#browserrules">Directory Browsing Rules</A></DT>
+    <DD>
+	<A HREF="#rule_diraccess">diraccess</A>,
+	<A HREF="#rule_welcome">welcome</A>
+    </DD>
+    <DT><A HREF="#protrules">Protection Rules</A></DT>
+    <DD>
+	<A HREF="#rule_auth">authenticator</A>,
+	<A HREF="#rule_defprot">defprot</A>,
+	<A HREF="#rule_hostprot">hostprot</A>,
+	<A HREF="#rule_protect">protect</A>
+    </DD>
+    <DT><A HREF="#logrules">Logging file Rules</A></DT>
+    <DD>
+	<A HREF="#rule_accesslog">accesslog</A>,
+	<A HREF="#rule_dnslookup">dnslookup</A>,
+	<A HREF="#rule_trace">tracelevel</A>,
+	<A HREF="#rule_eventcount">eventcounter</A>
+    </DD>
+    <DT><A HREF="#netrules">Network Configuration Rules</A></DT>
+    <DD>
+	<A HREF="#rule_hostname">hostname</A>,
+	<A HREF="#rule_localaddress">localaddress</A>,
+	<A HREF="#rule_port">port</A>
+    </DD>
+    <DT><A HREF="#MSTrules">MST Configuration Rules</A></DT>
+    <DD>
+	<A HREF="#rule_threadpool">threadpool</A>,
+	<A HREF="#rule_service">service</A>
+    </DD>
+    <DT><A HREF="#miscrules">Miscellaneous Rules</A></DT>
+    <DD>
+	<A HREF="#rule_comment"># (comment)</A>,
+	<A HREF="#rule_htbin">htbin</A>,
+	<A HREF="#rule_mapimage">mapimage</A>,
+	<A HREF="#rule_include">include</A>,
+	<A HREF="#rule_search">search</A>
+    </DD>
+    <DT><A HREF="#operation">Operation</A></DT>
+    <DD></DD>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="transrules"><H2>Translation Rules</H2></A></DT>
+<DD>
+<!-- ============================================================ -->
+Translation rules screen and direct processing of request based upon
+its URL.<P>
+  <DL>
+    <DT><strong><A NAME="rule_exec">exec</A></strong> <em>dir-template</em>
+		<em>[%service:|node::["obj-spec"]]script-directory</em></DT>
+    <DD>If URL matches <em>dir-template</em>, invoke script in corresponding
+    script directory specified by <em>script-directory</em>.  Note that 
+    <em>dir-template</em> must be in unix format (/dir/dir...) and
+    <em>script-directory</em> must be in VMS format (disk[dir]).  If the
+    <em>script-directory</em> is prefixed with a DECnet node, the
+    script task will be started on that node instead of the default
+    (0:: or node part of WWWEXEC logical).  If the <em>script-directory</em>
+    is prefixed with a MST service name (flagged by '%' and ':'), the
+    script will be handled by an internal connection to a service thread.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_fail">fail</A></strong> <em>template</em></DT>
+    <DD>Prohibit access to addresses matching template.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_map">map</A></strong> <em>template</em> <em>result</em>
+    <DD>If address matches template, use result string for future rules.  Template
+    and result must be in unix file specification format (/device/dir/dir/...).
+    </DD><P>
+
+    <DT><strong><A NAME="rule_pass">pass</A></strong> <em>template</em> <em>[result]</em></DT>
+    <DD>if address matches the template, use it as is.  If result argument
+    is present, perform map operation and use translation.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_redirect">redirect</A></strong> <em>template</em> <em>url</em></DT>
+    <DD>If address matches template, a redirect will be sent to the client
+    redirecting it to the specified URL.  The URL must be in absolute
+    format (include scheme and host).  Local redirects are redundant
+    since they can be handled by map directives.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_userdir">userdir</A></strong> <em>sub-dir</em></DT>
+    <DD>if address matches template /~username/xxx, replace with
+    /device/directory/sub-dir/xxx where device and directory are specified
+    username's default device and directory.  Note that sub-dir string must 
+    not have a leading slash. (e.g. <code>userdir web</code>).
+    </DD><P>
+
+    <DT><strong><A NAME="rule_usermap">usermap</A></strong> <em>template</em>
+	 <em>map-arg</em> <em>rtn,image,[dir]</em></DT>
+    <DD>if address matches template, call user-supplied mapping routine
+    specified by <em>rtn,image,[dir]</em> (loaded at startup via
+    LIB$FIND_IMAGE_SYMBOL).  The mapping routine can rewrite the address
+    and return a code to either continue with the next rule (effecitively
+    a Map rule) or exit with success or failure (Pass, Redirect, Exec,
+    Fail).  The <em>map-arg</em> argument may be used to pass configuration
+    data to the map routine.
+    </DD><P>
+
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="dmaprules"><H2>Data Mapping Rules</H2></A></DT>
+<DD>
+The data mapping rules <strong>suffix</strong> and
+<strong>presentation</strong> control how the server reads and presents the 
+contents of the files it serves.
+  <DL>
+    <DT><strong><A NAME="rule_suffix">suffix</A></strong> <em>[.sfx|*|*.*]
+	</em> <em>data-type</em> <em>encoding[/ce]</em> <em>[quality]</em></DT>
+    <DD>Bind data-type to file suffix.  Special values for suffix fields are
+	* (match any file that hasn't matched another suffix) and *.* (
+	(match file with suffix that hasn't matched another suffix).
+	The data-type field is the MIME content-type.  Encoding is the
+        content transfer encoding to use (only binary, 8bit, 7bit supported)
+        with an optional content encoding (e.g. x-gzip).
+    </DD><P>
+
+    <DT><strong><A NAME="rule_presentation">presentation</A></strong> 
+	<em>data-type</em> <em>[node::["obj-spec"]]converter-script</em></DT>
+    <DD>If data-type of document matches <em>data-type</em>, use converter
+	script specified by <em>converter-script</em> to convert document,
+	returning result to client instead of original document.  Note that
+	<em>converter-script</em> must be in VMS format, the default
+	directory for the converter script is WWW_ROOT:[000000]. If the
+    <em>converter-script</em> is prefixed with a DECnet node, the
+    script task will be started on that node instead of the default
+    (0:: or node part of WWWEXEC logical).
+	<P>For directory URLs (ends in slash) the server checks for
+	   a presentation definition of the implied data type
+	   text/file-directory and will invoke the corresponding converter
+	   script if found.  Note that when a text/file-directory converter
+	   is used, the config file's <A HREF="#browserrules">browser rules</A>
+	   do not apply (i.e. the converter has it's own configuration file).
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="browserrules"><H2>Directory Browsing Rules</H2></A></DT>
+<DD>
+The directory browsing rules <strong>diraccess</strong> and
+<strong>welcome</strong> control how the server processes requests where
+the URL specifies a directory.<P>
+  <DL>
+    <DT><strong><A NAME="rule_diraccess">diraccess</A></strong>
+	[<em>on</em>|<em>off</em>|<em>selective</em> [<em>control-file</em>]]
+    <DD>
+	Enables/Disables directory browsing. Specifying a keyword of
+	"on" (the default) enables the server to generate directories while
+	the keyword "off" disables browsing.  The "selective" keyword makes
+	the browsing conditional upon the existence in that directory of
+	a control file (default: .www_browsable).
+    </DD><P>
+    <DT><strong><A NAME="rule_welcome">welcome</A></strong>
+	<em>file-name</em></DT>
+    <DD>Adds <em>file-name</em> to list of default file names to search for when
+	the requested URL is a directory (ends in slash).  The files are
+	searched for in the same order as they appear in the configuration
+	file.  If one of the files is found, the server sends a redirect to the
+	client directing it to that filename.<P>
+	If no welcome directives are defined, the server uses a
+	default list of index.html, index.htmlx for compatibilty with
+	previous releases.  Defining a presentation rule for data type 
+	text/file-directory will take precedence over any welcome file
+	definitions.
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="protrules"><H2>Protection Rules</H2></A></DT>
+<DD>
+The protection rules restrict access to the server resources based upon
+who the user is.<P>
+  <DL>
+    <DT><strong><A NAME="rule_auth">authenticator</A></strong> <em>image</em></DT>
+    <DD>The authenticator rule specifies the name of the authenticator image
+    used to validate accesses to files protected with 
+    <strong>protect</strong> rule.  This image is run by a sub process
+    created by the server at initialization.  If an authenticator is not 
+    present, any attempts to access files protected by <strong>protect</strong>
+    rules will automatically fail.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_defprot">defprot</A></strong> <em>dir-template</em> 
+		<em>protection-setup-file</em></DT>
+    <DD>Sets default protection setup file for <strong>protect</strong> and
+	<strong>hostprot</strong> directives.
+
+    </DD><P>
+
+    <DT><strong><A NAME="rule_hostprot">hostprot</A></strong> <em>template</em> 
+		<em>[protection-setup-file]</em></DT>
+    <DD>Same as <strong>protect</strong> command below except that 
+	simpler (level 1)
+	protection checks take place.  Only maskgroup directives in setup
+	file are processed and only items without usernames (i.e. 
+	@xxx.xxx.xxx.xxx) are checked.  Note that authenticator does 
+	<em>not</em> have be run in order to use <strong>hostprot</strong>.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_protect">protect</A></strong> <em>dir-template</em> 
+		<em>[protection-setup-file]</em></DT>
+    <DD>If address matches <em>dir-template</em>, validate access against
+	that granted by corresponding protection setup file.  The setup file
+	may be sepcified in either UNIX or VMS format.
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="logrules"><H2>Logging File Rules</H2></A></DT>
+<DD>
+The server has 2 different log files.  The access log records each access
+using the common server log format for use by programs like getstats.  The
+trace/error log is used by the server to report diagnostic information.<P>
+  <DL>
+    <DT><strong><A NAME="rule_accesslog">accesslog</A></strong> <em>logfile</em></DT>
+    <DD>Enables logging of client accesses to specified log file using
+	'common' Web server log file format.  The specified file (VMS or
+	UNIX format) is opened for append or created if it does not
+	exist.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_dnslookup">dnslookup</A></strong> [<em>on</em>|<em>off</em>]</DT>
+    <DD>Enables/Disables Domain Name Server lookups of the host names for
+	remote clients.  If disabled (the default), the log file reports the
+        host by IP address.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_trace">tracelevel</A></strong> <em>level</em> <em>[tracefile]</em></DT>
+    <DD>Set trace level and trace file for debugging.  You may specify 
+	<em>level</em>
+	as either a numeric constant or an environment variable (DCL symbol)
+	name.  The trace level has the same meaning as the environment
+	variable http_log_level and will override it.  The optional tracefile
+	parameter specifies a separate file to record the trace, if missing,
+	trace entries will go to the standard error log file.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_eventcount">eventcounter</A></strong> 
+[<em>clients</em>|<em>hostclass</em> <em>class</em> [~]<em>mask</em>]</DT>
+    <DD>Define or enable event counters.  The <em>clients</em> counter, 
+	when enabled, counts number of connections and keeps a histogram
+	of concurrency (overlap) of the requests.  
+	<P>The <em>hostclass</em> counter,
+	when enabled, causes the server to compare the remote client address
+	against each hostmask and increment the counter for the corresponding
+	class.
+	Hostmask is an ip-address or, if DNSLookup is on, domain name.  A 
+	single asterik may be used to wildcard labels (strings delimited by 
+	periods) in the mask.
+<P>
+        A mask prefixed with a tilda (~) negates the sense of the test.
+        For a counter to be incremented, at least one non-negated mask
+        must match or none of the negated hosts must match.
+    </DD><P>
+
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="netrules"><H2>Network Configuration Rules</H2></A></DT>
+<DD>
+The network configuration rules control how the server presents itself
+to the TCP/IP network.<P>
+  <DL>
+    <DT><strong><A NAME="rule_hostname">hostname</A></strong> <em>name</em></DT>
+    <DD>Sets the name the server will use when generating redirects.  If this
+    rule is not present in the rule file, the server will use the environment
+    variable HTTP_DEFAULT_HOST.
+    </DD><P>
+    <DT>(1)<strong><A NAME="rule_localaddress">localaddress</A></strong> <em>ip-address</em></DT>
+    <DD>Configures the server to listen for requests on a specific interface
+     on a multi-homed host.  This permits one host to run multiple servers
+     with a different configuration file for each ip-address homed to that
+     host.  The <em>ip-address</em> must be specified in numeric 'dot' format.
+     <P>
+     When using this feature, the default management host address is changed
+     from 127.0.0.1 (localhost) to the <em>ip-address</em>.
+    </DD><P>
+    <DT>(2)<strong><A NAME="rule_localadr2">localaddress</A></strong> 
+	<em>ip-address</em> <em>hostname</em></DT>
+    <DD>Configures the server to listen for requests on the indicated interface
+     on a multi-homed host and apply subsequent rules only to requests received
+     on that interface.  This permits one server to return different root
+     pages based upon the ip-address (domain name) used.  The next 
+     localaddress rule will 
+     close the block of  rules specific to the current interface.
+     The <em>ip-address</em> must be specified in numeric 'dot' format.
+    <P>
+     When using this feature, the default management host address is changed
+     from 127.0.0.1 (localhost) to the first <em>ip-address</em> defined.
+    </DD><P>
+    <DT>(3)<strong><A NAME="rule_localadr3">localaddress</A></strong>
+    <DD>
+    Terminates last localaddress block, subsequent rules will apply to
+    all request regardless of the interface used.
+    </DD><P>
+    <DT><strong><A NAME="rule_port">port</A></strong> <em>port-num</em> 
+	[<em>nocache-port</em>]</DT>
+    <DD>
+    Sets the port number the server will listen for connections on, overriding
+    the command line argument.  If the optional <em>nocache-port</em> is present,
+    server will listen on that port as well but bypass the cache (if present)
+    when serviing requests.  You may specify <em>port</em> or
+    <em>nocache-port</em> as either a numeric constant or an environment 
+    variable (DCL symbol) name.    The nocache port may be the same as the
+    regular port.
+    <P>
+    If rule not present, default is 80 or 3rd command line argument if
+    not null.
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="MSTrules"><H2>MST Configuration Rules</H2></A></DT>
+<DD>
+The MST configuration rules control the creation and attributes of MSTs 
+(Message-based Service Threads) and bind service names to MST start routines
+for these threads.  The service name, when specified as the target 'node'
+in a <A HREF="#rule_exec">exec</A> rule, causes an MST to be created
+to service the script request rather than a DECnet task.
+<P>
+  <DL>
+    <DT><strong><A NAME="rule_threadpool">threadpool</A></strong>
+	<em>pool-name</em> [<em>keyword=value ...</em>]
+    <DD>Creates a thread pool with specified attributes and assigns
+        it indicated name.  Attributes keywords: stack - thread stack
+        size; q_flag - Indicates (1/0) whether connect should wait
+	for available thread or fail immediately; limit - Maximum number
+        of threads in pool.
+    </DD><P>
+    <DT><strong><A NAME="rule_service">service</A></strong>
+	<em>service-name</em> <em>[keyword=value [...]]</em>
+    <DD>Define service name for an MST scriptserver and assign
+        its attributes.  Attributes keywords: pool - name of thread pool
+        to use; builtin - scriptserver start routine (mapimage, cgifork);
+   	dynamic - shareable image scriptserver (start,image[,dir]);
+	info - optional argument; init - share image init routine.
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+<DT><A NAME="miscrules"><H2>Miscellaneous Rules</H2></A></DT>
+<DD>
+Other rules.<P>
+  <DL>
+    <DT><strong><A NAME="rule_comment">#</A></strong> <em>comment</em></DT>
+    <DD>A comment line is denoted by beginning the line with the # character.
+    Comment lines are ignored by the server.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_htbin">htbin</A></strong> <em>directory</em> (obsolete)</DT>
+    <DD>Superceded by exec directory, for compatibility this directive is
+	mapped internally to "exec /htbin/* directory".
+    </DD><P>
+
+    <DT><strong><A NAME="rule_mapimage">mapimage</A></strong> <em>[prefix]</em>
+     <DD>Defines special script that handles image maps by internal
+         calls in the server.  In anchors containing &lt;IMG&gt; tags,
+     specify a HREF of the form HREF="/$mapimage<em>/conf-file</em>" where
+     <em>prefix/conf-file</em> is a virtual path (e.g.
+     /www/documents/nagel23a.imagemap) to the imagemap configuration file.
+     The <em>prefix</em>, if specified, effectively limits the input files
+     for the builtin mapimage to those in a known directory tree.
+    </DD><P>
+
+    <DT><strong><A NAME="rule_include">include</A></strong> <em>config-file</em></DT>
+    <DD>Read specified file and process records as if they were being read 
+	from original file at the point of the include statement.  Includes
+	may be nested to 20 levels (who would do that?).
+    </DD><P>
+
+    <DT><strong><A NAME="rule_search">search</A></strong> 
+		<em>[node::["obj-spec"]]search-script</em></DT>
+    <DD>Enables general search function.  When a non-exec URL contains
+ 	a search argument, the script specified by <em>search-script</em>
+	is invoked to perform that search (subfunction SEARCH).  Note that 
+	<em>search-script</em> 
+	must be in VMS format, the default directory for the script 
+	is WWW_ROOT:[000000]. If the <em>search-script</em> is prefixed with 
+	a DECnet node, the script task will be started on that node instead of
+        the default (0:: or node part of WWWEXEC logical).
+    </DD><P>
+
+    <DT><strong></strong> <em></em></DT>
+    <DD>
+    </DD><P>
+  </DL>
+</DD>
+<!-- ============================================================ -->
+</DL>
+<HR>
+<A NAME="operation"><H1>Operation</H1></A>
+At server startup, rules file is read sequentially, skipping comments.  
+The presence and/or values of any 'search', 'authenticator', 'suffix', and 
+'presentation' commands is noted/saved.  All other rules are tokenized and
+saved in a table for processing in the same order that they occur in the rules
+file.
+<P>
+The ident portion of a URL is translated by making a unescaped copy of it in 
+a work area and testing the work area copy against each entry in the tokenized
+rule list.  A rule that matches against the translation in the work area
+may rewrite the translation (see <strong>map</strong> rule), subsequent 
+tests for
+triggering rules will be made against the new translation.
+<P>
+The data from suffix rules is kept in a different data structure optimized
+for finding highest quality representation supported by a client request.
+<HR>
+</BODY>
+</HTML>

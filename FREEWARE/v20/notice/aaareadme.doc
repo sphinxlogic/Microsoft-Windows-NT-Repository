@@ -1,0 +1,324 @@
+NOTICE V2.0
+Copyright © 1992--1995, MadGoat Software.  All rights reserved.
+
+This  kit  contains  all  the  files  necessary for installing MadGoat
+Software's NOTICE utility.  Requires OpenVMS  VAX  V5.4  or  later  or
+OpenVMS Alpha V1.0 or later.
+
+NOTICE  informs  users  of important (?) notices when they log in to a
+VMS system.  When a user logs  in,  he/she  is  informed  of  any  new
+notices added to the system since his/her last interactive login.
+
+NOTICE  was  written  to  provide  some  means  for notifying users of
+important system changes (new software,  new  operating  hours,  etc.)
+without  having  to  display  a  text file each time they log in.  The
+heart of NOTICE is a normal VMS text library, which contains the  text
+of all NOTICE messages.  When NOTICE is run with the /NEW qualifier, a
+brief description of all notices added to the system since the  user's
+last interactive login is displayed:
+
+	$ notice
+
+	NOTICE topics.  Type NOTICE <topic-name> for more information.
+
+	Topic      Date         Description
+	---------  -----------  -----------
+	VUG        22-APR-1992  VMS Users Group meeting, April 23
+
+	$
+
+Such  a  call  to NOTICE would typically be placed in the system login
+procedure (SYS$SYLOGIN) so it is executed  each  time  an  interactive
+user logs in.
+
+
+HOW NOTICE WORKS
+----------------
+A  simple  command procedure is provided to help you manage the NOTICE
+text library (NOTICE_MGR.COM).  Any time you wish to notify your users
+of  some event, you can add a module to the text library.  When NOTICE
+is executed with /NEW, it compares their last interactive  login  time
+(which  is  the last time they logged in *before* the current session)
+with the insertion date of each module in the NOTICE text library.  If
+a  module has been added since the last time the user logged in, it is
+included in the list of NOTICES that is displayed  (accompanied  by  a
+bell).
+
+The  /PAUSE  qualifier can be given to cause NOTICE to prompt the user
+to press RETURN to continue, iff there were new notices.
+
+The  /TEXT  qualifier can be used with /NEW to force notice to display
+the text for all new notices,  prompting  the  user  to  press  RETURN
+between  each  new notice.  This is useful for those sites who want to
+ensure that users see the notices  by  displaying  the  full  text  at
+login.   NOTE:   If you plan to use /TEXT, be sure your notices can be
+displayed on a single screen, otherwise they will  scroll  off  screen
+before  the user can read them.  (SMG$ routines are not used when /NEW
+is given.)
+
+Users  can  examine the actual text of the message by adding the topic
+name to the NOTICE command:
+
+	$ NOTICE FINALS
+
+NOTICE  works like TYPE/PAGE on video terminals---the user is prompted
+to press RETURN before each screen is scrolled so they  can  read  the
+notice without having it scroll off-screen.
+
+NOTICE can be configured to always display a topic in the NOTICE list.
+
+NOTICE  without  any  parameters  will  display  all  of  the  notices
+available.
+
+
+SETTING UP NOTICE
+-----------------
+To link NOTICE, just execute the LINK.COM command procedure:
+
+	$ @LINK
+
+If you have BLISS, you can use MMK or MMS to rebuild it in the [.SOURCE]
+directory.
+
+You  must  then  create  the  NOTICE text library.  You can either use
+NOTICE_MGR.COM to do it, or you can execute the following commands:
+
+	$ LIBRARY/TEXT/CREATE NOTICE.TLB	!Or any other name you want
+
+You   then   define   a   system  logical  to  point  to  the  library
+(NOTICE_STARTUP.COM can be edited to do this):
+
+	$ DEFINE/SYSTEM/EXEC NOTICE_LIBRARY dev:[dir]NOTICE.TLB
+
+The  protection  on  the  NOTICE library should be set to W:R and full
+access by SYSTEM:
+
+	$ SET FILE/PROT=W:R dev:[dir]NOTICE.TLB
+
+With  W:R  access  to the text library, NOTICE requires no privileges,
+though you may want to install it to speed access to it:
+
+	$ INSTALL ADD dev:[dir]NOTICE.EXE/OPEN/HEADER/SHARE
+
+(Again, this command is included in NOTICE_STARTUP.COM.)
+
+Finally,  you'll  need  to  define  NOTICE  as  a  foreign  command in
+SYS$SYLOGIN (by default, SYS$MANAGER:SYLOGIN.COM) and execute  it  for
+all users.
+
+	$ notice :== $dev:[dir]notice.exe	!Define globally!
+	$ notice				!Display any new notices
+
+There is a help file that can be added to a help library.  You may put
+it in either the system help library or a site-specific library:
+
+	$ LIBRARY/HELP/INSERT SYS$HELP:HELPLIB NOTICE.HLP	!System help
+
+
+ADDING NOTICES TO THE TEXT LIBRARY
+----------------------------------
+There are only two restrictions on the text of NOTICE messages:
+
+  o  The TOPIC name *should* be no more than 10 characters.  The topic
+     name cannot be truncated when users type NOTICE <topic>, so keeping
+     it under 10 characters makes it easier to type the topics.
+
+  o  The *first* line in the message is used as the brief description
+     shown at login time and when NOTICE without qualifiers is executed.
+
+A typical format might look like the following:
+
+	-------------------------------------------------
+	New NOTICE utility added to the system
+
+	A new utility, NOTICE, has been added to the system to inform you of
+	important system announcements.
+	-------------------------------------------------
+
+If  the file above was added as module NOTICE to the text library, the
+NOTICE listing for it would look like:
+
+	$ notice/new
+
+	NOTICE topics.  Type NOTICE <topic-name> for more information.
+
+	Topic      Date         Description
+	---------  -----------  -----------
+	NOTICE     22-APR-1992  New NOTICE utility added to the system
+
+	$
+
+When a user types NOTICE NOTICE (in this example), the screen would be
+cleared and the following would be displayed:
+
+	--------------------------------------------------
+	Notice NOTICE, dated 23-APR-1992 19:01:23.34
+
+	New NOTICE utility added to the system
+
+	A new utility, NOTICE, has been added to the system to inform you of
+	important system announcements.
+	--------------------------------------------------
+
+
+
+MANAGING THE NOTICE LIBRARY
+---------------------------
+The  command procedure NOTICE_MGR.COM can be used to manage the NOTICE
+text library.  When executed, the following menu is displayed:
+
+	$ @notice_mgr
+
+	NOTICE library maintenance
+
+	  1.  List the library contents
+	  2.  Add/replace a module to/in the library
+	  3.  Touch a module in the library (update date)
+	  4.  Edit a module in the library
+	  5.  Rename a module in the library
+	  6.  Delete a module from the library
+	  7.  Create a new library
+	  0.  Exit
+
+	Choice <0>: 
+
+NOTICE_MGR  is  not  bullet-proof,  but  it does work.  Typically, you
+would add a module using option 2.  You will be prompted for the  file
+name to add (you will be placed in an editor if the named file doesn't
+exist) and for the module name.  The module name is then used  as  the
+<topic> name on the NOTICE command line.
+
+Option  3,  "Touch a module," lets you update the insertion date for a
+module so that users will see the module listed again  the  next  time
+they  log  in.   A sample use for this option would be an announcement
+added a week before an  event.   To  remind  users  again,  you  might
+"touch"  the  module again the day of the event so that users will see
+it again that day.
+
+NOTICE_MGR is, I believe, pretty self-explanatory and easy to use.
+
+
+SETTING UP "PERMANENT" NOTICES
+------------------------------
+If  you  would  like to ensure that a notice is displayed every time a
+user is logged in (for very important  notices  like  operating  hours
+during holidays), you simply add a dollar sign ($) to the beginning of
+the name of the module.  For  example,  suppose  the  file  FINALS.TXT
+contains  the  lab  hours  during  finals  week.  If you add it to the
+library with a module name of  "$FINALS",  the  user  will  see  topic
+"FINALS"  displayed  at every login until the module is deleted.  Note
+that the user never sees the "$" in the topic name---only  the  NOTICE
+administrator knows it's there.
+
+
+CALLABLE NOTICE
+---------------
+If you have a program that you run as part of SYLOGIN, you can have it
+call NOTICE_MAIN() in the .OBJ file NOTICE_SYLOGIN.  The effect is the
+same  as  specifying  NOTICE/NEW  in  the SYLOGIN.COM, except that you
+avoid another image activation.  NOTICE_MAIN() accepts two parameters,
+both  flags  passed by value.  If the first parameter is omitted or 0,
+the output is the same as NOTICE/NEW.  If the flag is one, the  effect
+is  NOTICE/NEW/PAUSE.  The  second  parameter corresponds to the /TEXT
+qualifier; its value can be 0 or 1.
+
+Sample call:
+
+	void notice_main(int);
+	[...]
+	notice_main(1,0);	!Show new NOTICEs, make user press RETURN
+
+
+To link it, use a command like the following:
+
+	$ link sylogin,notice_sylogin,notice/library
+
+LIMITATIONS
+-----------
+The  only  known NOTICE limitations are imposed by the use of the text
+library (for example, it would be nice to have  modules  automatically
+expire at a certain time).  However, the big advantage of using a text
+library is that the DCL LIBRARY command can  be  used  to  manage  the
+NOTICE database; a new interface did not have to be written.
+
+
+--------------------------------------------------------------------------------
+Files in this directory:
+
+AAAREADME.DOC			This file
+AAAREADME.TOO			Change history
+LINK.COM			Command procedure to link the image
+NOTICE.ALPHA_OLB		NOTICE object library for Alpha AXP
+NOTICE.HLP			VMS on-line HELP file for NOTICE
+NOTICE.OLB			NOTICE object library for VAX
+NOTICE_MGR.COM			NOTICE database manager procedure
+NOTICE_STARTUP.COM		Procedure to start NOTICE on a system
+NOTICE_SYLOGIN.ALPHA_OBJ	Alpha AXP object file for callable NOTICE
+NOTICE_SYLOGIN.OBJ		VAX object file for callable NOTICE
+
+Files in [.SOURCE]:
+
+CVTHELP.TPU			TPU procedure to convert .HELP file to .RNH
+DESCRIP.MMS			Description file for building NOTICE
+HGMACROS.REQ			BLISS macros used by NOTICE
+NOTICE.B32			BLISS source for main NOTICE routines
+NOTICE.HELP			Source for NOTICE help text
+NOTICE_CLD.CLD			CLI$ definitions file
+NOTICE_MSG.MSG			Messages used by NOTICE
+NOTICE_PUT_OUTPUT.B32		BLISS source for output routines
+SYLOGIN_SAMPLE.B32		BLISS source for a sample SYLOGIN program
+
+--------------------------------------------------------------------------------
+CONTACTING THE AUTHOR
+
+Comments, suggestions, and questions about this software can be directed to
+the author at one of the following addresses:
+
+Mail:	Hunter Goatley
+	The LOKI Group, Inc.
+	P.O. Box 9609
+	Bowling Green, KY 42102-9609
+
+E-mail:	goathunter@LOKI.COM
+
+--------------------------------------------------------------------------------
+MADGOAT SOFTWARE MAILING LISTS
+
+MadGoat Software has set up the following mailing lists for discussions and
+support of its products:
+
+    Info-MadGoat@wkuvx1.wku.edu
+        Discussion of MadGoat Software products by users and MadGoat
+        developers.  To subscribe, send a message to
+                Info-MadGoat-Request@wkuvx1.wku.edu
+        with the word SUBSCRIBE in the first line of the body of the
+        message.
+
+    MadGoat-Announce@wkuvx1.wku.edu
+        Announcements of new releases and new products from MadGoat.
+        To subscribe, send a message to
+                MadGoat-Announce-Request@wkuvx1.wku.edu
+        with the word SUBSCRIBE in the first line of the body of the
+        message.
+
+    MadGoat-Bugs@wkuvx1.wku.edu
+        Address for reporting bugs in MadGoat Software products.  Please
+        include the name of the package and version in the subject header
+        of the message, so the report can be more easily directed to the
+        appropriate developer.
+
+--------------------------------------------------------------------------------
+COPYRIGHT NOTICE
+
+This software is COPYRIGHT © 1992--1995,  MADGOAT SOFTWARE. ALL RIGHTS RESERVED.
+
+Permission  is  granted  for  not-for-profit  redistribution,  provided all
+source and object code remain unchanged from the original distribution, and
+that all copyright notices remain intact.
+
+DISCLAIMER
+
+This  software  is provided "AS IS".  The author, MadGoat Software, and the
+LOKI Group, Inc., make no representations or warranties with respect to the
+software    and   specifically   disclaim   any   implied   warranties   of
+merchantability or fitness for any particular purpose.

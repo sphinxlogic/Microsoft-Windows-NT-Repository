@@ -1,0 +1,91 @@
+!++
+!
+! File :	SEND_COMM_DEFS.R32
+! Author :	Darrell Burkhead
+!		COPYRIGHT © 1994, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+! Date :	March 22, 1994
+!
+! Abstract :
+!
+!	This file contains the macros and literals having to do with
+!	communication between the SEND client and server.
+!
+! Revision History :
+!
+!	V1.0		Darrell Burkhead	22-MAR-1994 18:30
+!		Creation.
+!--
+LIBRARY 'FIELDS';
+
+MACRO
+	object_name_string = %STRING('SEND_SERVER')%;
+
+LITERAL
+	max_user_len	= 12,
+	max_decnode_len	= 6,
+	max_devnam_len	= 32;
+
+LITERAL
+	msg_init	= 1,		!Provide common message information
+	msg_adddest	= 2,		!Provide a new destination
+	msg_donedest	= 3,		!Get rid of a destination
+	msg_send	= 4,		!Send a message to all destinations
+!
+	msg_normal	= 1,		!Success status
+	msg_protocol	= 2,		!Protocol error
+	msg_cmkrnl	= 4,		!Need CMKRNL
+	msg_local	= 6,		!Local processing error
+	msg_ident	= 8,		!Ident already used by this client
+	msg_unkident	= 10;		!Unknown ident
+
+!
+! Client-to-server message:
+!
+_DEF(CLIMSG)
+    CLIMSG_W_MSGLEN		= _WORD,	!Message length
+    CLIMSG_W_MSGTYP		= _WORD,	!Message type
+    CLIMSG_T_MSGTXT		= _BYTES(1020),	!Message text
+    _OVERLAY(CLIMSG_T_MSGTXT)			!msg_init overlay
+	CLIMSG_L_BRKFLGS	= _LONG,	!$BRKTHRU flags
+	CLIMSG_L_TIMEOUT	= _LONG,	!$BRKTHRU timeout
+	CLIMSG_B_USERLEN	= _BYTE,	!From user
+	CLIMSG_T_USERBUF	= _BYTES(max_user_len),
+	CLIMSG_B_NODELEN	= _BYTE,	!From node
+	CLIMSG_T_NODEBUF	= _BYTES(max_decnode_len),
+    _ENDOVERLAY
+    _OVERLAY(CLIMSG_T_MSGTXT)			!msg_adddest overlay
+	CLIMSG_L_IDENT		= _LONG,	!User-provided id #
+	CLIMSG_B_DESTLEN	= _BYTE,	!To user or terminal
+	CLIMSG_T_DESTBUF	= _BYTES(max_devnam_len)
+    _ENDOVERLAY
+_ENDDEF(CLIMSG);
+
+!
+! Server-to-client message:
+!
+_DEF(SRVMSG)
+    SRVMSG_W_MSGLEN		= _WORD,	!Message length
+    SRVMSG_W_MSGTYP		= _WORD,	!Message type
+    SRVMSG_L_IDENT		= _LONG,	!User-provided id # (only used
+						!...by _adddest and _send)
+    SRVMSG_Q_IOSB		= _QUAD		!The results
+_ENDDEF(SRVMSG);
+
+!
+! I/O status block
+!
+_DEF(IOSB)
+    IOSB_W_STATUS		= _WORD,	!Final status
+    IOSB_W_COUNT		= _WORD,	!Byte count
+    _OVERLAY(IOSB_W_COUNT)
+	IOSB_W_SNTCNT		= _WORD,	!# of receiving terminals
+    _ENDOVERLAY
+    IOSB_L_ADDRESS		= _LONG,
+    _OVERLAY(IOSB_L_ADDRESS)
+	IOSB_W_TMOCNT		= _WORD,	!# of timed-out terminals
+	IOSB_W_REJCNT		= _WORD,	!# of nobroadcast terminals
+    _ENDOVERLAY
+    _OVERLAY(IOSB_L_ADDRESS)
+	IOSB_V_TERMINAL		= _BIT		!Destination added is a term
+    _ENDOVERLAY
+_ENDDEF(IOSB);

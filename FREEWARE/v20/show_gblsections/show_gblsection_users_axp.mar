@@ -1,0 +1,1511 @@
+	.Title  Show_GblSection_Users_Axp
+	.Ident  "V1.0"
+
+;
+;	This program will attempt to list all processes which are referencing
+;	a given System Global Section on an OpenVMS AXP system.
+;
+;
+;*	This program is provided AS IS and as such offers no warranty,	
+;*	implied or otherwise by DIGITAL EQUIPMENT CORPORATION or any	  
+;*	of it's employees.  Any loss of services or damages incurred by	
+;*	the use of this program are the sole responsibility of those	  
+;*	authorizing it's execution.
+;
+;
+;	Author:		Ian Megarity (191107)
+;			Digital MCS Customer Support Centre
+;			Basingstoke  UK
+;	Mail:		Comics::Megarity		Or
+;			Megarity@uvo.mts.dec.com  	Or
+;			Megarity@Comics.Enet.Dec.Com
+;
+;	Date:		28-Apr-1995
+;
+;
+;
+;	Revision History
+;
+;	Date		Version			Who
+;	----		-------			---
+;	28-Apr-1995	T1.0		Ian Megarity (191107)
+;	Initial Version which contained lots of bugs.
+;
+;	25-Oct-1995	V1.0		IanM
+;	Many thanks to Jur Van Der Burg for testing it and providing
+;	some very useful feedback.
+;
+;
+;
+;	List of issues to be addressed :-
+;
+;	o	Fix the potential problem where a process gets outswapped
+;		between the time that the P0 PTEs are read from the target
+;		process and the P1 PTEs are read.
+;		Should we set the process /NOSWAP, perhaps ?  This would
+;		definitely fix this issue.  However, there's also the problem
+;		of the target process running it's current image down and
+;		then running another one up.
+;		Best fix for this is not to use EXE$READ_PROCESS at all, but
+;		to fire an AST at the target process to get it to search it's
+;		own PTEs for entries which reference the given global section.
+;		Same as the VAX version of this code.
+;		However, this is non-trivial on AXP systems and will probably
+;		mean generating an execlet, ie a system loadable image.
+;		This I shall leave for the next version. 
+;
+;	o	There seems to be a problem getting an associated filespec
+;		for global sections associated with LIBRTL. Have not had the
+;		time to investigate this yet.
+;
+;	o	Needs a CLI interface as well as a message file for all
+;		the messages.
+;
+;	o	Need to be able to handle deleted global sections.
+;
+;
+;
+;*****************************************************************************
+	.Macro  Im$FaoC_S Ctrstr,P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,-
+			P11,P12,P13,P14,P15, -
+			?Label
+;*****************************************************************************
+;       Note that "Ctrstr" must be defined using the .ASCIC directive.
+;*****************************************************************************
+	.Globl  Sys$Fao, Sys$FaoL
+
+	.Save_Psect     Local_Block
+	.Psect  ImFao$Data      Wrt,NoExe,Ovr,Long
+Fao_Msg'Label':
+	.AsciC  /$FAO failure code returned ... /
+	.Align  Long
+Fao_Msg_Descr'Label':
+Fao_Msg_Length'Label':
+	.Long   0
+Fao_Msg_Address'Label':
+	.Long   0
+Fao_Descr'Label':
+Fao_Length'Label':
+	.Word   1000
+	.Word   0
+Fao_Buffer_Address'Label':
+	.Long   0
+Fao_Buffer'Label':
+	.Blkb   1000
+Fao_Chan'Label':
+	.Word   0
+CtrStr_Descr'Label':
+CtrStr_Length'Label':
+	.Long   0
+CtrStr_Address'Label':
+	.Long   0
+
+	.Restore_Psect
+	MovzbL  Fao_Msg'Label', Fao_Msg_Length'Label'
+	Moval   Fao_Msg'Label'+1,       Fao_Msg_Address'Label'
+	MovzbL  CtrStr,	 CtrStr_Length'Label'
+	Moval   CtrStr+1,       CtrStr_Address'Label'
+	Movw    #1000,  Fao_Length'Label'
+	Moval   Fao_Buffer'Label',      Fao_Buffer_Address'Label'
+	$$T2 = 3
+	.IRP    $$T1,  <P15,P14,P13,P12,P11,-
+			P10,P9,P8,P7,P6,P5,P4,P3,P2,P1>
+		.IF NB $$T1
+			PUSHL   $$T1
+			$$T2=$$T2+1
+		.ENDC
+	.ENDR
+	$Pushadr Fao_Descr'Label',Context=Q
+	$Pushadr Fao_Length'Label',Context=W
+	$Pushadr CtrStr_Descr'Label',Context=Q
+	Calls   #$$T2,G^Sys$Fao
+	Blbs    R0,     Label
+	Pushl   R0
+	Pushaq  Fao_Msg_Descr'Label'
+	Calls   #1,     G^Lib$Put_Output
+	Popl    R0
+	$Exit_S R0
+
+Label:  Pushaq  Fao_Descr'Label'
+	Calls   #1,     G^Lib$Put_Output
+
+	.Endm   Im$FaoC_S
+;*****************************************************************************
+
+
+	.Macro  If_Debug	  P1,P2,P3,P4,P5,P6,P7,P8,P9,P10, -
+				P11,P12,P13,P14,P15,P16, -
+				Value=Debug_Flag, ?Label_1
+	Tstl	Value
+	Beql	Label_1
+	'P1 'P2 'P3 'P4 'P5 'P6 'P7 'P8 'P9 'P10 'P11 'P12 'P13 'P14 'P15 'P16
+
+Label_1:
+	.EndM	If_Debug
+
+
+
+
+
+	.Library	  "Sys$Library:Lib.MLb"
+
+	$AcbDef
+	$DdbDef
+	$DynDef
+	$FcbDef
+	$FidDef
+	$GsdDef
+	$JpiDef
+	$Lib$RoutinesDef
+	$LnmDef
+	$PcbDef
+	$PfnDef
+	$PhdDef
+	$PriDef
+	$Proc_Read_WriteDef
+	$PteDef
+	$SecDef
+	$SbDef
+	$StateDef
+	$UcbDef
+	$WcbDef
+
+	.Psect  Ro_Data Rd,NoWrt,NoExe,Long
+
+	.Align  Long
+;W_Ctl_1:
+;	.AsciC  "R6:!XL R7:!XL R8:!XL R2:!XL R3:!XL"
+;	.Align  Long
+;W_Ctl_3:
+;	.AsciC  "Exiting from EXEC mode - !ZL entries found."
+;	.Align  Long
+;W_Ctl_4:
+;	.AsciC  "!XL !XL !31AC !XL (!ZL,!ZW,!ZB)"
+;	.Align  Long
+W_Ctl_5:
+	.AsciC  "GSD addr is !XL, Vpx: !XL, Ref: !XW, Gstx: !XW Gste: !XL!/" -
+		"WCB: !XL, !ZL !XL !ZB (!ZW,!ZW,!ZW) !XL !XL"
+	.Align  Long
+;W_Ctl_6:
+;	.AsciC  "Pid: !XL, Sts: !XL  !XL  !XL  !XL"
+;	.Align  Long
+W_Ctl_7:
+	.AsciC  "Current PID: !XL, PCB: !XL  PHD: !XL  !XL !XL !XL!/!XL !XL !XL"
+	.Align  Long
+W_Ctl_8:
+	.AsciC  "Interrogating !15AS (PID !XL) - please wait ... (!XL !XB)"
+	.Align  Long
+W_Ctl_10:
+	.AsciC  "** PID !XL refers to !AS at VA !XL (Sts: !XB) **!/" -
+		"   Image: !AS"
+	.Align  Long
+W_Ctl_11:
+	.AsciC  "R6:!XL R7:!XL R8:!XL R9:!XL R11:!XL R3:!XL"
+	.Align  Long
+W_Ctl_112:
+	.AsciC  "R6:!XL R7:!XL R8:!XL R2:!XL R11:!XL R3:!XL"
+	.Align  Long
+W_Ctl_12:
+	.AsciC  "!/!_Number of Processes found referencing !AS was !ZL!/"
+	.Align  Long
+W_Ctl_21:
+	.AsciC  "!/Searching GSDs in GSDSYS for !AS ... "
+	.Align  Long
+W_Ctl_22:
+	.AsciD  "$!ZL$!AC!ZW:"
+	.Align  Long
+W_Ctl_23:
+	.AsciD  "!AC$!AC!ZW:"
+	.Align  Long
+W_Ctl_24:
+	.AsciC  "Associated file spec is !AS  (!ZL)"
+	.Align  Long
+W_Ctl_241:
+	.AsciC  "Associated file spec is !AS (!ZL,!ZW,!ZB) (Status: !XL)"
+	.Align  Long
+;W_Ctl_25:
+;	.AsciC  "!XL !XL"
+;	.Align  Long
+W_Ctl_26:
+	.AsciC  "VirtualPageCnt : !ZL, Page Size : !ZL	!ZL"
+	.Align  Long
+W_Ctl_27:
+	.AsciC  "!ZL pages have been allocated starting at VA !XL"
+	.Align  Long
+W_Ctl_28:
+	.AsciC  "!XL !XL !XL !XL !XL !XL !XL !XL"
+	.Align  Long
+W_Ctl_29:
+	.AsciC	"Asking PID !XL to read !XL bytes starting at address !XL"
+	.Align  Long
+W_Ctl_30:
+	.AsciC	"Attempting to lock Address range !XL thru !XL into working set"
+	.Align  Long
+W_Ctl_31:
+	.AsciC	"Address range !XL thru !XL locked into working set"
+	.Align  Long
+W_Ctl_32:
+	.AsciC	"Searching !XL PTEs starting at PTE for address !XL"
+	.Align  Long
+W_Ctl_33:
+	.AsciC	"PTE !XL !XL for VA: !XL has out-of-range PFN !XL"
+	.Align  Long
+W_Ctl_34:
+	.AsciC	"PCB: !XL PHD : !XL, IPID: !XL"
+	.Align	Long
+W_Ctl_35:
+	.AsciC	"Exe$Read_Process: Arg2: !XL , Arg3: !XL , Arg4: !XL"
+	.Align	Long
+;Susp_Msg:
+;	.Ascid  "Process is suspended ... "
+;	.Align  Long
+Swapper_Msg:
+	.AsciC  "Ignoring SWAPPER ... "
+
+Read_Process_Msg:
+	.AsciC	"Error !XL returned from EXE$READ_PROCESS ... "
+	.Align  Long
+
+DebugOn_Msg:
+	.AsciC	/DEBUG mode is ENABLED ... /
+	.Align  Long
+Phd_NotRes_Msg:
+	.AsciC	"PHD for PID !XL not resident - continuing ... "
+
+
+
+	.Psect  Rw_Data Wrt,NoExe,Long
+
+In_Fab:
+	$Fab	Fnm=<Sys$Input:>, -
+		Fac=<Get>
+
+In_Rab:
+	$Rab	Fab=In_Fab, -
+		Pbf=Global_Section_Prompt, -
+		Psz=Global_Section_Prompt_Size, -
+		Ubf=Global_Section_Buffer, -
+		Usz=Global_Section_Length, -
+		Rop=<Cco,Pmt,Pta>
+	.Align	Long
+Upper_Chars_Descr:
+	.Long	Upper_Chars_Length
+	.Address -
+		Upper_Chars
+Upper_Chars:
+	.Ascii	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+Upper_Chars_Length = . - Upper_Chars
+
+	.Align	Long
+Global_Section_Descr:
+Global_Section_Length:
+	.Word	32
+	.Word	0
+	.Address -
+		Global_Section_Buffer
+Global_Section_Buffer:
+	.Blkb	32
+
+	.Align  Long
+Process_Name_Descr:
+Process_Name_Length:
+	.Word	15
+	.Word	0
+	.Address -
+		Process_Name_Buffer
+Process_Name_Buffer:
+	.Blkb	15
+
+	.Align  Long
+Global_Section_Prompt:
+	.Ascii	"Name of Global Section : "
+Global_Section_Prompt_Size = . - Global_Section_Prompt
+
+	.Align  Long
+Sec_RefCnt:
+	.Long	0
+Sec_Wcb:
+	.Long	0
+Sec_AlloClass:
+	.Long	0
+Sec_Dev:
+	.Long	0
+Sec_Unit:
+	.Long	0
+Sec_Fid:
+	.Long	0
+	.Long	0
+Sec_Node:
+	.Long	0
+	.Long	0
+Sec_Gste:
+	.Long	0
+Acp_Status:
+	.Long	0
+Sec_Gsd:
+	.Long	0
+Sec_Vpx:
+	.Long	0
+Sec_Gstx:
+	.Long	0
+Sec_Gptx:
+	.Long	0
+
+W_Fid:	.Long	0
+
+Dev_Descr:
+Dev_Length:
+	.Long	32
+	.Address -
+		Dev_Buffer
+Dev_Buffer:
+	.Blkb	32
+
+	.Align  Long
+File_Spec_Descr:
+File_Spec_Length:
+	.Long	64
+	.Address -
+		File_Spec_Buffer
+File_Spec_Buffer:
+	.Blkb	64
+
+	.Align  Long
+Arg_List_1:
+	.Long	14
+	.Address -
+		Global_Section_Descr		; Arg #1.
+	.Address -
+		Sec_Gsd				; Arg #2.
+	.Address -
+		Sec_Gptx			; Arg #3.
+	.Address -
+		Sec_RefCnt			; Arg #4.
+	.Address -
+		Bal_Slot_Size			; Arg #5.
+	.Address -
+		List_Head_Address		; Arg #6.
+	.Address -
+		Sec_Wcb				; Arg #7.
+	.Address -
+		Sec_AlloClass			; Arg #8.
+	.Address -
+		Sec_Dev				; Arg #9.
+	.Address -
+		Sec_Unit			; Arg #10.
+	.Address -
+		Sec_Fid				; Arg #11.
+	.Address -
+		Sec_Node			; Arg #12.
+	.Address -
+		Sec_Node			; Arg #13.
+	.Address -
+		Sec_Gste			; Arg #14.
+
+
+	.Align  Long
+Arg_List_2:
+	.Long	6
+Current_Pid:
+	.Long	0				; Arg 1.
+	.Address -
+		Pcb_Address			; Arg 2.
+	.Address -
+		Phd_Address			; Arg 3.
+	.Address -
+		Current_Ipid			; Arg 4.
+Current_Pte:
+	.Long	0				; Arg 5.
+	.Long	0				; Arg 6.
+
+Current_Va:
+	.Long	0
+
+Pcb_Address:
+	.Long	0
+Phd_Address:
+	.Long	0
+
+	.Align  Long
+Arg_List_4:
+	.Long	6
+Current_Ipid:
+	.Long	0		; Arg #1 - IPID by value.
+Buffer_Size:
+	.Long	0		; Arg #2 - Buffer_Size by Value.
+Target_Address:
+	.Long	0		; Arg #3 - Target address by value.
+Local_Address:
+	.Long	0		; Arg #4 - Local_Address by Reference.
+	.Long	Eacb$K_Memory	; Arg #5 - Target_Address_Type by Value.
+	.Address -		; Arg #6 - Ast_Counter_Address by Reference.
+		Ast_Counter
+
+Arg_List_5:
+	.Long	4
+	.Address	  Vm_Start_Va			; Arg #1.
+Arg5_Ptes:
+	.Long	0					; Arg #2.
+	.Address	  Sec_Gptx			; Arg #3.
+Arg5_Va:
+	.Address	  Process_Virtual_Address	; Arg #4.
+
+
+Phd_Buffer:
+	.Blkl	Phd$C_Length
+Ast_Counter:
+	.Long	0
+Swapper_Ipid:
+	.Long	0
+List_Head_Address:
+	.Long	0
+Virtual_Page_Count:
+	.Long	0
+Page_Size:
+	.Long	0
+Vm_Pages_to_Allocate:
+	.Long	0
+Vm_Start_Va:
+	.Long	0
+Vm_End_Va:
+	.Long	0
+Vm_Ret_Va:
+	.Long	0
+	.Long	0
+Process_Virtual_Address:
+	.Long	0
+P0_Pte_Count:
+	.Long	0
+P1_Pte_Count:
+	.Long	0
+Bal_Slot_Size:
+	.Long	0
+
+Syi_Item_List:
+	.Word	4
+	.Word	Syi$_VirtualPageCnt
+	.Address -
+		Virtual_Page_Count
+	.Long	0
+
+	.Word	4
+	.Word	Syi$_Page_Size
+	.Address -
+		Page_Size
+	.Long	0
+
+	.Long	0				; SYI Item List terminator.
+
+Jpi_Item_List:
+	.Word	4
+	.Word	Jpi$_Pid
+	.Address -
+		Current_Pid
+	.Long	0
+
+	.Word	63
+	.Word	Jpi$_ImagName
+	.Address -
+		  Image_Name_Buffer
+	.Address -
+		  Image_Name_Length
+
+	.Word	15
+	.Word	Jpi$_PrcNam
+	.Address -
+		Process_Name_Buffer
+	.Address -
+		Process_Name_Length
+
+	.Word	4
+	.Word	Jpi$_Sts
+	.Address -
+		Process_Sts		; Process Status - important bit
+	.Long	0			; is PCB$V_PSWAPM.
+
+	.Word	4
+	.Word	Jpi$_State
+	.Address -
+		Process_State
+	.Long	0
+
+
+	.Long	0				; JPI Item List terminator.
+
+
+Jpi_Item_List_2:
+	.Word	4
+	.Word	Jpi$_Pid
+	.Address -
+		My_Pid
+	.Long	0
+
+	.Long	0				; JPI Item List terminator #2.
+
+
+
+
+	.Align  Long
+Process_Sts:
+	.Long	0
+Process_State:
+	.Long	0
+Image_Name_Descr:
+Image_Name_Length:
+	.Word	63
+	.Word	0
+	.Address -
+		Image_Name_Buffer
+Image_Name_Buffer:
+	.Blkb	63
+
+	.Align  Long
+
+My_Pid:
+	.Long	0
+
+All_Pids:
+	.Long	-1
+;	.Long	^X20200117
+Jpi_Iosb:
+	.Long	0
+	.Long	0
+Process_Count:
+	.Long	0
+Efn_Number:
+	.Long	0
+Syi_Iosb:
+	.Long	0
+	.Long	0
+Debug_Flag:
+	.Long	0
+
+W_Debug_Trn_List:			; Item list for $TRNLNM for translating
+	.Word	255			;  the DEBUG logical.
+	.Word	LNM$_STRING
+	.Address -
+		W_Debug_Trn_Name
+	.Address -
+		W_Debug_Trn_Len
+
+	.Long	0		; End of this item list.
+
+
+	.Align	Long
+W_Debug_Tabnam:				; Logical name table to be searched
+	.Ascid	/LNM$FILE_DEV/		;  for the debug logical.
+
+	.Align	Long
+W_Debug_Lognam:				; Debug logical name.
+	.Ascid	/SHOW_GBLSECTION_USERS$DEBUG/
+
+	.Align	Long
+W_Debug:
+	.Long	0
+
+W_Debug_Trn_Desc:			; Descriptor for translation
+W_Debug_Trn_Len:			;  of the DEBUG logical.
+	.Word	0
+	.Word	0
+	.Address -
+		W_Debug_Trn_Name
+W_Debug_Trn_Name:
+	.Blkb	255
+	.Align	Long
+
+Error_Message_Descr:
+Error_Message_Length:
+	.Long	256
+	.Address -
+		Error_Message_Buffer
+Error_Message_Buffer:
+	.Blkb	256
+
+	.Align	Long
+
+
+
+
+
+	.Psect	Code	Exe,NoWrt,Long
+	.Entry	Show_GblSection_Users_Axp, ^M<>
+
+	$Trnlnm_S -				; Check for existence of
+		Tabnam=W_Debug_Tabnam, -	;  DEBUG logical.
+		Lognam=W_Debug_Lognam, -
+		Itmlst=W_Debug_Trn_List
+	Blbs	R0,	10$
+	Cmpl	R0,	#Ss$_NoLognam
+	Beql	20$
+	Ret
+
+10$:	Incl	Debug_Flag			; If the DEBUG logical exists,
+						; then set this field and
+	Im$FaoC_S -				; tell everyone about it.
+		DebugOn_Msg
+20$:
+
+Get_Ef_Number:
+	Pushal  Efn_Number
+	Calls	#1,	G^Lib$Get_Ef
+
+	$GetSyiW_S -
+		Efn=Efn_Number, -
+		ItmLst=Syi_Item_List, -
+		Iosb=Syi_Iosb
+	Blbs	R0,	10$
+	Ret
+
+10$:	Movzwl  Syi_Iosb,	R0
+	Blbs	R0,	20$
+	Ret
+
+20$:	$GetJpiW_S -
+		Efn=Efn_Number, -
+		ItmLst = Jpi_Item_List_2, -
+		Iosb = Jpi_Iosb
+	Blbs	R0,	30$
+	Ret
+
+30$:	MovZwl	Jpi_Iosb,	R0
+	Blbs	R0,	40$
+	Ret
+
+40$:
+Get_Input:
+	$Open	Fab=In_Fab
+	Blbs	R0,	10$
+	Ret
+
+10$:	$Connect Rab=In_Rab
+	Blbs	R0,	20$
+	Ret
+
+20$:	$Get	Rab=In_Rab
+	Blbs	R0,	40$
+	Cmpl	R0,	#Rms$_Eof
+	Bneq	30$
+	Movl	#Ss$_Normal,	R0
+
+30$:	Ret
+
+40$:	Movw	In_Rab + Rab$W_Rsz,	Global_Section_Length
+	Tstw	Global_Section_Length
+	Bneq	50$
+	Brw	20$
+
+50$:	Pushaq	Upper_Chars_Descr
+	Pushaq	Global_Section_Descr
+	Calls	#2,	G^Str$Find_First_In_Set
+	Tstl	R0
+	Bneq	60$			; Some upper case chars found, so 
+					; let's leave the input string alone.
+	Pushaq  Global_Section_Descr
+	Pushaq  Global_Section_Descr
+	Calls	#2,	G^Str$Upcase
+	Blbs	R0,	60$
+	Ret
+
+60$:
+	If_Debug -
+		  $Lib_Put_Output_S -
+				Global_Section_Descr
+
+;
+;
+;	Now allocate enough VM to hold the entire portion of the PTE
+;	section of the PHD.
+;	We do this by determining the number of pagelets required to
+;	store the VIRTUALPAGECNT ptes.
+;
+;
+Get_Vm:
+	Ashl	#-9,	Page_Size,	Page_Size	; Convert Page size 
+							; to pagelets.
+	Divl3	Page_Size, -
+			Virtual_Page_Count, -
+				Vm_Pages_to_Allocate
+	Addl2	#63,	Vm_Pages_to_Allocate		; Add 63 so the result
+							; of the following
+							; division is rounded
+							; off upwards.
+	Divl2	#64,	Vm_Pages_to_Allocate		; Divide by 64 because
+							; this is the number of
+							; PTEs in each pagelet.
+	$Lib_Get_Vm_Page_S -
+		Vm_Pages_to_Allocate, -
+		Vm_Start_Va
+	Blbs	R0,	10$
+	Ret
+
+10$:
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_26, -
+			Virtual_Page_Count, -
+			Page_Size, -
+			Vm_Pages_to_Allocate
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_27, -
+			Vm_Pages_to_Allocate, -
+			Vm_Start_Va
+	Ashl	#9, Vm_Pages_to_Allocate, -
+			Vm_End_Va
+	Addl2	Vm_Start_Va,	Vm_End_Va 
+	Decl	Vm_End_Va 
+
+
+;
+;
+;	The Global Section ListHead addresses are :-
+;
+;		  EXE$GL_GSDSYSFL - System list.
+;		  EXE$GL_GSDGRPFL - Group list.
+;		  EXE$GL_GSDDELFL - Delete-Pending list.
+;
+;
+;	So, if one wanted to process the Delete-Pending Global section list
+;	instead of the System list, all one has to do is modify the following
+;	line so it uses EXE$GL_GSDDELFL instead of EXE$GL_GSDSYSFL.
+;
+;
+;
+Get_Gsd:
+	Moval	G^Exe$Gl_GsdSysFl,	List_Head_Address
+
+;----------------------------------------------------------------------
+
+	If_Debug -
+		  Im$FaoC_S -
+			W_Ctl_21, -
+			#Global_Section_Descr
+	$CmExec_S -
+		Routin=Get_Gsd_Info, -
+		ArgLst=Arg_List_1
+	Blbs	R0,	10$
+	Ret
+
+10$:	Tstl	Sec_Wcb			; Do we have a real WCB or not ?
+	Bneq	20$
+	Brw	80$
+
+20$:	Movl	Sec_AlloClass,  R10
+	Beql	30$
+	Moval	W_Ctl_22,	 R9
+	Brw	40$
+
+30$:	Moval	W_Ctl_23,	 R9
+	Moval	Sec_Node,	 R10
+
+40$:	$Fao_S -
+		CtrStr=(R9), -
+		OutLen=Dev_Length, -
+		OutBuf=Dev_Descr, -
+		P1=R10, -
+		P2=#Sec_Dev, -
+		P3=Sec_Unit
+
+	If_Debug -
+		$Lib_Put_OutPut_S -
+			Dev_Descr
+
+	Pushal  Acp_Status
+	Pushl	#0
+	Pushal  File_Spec_Length
+	Pushal  File_Spec_Descr
+	Pushal  Sec_Fid
+	Pushal  Dev_Descr
+	Calls	#6, G^Lib$Fid_To_Name
+	Blbc	R0,	50$
+	Brw	70$
+
+50$:	Movl    #256,   Error_Message_Length
+	$GetMsg_S -
+                MSGID=R0, -
+                MSGLEN=Error_Message_Length, -
+                BUFADR=Error_Message_Descr
+        Blbs    R0,     60$
+        Ret
+
+60$:
+	Movw	Sec_Fid + Fid$W_Num,	W_Fid
+	Movb	Sec_Fid + FId$B_Nmx,	W_Fid + 2
+	Im$FaoC_S -
+		W_Ctl_241, -
+		#File_Spec_Descr, -
+		W_Fid, -
+		Sec_Fid+2, -
+		Sec_Fid+4, -
+		Acp_Status
+	$Lib_Put_Output_S -
+		Error_Message_Descr
+	Brb	80$
+
+70$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_24, -
+		P1=#File_Spec_Descr, -
+		P2=Sec_RefCnt
+
+80$:
+	If_Debug -
+		  Im$FaoC_S -
+			W_Ctl_5, -
+			Sec_Gsd, -
+			Sec_Gptx, -
+			Sec_RefCnt, -
+			Sec_Gstx, -
+			Sec_Gste, -
+			Sec_Wcb, -
+			Sec_AlloClass, -
+			Sec_Dev, -
+			Sec_Unit, -
+			Sec_Fid, -
+			Sec_Fid+2, -
+			Sec_Fid+4, -
+			Sec_Node
+
+
+90$:
+;
+;
+;	It's at this point that we start to go through all processes on the
+;	system.
+;
+Next_Process:
+100$:
+	$GetJpiW_S -
+		Efn=Efn_Number, -
+		PidAdr = All_Pids, -
+		ItmLst = Jpi_Item_List, -
+		Iosb = Jpi_Iosb
+	Blbs	R0,	130$
+
+	Cmpw	R0,	#Ss$_Suspended
+	Bneq	110$
+;	$Lib_Put_Output_S -
+;		Susp_Msg
+;	Brw	Next_Process
+	Brw	140$
+
+110$:	Cmpw	R0,	#Ss$_NoMoreProc
+	Beql	120$
+	Ret
+
+120$:	Brw	900$
+
+130$:	Movzwl  Jpi_Iosb,	 R0
+	Blbs	R0,	140$
+	Ret
+
+140$:	$CmKrnl_S -
+		Routin=Get_Pcb_Phd_Info, -
+		ArgLst=Arg_List_2
+	Blbs	R0,	150$
+	Ret
+
+150$:	Cmpl	Current_Ipid,	G^Sch$Gl_SwpPid
+	Bneq	160$
+	Im$FaoC_S -
+		Swapper_Msg
+	Brw	Next_Process
+
+160$:	Im$FaoC_S -
+		CtrStr=W_Ctl_8, -
+		P1=#Process_Name_Descr, -
+		P2=Current_Pid, -
+		P3=Process_Sts, -
+		P4=Process_State
+
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_7, -
+			Current_Pid, -
+			Pcb_Address, -
+			Phd_Address, -
+			Phd_Buffer+Phd$L_L3Pt_Va, -
+			Phd_Buffer+Phd$L_P0Length, -
+			Phd_Buffer+Phd$L_FrePteCnt, -
+			R7, -
+			R9, -
+			R10
+
+	Tstl	Phd_Address
+	Bneq	165$
+	Im$FaoC_S -
+		CtrStr=Phd_NotRes_Msg, -
+		P1=Current_Pid
+	Brw	Next_Process
+
+165$:	Movl	Phd_Address,	Target_Address
+	Moval	Phd_Buffer,	Local_Address
+	Movl	#Phd$C_Length,  Buffer_Size
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_29, -
+			Current_Pid, -
+			Buffer_Size, -
+			Target_Address
+;
+;
+;	First of all, ask the target process to send us back the fixed 
+;	portion of it's PHD.
+;
+;
+	$CmKrnl_S -				
+		Routin=G^Exe$Read_Process, -
+		ArgLst=Arg_List_4
+	Blbs	R0,	170$
+	Pushl	R0
+	Im$FaoC_S -
+		CtrStr=Read_Process_Msg, -
+		P1=R0
+	Popl	R0
+	Ret
+
+170$:
+	Moval	Phd_Buffer,	R6
+	Movl	Phd$L_L3Pt_Va(R6),	R7
+	Addl2	Phd$L_P0Length(R6),	R7
+
+	Movl	Phd$L_FrePteCnt(R6),	R8
+	Ashl	#3,	R8,	R8		; R8 <- number of
+						; bytes between P0
+						; and P1 Ptes. 
+	Addl3	R8,	R7,	R9		; R9 <- start addr of P2 Ptes.
+	Subl3	Phd$L_P1Length(R6), -
+			#^X200000, -
+				R10		; R10 <- Length of P1 Ptes.
+	Ashl	#-3, -
+			Phd$L_P0Length(R6), -
+				P0_Pte_Count
+	Ashl	#-3,  R10,	P1_Pte_Count
+
+
+180$:
+	Movl	Phd$L_L3Pt_Va(R6),	Target_Address
+	Movl	Vm_Start_Va,		Local_Address
+	Movl	Phd$L_P0Length(R6),	Buffer_Size
+
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_29, -
+			Current_Pid, -
+			Buffer_Size, -
+			Target_Address
+
+;
+;
+;	Now ask the target process to send us back it's P0 PTEs.
+;
+;
+	$CmKrnl_S -
+		Routin=Read_Process_Ptes, -
+		ArgLst=Arg_List_4
+	Blbs	R0,	190$
+	Pushl	R0
+	Im$FaoC_S -
+		CtrStr=Read_Process_Msg, -
+		P1=R0
+	Popl	R0
+	Brw	300$
+
+190$:
+	Movl	Vm_Start_Va,	R5
+	Addl2	#^X40,		R5
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_28, -
+			(R5), -
+			4(R5), -
+			8(R5), -
+			12(R5), -
+			16(R5), -
+			20(R5), -
+			24(R5), -
+			28(R5)
+	
+	Moval	P0_Pte_Count,	Arg5_Ptes
+	Clrl	Process_Virtual_Address
+
+;	Movl	#^X626000,	Process_Virtual_Address		; ?????
+;	Movl	#^X10,		P0_Pte_Count			; ?????
+
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_32, -
+			P0_Pte_Count, -
+			Process_Virtual_Address
+	$CmExec_S -
+		Routin=Search_Process_Ptes, -
+		ArgLst=Arg_List_5
+	Blbs	R0,	200$
+	Im$FaoC_S -
+		CtrStr=W_Ctl_10, -
+		P1=Current_Pid, -
+		P2=#Global_Section_Descr, -
+		P3=Process_Virtual_Address, -
+		P4=R0, -
+		P5=#Image_Name_Descr
+	Incl	Process_Count
+	Brw	300$				; Since we've found a match
+						; while searching the P0 PTEs
+						; there's no need to search
+						; the P1 PTEs.
+
+200$:
+	Moval	Phd_Buffer,	R6
+	Subl3	Phd$L_FreP1Va(R6), -
+			#^X7FFFFFFF,	R7
+	Incl	R7				; R7 <- used size of P1
+						; space in bytes.
+	Ashl	#-13,	R7,	R7		; R7 <- # of PTEs required
+						; to map P1 space for the
+						; current process.
+	Movl	R7,	P1_Pte_Count
+	Ashl	#3,	R7,	R7		; R7 <- # of bytes taken up
+						; by P1 PTEs.
+	Movl	R7,	Buffer_Size
+
+	Addl3	Phd_Address, -
+			Bal_Slot_Size,	R8	; R8 <- End address of PHD.
+	Subl2	R7,	R8			; R8 <- Start address of
+						; P1 PTEs.
+	Movl	R8,	Target_Address
+
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_29, -
+			Current_Pid, -
+			Buffer_Size, -
+			Target_Address
+
+;
+;
+;	Now, ask the target process to send us back it's P1 PTEs.
+;
+;
+	$CmKrnl_S -
+		Routin=Read_Process_Ptes, -
+		ArgLst=Arg_List_4
+	Blbs	R0,	210$
+	Pushl	R0
+	Im$FaoC_S -
+		CtrStr=Read_Process_Msg, -
+		P1=R0
+	Popl	R0
+	Brw	300$
+
+210$:
+	Movl	Vm_Start_Va,	R5
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_28, -
+			(R5), -
+			4(R5), -
+			8(R5), -
+			12(R5), -
+			16(R5), -
+			20(R5), -
+			24(R5), -
+			28(R5)
+
+	Moval	P1_Pte_Count,		Arg5_Ptes
+	Movl	Phd$L_FreP1Va(R6),	Process_Virtual_Address
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_32, -
+			P1_Pte_Count, -
+			Process_Virtual_Address
+	$CmExec_S -
+		Routin=Search_Process_Ptes, -
+		ArgLst=Arg_List_5
+	Blbs	R0,	300$
+	Im$FaoC_S -
+		CtrStr=W_Ctl_10, -
+		P1=Current_Pid, -
+		P2=#Global_Section_Descr, -
+		P3=Process_Virtual_Address, -
+		P4=R0, -
+		P5=#Image_Name_Descr
+	Incl	Process_Count
+
+300$:
+;
+;
+;	If we disabled the target process from swapping, then we need to
+;	enable that again.
+;
+
+
+
+350$:
+
+	Brw	Next_Process
+
+;	Ret
+
+;----------------------------------------------------------------------
+
+900$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_12, -
+		P1=#Global_Section_Descr, -
+		P2=Process_Count
+
+910$:
+
+
+
+999$:
+	Ret
+
+
+	.Entry  Search_Process_Ptes, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Buffer_Addr	=	4
+	P0Ptes		=	8
+	Gptx		=	12
+	Map_Va		=	16
+
+	Movl	#Ss$_Normal,		R0
+	Movl	@P0Ptes(AP),		R2	; R2 <- # of Ptes to process.
+	Movl	@Buffer_Addr(Ap),	  R3	; R3 <- Start addr of PTE
+						; buffer.
+	Movl	@Map_Va(Ap),	R4		; Initialize the VA register.
+
+10$:
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_33, -
+			4(R3), -
+			(R3), -
+			R4, -
+			4(R3)
+	Bbc	#Pte$V_Valid,	(R3),	20$	; Is the PTE valid ?
+	Brw	100$					; Yes ...
+
+20$:	Bbs	#Pte$V_Typ0,	(R3),	30$	; Is the TYP0 bit set ?
+	Brw	900$
+
+30$:	Bbc	#Pte$V_Partial_Section,(R3),40$	; Is bit 19 clear ?
+	Brw	900$
+
+40$:	Bbc	#Pte$V_Typ1,	(R3),	50$	; Is the TYP1 bit set ?
+	Brw	900$
+
+50$:	Bbc	#Pte$V_S0_Mbz,  (R3),	60$	; Is bit 31 clear ?  
+	Brw	900$
+
+60$:	Cmpl	4(R3),  @Gptx(Ap)		; Well, is this the one
+	Bneq	900$				; we're looking for ?
+	Movl	#2,	R0
+	Movl	R4,	@Map_Va(AP)
+	Brw	999$
+
+
+100$:						; We come here if we've
+						; got a valid PTE.
+	Cmpl	4(R3),	G^Mmg$Gl_MaxPfn		; Extract the PFN and check to
+	BleqU	105$				; see that it ain't too large.
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_33, -
+			4(R3), -
+			(R3), -
+			R4, -
+			4(R3)
+	Brw	900$
+
+105$:	Ashl	#5,  4(R3),	R5		; R5 <- PFN number times 32,
+						; which is the size of each
+						; record in the PFN database.
+	
+	Addl2	G^Pfn$Pl_DataBase,	R5	; R5 <- start address of
+						; PFN database record for
+						; current PFN.
+	If_Debug -
+		Im$FaoC_S -		; ???
+			W_Ctl_11, -
+			(R3), -
+			4(R3), -
+			R5, -
+			R2, -
+			R7, -
+			R3
+
+;	Brw	999$				; ???
+
+
+	CmpZv	#Pfn$V_PagTyp, -
+			#Pfn$S_PagTyp, -
+				Pfn$L_Page_State(R5), -
+					#Pfn$C_Global	; Global read only ?
+	Beql	110$
+
+	CmpZv	#Pfn$V_PagTyp, -
+			#Pfn$S_PagTyp, -
+				Pfn$L_Page_State(R5), -
+					#Pfn$C_GblWrt	; Global read-write ?
+	Beql	110$
+	Brw	900$
+
+110$:
+	Movl	Pfn$L_Pte(R5),  R6		; R6 <- PTE field from PFN
+						; record, which for a global
+						; PTE will contain the
+						; GPTE address.
+	Subl2	G^Mmg$Gl_GptBase,	 R6	; Subtract GPT address from
+						; GPTE address, and ...
+	Ashl	#-3,	R6,	R6		; divide by 8 to get the
+						; quadword index of the
+						; above GPTE into the GPT
+						; in R6.
+	If_Debug -
+		Im$FaoC_S -		; ???
+			W_Ctl_112, -
+			(R3), -
+			4(R3), -
+			R5, -
+			R2, -
+			8(R5), -
+			R3
+
+;	Brw	999$				; ???
+
+	Cmpl	R6,	@Gptx(AP)		; Well, is it the one we're
+						; looking for ?
+	Bneq	900$
+	Clrl	R0
+	Movl	R4,	@Map_Va(AP)
+	Brw	999$
+
+900$:	SobGtr  R2,	910$			; Have we finished yet ?
+	Brw	920$
+
+910$:	Addl2	#^X2000,	R4		; Step R4 onto the next page.
+	Addl2	#8,		R3		; Step R3 onto the next PTE.
+	Brw	10$				; Go back and do it all
+						; again.
+
+920$:
+
+999$:
+	 Ret
+
+
+
+	.Entry  Get_Pcb_Phd_Info, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Epid		=	4		; External PID (Value).
+	Pcb_Adr		=	8		; PCB address (Reference).
+	Phd_Adr		=	12		; PHD address (Reference).
+	Ipid		=	16		; Ipid (Reference).
+
+	Movl	Epid(Ap),	 R0
+	Jsb	G^Exe$Cvt_Epid_To_Pcb
+	Tstl	R0
+	Beql	99$
+	Movl	R0,	@Pcb_Adr(Ap)
+	Movl	R0,	R9			; ?????
+	Movl	Pcb$L_Phd(R9),  @Phd_Adr(Ap)
+
+	Movl	Pcb$L_Phd(R9),  R10		; ?????
+
+	Movl	Epid(Ap),	 R0
+	Jsb	G^Exe$Cvt_Epid_To_Ipid
+	Movl	R0,	@Ipid(Ap)
+
+	If_Debug -
+		Im$FaoC_S -		; ???
+			W_Ctl_34, -
+			R9, -
+			R10, -
+			R0
+
+	Movl	#Ss$_Normal,	R0
+
+99$:	Ret
+
+
+
+
+
+
+	.Entry  Get_Gsd_Info, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Gbl_Name	=	4
+	Gsd_Addr	=	8
+	Vpx		=	12
+	Ref_Cnt		=	16
+	Bslot		=	20
+	List_Head	=	24
+	Wcb		=	28		; Passed back by REF.
+	AlloClass	=	32
+	Dev		=	36
+	Unit_Num	=	40
+	File_Id		=	44
+	Node_Name	=	48		; Passed back by REF.
+	Gste		=	56
+
+	Movl	Gbl_Name(Ap),	R9	; Address of descr in R9.
+	Movl	4(R9),  R10		; Address of data in R10
+	Movzwl  (R9),	R9		; Length of data in R9.
+
+	Movl	@List_Head(Ap), R6
+	Movl	R6,		 R7
+
+	Clrl	R4				; Clear counter.
+
+10$:	Movl	(R6),	R6
+	Cmpl	R6,	R7			; Have we reached the end yet ?
+	Bneq	20$
+	Movl	#Ss$_NoSuchSec, R0
+	Brw	900$
+
+20$:	Incl	R4
+	Cmpb	Gsd$T_GsdNam(R6),	 R9	; Is the name the
+	Bneq	10$				; correct length ?
+	Cmpc3	R9, -
+		Gsd$T_GsdNam+1(R6),	(R10)	; Is it the correct name ?
+	Bneq	10$
+
+	Movl	R6,	@Gsd_Addr(Ap)
+
+
+30$:	Cvtwl	Gsd$L_Gstx(R6), R8	; Extract the GSTE from the GSD.
+;	Movl	R8,	@Gstx(Ap)
+	Mnegl	R8,	R8		; Change it's sign from -ve to +ve.
+	Ashl	#2,	R8,	R8	; Convert it from longword
+					; index to byte index.
+
+	Movl	G^Mmg$Gl_SysPhd,	R2
+	Movl	Phd$L_PstBasoff(R2),	R3
+	Addl2	R3,	R2			; R2 now points at the end of
+						; the Global Section Table.
+
+	Subl2	R8,	R2		; R2 now points to the Global
+					; Section Table Entry that we're
+					; interested in.
+
+	Movl	R2,	@Gste(Ap)
+	Movl	Sec$L_Gsd(R2),		R9
+
+	Movl	Sec$L_Vpx(R2),		@Vpx(Ap)
+
+;	Movl	R3,	@Vpx(Ap)
+;	Movl	Sec$L_RefCnt(R2),	 @Ref_Cnt(Ap)
+	
+;
+;	Divide the "pagelet count" by 16 to convert it to alpha pages and then
+;	divide that into the number of pages referencing the section in order
+;	to obtain the number of processes referencing the section.
+;	However, in order to round upwards, we need to add 15 to the pagelet
+;	count before doing any division.
+;
+	Addl3	#15, -
+			Sec$L_Unit_Cnt(R2), -
+				@Ref_Cnt(Ap)
+	Ashl	#-4, -
+			@Ref_Cnt(Ap), -
+				@Ref_Cnt(Ap)
+	Divl3	@Ref_Cnt(Ap), -
+			Sec$L_RefCnt(R2), -
+				@Ref_Cnt(Ap)
+
+	Movl	Sec$L_Window(R2),			@Wcb(Ap)
+
+	Movl	Sec$L_Window(R2),	R2	; WCB address in R2.
+	Beql	800$
+	Movl	Wcb$L_OrgUcb(R2),	R3	; UCB address in R3.
+	Movl	Wcb$L_Fcb(R2),		R2	; FCB address in R2.
+	Movl	File_Id(Ap),		R6
+
+	Movl	Fcb$W_Fid(R2),		(R6)+
+	Movw	Fcb$W_Fid_Rvn(R2),	(R6)
+
+	Movw	Ucb$W_Unit(R3),		@Unit_Num(AP)
+	Movl	Ucb$L_Ddb(R3),		R3
+	Movl	Ddb$T_Name(R3),		@Dev(Ap)
+
+	Movl	Ddb$L_AlloCls(R3),	@AlloClass(Ap)  
+
+	Movl	Ddb$L_Sb(R3),		R3
+	Beql	800$
+
+	Movl	Node_Name(Ap),		R6
+	Movl	Sb$T_NodeName(R3),	(R6)+
+	Movl	Sb$T_NodeName+4(R3),	(R6)
+	
+
+800$:
+	Ashl	#13,	G^Swp$GL_BSlotSz, -	; Finally, pass back the size
+				@BSlot(Ap)	; of each balance set slot
+						; in bytes.
+	Movl	#Ss$_Normal,	R0
+
+900$:
+
+	Ret
+
+
+	.Entry	Read_Process_Ptes, ^M<R6,R7,R8>
+
+	Ast_Cnt_Addr		=	^X18
+	Target_Addr_Type	=	^X14
+	Local_Addr		=	^X10
+	Target_Addr		=	^X0C
+	Buff_Size		=	^X08
+	Internal_Pid		=	^X04
+
+	Max_Xfer		=	^X8000
+
+	Movl	Buff_Size(Ap)	,R6
+	Movl	Target_Addr(Ap)	,R7
+	Movl	Local_Addr(Ap),	R8
+
+10$:	Cmpl	R6,	#Max_Xfer
+	BleqU	20$
+	Tstl	R6
+	Beql	99$
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_35, -
+			R6, -
+			R7, -
+			R8
+	Pushl	Ast_Cnt_Addr(Ap)		; Arg #6 - by Ref.
+	Pushl	Target_Addr_Type(Ap)		; Arg #5 - by Value.
+;	Pushl	Local_Addr(Ap)			; Arg #4 - by Reference.
+	Pushl	R8				; Arg #4 - by Reference.
+	Pushl	R7				; Arg #3 - by Value.
+	Pushl	#Max_Xfer			; Arg #2 - by Value.
+	Pushl	Internal_Pid(Ap)		; Arg #1 - by Value.
+	Calls	#6,	G^Exe$Read_Process
+
+	Subl2	#Max_Xfer,	R6
+	Addl2	#Max_Xfer,	R7
+	Addl2	#Max_Xfer,	R8
+	Brw	10$
+
+
+20$:
+	If_Debug -
+		Im$FaoC_S -
+			W_Ctl_35, -
+			R6, -
+			R7, -
+			R8
+	Pushl	Ast_Cnt_Addr(Ap)		; Arg #6 - by Ref.
+	Pushl	Target_Addr_Type(Ap)		; Arg #5 - by Value.
+;	Pushl	Local_Addr(Ap)			; Arg #4 - by Reference.
+	Pushl	R8				; Arg #4 - by Reference.
+	Pushl	R7				; Arg #3 - by Value.
+	Pushl	R6				; Arg #2 - by Value.
+	Pushl	Internal_Pid(Ap)		; Arg #1 - by Value.
+	Calls	#6,	G^Exe$Read_Process
+
+99$:	Ret
+
+	.End	Show_GblSection_Users_Axp

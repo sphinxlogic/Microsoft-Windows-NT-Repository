@@ -1,0 +1,79 @@
+<HTML>
+<HEAD>
+<TITLE>Setting up scripts</TITLE>
+</HEAD>
+<BODY>
+<H1>Setting up scripts</H1>
+
+<H2>Simple setup</H2>
+You can use the following set of steps to set up script execution for
+the DECthreads HTTP server provided that the DECnet TASK object is not
+disabled and DECnet proxies are in use on your machine.
+
+<OL>
+<P><LI>Copy the WWWEXEC.COM file to the login directory of the HTTP server 
+account.<P>
+<LI>If needed, use the authorize utility to setup default proxy access bewteen
+the server account and itself (<CODE>SYSUAF> add/proxy node::user user/default
+</CODE>).<P>
+<LI> Create a script directory which is readable by the server account and
+place the scripts (command procedures and executables) in this directory.<P>
+<LI> Edit the server rules file (httpd.conf) and add an exec directive
+to make the script directory known to the server.  Note that the directory
+must be in VMS format (disk:[dir]), NOT unix format (/disk/dir/). <P>
+<LI>Edit the server startup file (HTTP_SERVER.COM) to define the environment
+variable HTTP_DEFAULT_HOST to the full TCP/IP hostname of the server machine.
+<P>
+</OL>
+<H2>Troubleshooting</H2>
+If you can't get scripts to work, the first place to look is the
+NETSERVER.LOG file created by the script process.  Hopefully, error messages
+in the log file will indicate where the 
+<A HREF="/www/serverscriptprotocol.html">server-script protocol</A> is failing.
+<P>
+If there is no
+NETSERVER.LOG, log into the server account's login directory and try the following
+command:
+<PRE>
+	$ show work /output=0::"TASK=WWWEXEC"
+</PRE>
+If this command fails, you'll probably get either a "login invalid" message, 
+which means the proxy information isn't set up correctly, or "network partner
+exited", which means you should check the netserver.log for error messages.
+You may also get "object not found", which means WWWEXEC.COM is not in
+the right place.
+<H2>Advanced setup</H2>
+You may desire or need to take advantage of other DECnet features
+when setting up the script server.   If you are unfamiliar with these
+features, the <i>VMS Guide to Networking</i> is the best place to learn about
+them rather than this document.
+<P>  To use most of the advanced features, you must
+re-define the DECnet task string that the HTTP server opens when it wants
+to execute a script.  You re-define this task string by defining the
+environment variable WWWEXEC in the server startup procedure (if absent,
+server uses 0::"0=WWWEXEC" as the task string).
+<UL>
+<P>
+<H3>WWWEXEC as its own object</H3>
+You may wish to define the WWWEXEC.COM procedure as a separate object rather 
+than run it under the TASK object.  This step is required if the TASK object has
+been disabled for security reasons.  You would then have to define WWWEXEC
+with the form 0::"object=" where 'object' is either the object name
+or number defined in the DECnet database.
+
+<H3>Permanent script server processes</H3>
+At system startup, define the logical NETSERVER$SERVERS_username as a numeric
+string to indicate the target number of permanent server process.
+Permanent server processes can greatly improve response time when using
+scripts.<P>
+<H3>Load balancing</H3>
+You can use a node other than the local name (or zero) in the task string
+to have the script execute remotely.  You can also use a cluster alias
+to distribute the execution across several nodes.  Note that the htbin
+directory is read by the script server and must be valid on whatever
+node executes the script.
+</UL>
+<HR>
+</BODY>
+<ADDRESS>David Jones, Ohio State University</ADDRESS>
+</HTML>

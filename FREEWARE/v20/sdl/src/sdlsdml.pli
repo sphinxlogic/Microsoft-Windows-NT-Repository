@@ -1,0 +1,1072 @@
+/* SDL$OUTPUT -- generates SDML language output from the SDL tree.
+ *
+ * Purpose:
+ *	This module is the SDL back end used to generate SDML code.  For
+ *	each aggregate in the SDL source code, two SDML files are produced:
+ *	1.  A longword aligned picture of the data structure, and
+ *	2.  A table describing each of the fields in the picture.
+ *
+ *	Each of the SDML files must be run through VAX Document to produce
+ *	the final output.
+ *
+ * Author:
+ *	Mike Swatko, CUP/Spitbrook
+ *	(based on the original SDML back end code by Denis Elfstrom)
+ *
+ * Internal Processing:
+ *	Two separate modules are responsible for the processing SDL
+ *	to SDML code.  The first, the "front end", is responsible for
+ *	reading the SDL source file and creating a tree representation
+ *	of this data as read from the source file.  This tree is then
+ *	passed to the "back end" module (this file) by calling the procedure
+ *	SDL$OUTPUT which is responsible for parsing the tree and writing
+ *	out the language specific code, which in this case, is SDML code.
+ *
+ * Revision History:
+ *	??-???-????	DE	original version back end written
+ *	12-OCT-1987	MAS	rewrote back end to conform to SDLv3.1-5
+ * 				interface, fixed UNION bug, added support
+ *				for FLOATING, DECIMAL, ADDRESS and BOOLEAN 
+ *				data types, added structured (indented) SDML
+ *				output, altered table file output, created
+ *				separate routines for each node and data type.
+ *
+ *	24-Sep-1991	BJT	Add new Alpha datatypes
+ *	 8-Jun-1992	JAK	EV1-14 Change first arg of sdl$putline to "outfile".
+ *	 8-Jul-1992	JAK	EV1-16 Implemented ORIGIN
+ *	 9-Jul-1992	JAK	EV1-16 Fixed reported stucture name in VIELDSTR.
+ *	23-Feb-1993	JAK	EV1-21 Fix for EVMS-DELTA QAR 02795.
+ *				    When importing AGGREGATE definitions with a READ 
+ *				    statement, the aggregate node has no "children".
+ *				    That is, the nod$a_child field is null. 
+ *				    Several places here failed to take this into consideration 
+ *				    and finally a user experienced ACCVIO's and reported it.
+ *				  - Entry names of PROC_UNKNOWN_DATATYPE and PROC_UNKNOWN_NODETYPE were 
+ *				    reversed.
+ *				  - Conditionals (IFLANGUAGE) and literals had not been implemented. [That was five years ago!]
+ */
+%replace MODULE_IDENT by 'EV1-21';
+
+
+sdl$output: proc (lis_file_name, dflt_file_name, sdl$_shr_data)
+	options(ident(MODULE_IDENT));
+
+/* INCLUDE FILES */
+%include 'SDL$LIBRARY:sdlnodef.in';	/* node structure definition */
+%include 'SDL$LIBRARY:sdltypdef.in';	/* data type definitions */
+%include 'SDL$LIBRARY:sdlshr.in';	/* entry and external definitions */
+%include 'SDL$LIBRARY:sdlmsgdef.in';	/* error reporting */
+
+%replace lang_name by 'SDML';	/* for conditionals */
+ 
+	dcl types(36) char (32) var;
+	dcl nodetypes(11) char (32) varying;
+ /*
+  * The following initialization of the types array is done with
+  * assignments so that the numeric values of the symbols used for
+  * indices do not have to be known 
+  */
+       nodetypes(nod$k_rootnode)='ROOT NODE';
+       nodetypes(nod$k_commnode)='COMMENT NODE';
+       nodetypes(nod$k_constnode)='CONSTANT NODE';
+       nodetypes(nod$k_entrynode)='ENTRY NODE';
+       nodetypes(nod$k_itemnode)='ITEM NODE';
+       nodetypes(nod$k_modulnode)='MODULE NODE';
+       nodetypes(nod$k_parmnode)='PARAMETER NODE';
+       nodetypes(8)='undefined node type';
+       nodetypes(nod$k_objnode)='OBJECT NODE';
+       nodetypes(nod$k_headnode)='HEAD NODE';
+       nodetypes(nod$k_typnode)='TYPNODE';
+    
+       types(typ$k_address)='pointer';
+       types(typ$k_byte)='byte';
+       types(typ$k_char)='character';
+       types(typ$k_boolean)='boolean';
+       types(typ$k_decimal)='decimal';
+       types(typ$k_double)='D-floating';
+       types(typ$k_float)='F-floating';
+       types(typ$k_grand)='G-floating';
+       types(typ$k_huge)='H-floating';
+       types(typ$k_longword)='longword';
+       types(typ$k_octaword)='octaword, longword aligned';
+       types(typ$k_quadword)='quadword, longword aligned';
+       types(typ$k_vield)='bit field';
+       types(typ$k_word)='word';
+       types(typ$k_structure)='structure';
+       types(typ$k_union)='union';
+       types(typ$k_any)='longword of any type';
+	types(typ$k_entry)='entry';
+	types(typ$k_double_complex)='D-floating complex';
+	types(typ$k_float_complex)='F-floating complex';
+	types(typ$k_grand_complex)='G-floating complex';
+	types(typ$k_huge_complex)='H-floating complex';
+	types(typ$k_user)='user';
+	types(typ$k_void)='void';
+	types(typ$k_integer)='integer';
+	types(typ$k_hardware_address)='hardware address';
+	types(typ$k_hardware_integer)='hardware integer';
+	types(typ$k_pointer_hw)='pointer to hardware';
+	types(typ$k_pointer_long)='pointer to longword';
+	types(typ$k_pointer)='pointer';
+	types(typ$k_pointer_quad)='pointer to quadword';
+	types(typ$k_integer)='integer';
+	types(typ$k_integer_byte)='integer byte';
+	types(typ$k_integer_word)='integer word';
+	types(typ$k_integer_long)='integer longword';
+	types(typ$k_integer_quad)='integer quadword';
+	types(typ$k_integer_hw)='integer hardware';
+ 
+ /*
+  * These equivalents are used for unsigned data types
+  */
+       dcl unsigned (36) char (32) var;
+ 
+       unsigned(typ$k_byte)='byte, aligned';
+       unsigned(typ$k_word)='word, aligned';
+       unsigned(typ$k_longword)='longword, aligned';
+       unsigned(typ$k_quadword)='quadword, aligned';
+       unsigned(typ$k_octaword)='octaword, aligned';
+ 
+ 
+ /* LOCAL VARIABLES */
+ 
+	dcl dflt_file_name char(132) var;
+		/* default name for listing file, passed in as an arg */
+	dcl lis_file_name char(128) var;
+		/* listing file name, passed in as an arg */
+	dcl listing_file file output record sequential;
+		/* file for list of generated files */
+
+	dcl (buf, picbuf, tblbuf) char(1024) var;
+		/* buffers for output files */
+	dcl (picfile,tblfile) file record;
+		/* picture and table output files */
+
+	dcl based_string char(1024) var based;
+	dcl filename char(128) varying;
+	dcl origin_offset fixed bin(31) static init(0);	/* EV1-16 */
+
+
+%replace line_length by 80;		/* output file line length */ 
+%replace list_file_ext by '.lis';	/* extension of listing file name */
+%replace sdml_ext by '.sdml';		/* extension of SDML output files */
+%replace picfile_desc by '_pic';	/* descriptor for picture files */
+%replace tblfile_desc by '_tbl';	/* descriptor for table files */
+%replace true by '1'b;
+%replace false by '0'b;
+
+
+
+
+OUTPUTNODE: proc (p,startp,level,mp,cp,cmp,nu,within_union,first_union_elem);
+/*
+ * Since PLI passes arguments by reference, this procedure effectively
+ * simulates call by value parameters.  WITHIN_UNION and FIRST_UNION_ELEM
+ * are purposely allowed to be called by reference.
+ */
+	dcl (p,startp,mp,cp,cmp, tmp_p,tmp_startp,tmp_mp,tmp_cp,tmp_cmp) ptr;
+	dcl (level,nu,tmp_level,tmp_nu) fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+	dcl (struct_name,tmp_struct_name) char(132) var;
+
+    tmp_p = p;
+    tmp_startp = startp;
+    tmp_level = level;
+    tmp_mp = mp;
+    tmp_cp = cp;
+    tmp_cmp = cmp;
+    tmp_nu = nu;
+    tmp_struct_name = struct_name;
+    call interpret_node(tmp_p,tmp_startp,tmp_level,tmp_mp,tmp_cp,tmp_cmp,
+	tmp_nu,within_union, first_union_elem, tmp_struct_name);
+end OUTPUTNODE;
+
+
+
+INDENT: proc (buffer, level);
+/*
+ * Procedure INDENT will initialize BUFFER to contain a certain number of
+ * spaces, corresponding to the LEVEL of depth given.
+ */
+%replace INDENT_STEP by 2;
+	dcl buffer char(1024) var;
+	dcl (level,ctr) fixed bin(31);
+
+    buffer = '';
+    do ctr = 0 to ((level - 2) * INDENT_STEP);
+	buffer = buffer || ' ';
+	end;  /* do */
+end ;
+
+
+
+PROC_COMMNODE: proc (currnode,level,cmp,within_union,first_union_elem);
+/*
+ * Processes a comment node. 
+ */
+	dcl (currnode,q,cmp) ptr;
+	dcl level fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+
+    if level = 1 then do;
+	ALLOCATE nod$_node SET(q);
+	call copynode(currnode,q);
+	call listnode(cmp,q);
+	end;  /* if do */
+    else do;
+	call indent(tblbuf,level);
+
+	if within_union & ^first_union_elem then
+	    tblbuf = tblbuf || '<comment>';
+	tblbuf = tblbuf || currnode->nod$a_comment->based_string;
+	if within_union & ^first_union_elem then
+	    tblbuf = tblbuf || '<endcomment>';
+	write file(tblfile) from (tblbuf);
+	end;  /* else do*/
+END PROC_COMMNODE;
+
+
+
+PROC_CONSTNODE: proc (currnode,mp,cp);
+/*
+ * Processes a constant node.
+ */
+	dcl (currnode,q,mp,cp) ptr;
+
+    ALLOCATE nod$_node SET(q);
+    call copynode(currnode,q);
+    if currnode->nod$l_flags & nod$m_mask then	call listnode(mp,q);
+    else call listnode(cp,q);
+END PROC_CONSTNODE;
+
+
+
+PROC_ITEM_NODE: proc (currnode,level,within_union,first_union_elem);
+/*
+ * Processes an item node.
+ */
+	dcl currnode ptr;
+	dcl level fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+
+    /* Reset origin value if at top level */		/* EV1-16 */
+    if level = 1 then 
+	origin_offset = 0;
+
+    /*
+     * Write out approproate stuff to the picture file
+     */
+    call indent(picbuf, level);
+    if within_union & ^first_union_elem then picbuf = picbuf || '<comment> ';
+    picbuf = picbuf || '<str_element>(';
+    if index(currnode->nod$t_naked, 'FILL_') = 0 then
+	/* item is not a fill item */
+	picbuf = picbuf || currnode->nod$t_name;
+    else
+	/* item is a fill item */
+	picbuf = picbuf || 'unused';
+    picbuf = picbuf || '\' || trim(currnode->nod$l_fldsiz)
+	|| '\' || trim(currnode->nod$l_offset+origin_offset);
+    picbuf = picbuf || ')';
+
+    if within_union & (currnode->nod$l_fldsiz
+	< currnode->nod$a_parent->nod$l_fldsiz) then
+	picbuf = picbuf || ' <str_element>(unused\'
+	    || trim(currnode->nod$a_parent->nod$l_fldsiz
+	    - currnode->nod$l_fldsiz) || '\'
+	    || trim(currnode->nod$l_offset+origin_offset + currnode->nod$l_fldsiz) || ')';
+
+    if within_union & ^first_union_elem THEN picbuf = picbuf ||' <endcomment>';
+    write file(picfile) from (picbuf);
+
+    /*
+     * Write out approproate stuff to the table file
+     */
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem THEN tblbuf = tblbuf || '<comment> ';
+    if index(currnode->nod$t_naked, 'FILL_') = 0 then do;
+	tblbuf = tblbuf || '<table_row>(' || currnode->nod$t_name || '\';
+	call appnd_comment(currnode,tblbuf);
+	tblbuf = tblbuf || ')';
+    end;  /* do if */
+    if within_union & ^first_union_elem THEN tblbuf = tblbuf ||' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    if within_union & first_union_elem THEN first_union_elem = FALSE;
+END PROC_ITEM_NODE;
+
+
+
+PROC_AGGR_STRUCT: proc (currnode,level,mp,cp,cmp,nu,within_union,
+    first_union_elem);
+/*
+ * Processes an aggregate structure node.
+ */
+	dcl (currnode,mp,cp,cmp) ptr;
+	dcl (level,nu,name_length) fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+	dcl (hh,mi,ss,yy,mo,dd) char(2);
+
+    /* parent node is a module */
+
+    origin_offset = currnode->nod$l_typeinfo; /* EV1-16 */
+
+    /* open new files for this module */
+    filename = currnode->nod$t_name || picfile_desc || sdml_ext;
+    open file(picfile) output title(filename);
+    buf = filename;
+    call sdl$putline(outfile,buf,line_length);
+
+    filename = currnode->nod$t_name || tblfile_desc || sdml_ext;
+    open file(tblfile) output title(filename);
+    buf = filename;
+    call sdl$putline(outfile,buf,line_length);
+
+    get edit (hh,mi,ss) (a(2),a(2),a(2)) string(time());
+    get edit (yy,mo,dd) (a(2),a(2),a(2)) string(date());
+    buf = '<chead>(<underline>(' || currnode->nod$t_name || '))';
+    write file(picfile) from (buf);
+    buf = '<comment> **************************************'
+	|| '*****************************';
+    write file(picfile) from (buf);
+    write file(tblfile) from (buf);
+    buf = 'This file was generated directly from an SDL source file.  '
+	|| mo || '/' || dd || '/' || yy || ', ' || hh || ':' || mi || ':' || ss;
+    write file(picfile) from (buf);
+    write file(tblfile) from (buf);
+    buf = '*******************************'
+	|| '********************************* <endcomment>';
+    write file(picfile) from (buf);
+    write file(tblfile) from (buf);
+
+    picbuf = '<ignore>(data_structure)';
+    write file(picfile) from (picbuf);
+    buf = '<p>';
+    write file(picfile) from (buf);
+    write file(tblfile) from (buf);
+
+    if cmp ^= null() then call commout(cmp);
+    picbuf = '<data_structure>(' || currnode->nod$t_name || '\'
+	|| trim(currnode->nod$l_fldsiz) || ')';
+    write file(picfile) from (picbuf);
+
+    if currnode->nod$a_child ^= null() then		/* EV1-21 */
+	do;
+	tblbuf = 'The following are the contents of the aggregate structure '
+		|| currnode->nod$t_name || ':';
+	write file(tblfile) from (tblbuf);
+	tblbuf = '<table>';
+	write file(tblfile) from (tblbuf);
+	tblbuf = '<table_attributes>(multipage)';
+	write file(tblfile) from (tblbuf);
+	tblbuf = '<table_setup>(2\' || trim(getlargest(nod$k_itemnode,
+	    currnode->nod$a_child->nod$a_flink,currnode->nod$a_child,0)+3) || ')';
+	write file(tblfile) from (tblbuf);
+	tblbuf = '<table_heads>(Field\Use)';
+	write file(tblfile) from (tblbuf);
+	tblbuf = '<table_row_break>(first)';
+	write file(tblfile) from (tblbuf);
+
+	call outputnode (currnode->nod$a_child->nod$a_flink,
+			    currnode->nod$a_child,level+1,mp,cp,cmp,nu,
+			    within_union,first_union_elem);
+	picbuf = '<end_data_structure>(' || currnode->nod$t_name || ')';
+	write file(picfile) from (picbuf);
+	tblbuf = '<endtable>';
+	write file(tblfile) from (tblbuf);
+	end;
+    close file(picfile);
+
+    tblbuf = '<page>';
+    write file(tblfile) from (tblbuf);
+    if cp ^= null then call constout(currnode,cp,level,nu);
+    close file(tblfile);
+END PROC_AGGR_STRUCT;
+
+
+PROC_SUB_STRUCT: proc (currnode,level,mp,cp,cmp,nu,
+    within_union,first_union_elem);
+/*
+ * Processes a sub-structure node.
+ */
+	dcl (currnode,mp,cp,cmp) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+
+    if currnode->nod$a_child = null() then		/* EV1-21 */
+	return;
+
+    /* its a sub-structure */
+    if currnode->nod$a_child->nod$a_flink->nod$w_datatype
+	= typ$k_vield then call vieldstr(currnode,level,cp,mp,nu,within_union,
+	    first_union_elem);
+    else do;
+	tblbuf = 'The following ' || trim(currnode->nod$l_fldsiz)
+	    || ' bytes form the sub-structure ' || currnode->nod$t_name || ':';
+	if within_union & first_union_elem then do;
+	    call outputnode(currnode->nod$a_child->nod$a_flink,
+		currnode->nod$a_child,level+1,mp,cp,cmp,nu,FALSE, FALSE);
+	    first_union_elem = FALSE;
+	    end;  /* do */
+	else
+	    call outputnode(currnode->nod$a_child->nod$a_flink,
+		currnode->nod$a_child,level+1,mp,cp,cmp,nu,within_union,
+		first_union_elem);
+    end;  /* else do */
+END PROC_SUB_STRUCT;
+
+
+PROC_UNION: proc (currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+/*
+ * Processes a union node.
+ */
+	dcl (currnode,mp,cp,cmp) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl (within_union,first_union_elem) bit;
+
+    /* Set origin value if at top level */		/* EV1-16 */
+    if level = 1 then 
+	origin_offset = currnode->nod$l_typeinfo;
+    else 
+	origin_offset = 0;
+
+    call indent(picbuf,level);
+    picbuf = picbuf || '<comment>(union of length '
+	|| trim(currnode->nod$l_fldsiz) || ')';
+    write file(picfile) from (picbuf);
+    write file(tblfile) from (picbuf);
+    if currnode->nod$a_child ^= null() then		/* EV1-21 */
+	do;
+	if within_union then
+	    call outputnode (currnode->nod$a_child->nod$a_flink,
+		currnode->nod$a_child,level+1,mp,cp,cmp,nu,TRUE,
+		first_union_elem);
+	else
+	    call outputnode (currnode->nod$a_child->nod$a_flink,
+		currnode->nod$a_child,level+1,mp,cp,cmp,nu,TRUE,TRUE);
+	end;
+END PROC_UNION;
+
+
+PROC_VIELD: proc (currnode,level,within_union,first_union_elem);
+/*
+ * Processes a bitfield node.
+ */
+	dcl currnode ptr;
+	dcl level fixed bin(31);
+	dcl (within_union,first_union_elem) bit;
+
+    call indent(tblbuf,level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<table_row>(' || currnode->nod$t_name
+	|| '\This field is ' || trim(currnode->nod$l_typeinfo) || ' bit';
+    if currnode->nod$l_typeinfo > 1 then tblbuf = tblbuf || 's';
+    tblbuf = tblbuf || ' long, and starts at bit '
+	|| trim(currnode->nod$l_typeinfo2 + (8
+	* mod(currnode->nod$l_offset+origin_offset,4))) || '.  ';
+    call appnd_comment(currnode,tblbuf);
+    tblbuf = tblbuf || ')';
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+END PROC_VIELD;
+
+
+PROC_CONDITIONAL: proc (currnode,level,mp,cp,cmp,nu,within_union, /* EV1-21 */
+    first_union_elem);
+/*
+ * Processes a CONDITIONAL node (implements IFLANGUAGE).
+ */
+	dcl (currnode,mp,cp,cmp) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+
+	dcl p ptr;
+
+	/* Search for this language in the list.  If this language is found, 
+	   then children will be processed at the same level. */
+
+	if currnode->nod$a_child ^= null() then
+	    do p = currnode->nod$a_typeinfo2->nod$a_flink 
+		repeat p->nod$a_flink while(p->nod$b_type = nod$k_objnode);
+		if p->nod$t_name = lang_name then 
+		    do;
+		    call outputnode (currnode->nod$a_child->nod$a_flink,
+			    currnode->nod$a_child,level,mp,cp,cmp,nu,
+			    within_union,first_union_elem);
+		    return;
+		    end;
+	    end;
+
+END PROC_CONDITIONAL;
+
+
+PROC_LITERAL: proc (currnode);	/* EV1-21 */
+/*
+ * Process literal node 
+ */
+	dcl currnode ptr;
+
+    picbuf = currnode->nod$a_typeinfo2->based_string;
+    write file(picfile) from (picbuf);
+
+END PROC_LITERAL;
+
+
+PROC_MODULE: proc (currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+/*
+ * Processes a module node.
+ */
+	dcl (currnode,mp,cp,cmp) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl (within_union, first_union_elem) bit;
+if currnode->nod$a_child ^= null() then
+    call outputnode (currnode->nod$a_child->nod$a_flink,currnode->nod$a_child,
+	level+1,mp,cp,cmp,nu,within_union,first_union_elem);
+END PROC_MODULE;
+
+
+PROC_UNKNOWN_NODETYPE: proc (currnode);
+/*
+ * Reports an error for an unknown data type.
+ */
+	dcl currnode ptr;
+
+    put skip(2) list('INTERNAL ERROR!  Encountered unknown node type in SDL tree.');
+    put skip list ('Offending node type value is : ' || trim((currnode->nod$b_type)));
+    put skip;
+END PROC_UNKNOWN_NODETYPE;
+
+
+PROC_UNKNOWN_DATATYPE: proc (currnode);
+/*
+ * Reports an error for an unknown data type.
+ */
+	dcl currnode ptr;
+
+    put skip(2) list('INTERNAL ERROR!  Encountered unknown data type in SDL tree.');
+    put skip list ('Offending node data type value is : ' || trim((currnode->nod$w_datatype)));
+    put skip;
+END PROC_UNKNOWN_DATATYPE;
+
+
+INTERPRET_NODE: proc (currnode,startnode,level,mp,cp,cmp,nu,
+    within_union,first_union_elem,struct_name);
+/*
+ * This procedure parses the SDL tree generated by the front end and calls
+ * the appropriate routine based on the current type of node.
+ */
+
+	dcl currnode ptr;	/* ptr to current node in SDL tree */
+	dcl startnode ptr;	/* ptr to head node of current subtree */
+	dcl (mp,cp,cmp) ptr;	/* usage unknown MAS */
+	dcl level fixed bin(31);/* current depth of structure recursion */
+	dcl nu fixed bin(31);	/* use unknown MAS */
+	dcl within_union bit;	/* true if currently within a union */
+	dcl first_union_elem bit;/*false after first union elemt is output */
+	dcl struct_name char(132) var;/*holds name of current nested structure*/
+	dcl (nt,dt) fixed bin(15); /* node and data types */
+
+nt = currnode->nod$b_type;
+dt = currnode->nod$w_datatype;
+
+DO UNTIL (currnode = startnode);
+
+    SELECT;
+	WHEN (nt = NOD$K_ITEMNODE) SELECT;
+	    WHEN (dt = TYP$K_BYTE,
+		  dt = TYP$K_WORD,
+		  dt = TYP$K_LONGWORD,
+		  dt = TYP$K_QUADWORD,
+		  dt = TYP$K_OCTAWORD,
+		  dt = TYP$K_CHAR,
+		  dt = TYP$K_ANY,
+		  dt = TYP$K_ADDRESS,
+		  dt = TYP$K_BOOLEAN,
+		  dt = TYP$K_DECIMAL,
+		  dt = TYP$K_DOUBLE,
+		  dt = TYP$K_FLOAT,
+		  dt = TYP$K_GRAND,
+		  dt = TYP$K_HUGE,
+		  dt = TYP$K_VOID,
+		  dt = TYP$K_INTEGER,
+		  dt = TYP$K_HARDWARE_ADDRESS,
+		  dt = TYP$K_POINTER_HW,
+		  dt = TYP$K_POINTER_LONG,
+		  dt = TYP$K_POINTER,
+		  dt = TYP$K_POINTER_QUAD,
+		  dt = TYP$K_INTEGER,
+		  dt = TYP$K_INTEGER_BYTE,
+		  dt = TYP$K_INTEGER_WORD,
+		  dt = TYP$K_INTEGER_LONG,
+		  dt = TYP$K_INTEGER_QUAD,
+		  dt = TYP$K_INTEGER_HW)  
+		call PROC_ITEM_NODE(currnode, level, within_union,first_union_elem);
+	    WHEN (dt = typ$k_structure)
+		IF currnode->nod$a_parent->nod$b_type = nod$k_modulnode THEN
+		    call PROC_AGGR_STRUCT(currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+		ELSE
+		    call PROC_SUB_STRUCT(currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+	    WHEN (dt = TYP$K_UNION)
+		call PROC_UNION(currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+	    WHEN (dt = TYP$K_VIELD)
+		call PROC_VIELD(currnode,level,within_union,first_union_elem);
+	    OTHERWISE 
+		call PROC_UNKNOWN_DATATYPE(currnode);
+	END;   /* ITEMNODE */
+	WHEN (nt = NOD$K_COMMNODE)
+	    call PROC_COMMNODE(currnode,level,cmp,within_union,first_union_elem);
+	WHEN (nt = NOD$K_CONSTNODE)
+	    call PROC_CONSTNODE(currnode, mp, cp);
+	WHEN (nt = NOD$K_CONDNODE) 
+	    call PROC_CONDITIONAL(currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+	WHEN (nt = NOD$K_LITNODE)
+	    call PROC_LITERAL(currnode);
+	WHEN (nt = NOD$K_MODULNODE)
+	    call PROC_MODULE(currnode,level,mp,cp,cmp,nu,within_union,first_union_elem);
+	WHEN (nt = NOD$K_PARMNODE);	/* ignore it and go on */
+	WHEN (nt = NOD$K_OBJNODE);	/* ignore it and go on */
+	WHEN (nt = NOD$K_HEADNODE);	/* ignore it and go on */
+	WHEN (nt = NOD$K_ENTRYNODE);	/* ignore it and go on */
+	WHEN (nt = NOD$K_ROOTNODE);	/* ignore it and go on */
+	OTHERWISE 
+	    call PROC_UNKNOWN_NODETYPE(currnode);
+    END; /* NODETYPE */
+
+    currnode = currnode->nod$a_flink;
+
+END;  /* DO UNTIL */
+END INTERPRET_NODE;
+
+
+
+
+
+CONSTOUT:    proc(p,cp,level,nu);
+/*
+ * Creates a table and lists all the constants within a given aggregate
+ */
+
+	dcl (p,cp) ptr;
+	dcl (level,nu) fixed bin(31);
+
+    if p->nod$a_child = null() then		/* EV1-21 */
+	return;
+
+    tblbuf='<p>';
+    write file(tblfile) from (tblbuf);
+    tblbuf='The following constants are defined in conjunction with ';
+    tblbuf = tblbuf || p->nod$t_name || ':';
+    write file(tblfile) from (tblbuf);
+    tblbuf = '<table>';
+    write file(tblfile) from (tblbuf);
+    tblbuf = '<table_attributes>(multipage)';
+    write file(tblfile) from (tblbuf);
+    tblbuf = '<table_setup>(3\' || trim(getlargest(nod$k_itemnode,
+		p->nod$a_child->nod$a_flink,p->nod$a_child,0)+3)||'\6)';
+    write file(tblfile) from (tblbuf);
+    tblbuf = '<table_heads>(Constant\Value\Use)';
+    write file(tblfile) from (tblbuf);
+
+    nu = getnu(p,nu);
+
+    call constmaskout(p,level,cp,nu);
+
+    tblbuf = '<endtable>';
+    write file(tblfile) from (tblbuf);
+    return;
+
+end CONSTOUT;
+
+
+
+VIELDSTR:    proc(x,level,cp,mp,nu,within_union,first_union_elem);
+/*
+ * Creates a table unit (within a table) for bitfields.
+ */
+
+   DCL (x,cp,mp,cmp) ptr;
+   DCL (level,nu) fixed bin(31);
+   DCL (within_union,first_union_elem) bit;
+
+
+    if x->nod$a_child = null() then		/* EV1-21 */
+	return;
+
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<table_unit>';
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<table_unit_heads>(<span>(2\left) '
+	|| 'The following fields are defined within '
+	|| x->nod$t_name || ':)';		/* EV1-16 */
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    if within_union & first_union_elem then
+        call outputnode(x->nod$a_child->nod$a_flink,x->nod$a_child,level+1,
+	    mp,cp,cmp,nu,FALSE,FALSE);
+    else
+        call outputnode(x->nod$a_child->nod$a_flink,x->nod$a_child,level+1,
+	    mp,cp,cmp,nu,within_union,first_union_elem);
+
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<table_row>(<span>(2\left) <rule>)';
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<endtable_unit>';
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    call indent(tblbuf, level);
+    if within_union & ^first_union_elem then tblbuf = tblbuf || '<comment> ';
+    tblbuf = tblbuf || '<table_row>( \ )';
+    if within_union & ^first_union_elem then tblbuf = tblbuf || ' <endcomment>';
+    write file(tblfile) from (tblbuf);
+
+    if within_union & first_union_elem then
+	first_union_elem = FALSE;
+
+    if (mp ^= null()) & (mp->nod$l_srcline < nu) & (
+	(mp->nod$l_srcline > x->nod$l_srcline)) then do;
+
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<table_unit>';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<table_unit_heads>(<span(2\left)The following mask';
+	if mp->nod$a_flink ^= null() then tblbuf = tblbuf||'s are ';
+	else tblbuf = tblbuf || ' is ';
+	tblbuf = tblbuf || 'defined for use within ' ||
+	    x->nod$a_parent->nod$a_child->nod$a_flink->nod$t_name||'.)';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<table_heads>(Mask\Value)';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+
+	call maskout(x,level,mp,nu);
+
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<table_row>(<span>(2\left) <rule>)';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+	
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<endtable_unit>';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+	
+	call indent(tblbuf, level);
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || '<comment> ';
+	tblbuf = tblbuf || '<table_row>( \ )';
+	if within_union & ^first_union_elem then tblbuf = tblbuf
+	    || ' <endcomment>';
+	write file(tblfile) from (tblbuf);
+
+      end;
+return;
+
+end VIELDSTR;
+
+
+
+GETLARGEST:    proc(node_kind,currnode,startnode,len)
+	RETURNS (fixed bin(31));
+/*
+ * Traverses all nodes and sub-nodes of CURRNODE, and returns the length
+ * of the longest ITEMnode or CONSTnode name.  Used for setting up table
+ * columns.
+ */
+
+    dcl node_kind fixed bin(31);
+    dcl (currnode, startnode) ptr;
+    dcl len fixed bin(31);
+
+    if currnode = null() then do;
+	tblbuf = '<comment>(NULL POINTER UPON ENTERING PROCEDURE GETLARGEST'
+	    || ' - REPORT TO VAXUUM::SWATKO)';
+	write file(tblfile) from (tblbuf);
+	return (len);
+	end;
+
+    if (node_kind = nod$k_itemnode) & (currnode->nod$b_type = nod$k_itemnode)
+	& ((currnode->nod$w_datatype = typ$k_union)
+	  |(currnode->nod$w_datatype = typ$k_structure))
+      then do;
+	if currnode->nod$a_child = null() then		/* EV1-21 */
+	    return (len);
+	return(getlargest(nod$k_itemnode,currnode->nod$a_child->nod$a_flink,
+	    currnode->nod$a_child, len));
+      end;
+
+    if (node_kind = nod$k_commnode) & (currnode->nod$b_type = nod$k_commnode)
+	& (len < length(currnode->nod$t_name)) then
+	len = length(currnode->nod$t_name);
+
+    if (node_kind = nod$k_itemnode) & (currnode->nod$b_type = nod$k_itemnode)
+	& (len < length(currnode->nod$t_name)) then
+	len = length(currnode->nod$t_name);
+
+    if currnode->nod$b_type = nod$k_headnode then return(len);
+
+    return(getlargest(node_kind,currnode->nod$a_flink,startnode,len));
+
+end GETLARGEST;
+
+
+
+GETNU:    proc(p,next) RETURNS (fixed bin(31));
+/*
+ * use unknown - MAS, probably does something like returning the next
+ * source line number.  Why that's useful is beyond me.
+ */
+
+   DCL p ptr;
+   DCL next fixed bin(31);
+
+if p ^= null then
+   if p->nod$a_flink ^= null() then
+      if (p->nod$a_flink->nod$b_type ^= nod$k_headnode &
+            p->nod$a_flink->nod$b_type ^= nod$k_rootnode &
+            p->nod$a_flink->nod$b_type ^= nod$k_parmnode  &
+            p->nod$a_flink->nod$b_type ^= nod$k_objnode) then
+         return(p->nod$a_flink->nod$l_srcline);
+      if p->nod$a_flink->nod$b_type ^= nod$k_rootnode then
+         return(10000000);
+      else
+         return(getnu(p->nod$a_parent,next));
+end GETNU;
+
+
+
+
+LISTNODE:    proc(mp,q);
+/*
+ * unknown MAS
+ * This procedure takes q, the pointer to a node copied from the parse-tree
+ * and containing a mask or constant node, and puts it in a list of such nodes
+ */
+
+	dcl (mp,q,r) ptr;
+
+    if mp = null() then
+	mp = q;
+    else do;
+	r = mp;
+	do while (r->nod$a_flink ^= null());
+	    r = r->nod$a_flink;
+	end;
+	r->nod$a_flink = q;
+	r = null();
+    end;
+    q = null();
+
+end LISTNODE;
+
+
+
+
+COPYNODE:    proc(p,q);
+/*
+ * Copies all contents of node p into node q, making it a duplicate of p.
+ */
+
+	dcl (p,q) ptr;
+
+    q->nod$a_flink = null();
+    q->nod$a_blink = null();
+    q->nod$a_parent = null();
+    q->nod$b_type = p->nod$b_type;
+    q->nod$l_typeinfo = p->nod$l_typeinfo;
+    q->nod$l_typeinfo2 = p->nod$l_typeinfo2;
+    q->nod$t_name = p->nod$t_name;
+    q->nod$t_prefix = p->nod$t_prefix;
+    q->nod$t_tag = p->nod$t_tag;
+    q->nod$a_parent = p->nod$a_parent;
+    q->nod$l_srcline = p->nod$l_srcline;
+    q->nod$a_comment = p->nod$a_comment;
+    q->nod$l_flags = p->nod$l_flags;
+
+end COPYNODE;
+
+
+
+COMMOUT:    proc(p);
+/*
+ * Writes out the comments for node P to the  picture file.
+ */
+
+   DCL (p,q) ptr;
+
+    do while ((p ^= null()));
+	picbuf = p->nod$a_comment->based_string;
+	write file(picfile) from (picbuf);
+	q = p;
+	p = q->nod$a_flink;
+	free q->nod$_node;
+	q = null();
+   end;
+
+end COMMOUT;
+
+
+
+CONSTMASKOUT:    proc(p,level,mp,nu);
+/*
+ * ?
+ */
+
+	dcl (p,mp,q) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl notdone bit;
+
+    if mp = null() then
+	notdone = '0'b;
+    else
+	notdone = '1'b;
+    do while (notdone);
+    if (mp->nod$b_type = nod$k_itemnode & mp->nod$l_srcline < nu &
+	mp->nod$l_srcline > p->nod$l_srcline) |
+	(mp->nod$b_type = nod$k_constnode & mp->nod$l_srcline < nu)
+	then do;
+	   tblbuf='<table_row>('||mp->nod$t_name||'\'||trim(mp->nod$l_typeinfo)
+		|| '\';
+	    call appnd_comment(mp,tblbuf);
+	    tblbuf = tblbuf || ')';
+	    write file(tblfile) from (tblbuf);
+	    q = mp;
+	    mp = q->nod$a_flink;
+	    free q->nod$_node;
+	    q = null();
+	    if mp = null() then
+	        notdone = '0'b;
+	    else
+	        notdone = '1'b;
+	end;
+    else
+	notdone = '0'b;
+    end; /* do while (notdone) */
+
+end CONSTMASKOUT;
+
+
+MASKOUT:    proc(p,level,mp,nu);
+/*
+ * ?
+ */
+
+	dcl (p,mp,q) ptr;
+	dcl (level,nu) fixed bin(31);
+	dcl notdone bit;
+
+    if mp = null() then
+	notdone = '0'b;
+    else
+	notdone = '1'b;
+    do while (notdone);
+    if (mp->nod$b_type = nod$k_itemnode & mp->nod$l_srcline < nu &
+	mp->nod$l_srcline > p->nod$l_srcline) |
+	(mp->nod$b_type = nod$k_constnode & mp->nod$l_srcline < nu)
+	then do;
+	   tblbuf='<table_row>('||mp->nod$t_name||'\'||trim(mp->nod$l_typeinfo);
+	    call appnd_comment(mp,tblbuf);
+	    tblbuf = tblbuf || ')';
+	    write file(tblfile) from (tblbuf);
+	    q = mp;
+	    mp = q->nod$a_flink;
+	    free q->nod$_node;
+	    q = null();
+	    if mp = null() then
+	        notdone = '0'b;
+	    else
+	        notdone = '1'b;
+	end;
+    else
+	notdone = '0'b;
+    end; /* do while (notdone) */
+
+end MASKOUT;
+
+
+
+APPND_COMMENT:    proc(p,buffer);
+/*
+ * If there is attached comment, then append it to end of the buffer param
+ */
+	dcl p ptr;
+	dcl buffer char(1024) var;
+
+    if p->nod$a_comment^=null() then
+	buffer = buffer || p->nod$a_comment->based_string;
+
+end APPND_COMMENT;
+
+
+
+/************************** MAIN PROCEDURE **************************/
+
+/* 
+ * Output the little SDL header with time and date Info 
+ */
+
+    on undefinedfile (listing_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn
+		,,(lis_file_name||list_file_ext));
+	    goto exit;
+	end;
+
+    /* first open up the output file and concatenate */
+    /* the extension for the language */
+    open file (listing_file) title (lis_file_name) 
+	environment (default_file_name( dflt_file_name||list_file_ext) );
+
+    /* equate the file with the file variable in the shared structure */	
+    outfile = listing_file;
+
+    call sdl$header(sdl$_shr_data, '/*','*/',line_length);
+
+    buf = 'The SDML source files produced are the following:';
+    call sdl$putline(outfile,buf,line_length);
+    buf='';
+
+    /* Process the SDL tree */
+    call outputnode(tree_root->nod$a_flink,tree_root,0,null(),null(),
+	null(),0,FALSE,FALSE);
+
+    close file (listing_file);
+
+exit:
+    return;
+
+ /* ******************** END MAIN PROCEDURE ************************* */
+
+end SDL$OUTPUT;

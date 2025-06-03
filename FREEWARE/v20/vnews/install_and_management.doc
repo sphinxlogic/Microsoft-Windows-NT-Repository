@@ -1,0 +1,327 @@
+VNEWS - A NATIVE VMS NEWS READING PROGRAM         VERSION 1.40 June, 1991
+                                                  updated to V1.41, Aug, 1991
+
+1.0 INTRODUCTION
+
+    VNews is a user agent program for reading news.  The news database is
+    not kept on the VMS machine, instead the nntp protocol is used to
+    access the data on a server machine.  VNEWS supports the following
+    network software combinations:
+	
+	DECnet
+	TGV's Multinet (V2 and V3)
+	Wollongong WINS/TCP (V5.2 and prior)
+	CMU-TEK TCP/IP
+	Process Software's TCPware
+	Digital's Ultrix Connection (UCX)
+
+1.1 FAST START
+
+    If you're the impatient type, do the following:
+
+	1) $ delete vnews.opt;
+	2) $ edit site_specific.def
+	3) IF you have more than 1500 groups, $ edit news.def and 
+		change MX_GROUP to be correct for your site
+	4) $ mms  (or @compile_vnews; @link_vnews)
+	5) $ assign "your.dns.name" nntp_host_name
+	6) $ vnews :== $my_disk:[my_dir]vnews
+	7) $ vnews
+
+    Now, please read the rest of this file before unleashing VNEWS on
+    everyone else.
+
+2.0 BUILDING NEWS
+
+    VNEWS comes with two sets of build procedures.  If you have MAKE, MMS
+    or a similar program you can use the included MAKEFILE to rebuild the
+    code.
+
+    Almost all of VNEWS is written in FORTRAN.  BCOPY.MAR and HTONS.MAR, 
+    which are needed by some TCP/IPs, are in Macro-32.  For CMU users, there 
+    is a single source file in C, GETHOSTBYNAME.C
+
+    BEFORE YOU TRY AND BUILD VNEWS, EDIT SITE_SPECIFIC.DEF!
+
+MMS users:
+
+    Delete VNEWS.OPT, and then:
+
+	To compile VNEWS for Multinet: MMS
+	To compile VNEWS for Wollongong (versions prior to 5.2):
+					 MMS/macro="WIN=foo"
+	To compile VNEWS for Wollongong (version 5.2 and above):
+					 MMS/macro="WIN52=foo"
+	To compile VNEWS for CMU: MMS/macro="CMU=bar"
+	To compile VNEWS for UCX: MMS/macro="UCX=baz"
+	To compile VNEWS for DECnet: MMS/macro="DECNET=zap"
+	To compile VNEWS for TCPware: MMS/macro="PSC=boo"
+	
+    The MMS file has additional magic in it if you're into debugging;
+    try typing out the file to see it.
+
+Command procedure users:
+
+    COMPILE_VNEWS.COM - compile the software.
+
+    LINK_VNEWS.COM - Link the object modules into an executable.  You
+    can let it guess which TCP you're running, or you can provide an
+    argument as P1 to the procedure.
+
+3.0 SITE SPECIFIC CONFIGURATION
+
+    SITE_SPECIFIC.DEF contains all of the site specific information.  The code
+    is initally configured for sites at the University of Arizona.
+
+    VNEWS supports the following site specific customizations:
+
+----------------------+-----------------------+---------------------
+    Parameter		Logical Name?		Variable?
+----------------------+-----------------------+---------------------
+    Site name		NNTP_HOST_NAME		no, must use logical
+			or ARPANET_HOST_NAME	
+                        or INTERNET_HOST_NAME
+                        or UCX$INET_HOST
+
+    Editor		NNTP_EDITOR		yes
+			or NNTP_VISUAL
+			or MAIL$EDIT
+
+    Personal Name	NNTP_NAME		yes
+			or, in MAILUAF
+			or, in SYSUAF
+			or, USERNAME
+
+    Organization	NNTP_ORGANIZATION	yes
+
+    Mailer		NNTP_MAILPOSTER		yes
+
+    News Server		NNTP_SERVER		yes
+
+    DECnet task		NNTP_TASK		yes
+    (only if using DECnet)
+
+    Print command	NNTP_NEWS_PRINT		yes
+
+    Valid destinations	no			yes
+
+    Distribution  	no			yes
+
+    Authinfo - username	no			yes
+             - password	no			yes
+
+    Timezone		NNTP_TIMEZONE		yes
+			or, MULTINET_TIMEZONE
+			or, JAN_TIME_ZONE
+
+    XX.NewsRC location	NNTP_NEWSRC_LOCATION	yes
+
+    Reply-to: header	NNTP_REPLY		no, must use logical
+----------------------+-----------------------+---------------------
+
+
+    If you have lots of groups, or groups which have very long names,
+    look in NEWS.DEF for the appropriate constants. 
+
+3.1 MANAGING VNEWS
+
+    The hardest part about managing VNEWS is handling the time zone
+    thing.  You'll have to remember to fix the appropriate logical
+    name (NNTP_TIMEZONE) every time your system changes time zones.  
+    Either that, or move to Arizona.
+
+    Most anything you want to change will be in SITE_SPECIFIC.DEF.
+    If that doesn't help, look in NEWS.DEF (this will be particularly
+    appropriate if you have unusually long group names, or zillions
+    of groups).  Finally, if you want to fool with the headers of
+    messages before people get to post them, look in VALIDATE_HEADERS,
+    which gives you that opportunity.
+
+    If you have plenty of disk space and memory, you may want to explore
+    replacing YOW.DEF with BIGYOW.DEF.
+
+    Depending on your server, VNEWS can be very slow for certain
+    operations.  In particular, ANU News users may find that VNEWS stalls
+    for a very long time during start up.  If you'd like to speed up
+    the start up of VNEWS, then simply comment out the line which
+    calls NNTP_Get_New_Groups() from NEWS.FOR.  This is a part of VNEWS
+    which is under construction right now, and you can safely discard
+    this line (which will give users a little less information). 
+
+    I'd also be interested in hearing from any VNEWS users who have
+    servers that DON'T support the NEWGROUPS command.  This feedback will
+    affect how VNEWS gets updated in the next release.
+
+3.2 COMMON PROBLEMS
+
+    A lot of people have logical names "NEWS" or "VNEWS" on their system.
+    Such logicals will make the compile and build procedures blow up,
+    or otherwise behave in an anti-social manner.  
+
+    You may need privileges for any of the MAIL commands to work, or
+    to install VNEWS with privileges.  VNEWS is not as dumb as it looks
+    when it comes to privileges: it turns them off as soon as it
+    starts, and only turns them on in the middle of MAIL transactions.
+    Nevertheless, be careful.  It's a jungle out there.
+
+    The way that VNEWS attempts to do editing is by looking for its
+    own logical name (NNTP_EDITOR or NNTP_VISUAL), and then for anything
+    you may have set up to work with VMS MAIL (MAIL$EDIT).  This could
+    have some consequences for your users.  Beware of VNEWS blow-ups which
+    happen when people try to edit files (replies and posts).  Some
+    careful debugging of logical names may be appropriate here.  
+
+    The most common problem of all seems to be not having an appropriate
+    maximum group name.  If your server is hosting the wonderfully bogus
+    group alt.desert.storm.its.not.scud.its.al-hussein.dammit, then
+    you'll have to increase NwsGrpSz to 64 from 48.  Or, issue an 
+    rmgroup for the stupid thing.
+
+4.0 RUNNING VNEWS 
+
+    You can run VNews with a foreign command, you can install it in the
+    system DCL tables.  VNEWS requires no privileges.  However, some
+    TCP/IP mailers require that you be installed with privileges to
+    send mail.  The best thing to do is NOT install with privileges,
+    and attempt to send mail (try using the S command).  If it fails,
+    you'll need to add some appropriate privilege.
+
+4.1 RUNNING VNEWS WITHOUT INSTALLING IT
+
+    Define the foreign command VNEWS to point to the VNEWS image.  For
+    example:
+
+	$ VNEWS :== $disk$kludgey:[jms.wrk.vnews]vnews
+
+    Now run VNews with the VNews command.  Define any logicals that are
+    needed (see Site Specific information above) prior to issuing the
+    command.  If VNEWS requires privileges to work with your mailer,
+    then you'll have to construct a suitable install file.
+
+4.2 INSTALLING VNEWS
+
+    In order to install VNews on a system wide basis you need to do the
+    following:
+
+    1a) Edit VNEWS.CLD to point to the location of the VNEWS executable,
+    by changing the IMAGE line (note: you will have to change it back
+    to re-compile VNEWS) OR
+    
+    1b) Define a logical name VNEWS which points to the VNEWS executable,
+    OR
+
+    1c) Put VNEWS.EXE in SYS$SYSTEM
+
+    2) Find out whether you need to install VNEWS with privileges
+    to use your mailer.
+
+    3) Add the VNews command to the system command tables:
+
+	$ Set command/Table=sys$common:[syslib]dcltables -
+	             /Output=sys$common:[syslib]dcltables -
+		    VNews.CLD
+	$ mcr install
+	INSTALL> sys$common:[syslib]dcltables.exe/replace
+
+    If installing in a cluster, you should remember
+    to use INSTALL to REPLACE DCLTABLES on each node in the cluster.
+
+5.0 SOFTWARE DISTRIBUTION LAYOUT
+
+    [.140src] - source code for VNEWS V1.4
+    [.141src] - new files to convert from VNEWS V1.40 to V1.41
+    [.utils] - some handy .COM files that come with VNEWS
+    [.docs] - documentation:
+	AUTH.INFO - information on using VNEWS with NNTP servers 
+			requiring authorization
+	COMPATIBILITY.VMS4-7 - information on using VNEWS on VMS 4.7
+	COPYRIGHT.DOC - Copyright notice for the VNEWS program.
+	INSTALL.DOC - Installation Guide (This File) 
+	VNEWS.DOC - General Users Manual.
+	VNEWS.HLP - Help file that can be placed in the System help library.
+	VNEWS140.RELEASE_NOTES - release notes for this version
+
+    [.rfc] - some relevant RFCs (delete to save space):
+	RFC-NEW-NNTP.TXT - the draft RFC on NNTP (not yet published)
+	RFC1036.TXT - standard for interchange of USENET messages
+	RFC1123.TXT - hosts requirements, interesting for date commentary
+	RFC822.TXT - standard for interchange of text messages
+	RFC977.TXT - NNTP
+
+    [.newuser] - postings from news.announce.newusers (delete to save
+							space)
+
+6.0 COPYRIGHT NOTICE
+
+    Copyright (C) 1988, University of Wisconsin Board of Regents, all
+    rights reserved.
+
+    Anyone may reproduce this work, in whole or in part, provided that: (1)
+    any copy of the entire work must show University of  Wisconsin as the
+    source, and must include this notice; and (2) any other use of this
+    work must acknowledge the fact that the material is coprighted by the
+    University of Wisconsin Board of Regents and is used by permission.
+
+    Copyright (C) 1991, University of Arizona Board of Regents,
+    all rights reserved.
+
+    Anyone may reproduce this work, in whole or in part, provided
+    that: (1) any copy of the entire work must show University of 
+    Arizona as the source, and must include this notice; and (2)
+    any other use of this work must acknowledge the fact that the
+    material is coprighted by the University of Arizona Board of
+    Regents and is used by permission.
+
+    Copyright (c) 1982, 1986 Regents of the University of California.
+    All rights reserved.
+
+    Redistribution and use in source and binary forms are permitted
+    provided that this notice is preserved and that due credit is given
+    to the University of California at Berkeley. The name of the University
+    may not be used to endorse or promote products derived from this
+    software without specific prior written permission. This software
+    is provided ``as is'' without express or implied warranty.
+
+
+7.0 MODIFICATIONS/BUGS NOTICE
+
+    This program has been extensively modified by John Howells of Sterling
+    Software, Warner Losh of TWG, John McMahon of ST Systems Corporation,
+    R. Kevin Oberman of Lawrence Livermore National Labs, Joel Snyder
+    of the University of Arizona Mosaic Group, and many, many others. 
+
+    All changes should include comments at the top of NEWS.CHANGES.  Please
+    submit any bug reports to Joel Snyder (jms@arizona.edu).
+
+8.0 VNEWS HELP LIST
+
+    Jim Gerland has set up a VNEWS mailing list.  To subscribe, send a mail
+    message to LISTSERV@UBVM.BITNET containing the line
+    SUBSCRIBE VNEWS-L. You can post by sending to
+    VNEWS-L@UBVM.BITNET.  It may be possible to gateway between 
+    Internet and BITNET, if your system doesn't know how to, by
+    sending via PUCC.PRINCETON.EDU (i.e., LISTSERV%UBVM@PUCC.PRINCETON.EDU).
+    On the other hand, it may not---depends on how Princeton feels
+    about being a gateway.
+
+    If you want to read about vnews using vnews, subscribe to the
+    group bit.listserv.vnews-l.
+
+9.0 VNEWS CONFIGURATION DATABASE AND HELP TEAM
+
+    I'd like to get a feel for who's running VNEWS and what TCP/IP they're
+    using.  If you have a chance, drop me an email note with the
+    following:
+	Version of VMS (5 or 4),
+	Type and version of TCP/IP (or DECnet, if you're using that)
+	Type and version of NNTP server (like ANU news or whatever)
+	Approximate number of systems running VNEWS
+    Also, if you DON'T want me to give your name out to someone in your
+    area who might be having problems with VNEWS, let me know. I can
+    keep a secret. 
+
+jms
+
+Joel M Snyder, 627 E Speedway, 85705  Phone: 602.626.8680 FAX: 602.795.0900
+The Mosaic Group, Dep't of MIS, the University of Arizona, Tucson
+BITNET: jms@sovset  Internet: jms@carat.arizona.edu  SPAN: 47541::carat::jms   

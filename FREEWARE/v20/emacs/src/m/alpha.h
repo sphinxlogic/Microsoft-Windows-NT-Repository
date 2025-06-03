@@ -1,0 +1,77 @@
+/*
+Define sizes of datatypes
+*/
+
+#define SHORTBITS 16		/* Number of bits in a short */
+#define INTBITS 32L		/* Number of bits in an int */
+#define LONGBITS 32L		/* Number of bits in a long */
+
+/* Define NO_ARG_ARRAY if you cannot take the address of the first of a
+ * group of arguments and treat it as an array of the arguments.  */
+
+#define NO_ARG_ARRAY
+
+/* Define how to take a char and sign-extend into an int.
+   On machines where char is signed, this is a no-op.  */
+
+#define SIGN_EXTEND_CHAR(c) ((signed char)(c))
+
+/* Use type int rather than a union, to represent Lisp_Object */
+/* This is desirable for most machines.  */
+
+#define NO_UNION_TYPE
+
+/* Define EXPLICIT_SIGN_EXTEND if XINT must explicitly sign-extend
+   the 24-bit bit field into an int.  In other words, if bit fields
+   are always unsigned.
+
+   If you use NO_UNION_TYPE, this flag does not matter.  */
+
+#define EXPLICIT_SIGN_EXTEND
+
+#ifndef VMS
+
+/* Define C_ALLOCA if this machine does not support a true alloca
+   and the one written in C should be used instead.
+   Define HAVE_ALLOCA to say that the system provides a properly
+   working alloca function and it should be used.
+   Define neither one if an assembler-language alloca
+   in the file alloca.s should be used.  */
+
+#define HAVE_ALLOCA
+
+#endif
+
+/* Define NO_REMAP if memory segmentation makes it not work well
+   to change the boundary between the text section and data section
+   when Emacs is dumped.  If you define this, the preloaded Lisp
+   code will not be sharable; but that's better than failing completely.  */
+
+#define NO_REMAP
+
+#ifdef VMS
+
+/* Data type of load average, as read out of driver.  */
+
+#define LOAD_AVE_TYPE float
+
+/* Convert that into an integer that is 100 for a load average of 1.0  */
+
+#define LOAD_AVE_CVT(x) ((int) ((x) * 100.0))
+
+#define C_ALLOCA
+
+#define LIBS_MACHINE sys$share:decc$shr/share
+
+/* Now this one is WEIRD!  But if I don't have optimization off, I get
+   a trashed stack and other bugs which made me quite unhappy!  Now, if
+   anyone wants to solve the problem...  */
+#ifdef vaxc
+#undef vaxc
+#endif
+#ifdef __DECC
+/* For some reason, I had to remove optimization, or Emacs would crash.  */
+#define C_SWITCH_SYSTEM /nooptimize /standard=vaxc
+#endif /* __DECC */
+
+#endif /* VMS */

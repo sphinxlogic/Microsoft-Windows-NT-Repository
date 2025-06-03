@@ -1,0 +1,128 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+     9-Apr-1987	|  jw	| X3.1-0  Changed typ_buf's length allocation from 15
+		|	|	  to 30, since it was too short for new COMPLEX
+		|	|	  data type names (30 is consistent with other
+		|	|	  declarations of typ_buf).
+________________!_______!______________________________________________________
+    01-Feb-1988	|  jg	| X3.2-0  Implement VOID return type
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_ENTRY processes an entry node.				*/
+/*								*/
+/****************************************************************/
+
+do_entry: proc(cur_node,level);
+					    /********************/
+					    /*			*/
+					    /* DO_ENTRY		*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';	/* jg */
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    dec char(30) var initial(''),	    /* declaritive statement	    */
+    fs_type char(10) var initial(''),	    /* FUNCTION or SUB		    */
+    typ_buf char(30) var initial(''),	    /* datatype			    */
+    buf char(1024) var initial('');	    /* output buffer		    */
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL PUT_CHAR_VAR_RECS ENTRY (
+	pointer );
+
+DCL GET_TYPE ENTRY (
+	pointer,
+	char(*) var );
+
+
+    dec = 'EXTERNAL ';
+    fs_type = 'SUB';
+    if( cur_node->nod$w_datatype ^= 0 &
+	  cur_node->nod$w_datatype ^= typ$k_void)
+    then do;
+	call get_type(cur_node,typ_buf);
+	fs_type = 'FUNCTION ';
+    end;
+
+    buf = '   ' || dec || typ_buf || ' ' || fs_type || ' ' || cur_node->nod$t_name;
+    if( cur_node->nod$a_child = NULL() )
+    then do;
+	call add_comments(cur_node,buf);
+	call output_buf(buf);
+    end;
+    else do;
+	/*
+         * Put out character varying records for each character varying 
+	 * parameter. Then put out the EXTERNAL declaration then do
+ 	 * the parameters ( paramenters hang off the child pointer  ).
+      	 *
+	 */
+
+	call put_char_var_recs(cur_node); 
+	buf = buf || ' &';
+	call output_buf(buf);  		      /* put out EXTERNAL declaration 	*/
+	call output_buf('            ( &' );  /* set up to do the parameters 	*/
+	
+	call do_children(cur_node,level);     /* do the parameters that hang off the child */
+
+	buf = '            )' ; 	      /* close off the parameters    	*/
+	call add_comments(cur_node,buf);      /* add comments that go with the entry declaration */
+	call output_buf(buf);
+    end;
+
+end do_entry;

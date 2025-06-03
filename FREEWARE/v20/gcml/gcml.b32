@@ -1,0 +1,669 @@
+%title 'gcml'
+module gcml (
+	    ident = 'V01.03',
+	    addressing_mode (external=general)
+	    ) =
+begin
+ 
+!
+! ****************************************************************************
+! *									     *
+! *  Copyright (c) 1984							     *
+! *  by Digital Equipment Corporation, Maynard, Mass.			     *
+! * 									     *
+! *  This software is furnished under a license and may be used and  copied  *
+! *  inclusion of the above copyright notice.  This software or  any  other  *
+! *  copies  thereof may not be provided or otherwise made available to any  *
+! *  other person.  No title to and ownership of  the  software  is  hereby  *
+! *  transferred.							     *
+! * 									     * 
+! *  The information in this software is subject to change  without  notice  *
+! *  and  should  not  be  construed  as  a commitment by Digital Equipment  *
+! *  Corporation.							     *
+! * 									     *
+! *  Digital assumes no responsibility for the use or  reliability  of  its  *
+! *  software on equipment which is not supplied by Digital.		     *
+! *									     *
+! ****************************************************************************
+!
+
+!++
+!
+! Facility:	GCML
+!
+! Abstract:	Quick-and-dirty get-command-line routines,
+!		with indirect file support.
+!
+! Environment:	VAX/VMS
+!
+! Author:	Dave Porter
+!		European Network Engineering
+!
+! Created:	18-May-1984
+!
+! Modified by:
+!
+! V01.01  21-May-1984  Dave Porter
+!	Add foreign command line support
+!
+! V01.02  09-Aug-1984  Dave Porter
+!	Allow use of array descriptors for prompt string
+!
+! V01.03  09-Jul-1985  Dave Porter
+!	Fix erroneous REMQUE instruction; could cause queue
+!	header to get zapped on some VAXen
+!
+!--
+
+%sbttl 'well i do declare'
+
+!
+! Include files:
+!
+library 'sys$library:starlet';
+
+!
+! External references:
+!
+external routine
+    lib$get_vm,
+    lib$free_vm,
+    lib$get_foreign,
+    lib$put_output,
+    lib$analyze_sdesc,
+    str$upcase;
+
+!
+! Forward routines:
+!
+forward routine
+    openind,
+    closeind,
+    error;
+
+!
+! Error codes (using the shareable messages)
+! - we have to swipe the CLI facility code (3) because use of shared 
+! messages requires a 'known' facility
+!
+$shr_msgdef (
+	    gcml, 3,   local,
+	    (openin,   error),
+	    (closein,  error),
+	    (readerr,  error),
+	    );
+
+!
+! Standard descriptor
+!
+structure
+    descrip [o, p, s, e; n=8] =
+	[n]
+	(descrip+o)<p, s, e>
+	;
+
+!
+! Preset for a null dynamic descriptor
+!
+macro
+    preset_dynamic (dummy) =
+	preset
+	    (
+	    [dsc$b_class]   = dsc$k_class_d,
+	    [dsc$b_dtype]   = dsc$k_dtype_t,
+	    [dsc$w_length]  = 0,
+	    [dsc$a_pointer] = 0
+	    )
+    % ;
+
+!
+! Preset for a static descriptor. 
+!
+macro
+    preset_static (string, length) =
+	preset
+	    (
+	    [dsc$b_class]   = dsc$k_class_s,
+	    [dsc$b_dtype]   = dsc$k_dtype_t,
+        %if %length eql 0
+        %then
+    	    [dsc$a_pointer] = 0,
+    	    [dsc$w_length]  = 0
+        %else
+	%if %length eql 1
+	%then
+    	    %if %isstring(string)
+    	    %then
+		[dsc$a_pointer] = uplit byte (string),
+		[dsc$w_length]  = %charcount (string)
+    	    %else
+		%error ('Argument to PRESET_STATIC must be string')
+    	    %fi
+	%else
+	%if %length eql 2
+	%then
+	    [dsc$a_pointer] = (string),
+	    [dsc$w_length]  = (length)
+	%else
+	    %error ('Too many arguments to PRESET_STATIC')
+	%fi
+        %fi
+	%fi
+    	    )
+    % ;
+
+!
+! Subparts of a 'file block'
+!
+literal
+    file_link = 0,			! links (quad)
+    file_spec = 2*%upval,		! filespec descriptor (quad)
+    file_sbuf = file_spec+2*%upval,	! filespec buffer (256 bytes)
+    file_fab  = file_sbuf+256,		! fab
+    file_rab  = file_fab+fab$k_bln,	! rab
+    file_nam  = file_rab+rab$k_bln,	! nam block
+    file_bln  = file_nam+nam$k_bln;	! overall length
+
+!
+! Define a 'file block'
+!
+field file_block =
+    set
+    file$a_flink = [0,0,32,0],		! forward link
+    file$a_blink = [4,0,32,0],		! backward link
+    file$q_fspec = [file_spec,0,0,0],	! filespec descriptor
+    file$t_fsbuf = [file_sbuf,0,0,0],	! filespec buffer (256 bytes)
+    file$r_fab	 = [file_fab,0,0,0],	! fab (thunderbirds are go)
+    file$r_rab   = [file_rab,0,0,0],	! rab
+    file$r_nam   = [file_nam,0,0,0]     ! nam
+    tes;
+
+!
+! Queue header for list of file blocks (reverse ordering, such that
+! first on queue is most recently opened file)
+!
+own
+    file_list : ref block[,byte] field(file_block) initial(file_list),
+    file_tail : initial(file_list);
+
+%sbttl 'get command line'
+global routine gcml (
+    		    buffer : ref descrip, 
+		    prompt : ref descrip,
+		    length : ref vector[1,word]
+		    ) =
+
+!++
+! Functional description:
+!
+! Gets a command line, taking care of opening files, prompting,
+! comment lines, and handling "@" file references and end-of-files.
+! DCL "foreign commands" are also supported.
+!
+! On the first call, SYS$INPUT will be opened. Subsequent input
+! is from SYS$INPUT. Input lines starting with "@" cause the specified
+! indirect file to be read until EOF, at which time input reverts
+! to the previous level. There is no limit imposed on the depth of
+! nesting, other than general process limits (open files, virtual memory).
+!
+! In the event of an error, GCML will issue a message via $PUTMSG 
+! and reprompt for input. The caller does not see the error, unless
+! it occurs at the outermost level (i.e. failure to open SYS$INPUT,
+! or end-of-file at this level).
+!
+! Lines beginning with "!" are treated as comments and are discarded.
+! Likewise totally blank lines.
+!
+! The input line is upcased and has leading blanks removed.
+!
+! Note that SYS$INPUT (at the outermost level) will be closed on
+! end-of-file. However, a subsequent call to GCML will reopen it
+! as necessary.
+!
+!
+! Formal parameters:
+!
+! buffer.wt.dx = buffer for input line
+! prompt.rt.dx = input prompt
+! length.ww.r  = length of line read.
+!
+! Routine value/completion codes:
+!
+! ss$_normal = okay
+! rms$_xxxxx = file error at outermost level (including EOF)
+! str$_tru   = failed to copy line to user buffer
+!
+! Signals:
+!
+! str$_xxxxx = string error, copying to user buffer
+!
+!--
+
+    begin
+
+    builtin
+	insque,
+	remque,
+	nullparameter;
+
+    literal
+	loc_bufsiz = 256;
+
+    !
+    ! 'Foreign command line' control
+    !
+    own
+	foreign : initial (0);		! -1 = no foreign command
+					!  0 = first call
+					! +1 = foreign command read
+    !
+    ! Local data
+    !
+    local
+	status,
+	loc_buffer : vector[loc_bufsiz,byte],
+	linedsc    : descrip preset_static();
+    bind
+	lineptr = linedsc[dsc$a_pointer] : ref vector[,byte],
+	linelen = linedsc[dsc$w_length]  : word;
+
+    !
+    ! Nothing read initially
+    !
+    if not nullparameter(length) then length[0] = 0;
+
+    !
+    ! Loop until we have a line to return to caller
+    !
+    do
+	begin
+
+    !
+    ! If there is no open file, then generally use "@SYS$INPUT" as 
+    ! a command line in order to get a file open. Exceptions are
+    ! to do with handling foreign command line support.
+    !
+    if .file_list eql file_list
+    then
+	begin
+        if .foreign gtr 0 then return rms$_eof;
+    	if .foreign eql 0
+        then
+	    begin
+    	    lineptr = loc_buffer;
+    	    linelen = loc_bufsiz;
+	    status  = lib$get_foreign (linedsc, 0, linelen);
+	    if not .status then return .status;
+	    foreign = (if .linelen leq 0 then -1 else 1);
+	    end;
+	if .foreign lss 0
+	then
+	    begin
+	    lineptr = uplit byte ('@SYS$INPUT');
+	    linelen = %charcount ('@SYS$INPUT');
+	    end;
+	end;
+
+	!
+	! Read a record (except if we have a command in hand from
+	! the above code)
+	!
+	if .linelen eql 0
+	then
+	    begin
+
+	    !
+	    ! Set up pointers to various bits of the file data
+	    !
+	    bind
+		fspec = file_list[file$q_fspec] : descrip,
+		fsbuf = file_list[file$t_fsbuf] : vector[,byte],
+		fab   = file_list[file$r_fab]   : $fab_decl,
+		rab   = file_list[file$r_rab]   : $rab_decl,
+		nam   = file_list[file$r_nam]   : $nam_decl;
+
+	    !
+	    ! Set up prompting if needed
+	    !
+	    rab[rab$v_pmt] = rab[rab$v_cco] = 0;
+	    if not nullparameter (prompt)
+	    then
+		begin
+    		local
+    		    pradr : initial(0),
+    		    prlen : initial(0);
+    		lib$analyze_sdesc(.prompt, prlen, pradr);
+    		if .prlen neq 0 and .pradr neq 0
+    		then
+		    begin
+		    rab[rab$v_pmt] = rab[rab$v_cco] = 1;
+    		    rab[rab$l_pbf] = .pradr;
+		    rab[rab$b_psz] = minu (.prlen, 255);
+		    end;
+		end;
+	    
+	    !
+	    ! Do the read (into a local buffer)
+	    !
+	    rab[rab$l_ubf] = loc_buffer;
+	    rab[rab$w_usz] = loc_bufsiz;
+	    status = $get (rab=rab);
+
+	    !
+	    ! On any error, close the file. Issue an error message unless EOF
+	    !
+	    if not .status
+	    then 
+		begin
+		local fileblk;
+		if .status neq rms$_eof
+		then
+		    error (gcml$_readerr, 1, fspec, .rab[rab$l_sts], .rab[rab$l_stv]);
+		remque (.file_list, fileblk);
+		closeind (fileblk);
+		if .file_list eql file_list then exitloop;
+		end;
+
+	    !
+	    ! Point to record read
+	    !
+	    lineptr = .rab[rab$l_rbf];
+	    linelen = .rab[rab$w_rsz];
+
+	    !
+	    ! End of 'read a line' code
+	    !
+	    end;
+
+	!
+	! Discard leading spaces and tabs
+	!
+	while .linelen gtr 0 and
+	      (.lineptr[0] eql 32 or .lineptr[0] eql 9) do
+	    begin
+	    lineptr = .lineptr + 1;
+	    linelen = .linelen - 1;
+	    end;
+
+	!
+	! Process record if non-null... if first character is "!"
+	! then it's a comment and to be ignored; if it's "@" then
+	! open another level of file. Anything else is to be returned
+	! to the caller.
+	!
+	if .linelen gtr 0
+	then
+	    selectone .lineptr[0] of
+		set
+		['!']:	linelen = 0;
+		['@']:	begin
+			local fileblk;
+			lineptr = .lineptr + 1;
+	    		linelen = .linelen - 1;
+			status = openind (linedsc, fileblk);
+			if .status then
+			    insque (.fileblk, file_list)
+	    		else
+	    		    if .file_list eql file_list then exitloop;
+			linelen = 0;
+			end;
+		tes;
+	
+	!
+	! Loop until a non-blank line is available for caller
+	!
+	end
+    until .linelen gtr 0;
+
+    !
+    ! Quit if error
+    !
+    if not .status then return .status;
+
+    !
+    ! Copy line to users buffer (use lib routine to get right 
+    ! string semantics)
+    !
+    if not nullparameter(length) then length[0] = .linelen;
+    str$upcase (.buffer, linedsc)
+        
+    end;
+
+%sbttl 'open indirect command file'
+routine openind (fil_dsc : ref descrip, fil_blk) =
+
+!++
+! Functional description:
+!
+! Opens an indirect command file, allocating and initialising
+! all data structures. 
+!
+! Errors cause a message to be printed and failure status to 
+! returned.
+!
+! Formal parameters:
+!
+! fil_dsc.rt.dx = filespec string
+! fil_blk.wa.r  = address of allocated file block
+!
+! Routine value/completion code:
+!
+! ss$_normal = all ok
+! lib$_xxxxx = resource allocation error
+! rms$_xxx   = file open failed
+!
+! Signals:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+        status,
+        file : ref block[,byte] field(file_block);
+
+    !
+    ! Allocate all per-file data structures and zero link longwords
+    !
+    status = lib$get_vm (%ref(file_bln), file);
+    if not .status
+    then
+        begin
+	error (gcml$_openin, 1, .fil_dsc, .status, 0);
+	return .status;
+	end;
+    file[file$a_flink] = file[file$a_blink] = 0;
+
+    !
+    ! Handy equivalence names
+    !
+    begin
+    bind
+	fspec = file[file$q_fspec] : descrip,
+	fsbuf = file[file$t_fsbuf] : vector[,byte],
+	fab   = file[file$r_fab]   : $fab_decl,
+	rab   = file[file$r_rab]   : $rab_decl,
+	nam   = file[file$r_nam]   : $nam_decl;
+
+    !
+    ! Preset input file descriptor to given filespec
+    !
+    fspec[dsc$b_class]   = dsc$k_class_s;
+    fspec[dsc$b_dtype]   = dsc$k_dtype_t;
+    fspec[dsc$w_length]  = .fil_dsc[dsc$w_length];
+    fspec[dsc$a_pointer] = .fil_dsc[dsc$a_pointer];
+
+    !
+    ! Initialise for file open
+    !
+    $fab_init(
+	fab=fab,
+	nam=nam,
+	fna=.fil_dsc[dsc$a_pointer],
+	fns=.fil_dsc[dsc$w_length],
+	dnm='.com',
+	fac=get,
+	fop=sqo
+	);
+    $nam_init(
+	nam=nam,
+	esa=fsbuf,
+	ess=255,
+	rsa=fsbuf,
+	rss=255
+	);
+    $rab_init(
+	fab=fab,
+	rab=rab
+	);
+
+    !
+    ! Open input file, saving pointer to 'best' spec for future messages
+    !
+    status = $open(fab=fab);
+    if .nam[nam$b_rsl] neq 0
+    then
+        begin
+	fspec[dsc$a_pointer] = .nam[nam$l_rsa];
+	fspec[dsc$w_length]  = .nam[nam$b_rsl];
+	end
+    else
+    if .nam[nam$b_esl] neq 0
+    then
+        begin
+	fspec[dsc$a_pointer] = .nam[nam$l_esa];
+	fspec[dsc$w_length]  = .nam[nam$b_esl];
+	end;
+    if not .status
+    then
+	begin
+	error (gcml$_openin, 1, fspec, .fab[fab$l_sts], .fab[fab$l_stv]);
+	return .status;
+	end;
+
+    !
+    ! Connect input record stream
+    !
+    status = $connect(rab=rab);
+    if not .status 
+    then
+	begin
+	error (gcml$_openin, 1, fspec, .rab[rab$l_sts], .rab[rab$l_stv]);
+	return .status;
+	end;
+
+    !
+    ! End of inner block
+    !
+    end;
+
+    !
+    ! File opened - return address of file block
+    !
+    .fil_blk = .file;
+
+    !
+    ! Okay if we're here
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'close indirect command file'
+routine closeind (fil_blk) =
+
+!++
+! Functional description:
+!
+! Closes file, deallocates data structures.
+!
+! Formal parameters:
+!
+! fil_blk.ra.r = address of file block
+!
+! Routine values/completion codes:
+!
+! ss$_normal = all okay
+! lib$_xxxxx = resource deallocation error
+! rms$_xxx   = RMS close error
+!
+! Signals:
+!
+! none
+!
+!--
+
+    begin
+
+    bind
+	file = ..fil_blk           : block[,byte] field(file_block),
+	fspec = file[file$q_fspec] : vector[,byte],
+	fab  = file[file$r_fab]    : block[,byte];
+
+    local
+	status;
+
+    !
+    ! Close the file
+    !
+    status = $close (fab=fab);
+    if not .status
+    then
+	begin
+	error (gcml$_closein, 1, fspec, .fab[fab$l_sts], .fab[fab$l_stv]);
+	return .status;
+	end;
+
+    !
+    ! Deallocate store
+    !
+    status = lib$free_vm (%ref(file_bln), %ref(file));
+    if not .status
+    then
+	begin
+	error (gcml$_closein, 1, fspec, .status, 0);
+	return .status;
+	end;
+
+    !
+    ! Okay if here
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'issue error message'
+routine error =
+
+!++
+! Functional description:
+!
+! Prints an error message via $PUTMSG
+!
+! Formal parameters:
+!
+! In format of a message vector required for $PUTMSG input
+!
+! Routine values/completion codes:
+!
+! ss$_xxxxx = as returned from $PUTMSG
+!
+! Signals:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    $putmsg (msgvec=argptr())
+
+    end;
+
+end
+eludom

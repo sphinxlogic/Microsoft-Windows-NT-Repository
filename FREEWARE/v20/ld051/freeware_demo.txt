@@ -1,0 +1,134 @@
+Here are three examples of what the LDdriver can do:
+
+The first one is to create a big disk, consisting of 8 logical disks,
+forming 4 shadowsets, combined in 2 stripesets, combined into 1 volumeset.
+In the kit is a file BIGDISK.COM which allows one to create this.
+
+  Volset             STA           DSA           LDA           Label
+---------------------------------------------------------------------
+                                                 LDA1
+                                   DSA10                       ST0
+                                                 LDA2
+                     STA20
+                                                 LDA3
+                                   DSA11                       ST1
+                                                 LDA4
+  VOLSET
+                                                 LDA5
+                                   DSA12                       ST2
+                                                 LDA6
+                     STA21
+                                                 LDA7
+                                   DSA13                       ST3
+                                                 LDA8
+
+
+The second example shows how to put a device into mountverification and
+to track I/O requests.
+In the kit is a file MOUNTVER.COM which allows one to do this.
+
+$ LD CREATE TMP
+$ LD CONNECT/LOG TMP LDA1
+%LD-I-CONNECTED, Device THEBUG$LDA1: is connected to $8$DIA0:[USERS.VDBURG.LD]TMP.DSK;1
+$ INIT LDA1: TEST
+$ MOUNT/SYSTEM LDA1: TEST
+%MOUNT-I-MOUNTED, TEST         mounted on _THEBUG$LDA1: (THEBUG)
+$ COPY/ALLOC=10 NL: LDA1:[000000]JUNK.DAT
+$ SET FILE/END LDA1:[000000]JUNK.DAT
+$ LD WATCH LDA1 5/FILE=LDA1:[000000]JUNK.DAT/ACTION=ERROR=%X2C
+$ LD WATCH LDA1 5/FILE=LDA1:[000000]JUNK.DAT/ACTION=OPCOM
+$ LD WATCH LDA1 1/ACTION=SUSPEND
+$ LD SHOW/WATCH LDA1:
+Index LBN     Action     Function         Error return code
+--------------------------------------------------------------------
+             THEBUG$LDA1:[000000]JUNK.DAT;1:
+ 1        5  Opcom     READPBLK
+             THEBUG$LDA1:[000000]JUNK.DAT;1:
+ 2        5  Error     READPBLK             002C (ABORT)
+ 3        1  Suspend   READPBLK
+$ DUMP LDA1:[000000]JUNK.DAT/BLOCK=(START=5,COUNT=1)
+%%%%%%%%%%%  OPCOM  28-FEB-1994 14:38:17.90  %%%%%%%%%%%
+Message from user VDBURG on THEBUG
+***** LDdriver detected VBN watchpoint access *****
+PID:      2020006A
+Image:    DUMP
+Device:   THEBUG$LDA1:
+Function: 000C
+VBN:   	  5
+File id:  (11,1,0)
+
+%DUMP-E-READERR, error reading LDA1:[000000]JUNK.DAT;1
+-SYSTEM-F-ABORT, abort
+$ SPAWN/NOWAIT/INPUT=NL: DUMP/BLOCK=(START=1,COUNT=1) LDA1:
+%DCL-S-SPAWNED, process VDBURG_1 spawned
+$ WAIT 0:0:1
+$ LD SHOW/WATCH LDA1:
+Index LBN     Action     Function         Error return code
+--------------------------------------------------------------------
+             THEBUG$LDA1:[000000]JUNK.DAT;1:
+ 1        5  Opcom     READPBLK
+             THEBUG$LDA1:[000000]JUNK.DAT;1:
+ 2        5  Error     READPBLK             002C (ABORT)
+ 3        1  Suspend   READPBLK
+             Suspended process: 202000E7
+$ LD WATCH/RESUME LDA1:
+
+Dump of device LDA1: on 28-FEB-1994 14:38:20.47
+	Logical block number 1 (00000001), 512 (0200) bytes
+ 00010201 00000018 00000004 00000001 ................ 000000
+ 00000080 00000007 00050004 00030002 ................ 000010
+ 00400040 00000000 00000000 000A0001 ............@.@. 000020
+	.
+
+
+The third example shows how to trace I/O requests.
+
+$ LD CREATE TEST
+$ LD CONNECT TEST LDA1
+$ INIT LDA1 TEST
+$ LD TRACE LDA1
+$ MOUNT/SYSTEM LDA1 TEST
+%MOUNT-I-MOUNTED, TEST         mounted on _$8$LDA1: (THEBUG)
+$ COPY/ALLOC=10 NL: LDA1:[000000]JUNK.DAT
+$ DISMOUNT LDA1
+$ LD SHOW/TRACE LDA1
+         I/O trace for device $8$LDA1:
+     1-NOV-1994 11:14:49.62 on node THEBUG::
+
+Start Time  Elaps   Pid        Lbn     Bytes  Iosb    Function
+--------------------------------------------------------------
+11:14:16.54 00.00 6020006A          0      0 NORMAL  PACKACK|INHERLOG
+11:14:16.54 00.03 6020006A          1    512 NORMAL  READPBLK
+11:14:16.58 00.01 6020006A          1    512 NORMAL  READPBLK
+11:14:16.59 00.00 6020006A          8    512 NORMAL  READPBLK
+11:14:16.60 00.02 6020006A          9    512 NORMAL  READPBLK
+11:14:16.62 00.02 6020006A          5    512 NORMAL  READPBLK
+11:14:16.65 00.01 6020006A          5    512 NORMAL  WRITEPBLK
+11:14:16.66 00.01 6020006A          7    512 NORMAL  READPBLK
+11:14:16.67 00.00 6020006A          6    512 NORMAL  READPBLK
+11:14:16.70 00.01 6020006A         11    512 NORMAL  READPBLK
+11:14:16.71 00.01 6020006A          3    512 NORMAL  READPBLK
+11:14:16.74 00.00 6020006A         17    512 NORMAL  READPBLK
+11:14:16.75 00.02 6020006A         30    512 NORMAL  DSE|ERASE
+11:14:16.78 00.02 6020006A         17    512 NORMAL  WRITEPBLK
+11:14:16.82 00.00 6020006A         25    512 NORMAL  READPBLK
+11:14:16.84 00.01 6020006A         17    512 NORMAL  WRITEPBLK
+11:14:16.88 00.02 6020006A         17    512 NORMAL  WRITEPBLK
+11:14:16.90 00.02 6020006A         25    512 NORMAL  WRITEPBLK
+11:14:30.17 00.02 6020006A          7    512 NORMAL  READPBLK
+11:14:30.20 00.00 6020006A          8    512 NORMAL  READPBLK
+11:14:30.22 00.02 6020006A         18   3072 NORMAL  DSE|ERASE
+11:14:30.24 00.02 6020006A          8    512 NORMAL  WRITEPBLK
+11:14:30.26 00.01 6020006A         24    512 NORMAL  WRITEPBLK
+11:14:30.27 00.02 6020006A          7    512 NORMAL  WRITEPBLK
+11:14:30.30 00.02 6020006A         18    512 NORMAL  READPBLK
+11:14:30.33 00.01 6020006A          6    512 NORMAL  READPBLK
+11:14:30.37 00.02 6020006A          6    512 NORMAL  WRITEPBLK
+11:14:30.40 00.01 6020006A          3    512 NORMAL  WRITEPBLK
+11:14:30.41 00.01 6020006A         18    512 NORMAL  WRITEPBLK
+11:14:30.55 00.02 6020006A         18    512 NORMAL  WRITEPBLK
+11:14:47.23 00.03 6020006A          7    512 NORMAL  WRITEPBLK
+11:14:47.26 00.01 6020006A          6    512 NORMAL  WRITEPBLK
+11:14:47.28 00.00 6020006A          5    512 NORMAL  READPBLK
+11:14:47.29 00.02 6020006A          5    512 NORMAL  WRITEPBLK
+11:14:47.32 00.00 6020006A          0      0 NORMAL  UNLOAD

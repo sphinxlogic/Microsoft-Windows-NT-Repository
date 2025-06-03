@@ -1,0 +1,223 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+   17-Jun-1986	|  pc	| Put out MASKS in hex instead of binary.
+________________!_______!______________________________________________________
+   18-Jan-1988	|  PG	| Add CONSTANT STRING
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* this routine processes constant nodes.			*/
+/*								*/
+/****************************************************************/
+
+%include 'sdl$library:sdlnodef.in';	    /* node structure definition */
+%include 'sdl$library:sdltypdef.in';	    /* type definitions */
+ 
+do_const: procedure (cur_node);
+					    /********************/
+					    /*			*/
+					    /* do_const		*/
+					    /*			*/
+					    /********************/
+
+/* declare parameters and variables */
+declare
+    cur_node   pointer,			    /* pointer to the current node  */
+    buf	    char(1024) varying,		    /* buffer for out		    */
+    hex_buf char(8),			    /* buffer to hold hex mask	    */
+    i  fixed binary(31),		    /* index into buffer	    */
+    outstr char(128) var,		    /* string buffer		    */
+    flag fixed binary(1),		    /* concatenation flag	    */
+    based_string char(1024) var based,	    /* pointer to a varying string  */
+    global_db fixed binary(7) external,	    /* for debugging		    */
+    local_db fixed binary(7) initial(1);    /* for debugging		    */
+
+/* declare external routines */
+DCL TRIM ENTRY (		
+	fixed binary(31))
+	RETURNS (character(32) VARYING );
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+DCL OTS$CVT_L_TZ ENTRY (
+	FIXED BINARY(31),
+	CHARACTER (*),
+	fixed binary(31) VALUE ) ;
+
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('in do_const ');
+
+	if cur_node->nod$w_datatype = typ$k_char then do;
+
+		flag = 0;
+		buf=tabs(cur_node,1,'0'b) || 'DECLARE STRING CONSTANT '||cur_node->nod$t_name||' = ';
+		outstr=cur_node->nod$a_typeinfo2->based_string;
+		call split(buf, outstr, flag);
+		end;
+
+	else do;
+
+	/*
+	 * Do a straightforward DECLARE statement for the constant node
+	 * (Output masks as bit strings, all others as integers)
+	 */
+
+		buf= tabs(cur_node,1,'0'b) || 'DECLARE LONG CONSTANT '||cur_node->nod$t_name||' = ';
+
+	/*********** WHAT TO DO IN THE MASK CASE ???? ************/
+
+		if cur_node->nod$v_mask 
+		then
+		do;
+			/* Convert to hexidecimal text and remove the leading blanks. */
+			call ots$cvt_l_tz(cur_node->nod$l_typeinfo,hex_buf, length(hex_buf) );
+			buf = buf || 'x' || ''''|| hex_buf ||'''';
+		end;
+		else
+			buf=buf||trim(cur_node->nod$l_typeinfo) ;
+
+	end;
+
+
+/* now append any end of line comments and out put the buffer */
+	call add_comments(cur_node,buf);
+	call output_buf(buf);
+
+
+	if( global_db = 1 ) then
+	if ( local_db = 1 ) then
+	put skip list ('end of do_const ');
+
+
+
+
+end do_const;
+
+split: procedure(buffer, string, flag);
+
+dcl buffer char(1024) var;		/* output buffer where string is built */
+dcl string char(128) var;		/* input buffer */
+dcl (x, y) fixed binary(31);		/* indexes pointing to " and ' respectively */
+dcl flag fixed binary(1);		/* to say wether delimiters have swapped */
+
+	/*
+	 * To cater for strings containing either of the two BASIC
+	 * delimiters, the following rules are applied, in descending
+	 * order of priority
+	 *
+	 * 1.	If the string DOES NOT contain the character ", a
+	 *	single string is output using the " as the
+	 *	delimiter
+	 *
+	 * 2.	If the string DOES contain the character ", but
+	 *	DOES NOT contain the character ', a single string is
+	 *	output using ' as the delimiter.
+	 *
+	 * 3.	If the string contains BOTH characters " and ',
+	 *	two or more substrings are output, concatenated
+	 *	by the BASIC + operator.
+	 */
+
+	if flag=1 then
+		buffer = buffer || ' + ';	/* Have delimiters swapped? If so include concatenation character */
+
+	x = index(string,'"');			/* find " */
+	y = index(string,'''');			/* find ' */
+	if x ^= 0 then do;
+
+		/* there is a " in the input */
+
+		if y ^= 0 then do;
+
+			/* there is also a ' in the input */
+
+			if x > y then do;
+
+				/* " is after the ', cut the string at the " */
+
+				buffer = buffer||'"'||substr(string, 1, x-1)||'"';
+				string = substr(string, x);
+
+				/* set flag to add ' + ' next time, and recall split */
+
+				flag = 1;
+				call split(buffer, string, flag);
+				end;
+			else do;
+
+				/* ' is after the ", cut the string at the ' */
+
+				buffer = buffer||''''||substr(string, 1, y-1)||'''';
+				string = substr(string, y);
+
+				/* set flag to add ' + ' next time, and recall split */
+
+				flag = 1;
+				call split(buffer, string, flag);
+				end;
+			end;
+		else
+
+			/* there is only " in the string, select ' as the delimiter */
+
+			buffer = buffer||''''||string||'''';
+		end;
+	else
+		/* there is only ' in the string, select " as the delimiter */
+
+		buffer = buffer||'"'||string||'"';
+	
+end split;

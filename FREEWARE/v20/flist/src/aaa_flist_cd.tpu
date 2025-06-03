@@ -1,0 +1,175 @@
+procedure flist_call_cd
+local answer;
+
+ answer := flist_ask("Enter CD search path: ", 128);
+ if flist_cd(answer) then
+! Keep same search name (ie *.TEX or *.*) but in new directory
+   flist_main(flist$specification);
+ endif;
+endprocedure;
+
+
+procedure flist_cd(peve$arg1)
+! CD.TPU by Peter Galbraith (GALBRTH@AC.DAL.CA), Dalhousie University
+
+ local ini_dir, login_device, done, command, i, newi, rlevels, plevels, tmpstr,
+       end_path, current_dir, found, the_string;
+
+on_error
+ [TPU$_SEARCHFAIL]:
+ [TPU$_PARSEFAIL]:
+ [OTHERWISE]:
+             return(false);
+endon_error;
+
+!  +---------------------------------------------------------------------+
+!  | ATTENTION:  To use in your extended eve, uncomment the next 2 lines |
+!  | commented with `!eve!' and comment the line: `command := peve$arg1' |
+!  +---------------------------------------------------------------------+
+!
+!eve! if not eve$prompt_string(peve$arg1,command,"Enter CD search path: ",
+!eve!        set(default_directory,"")) then endif;
+command := peve$arg1;
+
+ ini_dir := set(default_directory,"");    ! Get default directory
+ login_device := file_parse("sys$login_device","","",device);
+
+! Display default directory and exit on empty command
+ if command = "" then
+   if login_device = file_parse(ini_dir,"","",device) then
+     message(file_parse(ini_dir,"","",directory));
+   else
+     message(file_parse(ini_dir,"","",device,directory));
+   endif;
+   return(false);
+ endif;
+
+! Trip tokens and process them
+! .. -> SET DEF [-]
+! .  -> Ignore
+! /  -> Ignore
+! #  -> A tempdisk
+! \  -> SYS$LOGIN
+! ~  -> SYS$LOGIN
+! $  -> No validation
+
+ loop
+   done := 0;           !number of characters processed in token
+   if substr(command,1,2) = '..' then
+     if file_parse(set(default_directory,""),"","",DIRECTORY) <> '[000000]' then
+       set(default_directory,"[-]"); done := 2;
+     else
+       message("Cannot go up that high...");
+       set(default_directory,ini_dir);
+       return(false);
+     endif;
+   else
+     if substr(command,1,1) = '.' then done := 1; endif;
+   endif;
+   if substr(command,1,1) = '/' then done := 1; endif;
+!* force directory-change without validation or abbreviations on $
+   if substr(command,1,1) = '$' then
+     set(default_directory,substr(command,2)); done := 0; command := "";
+   endif;
+!* If first character is \ or ~ goto SYS$LOGIN
+   if (substr(command,1,1) = '\') or (substr(command,1,1) = '~') then
+     set(default_directory,'sys$login'); done := 1;
+   endif;
+   exitif (done = 0);
+   command := substr(command,done+1);
+   exitif (command = '');
+ endloop;
+
+ if command = "" then ! All done
+   the_string := set(default_directory,"");
+   if file_parse(the_string,"","",device) =  login_device then
+     message(file_parse(the_string,"","",directory));
+   else
+     message(file_parse(the_string,"","",device,directory));
+   endif;
+   return(true);
+ endif;
+
+! Tokens all processed... process rest of string.
+ translate(command,'.','/');         ! Substitute all / for .
+
+! Count levels required for destination directory
+ i := 1;
+ rlevels := 1;
+ loop
+   newi := index(substr(command,i),'.');
+   exitif (newi = 0);
+   i := newi + i;
+   rlevels := rlevels + 1;
+ endloop;
+! Count levels already deep
+ tmpstr := set(default_directory,"");
+ i := 1;
+ plevels := 1;
+ loop
+   newi := index(substr(tmpstr,i),'.');
+   exitif (newi = 0);
+   i := newi + i;
+   plevels := plevels + 1;
+ endloop;
+! If sum is greater than 8 than I have to pop before I search
+! Can't have more than 8 directory levels...
+ rlevels := plevels + rlevels - 8;
+ loop
+   exitif (rlevels < 1);
+   if file_parse(set(default_directory,""),"","",DIRECTORY) <> '[000000]' then
+     set(default_directory,"[-]");
+   else
+     message("Directory not found");
+     set(default_directory,ini_dir);
+     return(false);
+   endif;
+   rlevels := rlevels - 1;
+ endloop;
+
+! part1.part2.part3 searched as DISK:[CURRENT.CURRENT.PART1*.PART2*]PART3*.DIR
+! if not found search for DISK:[CURRENT.PART1*.PART2*]PART3*.DIR
+! and finally for DISK:[PART1*.PART2*]PART3*.DIR
+! except if DISK:[CURRENT] is SYS$LOGIN, then don't go go pass that
+
+! Build end of search path... .PART1*.PART2*]PART3.DIR
+ end_path := "";
+ loop
+   i := index(command,'.');
+   exitif (i = 0);
+   end_path := end_path + "." + substr(command,1,i-1) + "*";  ! .P*
+   command  := substr(command,i+1);
+ endloop;
+ end_path := end_path + "]" + command + "*.DIR";
+
+ loop   !Try to find target, popping directory level if not found
+! DISK:[CURRENT.CURRENT
+   current_dir := set(default_directory,"");
+   found := file_search("");
+   found := file_search(current_dir-"]"+end_path,"","",device,directory,name);
+   exitif (found <> "");
+! Did not find it... strip out a top directory
+   if (file_parse(current_dir,"","",device,directory) =
+       file_parse("sys$login:","","",device,directory)) or
+      (file_parse(current_dir,"","",directory) = "[000000]") then
+     message ("Directory not found");
+     set(default_directory,ini_dir);
+     return(false);
+   endif;
+   set(default_directory,"[-]");
+ endloop;
+
+! found it in form
+! DISK:[CURRENT.CURRENT.PART1.PART2]PART3.DIR  change default to
+!      [CURRENT.CURRENT.PART1.PART2.PART3]
+ the_string := file_parse(found,"","",device,directory,name);
+ translate(the_string,'.',']');
+ the_string := the_string + "]";
+ set(default_directory,the_string);
+ if file_parse(the_string,"","",device) =  login_device then
+   message(file_parse(the_string,"","",directory));
+ else
+   message(file_parse(the_string,"","",directory));
+ endif;
+ return(true);
+endprocedure;

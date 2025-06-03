@@ -1,0 +1,72 @@
+	.title	SYSPQL_INIT -- interface to OS
+	.library	/sys$share:lib/
+	$BOOSTATEDEF	; used to know if we're in SYSINIT or with a running syst.
+	$FH2DEF
+	$FIBDEF
+	$PRDEF		; pour enb/dsbINT
+	$SSDEF
+	.if	NDF,ALPHA
+	$RPBDEF
+	.global	EXE$GL_RPB
+	.iff
+	$SWRPBDEF
+	.global	EXE$GPQ_SWRPB
+	.endc
+	.disable global
+	.global	EXE$GL_STATE,EXE$OUTZSTRING,EXE$OUTCRLF,SYSPQL
+;
+	.if	DF,ALPHA
+	.psect	$CODE$	QUAD,PIC,SHR,RD,NOWRT,EXE
+	.iff
+	.psect	$CODE	QUAD,PIC,SHR,RD,NOWRT,EXE
+	.endc
+;
+;	4(AP)= @ ldrimg block
+;
+	.align quad
+	.entry	image_init,^M<>
+;;;	jsb	G^INI$BRK
+	bbs	#BOOSTATE$V_STARTUP,G^EXE$GL_STATE,VMS ; br if vms is already up
+;
+;	on alpha systems, we will not be notified of IO completions if we're
+;	running at or above IPL$_ASTDEL
+;
+	.if	DF,ALPHA
+	dsbint	#0	; allow AST's to be delivered ,for io postprocessing.
+	.endc
+	.if	NDF,ALPHA
+VMS:	movl	G^EXE$GL_RPB,R1
+	extzv	#RPB$V_BOOTLOG,#1,RPB$L_BOOTR5(r1),r0
+	.iff
+	movl	G^EXE$GPQ_SWRPB,r1
+	extzv	#SWRPB_BOOT_FLAGS$V_USER_MSGS,#1,SWRPB$IL_BOOT_FLAGS_L(r1),r0
+	.endc
+	movl	r0,-(SP)
+	calls	#1,syspql
+	bbs	#BOOSTATE$V_STARTUP,G^EXE$GL_STATE,1$ ; br if vms is already up
+	.if	DF,ALPHA
+	enbint
+	.endc
+1$:	ret
+	.if	DF,ALPHA
+VMS:	movl	#SS$_BUGCHECK,r0	; crashes while VMS is running
+	ret
+	.endc
+;
+	.align quad
+	.entry	consprintf,^m<R11>
+	movl	4(ap),r1
+	clrl	r11
+	jsb	G^EXE$OUTZSTRING
+	jsb	G^EXE$OUTCRLF
+	ret
+;
+;	P1= @ of file header
+;
+	.align quad
+	.entry check_nomove,^M<>
+	movl	4(ap),r0
+	extzv	#FH2$V_NOMOVE,#1,FH2$L_FILECHAR(r0),r0
+	ret
+;
+	.end	image_init

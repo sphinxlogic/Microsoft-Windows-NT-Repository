@@ -1,0 +1,928 @@
+<TITLE>Routine Analyzer Source File Analysis - cparser.c</TITLE>
+<H2><A NAME="s10023e80">cparser.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00010.html#s10014580">Next file in section</a>; <A HREF="ranalyzer_src00010.html#s10014000">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+   33 <A HREF="#d10023f80">cond_token</A>
+  616 <A HREF="#d10025880">c_parser</A>
+  265 <A HREF="#d10025380">evaluate_if</A>
+  282 <A HREF="#d10025480">evaluate_ifdef</A>
+  299 <A HREF="#d10025500">get_token</A>
+  239 <A HREF="#d10025280">iskeyword</A>
+  200 <A HREF="#d10025180">new_source_line</A>
+  133 <A HREF="#d10020e00">trace_parser</A>
+  152 <A HREF="#d10020f00">trace_parser_int</A>
+  176 <A HREF="#d10021100">trace_parser_state</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Routine Analyzer					    */
+     4: /*									    */
+     5: /*  MODULE:	C Language Parser					    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains the source parser for C language	    */
+    11: /*  source files. Note that this particular implementation is a very	    */
+    12: /*  rudimentary state-driven parser. While it is reasonably functional, it  */
+    13: /*  is possible that it may become confused by unusual but otherwise valid  */
+    14: /*  language constructs.						    */
+    15: /*									    */
+    16: /*  REVISION HISTORY:							    */
+    17: /*									    */
+    18: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    19: /*									    */
+    20: /*	Original version.						    */
+    21: /*									    */
+    22: /****************************************************************************/
+    23: 
+    24: #include &lt;stdio.h&gt;
+    25: #include &lt;ctype.h&gt;
+    26: #include "ranalyzer.h"
+    27: #include "parser.h"
+    28: 
+    29: #define MAX_DQUOTE_LEN	    512			/* Just a guess.	    */
+    30: #define MAX_SQUOTE_LEN	    4			/* '\123'		    */
+    31: 
+    32: 
+</PRE><HR>
+<A NAME="d10023f80">ROUTINE</A> <A HREF="ranalyzer_xrf00003.html#x10023f80">cond_token</A>. Go to: 
+<A HREF="#d10020e00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    33: #define cond_token(t)	(copy ? t : SPACE)
+</PRE>
+END cond_token. Go to: <A HREF="#d10023f80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    34: 
+    35: typedef enum
+    36: {
+    37:     NO_MACRO,
+    38:     IN_MACRO
+    39: } c_macro_states;
+    40: 
+    41: typedef enum
+    42: {
+    43:     FIND_START,
+    44:     FIND_END_ALNUM,
+    45:     FIND_END_NUMBER,
+    46:     FIND_END_SPACE,
+    47:     FIND_END_DIRECTIVE,
+    48:     FIND_END_DQUOTED,
+    49:     FIND_END_SQUOTED,
+    50:     FIND_END_COMMENT
+    51: } c_scanner_states;
+    52: 
+    53: typedef enum
+    54: {
+    55:     FIND_IDENT,
+    56:     FIND_DEF_LPAREN,
+    57:     FIND_DEF_RPAREN,
+    58:     FIND_LBRACE_OR_SEMICOLON,
+    59:     FIND_LBRACE,
+    60:     FIND_MACRO_IDENT,
+    61:     FIND_MACRO_LPAREN,
+    62:     IN_ROUTINE,
+    63:     FIND_REF_LPAREN
+    64: } c_parser_states;
+    65: 
+    66: static char
+    67: 	*mPSNames[] = {
+    68: 	    "FIND_IDENT",
+    69: 	    "FIND_DEF_LPAREN",
+    70: 	    "FIND_DEF_RPAREN",
+    71: 	    "FIND_LBRACE_OR_SEMICOLON",
+    72: 	    "FIND_LBRACE",
+    73: 	    "FIND_MACRO_IDENT",
+    74: 	    "FIND_MACRO_LPAREN",
+    75: 	    "IN_ROUTINE",
+    76: 	    "FIND_REF_LPAREN"
+    77: 	};
+    78: 	
+    79: typedef enum
+    80: {
+    81:     END_C_SOURCE,
+    82:     LPAREN,
+    83:     RPAREN,
+    84:     LBRACE,
+    85:     RBRACE,
+    86:     SEMICOLON,
+    87:     IDENTIFIER,
+    88:     KEYWORD,
+    89:     MACBEGIN,
+    90:     SPACE,
+    91:     OTHER
+    92: } c_token_types;
+    93: 
+    94: static	char
+    95: 	*keywords[] = { "auto",
+    96: 			"break",
+    97: 			"case",
+    98: 			"char",
+    99: 			"continue",
+   100: 			"default",
+   101: 			"do",
+   102: 			"double",
+   103: 			"else",
+   104: 			"entry",
+   105: 			"enum",
+   106: 			"extern",
+   107: 			"float",
+   108: 			"for",
+   109: 			"goto",
+   110: 			"if",
+   111: 			"int",
+   112: 			"long",
+   113: 			"register",
+   114: 			"return",
+   115: 			"sizeof",
+   116: 			"short",
+   117: 			"static",
+   118: 			"struct",
+   119: 			"switch",
+   120: 			"typedef",
+   121: 			"union",
+   122: 			"unsigned",
+   123: 			"void",
+   124: 			"while",
+   125: 			NULL };
+   126: 
+   127: static  int				    /* Statement char count.	    */
+   128: 	statement;
+   129: static  int				    /* Comment char count.	    */
+   130: 	comment;
+   131: 
+   132: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10020e00">ROUTINE</A> <A HREF="ranalyzer_xrf00031.html#x10020e00">trace_parser</A>. Go to: 
+<A HREF="#d10020f00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   133: void trace_parser(
+   134: /* Write a parser trace message to the listing file. Listing must be	    */
+   135: /* enabled. Parser tracing is assumed to be enabled.			    */
+   136: 
+   137:     char    *aTraceStr
+   138: 	    /* (READ, BY ADDR):  					    */
+   139: 	    /* String to write to listing file.				    */
+   140: 
+   141: )	/* No return value.      					    */
+   142: 	/*****************************************************************--*/
+   143: 
+   144: {
+   145:     if (list_enabled()) {
+   146: 	fputs(aTraceStr, list_file());
+   147: 	restore_list_column();
+   148:     }
+   149: }
+</PRE>
+END trace_parser. Go to: <A HREF="#d10020e00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   150: 
+   151: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10020f00">ROUTINE</A> <A HREF="ranalyzer_xrf00031.html#x10020f00">trace_parser_int</A>. Go to: 
+<A HREF="#d10021100">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   152: void trace_parser_int(
+   153: /* Write a parser trace message containing one integer value to the listing */
+   154: /* file. Listing must be enabled. Parser tracing is assumed to be enabled.  */
+   155: 
+   156:     char    *aTraceStr,
+   157: 	    /* (READ, BY ADDR):  					    */
+   158: 	    /* String (including one integer printf format control) to	    */
+   159: 	    /* write to listing file.					    */
+   160: 	    
+   161:     int	    vInt
+   162: 	    /* (READ, BY VAL):						    */
+   163: 	    /* Integer value to write in string.			    */
+   164: 
+   165: )	/* No return value.      					    */
+   166: 	/*****************************************************************--*/
+   167: 
+   168: {
+   169:     if (list_enabled()) {
+   170: 	fprintf(list_file(), aTraceStr, vInt);
+   171: 	restore_list_column();
+   172:     }
+   173: }
+</PRE>
+END trace_parser_int. Go to: <A HREF="#d10020f00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   174: 
+   175: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10021100">ROUTINE</A> <A HREF="ranalyzer_xrf00032.html#x10021100">trace_parser_state</A>. Go to: 
+<A HREF="#d10025180">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   176: void trace_parser_state(
+   177: /* Write a parser state change trace message to the listing file. Listing   */
+   178: /* must be enabled. Parser tracing is assumed to be enabled.		    */
+   179: 
+   180:     char    *aFromName,
+   181: 	    /* (READ, BY ADDR):  					    */
+   182: 	    /* Name string for state changing from.			    */
+   183: 	    
+   184:     char    *aToName
+   185: 	    /* (READ, BY ADDR):  					    */
+   186: 	    /* Name string for state changing to.			    */
+   187: 	    
+   188: )	/* No return value.      					    */
+   189: 	/*****************************************************************--*/
+   190: 
+   191: {
+   192:     if (list_enabled()) {
+   193: 	fprintf(list_file(), "\nTRACE: Parser state change: %s to %s\n",
+   194: 	    aFromName, aToName);
+   195: 	restore_list_column();
+   196:     }
+   197: }
+</PRE>
+END trace_parser_state. Go to: <A HREF="#d10021100">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   198: 
+   199: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025180">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x10025180">new_source_line</A>. Go to: 
+<A HREF="#d10025280">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   200: void new_source_line(
+   201: /* Updates source line counters when a new line is found.		    */
+   202: 
+   203:     SOURCEFILE
+   204: 	    *aSourceRecord
+   205: 		/* (MODIFY, BY ADDR):					    */
+   206: 		/* Source file information record. The line count	    */
+   207: 		/* statistics will be updated.				    */
+   208: 
+   209: )	/* No return value						    */
+   210: 	/*****************************************************************--*/
+   211: 
+   212: {
+   213:     /*
+   214:     ** Classify the source line just completed as either mixed
+   215:     ** statements/comments, statements only, comments only, or blank, and
+   216:     ** increment the appropriate source record counters.
+   217:     */
+   218:     
+   219:     if (statement &amp;&amp; comment) {
+   220: 	inc_source_mixed(aSourceRecord);
+   221:     }
+   222:     else if (statement){
+   223: 	inc_source_statements(aSourceRecord);
+   224:     }
+   225:     else if (comment) {
+   226: 	inc_source_comments(aSourceRecord);
+   227:     }
+   228:     else {
+   229: 	inc_source_empty(aSourceRecord);
+   230:     }
+   231:     
+   232:     statement = 0;			    /* Reset counters for next	    */
+   233:     comment   = 0;			    /* line.			    */
+   234: 
+   235:     new_list_line(aSourceRecord);
+   236: }
+</PRE>
+END new_source_line. Go to: <A HREF="#d10025180">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   237: 
+   238: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025280">ROUTINE</A> <A HREF="ranalyzer_xrf00010.html#x10025280">iskeyword</A>. Go to: 
+<A HREF="#d10025380">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   239: static int iskeyword(
+   240: /* Determines whether or not an alphanumeric token is a source language	    */
+   241: /* keyword.								    */
+   242: 
+   243:     char    *aKeywords[],
+   244: 	    /* (READ, BY ADDR):						    */
+   245: 	    /* List of known source language keyword string pointers, in    */
+   246: 	    /* alphabetical order, terminated by NULL entry.		    */
+   247: 
+   248:     char    *aToken
+   249: 	    /* (READ, BY ADDR):						    */
+   250: 	    /* Token string to check.					    */
+   251: 
+   252: )	/* Returns status of comparison:				    */
+   253: 	/*	1   - Token is a keyword.				    */
+   254: 	/*	0   - Token is not a keyword.				    */
+   255: 	/*****************************************************************--*/
+   256: 
+   257: {
+   258:     int	    cmpstat;			    /* Comparison status.	    */
+   259: 
+   260:     while (*aKeywords != NULL &amp;&amp; (cmpstat = strcmp(*aKeywords++, aToken)) &lt; 0);
+   261:     return !cmpstat;
+   262: }
+</PRE>
+END iskeyword. Go to: <A HREF="#d10025280">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   263: 
+   264: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025380">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10025380">evaluate_if</A>. Go to: 
+<A HREF="#d10025480">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   265: static int evaluate_if(
+   266: /* Evaluates a #if conditional compilation directive.			    */
+   267: /*									    */
+   268: /* WARNING: This is just a dummy version for now.			    */
+   269: 
+   270:     char    *aCondition
+   271: 	    /* (READ, BY ADDR):  					    */
+   272: 	    /* Condition string to be evaluated.			    */
+   273: 
+   274: )	/* Returns boolean flag to indicate results of evaluation.	    */
+   275: 	/*****************************************************************--*/
+   276: 
+   277: {
+   278:     return atoi(aCondition);	/* Handle simple numeric constant */
+   279: }
+</PRE>
+END evaluate_if. Go to: <A HREF="#d10025380">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   280: 
+   281: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025480">ROUTINE</A> <A HREF="ranalyzer_xrf00005.html#x10025480">evaluate_ifdef</A>. Go to: 
+<A HREF="#d10025500">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   282: static int evaluate_ifdef(
+   283: /* Evaluates a #ifdef conditional compilation directive.		    */
+   284: /*									    */
+   285: /* WARNING: This is just a dummy version for now.			    */
+   286: 
+   287:     char    *aCondition
+   288: 	    /* (READ, BY ADDR):  					    */
+   289: 	    /* Condition string to be evaluated.			    */
+   290: 
+   291: )	/* Returns boolean flag to indicate results of evaluation.	    */
+   292: 	/*****************************************************************--*/
+   293: 
+   294: {
+   295:     return 0; /* Nothing is defined right now. */
+   296: }
+</PRE>
+END evaluate_ifdef. Go to: <A HREF="#d10025480">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   297: 
+   298: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025500">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x10025500">get_token</A>. Go to: 
+<A HREF="#d10025880">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   299: static get_token(
+   300: /* Source file input scanner. Reads the next lexical token from the source  */
+   301: /* file and accumulates source line statistics.				    */
+   302: 
+   303:     FILE    *aSourceFile,
+   304: 		/* (READ, BY ADDR):					    */
+   305: 		/* Source file containing C language.			    */
+   306: 
+   307:     SOURCEFILE
+   308: 	    *aSourceRecord,
+   309: 		/* (MODIFY, BY ADDR):					    */
+   310: 		/* Source file information record. The line count	    */
+   311: 		/* statistics will be updated.				    */
+   312: 
+   313:     char    *aToken
+   314: 		/* (WRITE, BY ADDR):					    */
+   315: 		/* String buffer to receive token.			    */
+   316: 
+   317: )	/* Returns code indicating which type of token was found:	    */
+   318: 	/*     END_C_SOURCE - End of the source file.			    */
+   319: 	/*     LPAREN	    - Left parenthesis.				    */
+   320: 	/*     RPAREN	    - Right parenthesis.			    */
+   321: 	/*     LBRACE	    - Left brace.				    */
+   322: 	/*     RBRACE	    - Right brace.				    */
+   323: 	/*     SEMICOLON    - Semicolon.				    */
+   324: 	/*     IDENTIFIER   - Routine or data identifier		    */
+   325: 	/*     KEYWORD	    - C language keyword.			    */
+   326: 	/*     MACBEGIN	    - Beginning of macro.			    */
+   327: 	/*     SPACE	    - Whitespace.				    */
+   328: 	/*     OTHER	    - Some other type of token.			    */
+   329: 	/*****************************************************************--*/
+   330: 
+   331: {
+   332:     int	    ch;				    /* Input character.		    */
+   333:     int	    quotelen;			    /* Length of quoted token.	    */
+   334:     c_scanner_states			    /* Scanner state.		    */
+   335: 	    state = FIND_START;
+   336:     char    *nextchar = aToken;		    /* Pointer to next char	    */
+   337: 					    /* position in aToken.	    */
+   338:     char    condbuf[256];		    /* Conditional directive buf.   */
+   339:     static int				    /* Conditional compilation copy */
+   340: 	    copy = 1;			    /* flag.			    */
+   341:     static c_macro_states		    /* Macro state.		    */
+   342: 	    macro = NO_MACRO;
+   343: 
+   344:     do {
+   345: 	ch = fgetc(aSourceFile);
+   346: 	switch (state) {
+   347: 	case FIND_START:
+   348: 	    list_char(ch);
+   349: 	    if (isalpha(ch) || ch == '_' || ch == '$') {
+   350: 		state = FIND_END_ALNUM;
+   351: 		*nextchar++ = ch;
+   352: 		statement++;
+   353: 	    }
+   354: 	    else if (isdigit(ch)) {
+   355: 		state = FIND_END_NUMBER;
+   356: 		*nextchar++ = ch;
+   357: 		statement++;
+   358: 	    }
+   359: 	    else if (isspace(ch)) {
+   360: 		if (ch == '\n') {
+   361: 		    if (macro == IN_MACRO) {/* Special case: if end of line */
+   362: 			macro = NO_MACRO;   /* in a macro, this is really   */
+   363: 			ungetc(ch, aSourceFile); 
+   364: 			return cond_token(RBRACE); /* end of a "routine"    */
+   365: 		    }			    /* definition.		    */
+   366: 		    else {
+   367: 			new_source_line(aSourceRecord);
+   368: 		    }
+   369: 		}
+   370: 		state = FIND_END_SPACE;
+   371: 	    }
+   372: 	    else {
+   373: 		switch (ch) {
+   374: 		case '(':
+   375: 		    statement++;
+   376: 		    return cond_token(LPAREN);
+   377: 		    break;
+   378: 		case ')':
+   379: 		    statement++;
+   380: 		    return cond_token(RPAREN);
+   381: 		    break;
+   382: 		case '{':
+   383: 		    statement++;
+   384: 		    return cond_token(LBRACE);
+   385: 		    break;
+   386: 		case '}':
+   387: 		    statement++;
+   388: 		    return cond_token(RBRACE);
+   389: 		    break;
+   390: 		case ';':
+   391: 		    statement++;
+   392: 		    return cond_token(SEMICOLON);
+   393: 		    break;
+   394: 		case '#':
+   395: 		    statement++;
+   396: 		    *nextchar++ = ch;
+   397: 		    state = FIND_END_DIRECTIVE;
+   398: 		    break;
+   399: 		case '"':
+   400: 		    statement++;
+   401: 		    state = FIND_END_DQUOTED;
+   402: 		    quotelen = 0;
+   403: 		    break;
+   404: 		case '\'':
+   405: 		    statement++;
+   406: 		    state = FIND_END_SQUOTED;
+   407: 		    quotelen = 0;
+   408: 		    break;
+   409: 		case '/':
+   410: 		    ch = fgetc(aSourceFile);
+   411: 		    if (ch == '*') {
+   412: 			list_char(ch);
+   413: 			state = FIND_END_COMMENT;
+   414: 			comment += 2;
+   415: 		    }
+   416: 		    else {
+   417: 			ungetc(ch, aSourceFile);
+   418: 			statement++;
+   419: 		    }
+   420: 		    break;
+   421: 		default:
+   422: 		    if (ch != EOF) {
+   423: 			*nextchar++ = ch;
+   424: 			*nextchar   = '\0';
+   425: 			statement++;
+   426: 			return cond_token(OTHER);
+   427: 		    }
+   428: 		}
+   429: 	    }
+   430: 	    break;
+   431: 	case FIND_END_ALNUM:
+   432: 	    if (isalnum(ch) || ch == '_' || ch == '$') {
+   433: 		list_char(ch);
+   434: 		*nextchar++ = ch;
+   435: 		statement++;
+   436: 	    }
+   437: 	    else {
+   438: 		ungetc(ch, aSourceFile);
+   439: 		*nextchar = '\0';
+   440: 		if (iskeyword(keywords, aToken)) {
+   441: 		    return cond_token(KEYWORD);
+   442: 		}
+   443: 		else {
+   444: 		    return cond_token(IDENTIFIER);
+   445: 		}
+   446: 	    }
+   447: 	    break;
+   448: 	case FIND_END_NUMBER:
+   449: 	    if (isdigit(ch)) {
+   450: 		list_char(ch);
+   451: 		*nextchar++ = ch;
+   452: 		statement++;
+   453: 	    }
+   454: 	    else {
+   455: 		ungetc(ch, aSourceFile);
+   456: 		*nextchar = '\0';
+   457: 		return cond_token(OTHER);
+   458: 	    }
+   459: 	    break;
+   460: 	case FIND_END_SPACE:
+   461: 	    if (isspace(ch)) {
+   462: 		list_char(ch);
+   463: 		if (ch == '\n') {
+   464: 		    if (macro == IN_MACRO) {/* Special case: if end of line */
+   465: 			macro = NO_MACRO;   /* in a macro, this is really   */
+   466: 			ungetc(ch, aSourceFile);
+   467: 			return cond_token(RBRACE);	    /* the end of a "routine"	    */
+   468: 		    }			    /* definition.		    */
+   469: 		    else {
+   470: 			new_source_line(aSourceRecord);
+   471: 		    }
+   472: 		}
+   473: 	    }
+   474: 	    else {
+   475: 		ungetc(ch, aSourceFile);
+   476: 		*nextchar = '\0';
+   477: 		return cond_token(SPACE);
+   478: 	    }
+   479: 	    break;
+   480: 	case FIND_END_DIRECTIVE:
+   481: 	    if (isalpha(ch)) {
+   482: 		list_char(ch);
+   483: 		*nextchar++ = ch;
+   484: 		statement++;
+   485: 	    }
+   486: 	    else {
+   487: 		ungetc(ch, aSourceFile);
+   488: 		*nextchar = '\0';
+   489: 		if (!strcmp(aToken, "#define")) {
+   490: 		    macro = IN_MACRO;
+   491: 		    return cond_token(MACBEGIN);
+   492: 		}
+   493: 		else if (!strcmp(aToken, "#if")) {
+   494: 		    fgets(condbuf, sizeof(condbuf), aSourceFile);
+   495: 		    if (list_enabled()) {
+   496: 			fputs(condbuf, list_file());
+   497: 		    }
+   498: 		    new_source_line(aSourceRecord);
+   499: 		    copy = evaluate_if(condbuf);
+   500: 		    return SPACE;
+   501: 		}
+   502: 		else if (!strcmp(aToken, "#ifdef")) {
+   503: 		    fgets(condbuf, sizeof(condbuf), aSourceFile);
+   504: 		    if (list_enabled()) {
+   505: 			fputs(condbuf, list_file());
+   506: 		    }
+   507: 		    new_source_line(aSourceRecord);
+   508: 		    copy = evaluate_ifdef(condbuf);
+   509: 		    return SPACE;
+   510: 		}
+   511: 		else if (!strcmp(aToken, "#ifndef")) {
+   512: 		    fgets(condbuf, sizeof(condbuf), aSourceFile);
+   513: 		    if (list_enabled()) {
+   514: 			fputs(condbuf, list_file());
+   515: 		    }
+   516: 		    new_source_line(aSourceRecord);
+   517: 		    copy = !evaluate_ifdef(condbuf);
+   518: 		    return SPACE;
+   519: 		}
+   520: 		else if (!strcmp(aToken, "#else")) {
+   521: 		    copy = !copy;
+   522: 		    return SPACE;
+   523: 		}
+   524: 		else if (!strcmp(aToken, "#endif")) {
+   525: 		    copy = 1;
+   526: 		    return SPACE;
+   527: 		}
+   528: 		else
+   529: 		{
+   530: 		    return cond_token(OTHER);
+   531: 		}
+   532: 	    }
+   533: 	    break;
+   534: 	case FIND_END_DQUOTED:
+   535: 	    list_char(ch);
+   536: 	    if (ch == '"') {
+   537: 		statement++;
+   538: 		return cond_token(OTHER);
+   539: 	    }
+   540: 	    else if (ch == '\\') {	    /* Check for escape seq. */
+   541: 		statement++;
+   542: 		quotelen++;
+   543: 	        ch = fgetc(aSourceFile);
+   544: 		list_char(ch);
+   545: 		statement++;
+   546: 		quotelen++;
+   547: 	    }
+   548: 	    else if (ch == '\n') {
+   549: 		new_source_line(aSourceRecord);
+   550: 	    }
+   551: 	    else if (quotelen &gt; MAX_DQUOTE_LEN) {
+   552: 		printf(
+   553: 	    "WARNING: Suspected unterminated double quote at line %d of %s\n",
+   554: 		    source_line(aSourceRecord), source_name(aSourceRecord));
+   555: 		return cond_token(OTHER);
+   556: 	    }
+   557: 	    else {
+   558: 		statement++;
+   559: 		quotelen++;
+   560: 	    }
+   561: 	    break;
+   562: 	case FIND_END_SQUOTED:
+   563: 	    list_char(ch);
+   564: 	    if (ch == '\'') {
+   565: 		ch = fgetc(aSourceFile);
+   566: 		if (ch == '\'') {
+   567: 		    statement++;
+   568: 		    list_char(ch);
+   569: 		}
+   570: 		else {
+   571: 		    ungetc(ch, aSourceFile);
+   572: 		}
+   573: 		statement++;
+   574: 		return cond_token(OTHER);
+   575: 	    }
+   576: 	    else if (ch == '\n' || quotelen &gt; MAX_SQUOTE_LEN) {
+   577: 		new_source_line(aSourceRecord);
+   578: 		printf(
+   579: 	    "WARNING: Suspected unterminated single quote at line %d of %s\n",
+   580: 		    source_line(aSourceRecord), source_name(aSourceRecord));
+   581: 		return cond_token(OTHER);
+   582: 	    }
+   583: 	    else {
+   584: 		statement++;
+   585: 		quotelen++;
+   586: 	    }
+   587: 	    break;
+   588: 	case FIND_END_COMMENT:
+   589: 	    list_char(ch);
+   590: 	    if (ch == '*') {
+   591: 		ch = fgetc(aSourceFile);
+   592: 		if (ch == '/') {
+   593: 		    list_char(ch);
+   594: 		    state = FIND_START;
+   595: 		    comment += 2;
+   596: 		}
+   597: 		else {
+   598: 		    ungetc(ch, aSourceFile);
+   599: 		    comment++;
+   600: 		}
+   601: 	    }
+   602: 	    else if (ch == '\n') {
+   603: 		new_source_line(aSourceRecord);
+   604: 	    }
+   605: 	    else {
+   606: 		comment++;
+   607: 	    }
+   608: 	    break;
+   609: 	}
+   610:     } while (ch != EOF);
+   611:     copy = 1;
+   612:     return END_C_SOURCE;
+   613: }
+</PRE>
+END get_token. Go to: <A HREF="#d10025500">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   614:     
+   615: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10025880">ROUTINE</A> <A HREF="ranalyzer_xrf00003.html#x10025880">c_parser</A>. Go to: 
+<A HREF="#d10014680">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   616: language_element c_parser(
+   617: /* Parses C source language statements, looking for routine definition	    */
+   618: /* begin and end, and routine references. Retrieves the next language	    */
+   619: /* element in the source file.						    */
+   620: /*									    */
+   621: /* Note that this version is a very simple-minded parser, and has several   */
+   622: /* limitations.  It is not able to identify function pointer usages as	    */
+   623: /* routine references. It may also be confused by other legal constructs.   */
+   624: 
+   625:     FILE    *aSourceFile,
+   626: 		/* (READ, BY ADDR):					    */
+   627: 		/* Source file containing C language. Must be opened by	    */
+   628: 		/* caller.						    */
+   629: 
+   630:     SOURCEFILE
+   631: 	    *aSourceRecord,
+   632: 		/* (READ, BY ADDR):					    */
+   633: 		/* Source file information record.			    */
+   634: 
+   635:     char    *aElement,
+   636: 		/* (WRITE, BY ADDR):					    */
+   637: 		/* String buffer that will receive the recognized source    */
+   638: 		/* language element.					    */
+   639: 
+   640:     long    *aSourceLine
+   641: 		/* (WRITE, BY ADDR):					    */
+   642: 		/* Buffer that will receive the line number of aElement.    */
+   643: 
+   644: )	/* Returns one of the following values indicating the type of	    */
+   645: 	/* element output in aElement:					    */
+   646: 	/*      PARSE_ERROR	    - An error was detected in the input    */
+   647: 	/*			      stream.				    */
+   648: 	/*	END_OF_SOURCE	    - The normal end of file was found.	    */
+   649: 	/*	ROUTINE_DEF_BEGIN   - The beginning of a routine definition */
+   650: 	/*			      was found.			    */
+   651: 	/*	ROUTINE_DEF_END	    - The end of the current routine	    */
+   652: 	/*			      definition was found.		    */
+   653: 	/*	ROUTINE_REF	    - A routine reference (call) was found. */
+   654: 	/*****************************************************************--*/
+   655: 
+   656: {
+   657:     static c_parser_states		    /* Parser state.		    */
+   658: 	    state = FIND_IDENT;
+   659:     static int				    /* Nested braces level.	    */
+   660: 	    blevel;
+   661:     static char				    /* Name of current routine.	    */
+   662: 	    curdefname[MAX_ROUTINE_NAME + 1];
+   663:     int	    plevel;			    /* Nested parenthesis level.    */
+   664:     c_token_types			    /* Type of source token.	    */
+   665: 	    tokentype;
+   666:     char    token[MAX_ROUTINE_NAME + 1];    /* Source token buffer.	    */
+   667: 
+   668:     /*
+   669:     ** This function operates as a state machine. The states represent the
+   670:     ** various tokens expected next in the token stream, according to C syntax.
+   671:     ** Whenever a routine definition beginning or end, or routine reference, is
+   672:     ** recognized, the parser returns to the caller. However, context is
+   673:     ** maintained between calls to the parser via static state variables.
+   674:     */
+   675: 
+   676:     do {
+   677: 	tokentype = get_token(aSourceFile, aSourceRecord, token);
+   678: 	switch (state) {
+   679: 	case FIND_IDENT:
+   680: 	    if (tokentype == IDENTIFIER) {
+   681: 		strcpy(aElement, token);
+   682: 		*aSourceLine = source_line(aSourceRecord);
+   683: 		change_pstate(FIND_DEF_LPAREN);
+   684: 	    }
+   685: 	    else if (tokentype == MACBEGIN) {
+   686: 		change_pstate(FIND_MACRO_IDENT);
+   687: 	    }
+   688: 	    break;
+   689: 	case FIND_DEF_LPAREN:
+   690: 	    if (tokentype == LPAREN) {
+   691: 		change_pstate(FIND_DEF_RPAREN);
+   692: 		paren_level_zero();
+   693: 	    }
+   694: 	    else if (tokentype == IDENTIFIER) {
+   695: 		strcpy(aElement, token);
+   696: 		*aSourceLine = source_line(aSourceRecord);
+   697: 	    }
+   698: 	    else if (tokentype != SPACE) {
+   699: 		change_pstate(FIND_IDENT);
+   700: 	    }		
+   701: 	    break;
+   702: 	case FIND_DEF_RPAREN:
+   703: 	    if (tokentype == RPAREN) {
+   704: 		if (plevel) {
+   705: 		    paren_level_dec();
+   706: 		}
+   707: 		else {
+   708: 		    change_pstate(FIND_LBRACE_OR_SEMICOLON);
+   709: 		}
+   710: 	    }
+   711: 	    else if (tokentype == LPAREN) {
+   712: 		paren_level_inc();
+   713: 	    }
+   714: 	    break;
+   715: 	case FIND_LBRACE_OR_SEMICOLON:
+   716: 	    if (tokentype == LBRACE) {
+   717: 		change_pstate(IN_ROUTINE);
+   718: 		block_level_zero();
+   719: 		strcpy(curdefname, token);
+   720: 		return ROUTINE_DEF_BEGIN;
+   721: 	    }					/* Forward or external	    */
+   722: 	    else if (tokentype == SEMICOLON) {	/* declaration.		    */
+   723: 		change_pstate(FIND_IDENT);
+   724: 	    }
+   725: 	    else if (tokentype != SPACE) {	/* Parameter declarations.  */
+   726: 		change_pstate(FIND_LBRACE);
+   727: 	    }
+   728: 	    break;
+   729: 	case FIND_LBRACE:
+   730: 	    if (tokentype == LBRACE) {		/* Keep grabbing tokens	    */
+   731: 		change_pstate(IN_ROUTINE);	/* until left brace.	    */
+   732: 		block_level_zero();
+   733: 		strcpy(curdefname, token);
+   734: 		return ROUTINE_DEF_BEGIN;
+   735: 	    }
+   736: #if 0
+   737: 	    else if (tokentype != SPACE) {
+   738: 		change_pstate(FIND_IDENT);
+   739: 	    }
+   740: #endif
+   741: 	    break;
+   742: 	case FIND_MACRO_IDENT:
+   743: 	    if (tokentype == IDENTIFIER) {
+   744: 		strcpy(aElement, token);
+   745: 		*aSourceLine = source_line(aSourceRecord);
+   746: 		change_pstate(FIND_MACRO_LPAREN);
+   747: 	    }
+   748: 	    else if (tokentype != SPACE) {
+   749: 		change_pstate(FIND_IDENT);
+   750: 	    }
+   751: 	    break;
+   752: 	case FIND_MACRO_LPAREN:
+   753: 	    if (tokentype == LPAREN) {
+   754: 		change_pstate(IN_ROUTINE);
+   755: 		strcpy(curdefname, token);
+   756: 		return ROUTINE_DEF_BEGIN;
+   757: 	    }
+   758: 	    else {			    /* Cannot tolerate SPACE here */
+   759: 		change_pstate(FIND_IDENT);
+   760: 	    }
+   761: 	    break;
+   762: 	case IN_ROUTINE:
+   763: 	    if (tokentype == LBRACE) {
+   764: 		block_level_inc();
+   765: 	    }
+   766: 	    else if (tokentype == RBRACE) {
+   767: 		if (blevel == 0) {
+   768: 		    trace_blmsg(BLEND);
+   769: 		    change_pstate(FIND_IDENT);
+   770: 		    *aSourceLine = source_line(aSourceRecord);
+   771: 		    strcpy(aElement, curdefname);
+   772: 		    return ROUTINE_DEF_END;
+   773: 		}
+   774: 		else {
+   775: 		    block_level_dec();
+   776: 		}
+   777: 	    }
+   778: 	    else if (tokentype == IDENTIFIER) {
+   779: 		strcpy(aElement, token);
+   780: 		*aSourceLine = source_line(aSourceRecord);
+   781: 		change_pstate(FIND_REF_LPAREN);
+   782: 	    }
+   783: 	    else if (tokentype == END_C_SOURCE) {
+   784: 		printf("ERROR: Unexpected end of file %s\n",
+   785: 		    source_name(aSourceRecord));
+   786: 		return PARSE_ERROR;
+   787: 	    }
+   788: 	    break;
+   789: 	case FIND_REF_LPAREN:
+   790: 	    if (tokentype != SPACE) {
+   791: 		change_pstate(IN_ROUTINE);
+   792: 		if (tokentype == RBRACE) {
+   793: 					    /* Must be scanner finding end  */
+   794: 					    /* of macro, calling it rbrace. */
+   795: 		    if (blevel == 0) {	    /* Treat as end of routine.	    */
+   796: 			trace_blmsg(
+   797: 		    "\nTRACE: brace level already 0 (assuming end of macro)\n");
+   798: 			change_pstate(FIND_IDENT);
+   799: 			*aSourceLine = source_line(aSourceRecord);
+   800: 			strcpy(aElement, curdefname);
+   801: 			return ROUTINE_DEF_END;
+   802: 		    }
+   803: 		    else {		    /* Must be end of data	    */
+   804: 			block_level_dec();  /* initializer list.	    */
+   805: 			trace_blmsg("(assuming end of data initializer)\n");
+   806: 		    }
+   807: 		}
+   808: 	    }
+   809: 	    if (tokentype == LPAREN) {
+   810: 		return ROUTINE_REF;
+   811: 	    }
+   812: 	    break;
+   813: 	}
+   814:     } while (tokentype != END_C_SOURCE);
+   815:     change_pstate(FIND_IDENT);
+   816:     return END_OF_SOURCE;
+   817: }
+</PRE>
+END c_parser. Go to: <A HREF="#d10025880">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+<HR>
+END OF FILE
+
+TOTAL: 10 routines, 67 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00010.html#s10014580">Next file in section</a>; <A HREF="ranalyzer_src00010.html#s10014000">Previous file in section</a>.<P>

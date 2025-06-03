@@ -1,0 +1,553 @@
+	.TITLE	GLOGIN
+	.IDENT	/V1.1/
+	.SBTTL	Introduction
+;++
+;****************************************************************************
+;*                                                                          *
+;*  COPYRIGHT (c) 1992, 1993, 1994, 1994 by                                 *
+;*  Anthony C. McCracken                                                    *
+;*  NORTHERN ARIZONA UNIVERSITY                                             *
+;*                                                                          *
+;*  THIS SOFTWARE HAS BEEN RELEASED TO THE PUBLIC DOMAIN. IT MAY BE FREELY  *
+;*  COPIED, DISTRIBUTED AND MODIFIED FOR YOUR OWN PURPOSES.                 *
+;*            .                                                             *
+;*                                                                          *
+;*  THIS SOFTWARE IS BEING PROVIDED AS IS, FREE OF CHARGE.                  *
+;*  THE AUTHOR(S) AND NORTHERN ARIZONA UNIVERSITY ASSUME NO RESPONSIBILITY  *
+;*  OR LIABILITY FOR THE USE OF THIS SOFTWARE.                              *
+;*                                                                          *
+;****************************************************************************
+;--
+
+;++
+; FACILITY:	GLOGIN
+;
+; ABSTRACT:  This program allows a privileged user to obtain an interactive
+;            session on behalf of another user.  The privileged user inherits
+;            the complete environment of the target user including DCL symbols,
+;            PROCESS/JOB/GROUP logical names, process quotas, privileges and
+;            rights identifiers as well as any other stuff that is set up in
+;            the target user's LOGIN.COM
+;
+; ENVIRONMENT: User mode with SYSPRV and CMKRNL.
+;
+; SECURITY:	None
+;
+; Usage:	$ GLOGIN username
+;
+;		GLOGIN is defined to be a foreign symbol and
+;		username is a valid userid on the system.
+;
+; OTHER:	Requires either the TW/PY or the FTA psuedo terminal driver.
+;
+; AUTHOR:	Anthony C. McCracken
+; CREATION DATE:  9-Oct-1992
+;
+; MODIFIED BY:	Anthony C. McCracken  19-Oct-1992
+;		   Fixed a bug where in the psuedo terminal recognition routine
+;		   that caused the program to not recognize FTA0 if PYA0 wasn't
+;		   present.  This resulted in the program bombing off instead
+;		   of creating an FTAnnn: device.
+;
+;--
+
+	.SBTTL	Declarations
+
+;+
+; Be sure and LINK against the SYSTEM's symbol table and include LIB.MLB 
+; during assembly.
+;-
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	.LINK		"SYS$SYSTEM:SYS.STB" /SELECTIVE_SEARCH
+
+;+
+; Include a lot of system definition macros, we'll need them.
+;-
+	$JIBDEF		; Job Information Block
+	$PCBDEF		; Process Control Block
+	$JPIDEF		; Job/Process Information item codes
+	$DVIDEF		; Device Information item codes
+	$UAIDEF		; User Authorization Information item codes
+	$TTDEF		; basic terminal characteristics
+	$TT2DEF		; extended terminal characteristics
+	$ACCDEF		; ACCounting record definitions
+	$PRCDEF		; Process Creation flags
+	$SSDEF		; System Service return codes
+
+;+
+; Define a couple of useful macros. One builds an item_list_3 data structure
+; the other checks the return status from system services.
+;-
+	.MACRO	.ITEM3	BUF_LEN,I_CODE,BUF_ADDR,RET_LEN_ADDR
+		.WORD	BUF_LEN
+		.WORD	I_CODE
+		.LONG	BUF_ADDR
+		.LONG	RET_LEN_ADDR
+	.ENDM	.ITEM3
+
+	.MACRO	.ITEM3_END
+		.LONG	0
+		.QUAD	0
+	.ENDM	.ITEM3_END
+
+	.MACRO	CHECK_ERROR	?CONTINUE
+		BLBS	R0,CONTINUE
+		$EXIT_S	R0
+CONTINUE:
+	.ENDM	CHECK_ERROR
+
+	.SBTTL	Data areas
+;++
+; The data areas are declared in two psects.  The data types for the FTA driver
+; must be page aligned.  The others can get by being only longword aligned.
+;--
+	.PSECT	DATA,RD,WRT,NOEXE,LONG
+
+UNAME_LEN = 12
+MY_NAME_S:	.BLKB	UNAME_LEN	; My USERNAME
+T_NAME_S:	.BLKB	UNAME_LEN	; Target USERNAME
+
+;+
+; Descriptors for the username strings
+;-
+
+MYNAMD:	.LONG		UNAME_LEN
+	.ADDRESS	MY_NAME_S
+
+TUNAMD:	.LONG		UNAME_LEN
+	.ADDRESS	T_NAME_S
+
+INAME:	.ASCID	/SYS$SYSTEM:LOGINOUT.EXE/	; Image name for $CREPRC
+
+MYUIC:	.BLKL	1				; My UIC
+TUIC:	.BLKL	1				; Target UIC
+
+;+
+; Device templates for the psuedo terminals
+;-
+
+PYDESC:	.ASCID	/PYA0:/		; PYA device template
+FTDESC:	.ASCID	/FTA0:/		; FTA device template
+
+;+
+; Calls to $GETDVI fill in the following three datastructures.  Depending on
+; what information the $GETDVI returns the program will decide whether to use
+; FTAs or PYAs.
+;-
+
+PY_NAME_L:	.BLKW	1		; Information about the PY template
+PY_NAME_S:	.BLKB	64
+PYNAMD:	.LONG		64
+	.ADDRESS	PY_NAME_S
+
+FT_NAME_L:	.BLKW	1		; Information about the FTA template
+FT_NAME_S:	.BLKB	64
+FTNAMD:	.LONG		64
+	.ADDRESS	FT_NAME_S
+
+PT_NAME_L:	.BLKW	1		; Information about the actual psuedo
+PT_NAME_S:	.BLKB	64		; terminal once one is created
+PTNAMD:	.LONG		64
+	.ADDRESS	PT_NAME_S
+
+;+
+; A termination mailbox will be required to detect when the target user's
+; process is terminated.
+;-
+
+MBUNIT:	.BLKL	1
+MBCHAN:	.BLKW	1
+MBBUFF:	.BLKB	ACC$K_TERMLEN
+
+;+
+; Channel and IOSBs for the actual psuedo terminal
+;-
+
+PTCHAN:	.BLKW	1
+PTRIO:	.BLKQ	1
+PTWIO:	.BLKQ	1
+
+FTPYFL:	.LONG	0	; Flag indicating which type of psuedo terminal
+			; is being used.
+
+;+
+; Item lists for the $GETUAI, $GETJPI and $GETDVI calls
+;-
+
+UAITM:	.ITEM3	4,UAI$_UIC,TUIC,0		; Target user's UIC
+	.ITEM3_END
+
+JPITM:	.ITEM3	12,JPI$_USERNAME,MY_NAME_S,0	; My USERNAME
+	.ITEM3	4,JPI$_UIC,MYUIC,0		; My UIC
+	.ITEM3_END
+
+PDVITM:	.ITEM3	64,DVI$_DEVNAM,PY_NAME_S,PY_NAME_L	; Device name
+	.ITEM3_END
+
+FDVITM:	.ITEM3	64,DVI$_DEVNAM,FT_NAME_S,FT_NAME_L	; Device name
+	.ITEM3_END
+
+PTITM:	.ITEM3	64,DVI$_DEVNAM,PT_NAME_S,PT_NAME_L	; Device name
+	.ITEM3_END
+
+MDVITM:	.ITEM3	4,DVI$_UNIT,MBUNIT,0			; Unit number
+	.ITEM3_END
+
+;+
+; IOSBs for the $GETxxx calls.
+;-
+
+DVIOSB:	.BLKQ	1
+JPIOSB:	.BLKQ	1
+
+;+
+; Data structures for my REAL terminal
+;-
+
+TTNAMD:	.ASCID	/TT:/
+TTCH:	.BLKW	1
+TRIOSB:	.BLKQ	1
+TWIOSB:	.BLKQ	1
+OTCHAR:	.BLKL	3	; Old characteristics
+NTCHAR:	.BLKL	3	; New characteristics
+
+;+
+; Data structure used by $DCLEXH and the exit handler
+;-
+
+FSTAT:	.BLKL	1			; Final completion status
+EXBLK:	.BLKL	1
+	.ADDRESS	EXHAND		; The exit handler
+	.LONG	1
+	.ADDRESS	FSTAT
+;+
+; A character string that gets printed on the screen just prior to image exit.
+;-
+
+EXSTR:	.BYTE	10
+	.BYTE	13
+	.BYTE	10
+	.BYTE	7
+	.ASCII	/%GLOGIN-I-SESCMP, session completed, USERID reset to normal/
+	.BYTE	13
+EXSTRL = .-EXSTR
+
+;+
+; I/O buffers for PSUEDO terminals must be page aligned.  At least the FTA's
+; buffers need to.
+;-
+
+	.PSECT	PBUFF,RD,WRT,NOEXE,PAGE
+	.ALIGN	PAGE
+
+FTRB:
+FTRST:	.BLKW	1
+FTRCNT:	.BLKW	1
+FTRDAT:	.BLKB	508
+
+FTWB:
+FTWST:	.BLKW	1
+FTWCNT:	.BLKW	1
+FTWDAT:	.BLKB	508
+FTEB:
+
+PYRBUF:	.BLKB	512
+PYWBUF:	.BLKB	512
+
+;+
+; FTA buffer range
+;-
+
+FTBRNG:	.ADDRESS	FTRB
+	.ADDRESS	FTEB
+
+	.SBTTL	Main executable routines
+
+;++
+; Main routine, determines which type of psuedo terminal(s) is available and
+; sets the flag indicating which one will be used.  It also gets the USERNAME
+; argument from the command line and changes our USERNAME and UIC to the one
+; specified in the command line.  While we're "pretending" to be the other
+; user an interactive process is created which is hooked up the psuedo
+; terminal.  Once the process is created our USERID and UIC is changed back
+; to normal.  The created process will login without a password and our
+; terminal will be in control of the created process.
+;--
+	.PSECT	CODE,RD,NOWRT,EXE,BYTE
+	.ENTRY	MAIN,^M<>
+;+
+; Get the command line argument   (target userid)
+;-
+	CLRQ	-(SP)
+	CLRL	-(SP)
+	PUSHAQ	TUNAMD
+	CALLS	#4,G^LIB$GET_FOREIGN
+	CHECK_ERROR
+;+
+; Get target's UIC
+;-
+	$GETUAI_S	USRNAM=TUNAMD,ITMLST=UAITM
+	CHECK_ERROR
+;+
+; Get and save our own USERID and UIC
+;-
+	$GETJPIW_S	ITMLST=JPITM,IOSB=JPIOSB
+	CHECK_ERROR
+	MOVL	JPIOSB,R0
+	CHECK_ERROR
+;+
+; Determine whether a PY or FTA device if either is available, use FTA if
+; both are present.
+;-
+	$GETDVIW_S	DEVNAM=PYDESC,ITMLST=PDVITM,IOSB=DVIOSB
+	CMPW	R0,#SS$_NOSUCHDEV
+	BEQL	10$
+	CHECK_ERROR
+10$:	$GETDVIW_S	DEVNAM=FTDESC,ITMLST=FDVITM,IOSB=DVIOSB
+	CMPW	R0,#SS$_NOSUCHDEV
+	BEQL	20$
+	CHECK_ERROR
+20$:	TSTW	PY_NAME_L	; PY name length is zero if there's no
+	BEQL	NO_PY		; PYA0 template
+	MOVL	#1,FTPYFL
+NO_PY:	TSTW	FT_NAME_L	; Same for FTA0
+	BEQL	NO_FT
+	MOVL	#2,FTPYFL
+NO_FT:	TSTL	FTPYFL
+	BNEQ	TRM_OK
+	$EXIT_S	#SS$_NODEVAVL	; Punt if there's no psuedo terminal
+TRM_OK:
+;+
+; Set terminal characteristics and declare an exit handler to reset things.
+;-
+	$ASSIGN_S	DEVNAM=TTNAMD,CHAN=TTCH
+	CHECK_ERROR
+	$QIOW_S		CHAN=TTCH,FUNC=#IO$_SENSEMODE,P1=OTCHAR,P2=#12,-
+			IOSB=TRIOSB
+	CHECK_ERROR
+	MOVZWL	TRIOSB,R0
+	CHECK_ERROR
+	$DCLEXH_S	DESBLK=EXBLK
+	CHECK_ERROR
+	MOVC3	#12,OTCHAR,NTCHAR
+	BISL2	#TT$M_NOECHO,NTCHAR+4
+	BICL2	#TT$M_WRAP,NTCHAR+4
+	BISL2	#TT2$M_PASTHRU,NTCHAR+8
+	$QIOW_S		CHAN=TTCH,FUNC=#IO$_SETMODE,P1=NTCHAR,P2=#12,-
+			IOSB=TWIOSB
+	CHECK_ERROR
+	MOVZWL	TWIOSB,R0
+	CHECK_ERROR
+;+
+; Change our USERID and UIC to that of the target user
+;-
+	$CMKRNL_S	ROUTIN=SETUSERNAME
+	CHECK_ERROR
+;+
+; Create pseudo-terminal
+;-
+	CMPL	FTPYFL,#2	; Make an FTA or PYA???
+	BNEQ	CRPYA
+	BRW	CRFTA
+CRPYA:	$ASSIGN_S	CHAN=PTCHAN,DEVNAM=PYDESC
+	CHECK_ERROR
+	$GETDVIW_S	CHAN=PTCHAN,ITMLST=PTITM,IOSB=DVIOSB
+	CHECK_ERROR
+	MOVW	#^A'TW',PT_NAME_S+1	; Bash the PY's device name to match
+	BRW	CRFIN			; the TWAnnn's name.
+
+CRFTA:	PUSHAL	FTBRNG		; Create an FTA
+	CLRQ	-(SP)
+	CLRQ	-(SP)
+	CLRQ	-(SP)
+	PUSHAW	PTCHAN
+	CALLS	#8,G^PTD$CREATE
+	CHECK_ERROR
+	$GETDVIW_S	CHAN=PTCHAN,ITMLST=PTITM,IOSB=DVIOSB
+	CHECK_ERROR
+CRFIN:
+;+
+; Create the interactive process using the psuedo terminal.  The NOPASSWORD
+; flag will cause the process to login without the USERID: and PASSWORD:
+; prompts.  The termination mailbox will allow us to determine when the
+; created process logs out.
+;-
+	$CREMBX_S	CHAN=MBCHAN,MAXMSG=#ACC$K_TERMLEN
+	CHECK_ERROR
+	$GETDVIW_S	CHAN=MBCHAN,ITMLST=MDVITM,IOSB=DVIOSB
+	CHECK_ERROR
+	$QIO_S		CHAN=MBCHAN,FUNC=#IO$_READVBLK,ASTADR=MBAST,-
+			P1=MBBUFF,P2=#ACC$K_TERMLEN
+	CHECK_ERROR
+	$CREPRC_S	IMAGE=INAME,INPUT=PTNAMD,OUTPUT=PTNAMD,MBXUNT=MBUNIT,-
+			STSFLG=#PRC$M_DETACH!PRC$M_INTER!PRC$M_NOPASSWORD,-
+			BASPRI=#4
+	CHECK_ERROR
+;+
+; Process has been created, set our USERNAME and UIC back.
+;-
+	$CMKRNL_S	ROUTIN=RESTUSERNAME
+	CHECK_ERROR
+;+
+; Queue reads to the appropriate devices and then hibernate
+;-
+	CMPL	FTPYFL,#2
+	BNEQ	10$		; Read the PYA or
+	BRW	20$		; Read the FTA
+10$:	$QIO_S	CHAN=TTCH,FUNC=#IO$_READVBLK,ASTADR=TTRAST,P1=PYWBUF,P2=#1
+	CHECK_ERROR
+	$QIO_S	CHAN=PTCHAN,FUNC=#IO$_READVBLK,ASTADR=PTRAST,IOSB=PTRIO,-
+		P1=PYRBUF,P2=#512
+	CHECK_ERROR
+	BRW	30$
+20$:	$QIO_S	CHAN=TTCH,FUNC=#IO$_READVBLK,ASTADR=TTRAST,P1=FTWDAT,P2=#1
+	CHECK_ERROR
+	PUSHL	#508
+	PUSHAB	FTRB
+	PUSHL	#0
+	PUSHAB	PTRAST
+	MOVZWL	PTCHAN,-(SP)
+	PUSHL	#0
+	CALLS	#6,G^PTD$READ
+	CHECK_ERROR
+30$:	$HIBER_S		; Wait here 
+
+;+
+; Once the interactive session logs out this process will be awakened.  Time
+; to exit and restore everyting, the exit handler should take care of this.
+;-
+	$EXIT_S
+
+	.SBTTL	ASTs and Handlers
+
+;+
+; Exit handler resets the terminal to "normal" characteristics and prints
+; an exit message on it.
+;-
+
+	.ENTRY	EXHAND,^M<>
+	$SETAST_S	ENBFLG=#0	; Disable ASTs
+	CMPL	FTPYFL,#2		; Determine which psuedo terminal
+	BEQL	10$			; to delete
+	$DASSGN_S	CHAN=PTCHAN
+	BRB	20$
+10$:	MOVZWL	PTCHAN,-(SP)
+	CALLS	#1,G^PTD$DELETE
+20$:	$DASSGN_S	CHAN=TTCH	; Cancels and TTY I/O
+	$ASSIGN_S	CHAN=TTCH,DEVNAM=TTNAMD
+	$QIOW_S		CHAN=TTCH,FUNC=#IO$_SETMODE,P1=OTCHAR,P2=#12,-
+			IOSB=TWIOSB
+	$QIOW_S		CHAN=TTCH,FUNC=#IO$_WRITEVBLK,P1=EXSTR,P2=#EXSTRL
+	$DASSGN_S	CHAN=TTCH
+	RET
+
+;+
+; SETUSERNAME pokes out the username strings in the process JIB and in
+; the CTL$ area.  It also changes the UIC to match the new username.
+;-
+	.ENTRY	SETUSERNAME,^M<R2,R3,R4,R5>
+	MOVAB	EHAND,(FP)		; error handler, just in case
+	MOVL	TUIC,PCB$L_UIC(R4)	; poke UIC
+	MOVL	PCB$L_JIB(R4),R0
+	MOVC3	#UNAME_LEN,T_NAME_S,JIB$T_USERNAME(R0)	; poke USERNAME
+	MOVC3	#UNAME_LEN,T_NAME_S,G^CTL$T_USERNAME	; poke USERNAME
+	MOVZWL	#SS$_NORMAL,R0
+	RET
+
+;+
+; RESETUSERNAME undoes what the previous routine did.  The old values are
+; obtained via a $GETJPI early in the main program.
+;-
+	.ENTRY	RESTUSERNAME,^M<R2,R3,R4,R5>
+	MOVAB	EHAND,(FP)
+	MOVL	MYUIC,PCB$L_UIC(R4)
+	MOVL	PCB$L_JIB(R4),R0
+	MOVC3	#UNAME_LEN,MY_NAME_S,JIB$T_USERNAME(R0)
+	MOVC3	#UNAME_LEN,MY_NAME_S,G^CTL$T_USERNAME
+	MOVZWL	#SS$_NORMAL,R0
+	RET
+
+;+
+; This error handler should prevent those embarrasing crashes when you woof
+; in kernel mode.  It doesn't try to fix anything, it just unwinds the stack
+; and saves the error signal status.  Good for little things like division
+; by zero or access violations etc.  If you crap on an important system data
+; structure this handler wont be able to fix it and the system will eventually
+; crash.
+;-
+	.ENTRY	EHAND,^M<R5,R6>
+	MOVL	4(AP),R5		; Get the signal array
+	CMPL	4(R5),#SS$_UNWIND
+	BNEQ	10$			; Just return if were already
+	RET				; unwinding
+10$:	MOVL	8(AP),R6		; Get the mechanism array
+	MOVL	4(R5),12(R6)		; Stash the error code
+	$UNWIND_S			; and unwind back out
+	RET
+
+;+
+; TTRAST is called whenever a key is pressed on the real keyboard. It just
+; transferes the keystroke to the appropriate psuedo terminal and then requeues
+; another read the keyboard.
+;-
+	.ENTRY	TTRAST,^M<>
+	CMPL	FTPYFL,#2	; PY or FTA??
+	BNEQ	10$
+	BRW	20$
+10$:	$QIOW_S	CHAN=PTCHAN,FUNC=#IO$_WRITEVBLK,P1=PYWBUF,P2=#1,IOSB=PTWIO
+	CHECK_ERROR
+	$QIO_S	CHAN=TTCH,FUNC=#IO$_READVBLK,ASTADR=TTRAST,P1=PYWBUF,P2=#1
+	CHECK_ERROR
+	RET
+20$:	CLRQ	-(SP)
+	PUSHL	#1
+	PUSHAB	FTWB
+	CLRQ	-(SP)
+	MOVZWL	PTCHAN,-(SP)
+	CALLS	#7,G^PTD$WRITE
+	CHECK_ERROR
+	$QIO_S	CHAN=TTCH,FUNC=#IO$_READVBLK,ASTADR=TTRAST,P1=FTWDAT,P2=#1
+	CHECK_ERROR
+	RET
+
+;+
+; PTRAST is called whenever anything comes in from the psuedo terminal.  It
+; determines how many characters were read and transfers them to the real
+; screen.  Then it queues another read to the proper psuedo terminal.
+;-
+	.ENTRY	PTRAST,^M<R6>
+	CMPL	FTPYFL,#2	; PY or FTA???
+	BNEQ	10$
+	BRW	20$
+10$:	MOVZWL	PTRIO+2,R6	; Get number of characters read from PYA
+	$QIOW_S	CHAN=TTCH,FUNC=#IO$_WRITEVBLK,IOSB=TWIOSB,P1=PYRBUF,P2=R6
+	CHECK_ERROR
+	$QIO_S	CHAN=PTCHAN,FUNC=#IO$_READVBLK,ASTADR=PTRAST,IOSB=PTRIO,-
+		P1=PYRBUF,P2=#512
+	CHECK_ERROR
+	RET
+20$:	MOVZWL	FTRCNT,R6	; Get number of characters read from FTA
+	$QIOW_S	CHAN=TTCH,FUNC=#IO$_WRITEVBLK,IOSB=TWIOSB,P1=FTRDAT,P2=R6
+	CHECK_ERROR
+	PUSHL	#508
+	PUSHAB	FTRB
+	PUSHL	#0
+	PUSHAB	PTRAST
+	MOVZWL	PTCHAN,-(SP)
+	PUSHL	#0
+	CALLS	#6,G^PTD$READ
+	CHECK_ERROR
+	RET
+
+;+
+; MBAST is called when the termination mailbox receives a message.  This
+; indicates that the created process has terminated and the main image (GLOGIN)
+; should exit.
+;-
+	.ENTRY	MBAST,^M<>
+;	$WAKE_S				; This didn't work correctly
+	MOVL	#SS$_NORMAL,R0
+	$EXIT_S	R0			; But this does
+	RET
+
+	.END	MAIN

@@ -1,0 +1,160 @@
+<DEFINE_SYMBOL>(ver\V2.0I)
+<FRONT_MATTER>
+
+<TITLE_PAGE>
+<TITLE>(NETLIB Release Notes)
+<ABSTRACT>(October, 1995)
+<P>This file contains the release notes for the NETLIB TCP/IP interface
+library.  It describes any last-minute features, restrictions, changes, or
+additions made to NETLIB.
+<ENDABSTRACT>
+<REVISION_INFO>(This is a revised manual.)
+<REVISION_INFO>(Operating System and Version:\VAX/VMS V5.2 or later;
+    	    	OpenVMS AXP V1.0 or later)
+<REVISION_INFO>(Software Version:\NETLIB <REFERENCE>(VER))
+<ENDTITLE_PAGE>(Matthew Madison<LINE>MadGoat Software)
+
+<COPYRIGHT_PAGE>
+<PRINT_DATE>(13 October 1995)
+<p><emphasis>(DISCLAIMER:\bold)   The author, the author's employer,
+    and MadGoat Software make no representations or warranties with
+    respect to the  contents hereof and specifically disclaim any
+    implied warranties of merchantability or fitness  for any particular purpose.
+<P>AXP, DEC, ULTRIX, VAX, VMS, and OpenVMS are trademarks of Digital Equipment Corporation.
+<P>UNIX is a trademark of Unix System Laboratories, Inc.
+<P>MultiNet is a trademark of TGV, Inc.
+<P>TCPware is a trademark of Process Software Corporation.
+<P>PathWay is a trademark of The Wollongong Group, Inc.
+<COPYRIGHT_DATE>(1994, 1995\MadGoat Software.  All Rights Reserved.)
+<ENDCOPYRIGHT_PAGE>
+<CONTENTS_FILE>
+<ENDFRONT_MATTER>
+
+<chapter>(Updates in <reference>(ver))
+<p><reference>(ver) is a maintenance update to V2.0 which includes
+the following changes:
+<list>(numbered)
+<le>Fixed determination of DNS servers, local domain name, and gethostbyXXX()
+    entry points for PathWay systems.
+<le>For CMU systems, fixed SS$_BADPARAM errors occurring when writing to
+    unbound UDP sockets.  CMU requires an OPEN call prior to any writes,
+    so it knows what protocol to use.  NETLIB_WRITE and NETLIB_WRITE now
+    automatically perform an OPEN call if one has not already been performed
+    for a UDP socket.
+<le>Fixed asynchronous version of NETLIB_NAME_TO_ADDRESS call for CMU systems,
+    where there was an error in a call to LIB$GET_VM.
+<le>Fixed potential memory leak in all libraries, where memory for an
+    IO-tracking structure was not being freed if a $QIO system service
+    returned and error.
+<endlist>
+
+<p>The following change from V2.0H is also included:
+<list>(numbered)
+<le>Changed NETLIB_WRITELINE to copy caller's data into private buffer
+    and tack on the terminating CRLF sequence.  This performance-reducing
+    change is to work around interoperability problems with broken
+    applications that don't actually parse a TCP data stream for the CRLF,
+    but just assume a full line, with terminator, can be read in with a
+    single read().  There's still a chance that a send will be broken
+    up into two pieces, but it's less likely now.
+<endlist>
+
+<p>The following change from V2.0G is also included:
+<list>(numbered)
+<le>Fixed nameserver list logical name for PathWay.
+<endlist>
+
+<p>The following change from V2.0F is also included:
+<list>(numbered)
+<le>Fixed the code for looking up the UCX$BIND_SERVERxxx logical names.  The
+old code would only successfully lookup UCX$BIND_SERVER000.
+<endlist>
+<p>The following changes from V2.0E are also included:
+<list>(numbered)
+<le>Specifying a socket address <emphasis>(without) a timeout value on the
+same call to NETLIB_READ didn't work on SRI systems - the socket address would
+not get copied.  Forgot to get rid of an else clause.
+<Endlist>
+<p>The following changes from V2.0D are also included:
+<list>(numbered)
+<le>Specifying a socket address and a timeout value on the same call
+to NETLIB_READ didn't work on SRI and CMU systems - the socket address would
+not get copied.
+<Endlist>
+<p>The following changes from V2.0C are also included:
+<list>(numbered)
+<le>The TCP_DISCONNECT V1-compatibility routine now ignores SS$_LINKDISCON
+errors coming back from NETLIB_SHUTDOWN.  The original V1 routine ignored the
+status in the IOSB, which, for CMU TCP/IP, can be an error status when the
+connection has been closed by the remote side.  This fixes the LINKDISCON
+error problems during transfers using MGFTP on CMU TCP/IP.
+<le>For NETLIB_CONNECT calls on UDP sockets with CMU TCP/IP, the connect
+is now faked.
+<le>Fixed missing argument on a couple of $DCLAST calls in the CMU
+and UCX interfaces.
+<endlist>
+<p>The following changes from V2.0B are also included:
+<list>(numbered)
+<le>NETLIB_CONNECT_BY_NAME logic for async connects wasn't quite right.
+<le>Fixed NETLIB_WRITE in UCX interface to treat 0-length writes specially.
+<le>Fixed NETLIB_READLINE to correctly handle the case where a carriage
+return is not immediately followed by a linefeed.
+<endlist>
+<p>The following changes from V2.0A are also included:
+<list>(numbered)
+<le>NETLIB_READLINE has been changed to read data in chunks no larger than
+1,024 bytes, to prevent EXQUOTA and INSFMEM errors when using CMU TCP/IP.
+<le>Some typos in $QIO calls in the UCX interface have been fixed.
+<le>Some typos in $CANTIM calls in the UCX and CMU interfaces have been fixed.
+<le>Some V1-compatibility problems have been fixed.
+<le>A NETLIB_READLINE parsing bug has been fixed.
+<le>The MUTEX-wait (running out of TQEs) problem in the CMU interface
+has been fixed.
+<endlist>
+
+<chapter>(New Features)
+<p>This chapter describes the features new to NETLIB V2.0.
+<Head1>(Major Changes)
+<P>NETLIB V2.0 is a complete rewrite, from scratch, of the entire
+library.
+<subhead1>(New Implementation)
+<P>It has been rewritten in C, and now includes a fully-documented
+programming interface.  The V1 programming interface continues to be
+supported for compatibility with older NETLIB-based applications, but
+is not documented.  All new applications should use the documented V2
+interface.
+<subhead1>(New Programming Interface)
+<P>The new programming interface for V2.0 is oriented toward socket-style
+programming.  All routines that perform network I/O can be called either
+synchronously or asynchronously, with asynchronous completion signaled
+by delivery of an AST.  Specifying a non-zero AST address on a NETLIB
+call indicates that asynchronous completion is desired.
+
+<subhead1>(Support for Forked Servers)
+<P>Since all TCP/IP packages now include a <quote>(master server)
+process that can fork off server processes on a per-port basis, NETLIB
+now includes a NETLIB_SERVER_SETUP routine for use when writing servers
+that should be invoked from a package's master server.
+
+<subhead1>(Documentation)
+<P>The installation kit now includes documentation in PostScript, plain ASCII,
+and BookReader formats.  All files are installed in the NETLIB_DIR directory.
+
+<head1>(Support Discontinued for Some TCP/IP Packages)
+<P>With the V2.0 release, support has been dropped for CMU-Tek TCP/IP V6.4 and
+DEC VMS/ULTRIX Connection (UCX) V1.x.  Users of these packages should
+upgrade to more recent releases.
+
+<head1>(Support Discontinued for VMS V5.0, V5.1)
+<p>NETLIB V2.0 requires VAX/VMS V5.2 or later.  This change was necessary 
+because some NETLIB routines supporting DEC TCP/IP Services call routines
+that were not added to the VAX C Run-Time Library until VMS V5.2.
+
+<chapter>(Known Bugs, Restrictions)
+<P>
+There are no known bugs in NETLIB.  Known restrictions are documented
+in the programmer's guide, with the following exception:
+<list>(unnumbered)
+<LE>You may only have one call to NETLIB_WRITELINE outstanding at a time,
+in order to ensure proper ordering of outgoing data with all TCP/IP packages.
+<ENDLIST>

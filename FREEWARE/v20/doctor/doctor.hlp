@@ -1,0 +1,884 @@
+1 DOCTOR
+
+  ( This tool can be purchased by customers on an "as-is" basis)
+  (c)1993 Digital Equipment Co.
+
+  DOCTOR is a utility to manipulate some of the files used or created
+  by VAX DOCUMENT. It is a combination of individual tools:
+
+    - insert blank pages into a PostScript document to balance the number
+      of odd/even pages, to extract a subset of pages or to replace the
+      PostScript prolog. (Command: DOCTOR/PS).
+    - produce a list of all files referenced by the main document file
+      (and any nested file), to produce a DEC/MMS description file to
+      rebuild the document, to produce a list of all index tags.
+      (Command: DOCTOR/SDML).
+    - to produce a formatted list of all labels and their text from an
+      XREF file produced during bookbuilding. (Command: DOCTOR/XREF).
+    - to update the SDML sources to make them suitable for BOOKREADER
+      output.
+    - to produce SDML source files from VMS Message definition files.
+      (Command: DOCTOR/MESSAGE).
+    - count all tags used in a document (DOCTOR/TAG_COUNT)
+    - sort <GLOSSARY> items
+    - reorder pages in a PostScript file to prepare them for saddle
+      stiched printing and binding. (DOCTOR/PS/SADDLE)
+
+  To use DOCTOR, you must define the following symbol into your login
+  file when you work on IJSAPL::
+
+     DOCTOR :== $PSQ:[PUBLIC.SOURCES.DOCTOR]DOCTOR
+
+  The allowed qualifiers and parameters depend on the functionality
+  activated.
+
+2 Qualifiers
+2 /PS
+
+  Activates the utility that inspects and modifies PostScript files that
+  conform to Adobe's (minimal) conformant coding standards. It allows to
+  add blank pages (/BLANK), to extract subsets of pages (/EXTRACT) or to
+  replace the prolog for another default page layout (/PROLOG).
+
+  Format:
+
+     DOCTOR/PS  filespec.PS [/qualifier...]
+
+3 Parameter
+
+   filespec.PS
+
+   Any valid VMS file specification that is a minimal conformant PostScript
+   file. This is assumed to be the case if the first line in the file
+   starts with
+
+       %!PS-Adobe
+
+   The file must have normal carriage control characteristics. Stream LF
+   files cannot be handled.
+
+
+3 Qualifiers
+/BLANK
+
+   /BLANK
+   /NOBLANK  (D)
+   /BLANK=filespec
+
+   When specified, this qualifier inserts blank pages whenever two odd
+   or even pages are found in succession in the input file. When /LOG
+   is specified, it informs you when this happens. If no /OUTPUT is used,
+   a next higher version of the input file is made.
+
+   You can specify a file specification with this qualifier. This file
+   should contain all required PostScript commands to create a blank
+   page. By default only a "showpage" command is inserted. The specified file
+   should not have any %%Page: comment lines.
+
+
+/CHANGE_PROLOG
+
+   /CHANGE_PROLOG=(TOP=text,
+                   BOTTOM=text, COUNTER=integer,
+                   DIAGONAL=text,
+                   GRAYSCALE=number, FONT=font, SIZE=number,
+                   OUTPUT=filespec,
+                   HSIZE=pointsize, VSIZE=pointsize,
+                   PAGESIZE=type, [NO]BORDER)
+
+   When specified, the prolog of the PostScript is modified to output
+   a user specified text at the top (header), bottom (footer) of the page
+   or diagonally across as a faint grey text. The greyness can be set
+   specifying GRAYSCALE=00 to 99. This is the percentage of the grey scale.
+   00 is pitch black, 99 is almost white. Default is 95.
+   When the COUNTER=nn is used, this counter value is added to the
+   bottom line text and will increment with each page printed.
+
+   The font used is specified with FONT=. This defaults to Helvetica-Bold.
+   Valid font choices are:
+       Times_Roman, Times_Bold, Times_BoldItalic, Times_Italic,
+       NewCenturySchlbk_Roman, NewCenturySchlbk_Bold,
+       NewCenturySchlbk_BoldItalic, NewCenturySchlbk_Italic,
+       Helvetica, Helvetica_Bold, Helvetica_BoldOblique,
+       Helvetica_Oblique, Courier, Courier_Bold, Courier_BoldOblique,
+       Courier_Oblique, AvantGarde_Book, AvantGarde_Demi,
+       AvantGarde_DemiOblique, AvantGarde_BookOblique,
+       LubalinGraph_Book, LubalinGraph_Demi, LubalinGraph_DemiOblique,
+       LubalinGraph_BookOblique, Souvenir_Light, Souvenir_Demi,
+       Souvenir_DemiItalic, Souvenir_LightItalic
+
+   The font size (in points) for top and bottom line can be specified using
+   SIZE=. Default is 15pt. Sizes between 6 and 15 are recommended.
+
+   Optionally, this prolog can be output as a file by itself using the
+   OUTPUT= keyword. You must specify at least one of the TOP, BOTTOM,
+   COUNTER or DIAGONAL keywords.
+   The omitted keywords of TOP, BOTTOM and DIAGONAL default to blank.
+
+   By default the top and bottom lines are designed to be used on A4 sized
+   paper. If you want to specify a different size, you need to use the
+   keywords HSIZE and VSIZE to specify the page sizes in point units.
+   There are 72 pt in an inch.
+
+   Alternatively, you can use the keyword PAGESIZE=   that will recognize
+   the following standard paper sizes: LETTER, LEDGER, LEGAL, EXECUTIVE,
+   7X9, 35MM, A5, A4, A3, B5, B4, C6, C5, C4.  The keyword PAGESIZE is
+   mutually exclusive to both HSIZE and VSIZE.
+
+   If you need to check whether no text really exceeds the page borders,
+   you can add the BORDER keyword to draw a box of the specified PAGESIZE
+   on each sheet. (Useful if smaller papersizes are printed on a larger
+   one for subsequent cropping).
+
+   The /CHANGE_PROLOG and /PROLOG are mutually  exclusive.
+
+/EXTRACT
+
+   /EXTRACT=range
+
+   When specified, the output file will contain only the pages specified
+   in the range. Only valid, non-overlapping ranges can be found. Valid
+   page specifications can be found by issuing the command
+
+    $ SEARCH filespec.PS  %%Page:
+
+   Several /EXTRACT qualifiers can be used to specify multiple ranges.
+   When /LOG is specified, it informs you when a new range is copied.
+   Any unmatched ranges are listed at the end of the process.
+   If no /OUTPUT is used, a next higher version of the input file is made.
+
+   Valid range specifications are:
+
+     /EXTRACT=(START=n, END=m, NUMBER=p)
+
+     START=n   Indicates first page of the range. This is the folio number
+               (such as 1-1,  XXIV, PART-2 etc.)
+     END=n     Indicates the final page number of the page. The folio number
+               is similar to the one specified with START.
+     NUMBER=n  Number of pages to print, from the one specified with START
+               onwards.
+
+   When both END and NUMBER are specified, the one that specifies the shortest
+   range is used.
+
+/FIGURES
+
+    /FIGURES (D)
+    /FIGURES=(EXTRACT,PAGE_NUMBER)
+    /NOFIFURES [=(EXTRACT,PAGE_NUMBER)
+
+   Specification for /NOFIGURES will remove all figures included as encapsulated
+   PostScript figure. By default, /FIGURE is used - leaving the figures
+   untouched.
+
+   On both /FIGURE and /NOFIGURE you can specify EXTRACT as keyword. This
+   means that the encapsulated PostScript figures are extracted from the
+   PostScript input file and made into individual .EPS files. They receive
+   their original names back, as is encoded in the input file on the
+   %%BeginDocument: comment lines.
+
+   By also specifying the PAGE_NUMBER keyword, the .EPS files will have the
+   same name as the input PostScript file, but with the page number appended
+   to it for easy referencing the figure files with the printed document.
+
+   The use of /NOFIGURES is especially for using the produced output
+   to convert it to plain ASCII through the PS2TEXT utility.
+
+
+/LEADING_BLANK
+
+    /LEADING_BLANK
+    /NOLEADING_BLANK (D)
+
+  When specified, this qualifier adds a blank page before the start of the
+  document. This facilitates the printing of the document in reduced format
+  where 2 pages fit on a single physical page side, but maintaining the
+  correct orientation (i.e. the first title page starts on the right half
+  of the page). This qualifier is only required for reduced printing if the
+  start of the document (title page) is part of the output file.
+
+/LOG
+
+   /LOG
+   /NOLOG (D)
+
+   Outputs informational messages during the processing of the input file.
+
+/OUTPUT
+
+   /OUTPUT=filespec
+
+   Specifies the output file specification. If not specified, the next
+   higher version is used of the input file spec. This may be dangerous
+   if by accident the original file is deleted and the next version only
+   contains a subset of pages through the /EXTRACT qualifier. A message
+   to this extent is issued.
+
+   If /NOPROLOG is also specified, the output file type will default to
+   .EPS if not explicitly specified by the /OUTPUT qualifier.
+
+/PROLOG
+
+   /PROLOG=filespec
+   /NOPROLOG
+
+   This qualifier instructs to replace the original prolog of the PostScript
+   file by another one. This is useful when the new prolog contains a
+   different page layout (e.g. using borders or the word "DRAFT" across
+   each page, or a logo) (possibly made earlier through /CHANGE_PROLOG).
+
+   The user specified prolog file must be a valid PostScript prolog and
+   end with "%%EndProlog".
+
+   If /NOPROLOG is specified, the entire prolog is omitted from the output
+   file. This way, the DOCUMENT produced input file is converted into a
+   file that can be included into another file by the device converter,
+   e.g. through <FIGURE_FILE>(PS\filespec.EPS\size). The default output
+   file type is set to .EPS.
+
+   The /CHANGE_PROLOG and /PROLOG are mutually  exclusive.
+
+/SADDLE
+
+   /SADDLE
+   /NOSADDLE (D)
+
+   Allows to reorganize the page order in a PostScript file in blocks
+   of pages. These blocks are multiples of 4 and the pages per block
+   are reordered in such a way that they can be printed with 2 pages
+   per sheet side and double sided printing. Folding the resulting
+   printed document results in a magazine-like booklet.
+
+   The LPS20 command to print such a booklet properly is:
+   PRINT/QUEUE=LPS20_queue  file.PS -
+      /PARAMETER=(DATA=POSTSCRIPT, NUMBER=2, SIDE=TUMBLE)
+
+   The /SADDLE qualifier cannot be used with any other qualifier of
+   the /PS utility. /PS/SADDLE should be specified together and in
+   that order. Additional qualifiers allowed with /SADDLE:
+
+    /GATHER=number    Number must be multiple of 4. Indicates the size
+                      of a page range to be bound in a single
+                      gathering. This qualifier must be specified
+    /OUTPUT=filespec  Specify output file specification. Defaults to
+                      next higher version of input file spec.
+    /LOG              Produce additional information during processing
+    /2UP              Allows PostScript files produced by VAX DOCUMENT V2.1
+                      to be modified such that when printed on a
+		      double sized sheet, two pages can be printed
+		      without the need to reduce them to fit on a
+		      page. (e.g. two A4 sheets on an A3 sheet). This
+		      implements in PostScript software the
+		      /PARA=NUMBER=2 print qualifier for double sized
+		      sheets (mostly in the /PARA=INPUT_TRAY=MIDDLE
+		      tray of LPS40 or LPS20 printers)
+		      
+		      
+2 /SDML
+
+   This qualifier activates the utility that inspects the specified SDML
+   source file (also known as MARFIN: MARkup Files INcluded) and then can
+
+      - list all files referenced by the input document (and its nested
+        files) through tags as <INCLUDE>, <ELEMENT>, <INCLUDE_FILE>,
+        <TABLE_FILE>, <EXAMPLE_FILE>, <ICON_FILE>, <FIGURE_FILE>,
+        <MEMO_FILE>, <INCLUDE_TEX_FILE>.
+        The list is produced as a comment header at the start of the input
+        file. It will be renewed whenever the resulting file is used for
+        additional processing with DOCTOR/SDML.
+      - produce a DEC/MMS description file to rebuild the document
+      - produce a list of all <X> and <Y> index tags to cleanup and correct
+        the index entries.
+
+   Format:
+
+     DOCTOR/SDML filespec.SDML  [/qualifier...]
+
+3 Parameter
+
+   filespec.SDML
+
+    Any valid VMS file specification that is a VAX DOCUMENT source file.
+    It can be a simple file or a profile file (containing <ELEMENT> tags).
+
+3 Qualifiers
+
+/CMS
+
+  /CMS[=generation]
+  /NOCMS  (D)
+
+    Instructs the program also to inspect referenced files if they are
+    an element within the currently defined CMS library or libraries.
+    Those libraries must already be set through the CMS SET LIBRARY
+    command.
+
+    If a generation or CMS class name is specified, any lookup in the
+    CMS library is only done within that one class. File names are not
+    looked for in the current directory, but in CMS. All elements are
+    supposed to be part of that class. If in the SDML source files a
+    specific file is mentioned with device and/or directory part, it
+    is assumed not to be part of the library and may occur outside the
+    CMS library. (e.g. when a publicly available file is included).
+
+/DOCTYPE
+
+   /DOCTYPE=(keyword= [,keyword=]...)
+
+   Only valid with /MMS qualifier.
+   Valid doctype for processing the document.
+   Allows three keywords:
+   PAPER=   valid doctype for paper destinations. Defaults to REPORT
+   ONLINE=  valid doctype for online destinations. Defaults to
+            SOFTWARE.ONLINE
+   MANPAGE= valid doctype for roff destinations (Unix
+            Manpage). Defaults to MANPAGE
+
+/DESTINATION
+
+   /DESTINATION=(keyword= [,keyword=]...)
+
+   Only valid with /MMS qualfier.
+   Valid destinations for DOCUMENT. Accepts the following keywords:
+   BOOKREADER=     for bookreader output. Defaults to BOOKREADER
+   POSTSCRIPT=     for PostScript output. Defaults to PS
+   LN03=           for LN03 output. Defaults to LN03
+   LINE_PRINTER=   for lineprinter output. Defaults to LINE_PRINTER
+   MAIL=           for mail output. Defaults to MAIL.
+   ROFF=           for Roff output. Defaults to ROFF.
+   
+   When more keywords are specified, they are separated by a comma.
+
+/IGNORE
+
+   /IGNORE=(keyword, keyword)
+   /NOIGNORE     (D)
+
+   When /IGNORE is specified with one or more keywords
+   (separated by a comma), DOCTOR/SDML will ignore some
+   tags and inspect the text that would otherwise be
+   skipped.
+   The keywords are:
+
+   COMMENTS  - ignore <COMMENT> blocks
+   LITERALS  - ignore <LITERAL> blocks
+
+   This way <INCLUDE> and similar file tags inside those
+   blocks are seen and reported in the document
+   structure or MMS description file.
+
+/INCLUDE
+
+   /INCLUDE=filespec
+
+  Inserts a line .INCLUDE into the DEC/MMS description file to be made.
+  Only valid in combination with /MMS. The entry is made immediately
+  following the MMS macro definitions. This allows to overrule the ones
+  specified or to add additional macros and MMS files.
+
+
+/INDEX
+
+  /INDEX=filespec
+  /NOINDEX  (D)
+
+  Produces a text file containing all <X> and <Y> tags found in the
+  document, together with the source file specification and line number.
+  Enables easier cleanup of the index tags. See documentation for further
+  suggestions.
+
+
+
+/LOG
+
+  /LOG
+  /NOLOG (D)
+
+  Issues informational messages during the processing.
+
+/MMS
+
+  /MMS
+  /MMS=filespec
+
+  Instructs the utility also to create a DEC/MMS description file,
+  complete with all required .SUFFIXES and CMS macro instructions.
+  By default it produces an MMS file for PostScript destination and
+  REPORT doctype.
+
+/OUTPUT
+
+  /OUTPUT=filespec
+
+  Instructs the utility to create the output as the specified file
+  rather than the next higher version of the specified input file.
+
+/RANDOM_TEXT
+
+  /RANDOM_TEXT
+  /NORANDOM_TEXT (D)
+
+  Supplies some random text inside a file that contains all <X> and <Y>
+  entries produced by /INDEX. This may be needed to avoid TeX memory
+  exceed errors during processing.
+  Only valid with /INDEX.
+
+2 /GLOSSARY
+
+  This utility will inspect the input SDML file and sorts the <GTERM>
+  entries of a glossary ASCIIbetically. Any text preceding or
+  following the glossary section remains untouched.
+
+  Format:
+
+     DOCTOR/GLOSSARY  sdml_file  [/qualifiers]
+
+  Files referenced by <include> tags are not inspected.
+
+3 Parameters
+
+  sdml_file
+
+    Input valid SDML file. If it is a book profile, all elements of the
+    book are also processed, as are all <INCLUDE> files.
+
+3 Qualifiers
+/LOG
+
+  /LOG
+  /NOLOG (D)
+
+  Outputs additional informative messages
+
+/OUTPUT
+
+  /OUTPUT=filespec
+
+  Specifies the specific output file containing the sorted glossary.
+  By default it produces the next higher version of the input file
+  specification. A warning will then be issued.
+
+/SORT
+
+  /SORT=keyword
+  /SORT=(LETTER, NONALPHA=IGNORE) (D)
+
+  Determines the way in which the <GTERM> items are sorted. When
+  omitted, the default is identical to the DOCUMENT/INDEX default.
+
+  One of two keywords is possible:
+     LETTER  - terms are sorted strictly by their characters,
+               spaces and hyphens are ignored. This is the default.
+     WORD    - terms are sorted by their characters and spaces and
+               hyphens are significant.
+
+  In addition you can specify the keyword NONALPHA with one of the
+  following three arguments:
+     NONALPHA=AFTER - positions all terms starting with nonalphabetic
+                      character at end of glossary
+     NONALPHA=BEFORE- positions all terms starting with nonalphabetic
+                      character at start of glossary
+     NONALPHA=IGNORE- Ignores the leading nonalphabetic characters
+                      during sorting. This is the default.
+
+2 /TAG_COUNT
+
+  Produces an ASCII list file containing a list of all tags encountered
+  in a document and the frequency of their occurrence.
+
+  Format:
+
+     DOCTOR/TAG_COUNT sdml_file   [/qualifiers]
+
+   The sdml_file may refer to other SDML files, which will also be
+   scanned.
+
+3 Parameters
+
+  sdml_file
+
+    Input valid SDML file. If it is a book profile, all elements of the
+    book are also processed, as are all <INCLUDE> files.
+
+3 Qualifiers
+/LOG
+
+  /LOG
+  /NOLOG (D)
+
+  Outputs additional informative messages about files that are found
+  and processed.
+
+/OUTPUT
+
+  /OUTPUT=filespec
+  /OUTPUT=SYS$DISK:[].TAG_COUNT  (D)
+
+  Specifies the specific output file containing the counted tag information.
+  By default it takes the input file specification and file type .TAG_COUNT.
+  It is an ordinary ASCII text file.
+
+2 /XREF
+
+  This utility interprets a valid XREF file produced during a
+  bookbuild of DOCUMENT and can list:
+    - a list of all symbols in the document, in alphabetical order
+    - a list of all symbols sorted by their type (section, chapter,
+      table, etc) as well as alphabetically and/or numerically
+    - a SDML file with <DEFINE_SYMBOL> tags of all symbols, to allow
+      it to be <include>d into another document to enable cross
+      referencing between books.
+
+  Format:
+         DOCTOR/XREF  xref_file [/qualifiers]
+
+3 Parameter
+
+  xref_file
+
+    A valid SDML XREF file produced during a bookbuild.
+
+3 Qualifiers
+/SYMBOL_FILE
+
+  /SYMBOL_FILE=filespec
+  /NOSYMBOL_FILE  (D)
+
+  When specified, produces an SDML file with <DEFINE_SYMBOL> tags
+  of all symbols defined in the XREF file. When the filespec is
+  omitted, it defaults to the same name as the input file name, but
+  with file type .SDML_XREF.
+
+/LIST
+
+  /LIST=filespec
+  /NOLIST    (D)
+
+  When specified, produces an SDML file with <TABLE> construct
+  of all symbols defined in the XREF file. They are sorted in
+  alphabetical order and can be processed using the REPORT doctype.
+  When the filespec is omitted, it defaults to the same name as
+  the input file name, but with file type .SDML_SYMBOL_LIST.
+
+/SORT
+
+  /SORT=filespec
+  /NOSORT    (D)
+
+  When specified, produces an SDML file with <TABLE> constructs
+  of all symbols defined in the XREF file, sorted by their type
+  (table, chapter, example etc). They are sorted per table by
+  default in alphabetical order and can be processed using the
+  REPORT doctype.
+  By specifying /NUMERIC they are sorted in numerical order.
+  Specifing /ALPHABETIC /NUMERIC both sorts are output.
+
+  When the filespec is omitted, it defaults to the same name as
+  the input file name, but with file type .SDML_SYMBOL_TYPE.
+
+/ALPHABETIC
+
+  /ALPHABETIC   (D)
+  /NOALPHABETIC
+  Only valid in conjunction with /SORT. Outputs symbols in alphabetical
+  order.
+
+/NUMERIC
+
+  /NUMERIC
+  /NONUMERIC  (D)
+
+  Only valid in conjunction with /SORT. Outputs symbols in numerical
+  order.
+
+/LOG
+
+  /LOG
+  /NOLOG  (D)
+
+  Outputs additional messages.
+
+/PREFIX
+
+  /PREFIX=string
+  /NOPREFIX    (D)
+
+  Specifies prefix to attach to all symbol names when /SYMBOL_FILE
+  is specified and to guarantee uniqueness of these symbols in case
+  they are included in another document.
+
+/BOOKTITLE
+
+  /BOOKTITLE=string
+  /NOBOOKTITLE     (D)
+
+  Specifies value of the symbol <reference>(prefix_BOOK) to allow the
+  title of the book to be referenced in another document that includes
+  the /SYMBOL_FILE produced file.
+
+/FULL
+
+  /FULL
+  /NOFULL (D)
+
+  Specifies the value of the symbol to list or define. /FULL includes
+  all information as normally shown using <reference>(symbol\FULL).
+  /VALUE is the default.
+  Mutually exclusive with /TEXT and /VALUE.
+
+/TEXT
+
+  /TEXT
+  /NOTEXT (D)
+
+  Specifies the value of the symbol to list or define. /TEXT includes
+  all information as normally shown using <reference>(symbol\TEXT).
+  /VALUE is the default.
+  Mutually exclusive with /FULL and /VALUE.
+
+/VALUE
+
+  /VALUE  (D)
+  /NOVALUE
+
+  Specifies the value of the symbol to list or define. /VALUE includes
+  all information as normally shown using <reference>(symbol\VALUE).
+  /VALUE is the default.
+  Mutually exclusive with /FULL and /TEXT.
+
+2 /ONLINE
+
+  This qualifier starts a conversion utility that inspects a set of
+  SDML sources files to see if they conform to the requirements for
+  the ONLINE.* doctype and BOOKREADER destination. This output type
+  requires that all section tags (like <CHAPTER> and <HEADn>) have a
+  reference label, as well as all examples, tables and figures that
+  will be come "pop ups" in the online book. Each of the pop-ups also
+  needs a <REFERENCE> tag that points to it as a "hot spot".
+  An optional file can be output with <DEFINE_SYMBOL> tags that define
+  all otherwise undefined symbols left in the document.
+
+  Format:
+         DOCTOR/ONLINE input_file  [/qualifiers]
+
+  This utility will check on all this and provide labels as well as
+  references to items where they are missing but required. You can
+  ask for a "list of things to do" by specifying /LIST. If you use
+  VAX DOCUMENT V1.2B, also specify /VERSION_1 qualifier. If it finds
+  an <ELEMENT> or <INCLUDE> tag in the sources, it will inspect the
+  specified files too (hence a specified profile file results in an
+  inspection of the entire book). The output files by default have
+  the file type .SDML_ONLINE to avoid overruling the originals. Use
+  /OUTPUT to specify your own.
+
+3 Parameters
+
+  input_file
+
+    A valid SDML source file for VAX DOCUMENT V1.2B or V2.
+    It may be a single file or the profile of a book. If <ELEMENT>
+    or <INCLUDE> tags are found the referenced files will also be
+    inspected.
+
+3 Qualifiers
+/CONDITION
+
+  /CONDITION=name
+  /NOCONDITION (D)
+
+  When specified, instructs DOCTOR to set the condition
+  and scan any conditional text block that matches
+  this condition for symbols defined therein. Otherwise
+  it ignores all conditional blocks and symbols that are
+  defined there will come out as undefined in the files
+  produced by /LIST and /DUMMY_SYMBOLS.
+  It does not affect the generation of symbols to
+  tags that require one: regardless of conditional
+  setting, all those tags will be given a symbol.
+  
+/DUMMY_SYMBOLS
+
+  /DUMMY_SYMBOLS[=keywords]
+  /NODUMMY_SYMBOLS    (D)
+
+  Generates a file with <DEFINE_SYMBOL> definitions for
+  all symbols referenced with <REFERENCE> but without an
+  actual definition.
+
+  The following keywords can be specified:
+  OUTPUT=filespec - Specifies the SDML output file to
+           receive the <DEFINE_SYMBOL> tags. If this
+           keyword is omitted, the output file is
+           created using the input file name and as
+           filetype .SDML_DUMMY_SYMBOLS
+  TEXT="string"   - Allows you to specify any text
+           string to substitute for the undefined
+           references. When omitted, the symbols will
+           be redefined into
+           <TAG>(REFERENCE\unknown_symbol)
+           where "unknown_symbol" is the name of the
+           symbol that was referenced by <REFERENCE>
+  INCLUDE_SYMBOLS - When also /SYMBOL= is specified,
+           the dummy symbol file will contain a
+	   <INCLUDE>(symbolfile)  line to allow both
+	   predefined symbols and generated dummy
+	   symbols to be used on the DOCUMENT command
+	   line with DOCUMENT/SYMBOLS=dummy_symbolfile
+	   
+	   
+/LIST
+
+  /LIST[=filespec]
+  /NOLIST  (D)
+
+  This qualifier produces an ASCII text report of things DOCTOR/ONLINE
+  added to the original files and a list of actions the author may want
+  to undertake:
+
+    - <REFERENCE> added. This means a figure, example or table now has
+      a hot spot, but this hotspot is not embedded inside a sentence.
+      You may wish to add such a sentence.
+
+    - Figure added. Bookreader output needs the FSE encoded figure format.
+      A <FIGURE_FILE>(BOOK\name.FSE\size) was added, but obviously this
+      figure must still be created (using RAGS or UTOX).
+
+  The default file produced is named after the input file, but the file
+  type is replaced by .ONLINE_ERRORS.
+
+
+/LOG
+
+  /LOG
+  /NOLOG (D)
+
+  Outputs additional informative messages about files that are found
+  and processed.
+
+/OUTPUT
+
+  /OUTPUT=filespec
+  /OUTPUT=SYS$DISK:[].SDML_ONLINE  (D)
+
+ This allows you to specify your own name for the output file to produce.
+ This is only useful if a single file is processed without internal
+ references to other files. You may specify a part file specification:
+ the missing parts are copied from the input file. Only the file type
+ by default becomes .SDML_ONLINE in order not to overrule the original
+ files unintended.
+
+ It is advised to use /OUTPUT=disk:[dir] in all cases where a profile
+ file is inspected (and hence the entire book), where the specified
+ directory is an empty directory. One can then try to build the book
+ from that directory and, once all works as expected, replace the originals
+ by these converted files.
+
+ Please note that although you can specify another file type (or use
+ .SDML_ONLINE as default), the text inside the file (all <INCLUDE> and
+ <ELEMENT> tags) is not changed: a bookbuild will not work unless all
+ files have the proper name.
+
+/REMOVE
+
+  /REMOVE
+  /NOREMOVE  (D)
+
+ This qualifier will remove all symbols generated by DOCTOR/ONLINE during
+ previous processing of the SDML source files. It will not add any new
+ symbols. This qualifier cannot be specified together with /SUPERSEDE.
+
+/SUPERSEDE
+
+  /SUPERSEDE
+  /NOSUPERSEDE (D)
+
+ This qualifier will remove all symbols generated by DOCTOR/ONLINE during
+ previous processing of the SDML source files and then re-issue new symbols
+ that are consistent throughout the document.
+ You should use this qualifier when a book is composed that consists of
+ parts that were previously processed individually with DOCTOR/ONLINE.
+ This qualifier cannot be specified together with /REMOVE.
+
+/SYMBOL_FILE
+
+  /SYMBOL_FILE=filespec
+  /NOSYMBOL_FILE  (D)
+
+ Allows the specification of a symbol file that contains
+ <DEFINE_SYMBOL tags to resolve references in the document and that
+ would normally be used on the DOCUMENT command line as
+ DOCUMENT/SYMBOL=filespec.
+
+/VERSION_1
+
+  /VERSION_1
+  /NOVERSION_1  (D)
+
+  This qualifier is required when the SDML files are meant to be processed
+  by VAX DOCUMENT V1.2B. It will then not add reference labels to
+  <SUBHEADn> tags, which are required for processing under V2.
+
+2 /MESSAGE
+
+  This qualifier starts a utility that can produce an SDML file from a
+  VAX/VMS Message definition file. The SDML file can be <INCLUDE>d into
+  a document as a <HEAD1> section.
+
+  Format:
+         DOCTOR/MESSAGE input_file [/qualifiers]
+
+3 Parameters
+
+   input_file
+
+    A valid VAX/VMS filespec that contains valid VMS Message definitions
+    with their associated comments written immediately following the
+    message.
+
+    This comment block must start with a  !+   and end with !-  .
+    The comment lines in between are formatted to produce the SDML
+    message file. Separate headings are made for each line that has
+    a string that ends with a colon.
+
+    Prefered format for messages:
+
+message_ident  <message text with optional !FAO directives>/FAO=number
+    !+
+    ! Explanation:   explanatory text
+    !
+    ! User Action:   explanatory text to avoid error from occurring
+    !
+    !-
+    !
+    ! Possible comments not included in SDML source file as they are
+    ! outside the  !+   !-  range
+
+
+3 Qualifiers
+/LOG
+
+  /LOG
+  /NOLOG (D)
+
+  Outputs additional informative messages about files that are found
+  and processed.
+
+/OUTPUT
+
+  /OUTPUT=filespec
+  /OUTPUT=SYS$DISK:[].SDML (D)
+
+ This allows you to specify your own name for the output file to produce.
+ You may specify a part file specification: the missing parts are copied
+ from the input file. Only the file type by default becomes .SDML.
+
+/FAO
+
+  /FAO
+  /NOFAO  (D)
+
+ When this qualifier is specified, the resulting message string in the
+ SDML file will retain all FAO directives (such as !AS). By default,
+ the directives are replaced by generic strings such as "string" or
+ "integer".
+

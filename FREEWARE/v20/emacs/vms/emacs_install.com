@@ -1,0 +1,196 @@
+$! Generated automatically from EMACS_INSTALL.COM_IN by configure.
+$ save_verif = 'f$verify(0)
+$! EMACS_INSTALL.COM_IN -- The template for a script to install the binaries.
+$!
+$! This file does the exact same thing as if you would have written
+$! MMS INSTALL.
+$!
+$! P1 = nothing if you want the startup file to be inserted in the GNU
+$! startup database.
+$! P1 = NODATABASE if you want the startup file to just be copied to the
+$! startup directory.
+$
+$ database_p = P1 .nes. "NODATABASE"
+$ proc = f$environment("PROCEDURE")
+$ proc_dir = f$parse(proc,,,"NODE")+f$parse(proc,,,"DEVICE")+f$parse(proc,,,"DIRECTORY")
+$
+$ bindir := EMACS_LIBRARY:[000000.BIN.ALPHA-DEC-VMS6-1]
+$ etcdir := EMACS_LIBRARY:[000000.COMMON.DATA]
+$ lispdir := EMACS_LIBRARY:[000000.COMMON.LISP]
+$ locallisppath := EMACS_LIBRARY:[000000.COMMON.SITE-LISP]
+$ mandir := EMACS_LIBRARY:[000000.HELP]
+$ infodir := EMACS_LIBRARY:[000000.INFO]
+$ datadir := EMACS_LIBRARY:[000000.COMMON]
+$ lockdir := EMACS_LIBRARY:[000000.COMMON.LOCK]
+$ archlibdir := EMACS_LIBRARY:[000000.BIN.ALPHA-DEC-VMS6-1.ETC]
+$ libdir := EMACS_LIBRARY:[000000.BIN.ALPHA-DEC-VMS6-1]
+$ vmslibdir := EMACS_LIBRARY:[000000.BIN.ALPHA-DEC-VMS6-1.VMS]
+$ vmssrcdir_dev := EMACS_LIBRARY:
+$ vmssrcdir_dir := 000000.VMS
+$ vmssrcdir := EMACS_LIBRARY:[000000.VMS]
+$ foo := 'vmssrcdir_dev'['vmssrcdir_dir'.-]
+$ @'vmssrcdir'canonicaldir 'foo' __result
+$ srcdir = __result
+$ srcdir_dev = f$parse(srcdir,,,"NODE") + f$parse(srcdir,,,"DEVICE")
+$ srcdir_dir = f$parse(srcdir,,,"DIRECTORY") - "[" - "]" - "<" - ">"
+$ startupdir := EMACS_LIBRARY:[SYSCOMMON.SYS$STARTUP]
+$ vuelibdir := EMACS_LIBRARY:[SYSCOMMON.VUE$LIBRARY.USER]
+$ version := 19.22
+$ version_us := 19_22
+$
+$ INSTALL_PROGRAM := COPY/PROT=(S:RWED,O:RWED,G:RE,W:RE)
+$ INSTALL_DATA := COPY/PROT=(S:RWED,O:RWED,G:RE,W:RE)
+$
+$ INSTALLABLES := etags.exe,b2m.exe
+$ UTILITIES := test-distrib.exe,wakeup.exe,make-docfile.exe,digest-doc.exe,-
+sorted-doc.exe,yow.exe,env.exe,hexl.exe,vmssendmail.exe,vmsgetmail.exe
+$ 
+$ COPYDIR := 'srcdir_dev'['srcdir_dir'.etc],'srcdir_dev'['srcdir_dir'.lisp]
+$ COPYDESTS := 'etcdir','lispdir'
+$
+$ set verify
+$ set def 'proc_dir'
+$
+$! This coresponds to the mkdir clause of DESCRIP.MMS
+$!
+$ create/dir/prot=(s:rwed,o:rwed,g:re,w:re) 'COPYDESTS'
+$ create/dir/prot=(s:rwed,o:rwed,g:rwe,w:rwe) 'lockdir'
+$ create/dir 'infodir'
+$ create/dir 'mandir'
+$ create/dir 'bindir'
+$ create/dir 'datadir'
+$ create/dir 'libdir'
+$ create/dir 'locallisppath'
+$ create/dir 'vmslibdir'
+$ create/dir 'startupdir'
+$
+$ set def [-.lib-src]
+$
+$! This does the same as the installation in [.LIB-SRC]DESCRIP.MMS
+$!
+$ ! 'f$verify(0)
+$ write sys$output ""
+$ write sys$output "Installing utilities run internally by Emacs."
+$ set verify
+$ create/dir 'archlibdir'
+$ @'vmssrcdir'compare_dirs 'archlibdir' 'f$environment("DEFAULT")' result
+$ if .not. result then INSTALL_PROGRAM 'UTILITIES' 'archlibdir'
+$ set noon
+$ purge 'archlibdir''UTILITIES'
+$ set on
+$ ! 'f$verify(0)
+$ write sys$output ""
+$ write sys$output "Installing utilities for users to run."
+$ set verify
+$ copy 'INSTALLABLES' 'bindir'/prot=(s:rwed,o:rwed,g:re,w:re)
+$ SET NOON
+$ purge 'bindir''INSTALLABLES' ! This is bound to work...
+$ SET ON
+$
+$! And now, to the part that corresponds to the rest of the do-install
+$! clause in DESCRIP.MMS.
+$
+$ set def [-]
+$ ! 'f$verify(0)
+$ !
+$ ! Had to split this one up a little too...
+$ line1 = "result = """""
+$ line2 = "delete/sym/local result"
+$ line3 = "@''vmssrcdir'compare_dirs 'dir1' 'dir2' result"
+$ line4 = "dest = """""
+$ line5 = "delete/sym/local dest"
+$ line6 = "@''vmssrcdir'dirfilename 'dir1' dest"
+$ line7 = "if .not. result .and. dest .nes. """" then @''vmssrcdir'recurdel 'dest'
+$ @'vmssrcdir'loop_args2 dir1 dir2 "''COPYDESTS'" "''COPYDIR'" "," "'line1';'line2';'line3';'line4';'line5';'line6';'line7'" ";" verbose
+$ !
+$ ! Had to split this one up a little too...
+$ line1 = "create/dir 'dest'"
+$ line2 = "result = """""
+$ line3 = "delete/sym/local result"
+$ line4 = "@''vmssrcdir'compare_dirs 'dir' 'dest' result"
+$ line5 = "if result then result = f$search(dir+""*.*"") .nes. """""
+$ line6 = "sdir=dir-""]"""
+$ line7 = "sdest=dest-""]"""
+$ line8 = "if .not. result then write sys$output ""Copying "",dir"
+$ line9 = "if .not. result then copy 'sdir'...]*.* 'sdest'...]/prot=(o:rw,w:r)/log"
+$ line10 = "if .not. result then purge 'sdest'...]/log"
+$ @'vmssrcdir'loop_args2 dest dir "''COPYDESTS'" "''COPYDIR'" "," "'line1';'line2';'line3';'line4';'line5';'line6';'line7';'line8';'line9';'line10'" ";" verbose
+$ !
+$ sdir=f$environment("DEFAULT")-"]"+".ETC]"
+$ result = "" ! So we do not get a stupid message on the next line...
+$ SET NOON
+$ delete/sym/local result
+$ SET ON
+$ set verify
+$ @'vmssrcdir'compare_dirs 'sdir' 'srcdir_dev'['srcdir_dir'.etc] result
+$ if .not.result then write sys$output "Copying [.etc]DOC*.*.* ..."
+$ SET NOON
+$ if .not.result then copy/noreplace [.etc]doc*.*.* 'etcdir'/prot=(o:rwed,w:re)/log
+$ if .not.result then purge 'etcdir'doc. /log
+$ SET ON
+$ !
+$ ! 'f$verify(0)
+$ result = "" ! So we do not get a stupid message on the next line...
+$ SET NOON
+$ delete/sym/local result
+$ SET ON
+$ set verify
+$ @'vmssrcdir'compare_dirs 'srcdir_dev'['srcdir_dir'.info] 'infodir' result
+$ if .not.result then -
+$ 	if f$search("''infodir'dir.") .eqs. "" -
+$ 		.and.f$search("[.info]dir.") .nes. "" then -
+$ 			INSTALL_DATA 'srcdir_dev'['srcdir_dir'.info]dir. 'infodir'dir.
+$ if .not.result then -
+$	@'vmssrcdir'loop_args f "cl*.* emacs*.* forms*.* gnus*.* info*.* sc*.* vip*.*" " " "''INSTALL_DATA' ''srcdir_dev'[''srcdir_dir'.info]'f' ''infodir'" ";" verbose
+$ SET NOON
+$ if .not.result then purge 'infodir'/log
+$ ! 'f$verify(0)
+$ result = ""
+$ delete/sym/local result
+$ set verify
+$ @'vmssrcdir'compare_dirs 'vmssrcdir' 'vmslibdir' result
+$ if .not.result then -
+$ 	INSTALL_PROGRAM 'vmssrcdir'kepteditor.com 'vmslibdir'
+$ if .not.result then purge 'vmslibdir'/log
+$ sdir = f$env("DEFAULT") - "]" + ".VMS]"
+$ @'vmssrcdir'compare_dirs 'sdir' 'vuelibdir' result
+$ if .not.result then -
+$	INSTALL_PROGRAM [.vms]emacs_vue.com 'vuelibdir'
+$ if .not.result then purge 'vuelibdir'emacs_vue.com/log
+$ SET ON
+$ !
+$ SET NOON
+$ if f$search("'mandir'gnu.hlp") .eqs. "" then -
+	library/create/help 'mandir'gnu.hlb
+$ ! 'f$verify(0)
+$ line1 = "library/replace " + mandir + "gnu.hlb " + -
+	srcdir_dev + "[" + srcdir_dir + ".etc]'page'.hlp"
+$ @'vmssrcdir'loop_args page "emacs etags" " " "'line1'" ";" verbose
+$ set verify
+$ SET ON
+$ !
+$ INSTALL_PROGRAM [.vms]temacs.exe 'bindir'emacs-'version_us'.exe
+$ INSTALL_PROGRAM [.vms]temacs.dump 'bindir'emacs-'version_us'.dump
+$ INSTALL_PROGRAM [.vms]rebuild.com 'bindir'rebuild-emacs-'version_us'.com
+$ SET NOON
+$ purge/keep=2 'bindir'emacs-'version_us'.exe,.dump
+$ purge 'bindir'rebuild-emacs-'version_us'.com
+$ !
+$ if f$search(bindir+"emacs.exe") .nes. "" then -
+	set file/remove 'bindir'emacs.exe;*
+$ if f$search(bindir+"emacs.dump") .nes. "" then -
+	set file/remove 'bindir'emacs.dump;*
+$ if f$search(bindir+"rebuild-emacs.com") .nes. "" then -
+	set file/remove 'bindir'rebuild-emacs.com;*
+$ set file/enter='bindir'emacs.exe 'bindir'emacs-'version_us'.exe
+$ set file/enter='bindir'emacs.dump 'bindir'emacs-'version_us'.dump
+$ set file/enter='bindir'rebuild-emacs.com 'bindir'rebuild-emacs-'version_us'.com
+$ SET ON
+$ @'vmssrcdir'gnu_generate_script [.vms]emacs_startup.dat -
+	[.vms]emacs_startup.com
+$ database := DATABASE
+$ if .not. database_p then database := NODATABASE
+$ @'vmssrcdir'gnu_install_startup Emacs 'version' [.vms]emacs_startup.com -
+	'startupdir' 'database'
+$ a = 'f$verify(save_verif)
+$ exit

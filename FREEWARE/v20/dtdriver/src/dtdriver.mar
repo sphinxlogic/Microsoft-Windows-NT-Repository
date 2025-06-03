@@ -1,0 +1,1245 @@
+	.TITLE	DTDRIVER - TC11-TU56 DECtape driver
+	.IDENT	'V05-2'
+ 
+;
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1981, 1985, 1990					    *
+;*  BY DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.			    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED  *
+;*  ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE  *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER  *
+;*  COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY  *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY  *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE  *
+;*  AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT  *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS  *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;*									    *
+;****************************************************************************
+;
+; Martin L. Jack 14-Dec-1981
+;
+; MODIFIED BY:
+;
+;	V05-2	ACG0582		Andrew C. Goldstein,	25-Jun-1992  19:34
+;		Various improvements to error handling. Report end
+;		zone as a format error. Put in explicit block address
+;		checking to return SS$_IVADDR (end zone used to do
+;		this). Initialize all state fields in UCB at function
+;		start. Copy out device registers after PACKACK
+;		execution to avoid stale device state in UCB.
+;
+;	V05-1	ACG0567		Andrew C. Goldstein,	26-Jun-1990  17:07
+;		Update to V5; general synchronization and other fixups
+;
+;	V04-001	ACG0477		Andrew C. Goldstein,	31-Mar-1985  11:42
+;		Add overlap seek support, clean up some error handling
+;
+;**
+
+; TC11-TU56 DECtape driver
+;
+; Macro library calls
+;
+	$ADPDEF				; ADP offsets
+	$CRBDEF				; CRB offsets
+	$DCDEF				; Device class codes
+	$DDBDEF				; DDB offsets
+	$DEVDEF				; DEV characteristics bits
+	$DPTDEF				; DPT offsets
+	$DYNDEF				; Dynamic structure codes
+	$EMBDEF				; EMB offsets
+	$IDBDEF				; IDB offsets
+	$IODEF				; I/O function codes
+	$IPLDEF				; IPL values
+	$IRPDEF				; IRP offsets
+	$PRDEF				; Processor register codes
+	$SSDEF				; System status codes
+	$TQEDEF				; TQE offsets
+	$UCBDEF				; UCB offsets
+	$VECDEF				; Interrupt dispatch vector offsets
+ 
+;
+; LOCAL MACROS
+;
+; EXECUTE FUNCTION AND BRANCH ON RETRIABLE ERROR CONDITION
+;
+ 
+	.MACRO	EXFUNC	BDST,FCODE
+		.IF NB	FCODE
+		MOVZBL	#CD'FCODE,R3
+		.ENDC
+		BSBW	FEX
+		.SIGNED_BYTE BDST-.-1
+	.ENDM
+
+;
+; Interlock device: Get device lock, raise IPL to powerfail and test
+; the powerfail bit.
+;
+
+	.MACRO	DEVLOCK	POWERFAIL
+		DEVICELOCK	LOCKADDR=UCB$L_DLCK(R5),-
+				SAVIPL=-(SP),-
+				PRESERVE=NO
+		.IF NB	POWERFAIL
+		IFPOWERFAIL	POWERFAIL
+		.ENDC
+	.ENDM
+
+;
+; Unlock device - undo the above.
+;
+
+	.MACRO	DEVUNLOCK
+		DEVICEUNLOCK	LOCKADDR=UCB$L_DLCK(R5),-
+				NEWIPL=(SP)+
+	.ENDM
+
+;
+; Raise to IPL 31 and check for power failure
+;
+
+	.MACRO	IFPOWERFAIL	POWERFAIL
+		SETIPL	#IPL$_POWER,-
+			ENVIRON=UNIPROCESSOR
+		BBS	#UCB$V_POWER,UCB$W_STS(R5),POWERFAIL
+	.ENDM
+
+ 
+;
+; TC11 controller register offsets
+;
+	$DEFINI	TC
+ 
+$DEF	TC_ST		.BLKW	1	; Control status register
+	_VIELD	TC_ST,0,<-		; Control status register fields
+		<XD16,,M>,-		;     Extended data 16
+		<XD17,,M>,-		;     Extended data 17
+		<DT2,,M>,-		;     Data track 2
+		<DT1,,M>,-		;     Data track 1
+		<DT0,,M>,-		;     Data track 0
+		<MMT,,M>,-		;     Maintenance mark track
+		<CLK,,M>,-		;     Clock simulates timing
+		<UPS,,M>,-		;     Tape is up to speed
+		<NEX,,M>,-		;     Non-existent memory
+		<DATM,,M>,-		;     Data missed
+		<BLKM,,M>,-		;     Block missed
+		<SELE,,M>,-		;     Selection error
+		<ILO,,M>,-		;     Illegal operation
+		<MTE,,M>,-		;     Mark track error
+		<PAR,,M>,-		;     Parity error
+		<ENDZ,,M>-		;     End zone
+	>				;
+$DEF	TC_CM		.BLKW	1	; Command register
+	_VIELD	TC_CM,0,<-		; Command register fields
+		<GO,,M>,-		;     Go
+		<FUNC,3,M>,-		;     Function
+		<XBA,2,M>,-		;     Extended bus address
+		<IE,,M>,-		;     Interrupt enable
+		<READY,,M>,-		;     Ready
+		<UNIT,3,M>,-		;     Unit select
+		<REV,,M>,-		;     Reverse motion
+		<DINHB,,M>,-		;     Delay inhibit
+		<MAINT,,M>,-		;     Maintenance
+		<,1>,-			;     Unused bit
+		<ERROR,,M>-		;     Error
+	>				;
+$DEF	TC_WC		.BLKW	1	; Word count register
+$DEF	TC_BA		.BLKW	1	; Bus address register
+$DEF	TC_DT		.BLKW	1	; Data register
+ 
+	$DEFEND	TC
+ 
+;
+; Define device dependent unit control block offsets
+;
+ 
+	$DEFINI	UCB
+ 
+.=UCB$K_LCL_DISK_LENGTH
+ 
+$DEF	UCB$W_TC_ST	.BLKW	1	; Control status register
+$DEF	UCB$W_TC_CM	.BLKW	1	; Command register
+$DEF	UCB$W_TC_WC	.BLKW	1	; Word count register
+$DEF	UCB$W_TC_BA	.BLKW	1	; Bus address register
+$DEF	UCB$W_TC_DT	.BLKW	1	; Data register
+$DEF	UCB$W_TC_DPN	.BLKW	1	; Datapath number
+$DEF	UCB$L_TC_DPR	.BLKL	1	; Datapath register
+$DEF	UCB$L_TC_FMPR	.BLKL	1	; Final map register
+$DEF	UCB$L_TC_PMPR	.BLKL	1	; Previous map register
+$DEF	UCB$W_TC_SEEK	.BLKW	1	; Current seek command
+$DEF	UCB$W_TC_XFER	.BLKW	1	; Current data transfer command
+$DEF	UCB$W_TC_STOP	.BLKW	1	; Current stop command
+$DEF	UCB$B_TC_ROCK	.BLKB	1	; Rock count
+$DEF	UCB$B_TC_STS	.BLKB	1	; Software status bits
+	_VIELD	TC_STS,0,<-		;
+		<SEEK,,M>,-		;     Seek in progress
+		<DPPE,,M>,-		;     Datapath purge error
+		<STOP,,M>,-		;     Stop tape at end of function
+		<LONG,,M>,-		;     Long seek in progress
+		<MOVING,,M>,-		;     Transport is in motion
+		<VALID,,M>,-		;     Current block number is valid
+		<POSLOST,,M>,-		;     Tape position lost
+		<TIMER,,M>-		;     Timer AST active
+	>				;
+$DEF	UCB$W_TC_BLOCK	.BLKW	1	; Current tape block number
+$DEF	UCB$W_TC_SPEED	.BLKW	1	; Tape speed
+$DEF	UCB$L_TC_TIME	.BLKL	1	; Time last block was seen
+$DEF	UCB$R_TC_TQE	.BLKB	TQE$C_LENGTH ; Timer queue entry
+ 
+UCB$K_TC_LEN=.
+
+	$DEFEND	UCB
+ 
+;
+; Hardware function codes
+;
+F_SAT=		0*2			; Stop all transports
+F_RNUM=		1*2			; Read block number
+F_RDATA=	2*2			; Read data
+F_RALL=		3*2			; Read all
+F_SST=		4*2			; Stop selected transport
+F_WRTM=		5*2			; Write timing and mark
+F_WDATA=	6*2			; Write data
+F_WALL=		7*2			; Write all
+ 
+;
+; Driver prologue table
+;
+	ASSUME	IPL$_TIMER EQ 8		; TIMER = SYNC = DRIVER IPL
+
+	DPTAB	-			; Define driver prologue table
+		END=TC_END,-		; End of driver
+		ADAPTER=UBA,-		; Adapter type
+		UCBSIZE=UCB$K_TC_LEN,-	; UCB size
+		DEFUNITS=4,-		; 4 units max
+		NAME=DTDRIVER		; Driver name
+	DPT_STORE INIT			; Control block init values
+	DPT_STORE DDB,DDB$L_ACPD,L,<^A\F11\> ; Default ACP name
+	DPT_STORE DDB,DDB$L_ACPD+3,B,DDB$K_SLOW	; ACP class
+	DPT_STORE UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8 ; Fork lock IPL
+	DPT_STORE UCB,UCB$L_DEVCHAR,L,-	; Device characteristics
+		<DEV$M_FOD-		;     Files oriented
+		!DEV$M_DIR-		;     Directory structured
+		!DEV$M_AVL-		;     Available
+		!DEV$M_ELG-		;     Error logging enabled
+		!DEV$M_SHR-		;     Shareable
+		!DEV$M_IDV-		;     Input device
+		!DEV$M_ODV-		;     Output device
+		!DEV$M_RND>		;     Random access
+	DPT_STORE UCB,UCB$L_DEVCHAR2,L,DEV$M_NNM ; Cluster namable device
+	DPT_STORE UCB,UCB$L_MEDIA_ID,L,<^X25295038> ; MSCP ID - "DT TU56"
+	DPT_STORE UCB,UCB$B_DEVCLASS,B,DC$_DISK ; Device class
+	DPT_STORE UCB,UCB$B_DEVTYPE,B,DT$_TU56 ; Device type
+	DPT_STORE UCB,UCB$W_DEVBUFSIZ,W,512 ; Default buffer size
+	DPT_STORE UCB,UCB$B_SECTORS,B,1	; Number of sectors per track
+	DPT_STORE UCB,UCB$B_TRACKS,B,1	; Number of tracks per cylinder
+	DPT_STORE UCB,UCB$W_CYLINDERS,W,578 ; Number of cylinders
+	DPT_STORE UCB,UCB$L_MAXBLOCK,L,578 ; Number of blocks
+	DPT_STORE UCB,UCB$B_DIPL,B,21	; Device IPL
+	DPT_STORE UCB,UCB$B_ERTCNT,B,8	; Error retry count
+	DPT_STORE UCB,UCB$B_ERTMAX,B,8	; Max error retry count
+	DPT_STORE UCB,UCB$W_DEVSTS,W,-	; Device status bits
+			<UCB$M_NOCNVRT>	; Inhibit logical to physical conversion
+	DPT_STORE REINIT		; Control block re-init values
+					; Interrupt service routine address
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_ISR,D,TC$INT
+					; Controller init
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_INITIAL,D,TC_TC11_INIT
+					; Unit init
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_UNITINIT,D,TC_TU56_INIT
+	DPT_STORE DDB,DDB$L_DDT,D,TC$DDT ; DDT address
+	DPT_STORE END			;
+ 
+;
+; Driver dispatch table
+;
+	DDTAB	TC,-			; Driver dispatch table
+		TC_STARTIO,-		; Start I/O operation
+		0,-			; Unsolicited interrupt
+		TC_FUNCTABLE,-		; Function decision table
+		0,-			; Cancel I/O entry point
+		TC_REGDUMP,-		; Register dump routine
+		<<<TC_DT+2-4+8>*2>+<<3+5+1>*4>>,- ; Size of diagnostic buffer
+		<<<TC_DT+2-4+8>*2>+<1*4>+<EMB$L_DV_REGSAV>> ; Size of error buffer
+;
+; Parameter to hardware function executor.
+;
+CDF_AVAILABLE= 	0			; Make volume available
+CDF_UNLOAD=	1			; Unload volume
+CDF_PACKACK=	2			; Pack acknowledge
+CDF_WDATA=	3			; Write data
+CDF_RDATA=	4			; Read data
+; ***** WDATA & RDATA must be the highest numbered functions.
+
+T100MS=		100*1000*10		; 100 milliseconds in standard units
+
+	.SBTTL	TC11-TU56 function decision table
+;+
+; TC11-TU56 function decision table
+;-
+ 
+TC_FUNCTABLE:				; Function decision table
+	FUNCTAB	,-			; Legal functions
+		<UNLOAD,-		; Unload volume
+		 PACKACK,-		; Pack acknowledge
+		 AVAILABLE,-		; Set drive available
+		 SENSECHAR,-		; Sense characteristics
+		 SETCHAR,-		; Set characteristics
+		 SENSEMODE,-		; Sense mode
+		 SETMODE,-		; Set mode
+		 READLBLK,-		; Read logical block
+		 WRITELBLK,-		; Write logical block
+		 READPBLK,-		; Read physical block
+		 WRITEPBLK,-		; Write physical block
+		 READVBLK,-		; Read virtual block
+		 WRITEVBLK,-		; Write virtual block
+		 ACCESS,-		; Access file and/or find directory entry
+		 ACPCONTROL,-		; ACP control function
+		 CREATE,-		; Create file and/or create directory entry
+		 DEACCESS,-		; Deaccess file
+		 DELETE,-		; Delete file and/or delete directory entry
+		 MODIFY,-		; Modify file attributes
+		 MOUNT>			; Mount volume
+	FUNCTAB	,-			; Buffered I/O functions
+		<UNLOAD,-		; Unload volume
+		 PACKACK,-		; Pack acknowledge
+		 AVAILABLE,-		; Set drive available
+		 SENSECHAR,-		; Sense characteristics
+		 SETCHAR,-		; Set characteristics
+		 SENSEMODE,-		; Sense mode
+		 SETMODE,-		; Set mode
+		 ACCESS,-		; Access file and/or find directory entry
+		 ACPCONTROL,-		; ACP control function
+		 CREATE,-		; Create file and/or create directory entry
+		 DEACCESS,-		; Deaccess file
+		 DELETE,-		; Delete file and/or delete directory entry
+		 MODIFY,-		; Modify file attributes
+		 MOUNT>			; Mount volume
+	FUNCTAB	TC_BYTECNT,-		; Even byte count required functions
+		<READLBLK,-		; Read logical block
+		 READPBLK,-		; Read physical block
+		 READVBLK,-		; Read virtual block
+		 WRITELBLK,-		; Write logical block
+		 WRITEPBLK,-		; Write physical block
+		 WRITEVBLK>		; Write virtual block
+	FUNCTAB	+ACP$READBLK,-		; Read functions
+		<READLBLK,-		; Read logical block
+		 READPBLK,-		; Read physical block
+		 READVBLK>		; Read virtual block
+	FUNCTAB	+ACP$WRITEBLK,-		; Write functions
+		<WRITELBLK,-		; Write logical block
+		 WRITEPBLK,-		; Write physical block
+		 WRITEVBLK>		; Write virtual block
+	FUNCTAB	+ACP$ACCESS,-
+		<ACCESS,-		; Access file and/or find directory entry
+		 CREATE>		; Create file and/or create directory entry
+	FUNCTAB	+ACP$DEACCESS,-
+		<DEACCESS>		; Deaccess file
+	FUNCTAB	+ACP$MODIFY,-
+		<ACPCONTROL,-		; ACP control function
+		 DELETE,-		; Delete file and/or delete directory entry
+		 MODIFY>		; Modify file attributes
+	FUNCTAB	+ACP$MOUNT,-
+		<MOUNT>			; Mount volume
+	FUNCTAB	+EXE$LCLDSKVALID,-	; Zero parameter functions
+		<UNLOAD,-		; Unload volume
+		 PACKACK,-		; Pack acknowledge
+		 AVAILABLE>		; Set drive available
+	FUNCTAB	+EXE$SENSEMODE,-
+		<SENSECHAR,-		; Sense characteristics
+		 SENSEMODE>		; Sense mode
+	FUNCTAB	+EXE$SETCHAR,-		; 
+		<SETCHAR,-		; Set characteristics
+		 SETMODE>		; Set mode
+
+	.SBTTL	Test even byte count
+;+
+; TC_BYTECNT - Test even byte count
+;
+; This routine is called from the function decision table dispatcher to check
+; that the number of bytes to be transferred is even as the TC11 has a word
+; count rather than a byte count register.
+;
+; Inputs:
+;	R0 = scratch.
+;	R1 = scratch.
+;	R2 = scratch.
+;	R3 = IRP address.
+;	R4 = PCB address.
+;	R5 = UCB address.
+;	R6 = CCB address.
+;	R7 = I/O function code.
+;	R8 = function decision table dispatch address.
+;	R9 = scratch.
+;	R10 = scratch.
+;	R11 = scratch.
+;	AP = address of first function dependent parameter.
+;
+; Outputs:
+;	The buffer byte count is checked for being even.  If the check fails,
+;	then the I/O operation is terminated with an error, else a return to
+;	the function decision table dispatcher is executed.
+;-
+ 
+TC_BYTECNT:				;
+	BLBS	4(AP),10$		; If set, odd byte count
+	RSB				;
+10$:	MOVZWL	#SS$_IVBUFLEN,R0	; Set odd byte count status
+	JMP	G^EXE$ABORTIO		;
+
+	.SBTTL	Start I/O operation
+;+
+; STARTIO - Start I/O operation on device unit
+;
+; This routine is entered to start an I/O operation on a device unit.
+;
+; Inputs:
+;	R3 = IRP address.
+;	R5 = UCB address.
+;
+; Outputs:
+;	Function dependent parameters are stored in the UCB, the error retry
+;	count is reset, and the function is executed.  At function completion
+;	the operation is terminated through request complete.
+;-
+ 
+TC_STARTIO:				; Start I/O operation
+	MOVW	IRP$W_FUNC(R3),UCB$W_FUNC(R5) ; Save I/O function code
+;
+; Move function dependent parameters to UCB.
+;
+	MOVL	IRP$L_MEDIA(R3),UCB$W_DA(R5) ; Store parameter longword
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,- ; Extract I/O function code
+		IRP$W_FUNC(R3),R1	;
+	MOVB	R1,UCB$B_FEX(R5)	; Save I/O function code
+	MOVB	UCB$B_ERTMAX(R5),UCB$B_ERTCNT(R5) ; Initialize retry count
+	BICW2	#UCB$M_DIAGBUF,UCB$W_DEVSTS(R5) ; No diagnostic buffer present
+	BBC	#IRP$V_DIAGBUF,IRP$W_STS(R3),FDISPATCH ; If clr, no buffer
+	BISW	#UCB$M_DIAGBUF,UCB$W_DEVSTS(R5) ; Diagnostic buffer present
+;
+; Central function dispatch.
+;
+FDISPATCH:				; Function dispatch
+	MOVL	UCB$L_IRP(R5),R3	; Retrieve address of I/O packet
+	MNEGW	UCB$W_BCNT(R5),UCB$W_BCR(R5) ; Init byte count reg
+	BBS	#IRP$V_PHYSIO,IRP$W_STS(R3),10$ ; If set, physical I/O function
+	BBS	#UCB$V_VALID,UCB$W_STS(R5),10$ ; If set, volume software valid
+	MOVZWL	#SS$_VOLINV,R0		; Set volume invalid status
+	BRW	FUNCXT			;
+;
+; Unit is software valid or function is physical I/O.
+;
+10$:	MOVZBL	UCB$B_FEX(R5),R3	; Get function dispatch index
+	CMPB	#IO$_READPBLK,R3	; Read data function?
+	BEQL	READDATA		; Br if yes
+	CMPB	#IO$_WRITEPBLK,R3	; Write data function?
+	BEQL	WRITEDATA		; Br if yes
+	CMPB	#IO$_PACKACK,R3		; Pack acknowledge function?
+	BEQL	PACKACK			; Br if yes
+	CMPB	#IO$_UNLOAD,R3		; Unload volume function?
+	BEQL	UNLOAD			; Br if yes
+	CMPB	#IO$_AVAILABLE,R3	; Set drive available function?
+	BEQL	AVAILABLE		; Br if yes
+	BRB	NORMAL			; Should not get here ...
+;
+; Unload volume.
+;
+UNLOAD:					; Unload volume function
+	BICW2	#UCB$M_VALID,UCB$W_STS(R5) ; Clear software volume valid
+	EXFUNC	FATALERR,F_UNLOAD	; Execute unload function
+	BRB	NORMAL			; Normal exit
+;
+; Pack acknowledge.
+;
+PACKACK:				; Pack acknowledge function
+	EXFUNC	FATALERR,F_PACKACK	; Execute pack acknowledge function
+	BISW2	#UCB$M_VALID,UCB$W_STS(R5) ; Set software volume valid
+	BRB	NORMAL			; Normal exit
+;
+; Set drive available.
+;
+AVAILABLE:				; Set drive available function
+	BICW2	#UCB$M_VALID,UCB$W_STS(R5) ; Clear software volume valid
+	EXFUNC	FATALERR,F_AVAILABLE	; Execute available drive function
+	BRB	NORMAL			; Complete request
+;
+; Write data.
+;
+WRITEDATA:				; Write data function
+	EXFUNC	RETRYERR,F_WDATA	; Execute write data function
+	BRB	NORMAL			; Normal exit
+; 
+; Read data.
+;
+READDATA:				; Read data function
+	EXFUNC	RETRYERR,F_RDATA	; Execute read data function
+;
+; Successful operation completion.
+;
+NORMAL:	MOVL	#SS$_NORMAL,R0		; Set normal completion status
+	BRW	FUNCXT			;
+;
+; Retriable error.
+;
+RETRYERR:
+	DECB	UCB$B_ERTCNT(R5)	; Any retries left?
+	BEQL	FATALERR		; If EQL no
+	BRW	FDISPATCH		;
+;
+; Fatal controller/drive error, error retry count exhausted, or error retry
+; inhibited.
+;
+; The drive status bits map into the following errors:
+;
+;	Datapath purge error	SS$_CRTLERR
+;	ENDZ			SS$_FORMAT
+;	PAR			SS$_PARITY
+;	MTE			SS$_FORMAT
+;	ILO			SS$_WRITLCK
+;	SELE			SS$_MEDOFL
+;	BLKM			SS$_DATAOVERUN
+;	DATM			SS$_DATAOVERUN
+;	NEX			SS$_CTRLERR
+;	Rock count exhausted	SS$_FORMAT
+;
+FATALERR:
+	MOVZWL	UCB$W_TC_ST(R5),R1	; Retrieve status register
+	MOVZWL	#SS$_WRITLCK,R0		; Set write lock
+	BBS	#TC_ST_V_ILO,R1,FUNCXT	; If set, write lock error
+	MOVZWL	#SS$_PARITY,R0		; Set parity error
+	BBS	#TC_ST_V_PAR,R0,FUNCXT	; Parity error or
+	MOVZWL	#SS$_FORMAT,R0		; Set format error
+	BITW	#TC_ST_M_MTE!-		; Mark track error or
+		 TC_ST_M_ENDZ,R1	; end zone?
+	BNEQ	FUNCXT			; If NEQ yes
+	MOVZWL	#SS$_MEDOFL,R0		; Set medium offline
+	BBS	#TC_ST_V_SELE,R1,FUNCXT	; If set, nonexistent drive
+	MOVZWL	#SS$_DATAOVERUN,R0	; Set data overrun
+	BITW	#TC_ST_M_BLKM!-		; Block missed or
+		 TC_ST_M_DATM,R1	; data missed?
+	BNEQ	FUNCXT			; If NEQ yes
+	MOVZWL	#SS$_CTRLERR,R0		; Set controller error
+;
+; Function completion common exit.
+;
+FUNCXT:	PUSHL	R0			; Save first IOSB longword
+	JSB	G^IOC$DIAGBUFILL	; Fill diagnostic buffer, if present
+	CLRL	R1			; Clear second IOSB longword
+	CMPB	UCB$B_FEX(R5),#IO$_WRITEPBLK ; Transfer function?
+	BLSSU	20$			; Br if no
+	ADDW3	UCB$W_BCR(R5),-		; Calculate and save bytes transferred
+		UCB$W_BCNT(R5),R0
+	BEQL	10$			; Branch if null
+	BLBS	(SP),10$		; Branch if successful
+	DECW	R0			; Else truncate out last block
+	BICW	#^X1FF,R0
+10$:	MOVW	R0,2(SP)		; Return adjusted byte count
+20$:	POPL	R0			; Restore first IOSB longword
+	REQCOM				; Complete request
+
+	.SBTTL	TC11-TU56 hardware function execution
+;
+; FEX - TC11-TU56 hardware function execution
+;
+; This routine is called via a BSB with a byte immediately following that
+; specifies the address of an error routine.  All data is assumed to have been
+; set up in the UCB before the call.  The appropriate parameters are loaded
+; into device registers and the function is initiated.  The return address
+; is stored in the UCB and a wait for interrupt is executed.  When the
+; interrupt occurs, control is returned to the caller.
+;
+; Inputs:
+;	R3 = function table dispatch index.
+;	R4 = CSR address.
+;	R5 = UCB address.
+;
+;	00(SP) = return address of caller.
+;	04(SP) = return address of caller's caller.
+;
+;	Immediately following inline at the call site is a byte that contains
+;	a branch destination to an error retry routine.
+;
+; Outputs:
+;
+;	There are four exits from this routine:
+;
+;	1. Special condition
+;		This exit is taken if a power failure occurs or the operation
+;		times out.  It is a jump to the appropriate error routine.
+;
+;	2. Fatal error
+;		This exit is taken if a fatal controller or drive error occurs
+;		or if any error occurs and error retry is inhibited.  It is a
+;		jump to the fatal error exit routine.
+;
+;	3. Retriable error
+;		This exit is taken if a retriable controller or drive error
+;		occurs and error retry is not inhibited.  It consists of taking
+;		the error branch exit.
+;
+;	4. Successful operation
+;		This exit is taken if no error occurs during the operation.
+;		It consists of a return inline.
+;
+;	In all cases, if an error occurs, an attempt is made to log the error.
+;
+;	In all cases, final controller registers are returned via general
+; 	registers R1 and R2 and the UCB.
+;
+;	R1 = control status register.
+;	R2 = command register.
+;	UCB$W_BCR(R5) = byte count register.
+;
+FEX:	POPL	UCB$L_DPC(R5)		; Save driver PC value
+	MOVB	R3,UCB$B_CEX(R5)	; Save case index
+	CLRQ	UCB$W_TC_SEEK(R5)	; Clear out current state
+	MOVB	UCB$B_ERTMAX(R5),UCB$B_TC_ROCK(R5) ; Initialize rock count
+	REQPCHAN			; Request channel
+	EXTZV	#0,#TC_CM_S_UNIT,-	; Extract unit number
+		UCB$W_UNIT(R5),R1
+	ASHL	#TC_CM_V_UNIT,R1,R1	; Shift unit number to position
+	CASE	R3,<-			; Dispatch to proper function routine
+		AVAIL,-			;     Make vol available
+		UNLD,-			;     Unload volume
+		ACK,-			;     Pack acknowledge
+		XFER,-			;     Write data
+		XFER>			;     Read data
+;
+; Available function execution.
+;
+AVAIL:	MNEGW	#20,UCB$W_DA(R5)	; Seek to block -20
+	BRW	X_SEEK			; Use common seek logic
+;
+; Unload function execution.
+;
+UNLD:	MOVW	#<F_SST!<7@TC_CM_V_UNIT>!TC_CM_M_GO>,-
+		UCB$W_TC_STOP(R5)	; Use stop transport 7 to deselect
+	BISB	#TC_STS_M_STOP,UCB$B_TC_STS(R5) ; Mark for stop
+	DEVLOCK	10$			; Interlock and check for powerfail
+	BISW3	#<F_RNUM!TC_CM_M_REV!TC_CM_M_IE!TC_CM_M_GO>,R1,-
+		TC_CM(R4)		; Load seek reverse command
+	WFIKPCH	RLSCHN,#2		; Wait for interrupt and keep channel
+	IOFORK				; Create fork process
+	CLRW	UCB$W_TC_BLOCK(R5)	; Tape is now at block 0
+	BRW	RLSCHN			; Done
+10$:	BRW	ENBXIT
+;
+; Pack acknowledge function execution.
+;
+ACK:	DEVLOCK	ENBXIT			; Interlock and check for powerfail
+	BISW3	#<F_SST!TC_CM_M_GO>,R1,- ; Load stop transport command
+		TC_CM(R4)
+	TIMEWAIT  #5,#TC_CM_M_READY,TC_CM(R4),W ; and wait for ready
+	MOVAB	TC_ST(R4),R2		; Get CSR address
+	MOVAB	UCB$W_TC_ST(R5),R3	; Get address of register save area
+	MOVW	(R2)+,(R3)+		; Save control status register
+	MOVW	(R2)+,(R3)+		; Save command register
+	MOVW	(R2)+,(R3)+		; Save word count register
+	MOVW	(R2)+,(R3)+		; Save bus address register
+	MOVW	(R2),(R3)		; Save data buffer register
+	CLRW	UCB$W_TC_BLOCK(R5)	; Tape is now at block 0
+	BLBS	R0,20$			; Branch on successful response
+	BISW	#TC_ST_M_SELE,UCB$W_TC_ST(R5) ; Fake a select err on timeout
+	BISW	#TC_CM_M_ERROR,UCB$W_TC_CM(R5)
+20$:
+
+ENBXIT:	DEVUNLOCK			; Unlock device and enable interrupts
+RLSXIT:	BRW	RLSCHN			; Branch to complete operation
+;
+; Transfer function execution.
+;
+;	Functions include:
+;		Write data
+;		Read data
+;
+;
+XFER:	TSTW	UCB$W_DA+2(R5)		; Sanity check block address
+	BNEQ	30$			; Over 65K - out
+	MOVZWL	UCB$W_BCNT(R5),R2	; Get byte count
+	ADDL	#511,R2			; Round up byte count
+	DIVL	#512,R2			; Convert to block count
+	ADDL	UCB$W_DA(R5),R2		; Compute ending block
+	CMPL	R2,UCB$L_MAXBLOCK(R5)	; Check against max block
+	BLEQU	40$			; Branch if OK
+30$:	MOVZWL	#SS$_IVADDR,R0		; Set invalid media address
+	RELCHAN				; Release channel
+	BRW	FUNCXT			; Exit with error
+
+40$:	BISW3	#<F_RDATA!TC_CM_M_GO!TC_CM_M_IE>,R1,-
+		UCB$W_TC_XFER(R5)	; Set up transfer command
+	CMPL	R3,#CDF_WDATA		; Write data command?
+	BNEQ	X_SEEK			; Br if no
+	ADDW2	#<F_WDATA-F_RDATA>,-	; Change transfer command to write
+		UCB$W_TC_XFER(R5)
+X_SEEK:	BISW3	#<F_SST!TC_CM_M_GO>,R1,-
+		UCB$W_TC_STOP(R5)	; Set up stop transport command
+	BISW3	#<F_RNUM!TC_CM_M_GO!TC_CM_M_IE>,R1,-
+		UCB$W_TC_SEEK(R5)	; Set up seek command
+;
+; Now set up for a long seek. During this process, we allow use of the
+; controller to round-robin so that multiple drives can seek concurrently.
+; When we get within 10 blocks, we go into dedicated short seek mode to
+; line up for the transfer.
+;
+	CLRW	UCB$W_TC_SPEED(R5)	; Init speed to unknown
+	BRB	80$			; Dive into loop
+
+50$:	BRW	RLSCHN
+60$:	BRW	ENBXIT
+
+70$:	DEVLOCK	60$			; Interlock and check for powerfail
+	BISB	#TC_STS_M_SEEK!-	; Set up flags
+		 TC_STS_M_LONG!-
+		 TC_STS_M_MOVING,UCB$B_TC_STS(R5)
+	MOVW	UCB$W_TC_SEEK(R5),TC_CM(R4) ; Start the seek
+	WFIKPCH	RLSCHN,#2		; Wait for completion
+	IOFORK				; Drop back to fork level
+	BBS	#UCB$V_POWER,UCB$W_STS(R5),50$ ; Exit on powerfail
+	BBS	#TC_CM_V_ERROR,UCB$W_TC_CM(R5),120$ ; Out if error
+80$:	SUBW3	UCB$W_TC_BLOCK(R5),UCB$W_DA(R5),R0 ; See how far to go
+	BGEQ	90$			; Branch if positive
+	BISW	#TC_CM_M_REV,UCB$W_TC_SEEK(R5) ; Neg means we have to go back
+	MNEGW	R0,R0			; Take absolute value
+90$:	CMPW	R0,#10			; See if we're within 10 blocks
+	BLEQ	140$			; Branch if yes - long seek done
+100$:	RELCHAN				; Release the controller
+	REQPCHAN			; Get it back
+110$:	BRB	70$			; and keep looking
+;
+; To here on errors encountered during seek. Ignore end zone and mark
+; track errors; exit on all others. On a seek to with no transfer
+; (IO$_AVAILABLE), stop the drive when we hit the end zone.
+;
+120$:	BITW	#TC_ST_M_PAR!TC_ST_M_ILO!TC_ST_M_SELE!TC_ST_M_BLKM!-
+		 TC_ST_M_DATM!TC_ST_M_NEX,-
+		UCB$W_TC_ST(R5)		; Check relevant errors
+	BNEQ	130$			; and stop if err
+	TSTB	UCB$B_TC_ROCK(R5)	; Check the rock count
+	BLEQ	130$			; Give up if it's run out
+	BLBS	UCB$W_TC_XFER(R5),110$	; Keep going if transfer cmd
+	BBC	#TC_ST_V_ENDZ,UCB$W_TC_ST(R5),110$ ; Keep going if not end zone
+	BICW	#TC_CM_M_ERROR,UCB$W_TC_CM(R5) ; Fake a success state
+	CLRW	UCB$W_TC_ST(R5)
+130$:	MOVW	UCB$W_TC_STOP(R5),TC_CM(R4) ; Else stop the drive
+	BRW	RLSCHN			; And give up
+;
+; We have approached within 10 blocks of the seek target. From here the
+; controller must be dedicated to this operation. Therefore, any other
+; seeks in progress that might come due during this operation must
+; be stopped.
+;
+140$:	BLBC	UCB$W_TC_XFER(R5),130$	; If no xfer, done
+	CLRW	UCB$W_TC_CM(R5)		; Clean out seek error
+	MOVZWL	UCB$W_BCNT(R5),R2	; Get transfer byte count
+	DIVL	#512,R2			; Convert to block count
+	ADDL	#23,R2			; Add in short seek + fudge
+	MOVZWL	UCB$W_TC_SPEED(R5),R0	; Get tape speed
+	BNEQ	150$			; Branch if valid
+	MOVZBL	#66,R0			; Assume worst case if not
+150$:	MULL	R0,R2			; Calculate total transfer time
+	PUSHL	R5			; Save current UCB
+	MOVL	UCB$L_CRB(R5),R3	; Get address of CRB
+	ADDL3	#IDB$L_UCBLST,CRB$L_INTD+VEC$L_IDB(R3),R3 ; Get the IDB
+	MOVZWL	IDB$W_UNITS-IDB$L_UCBLST(R3),-(SP) ; Get count of units
+160$:	MOVL	(R3)+,R5		; Get next UCB address
+	BEQL	200$			; Branch if non-existent unit
+	CMPL	R5,4(SP)		; Check if it's us
+	BEQL	200$			; Don't do that one either
+	BBC	#TC_STS_V_MOVING,UCB$B_TC_STS(R5),200$ ; Branch if not seeking
+	BBC	#TC_STS_V_VALID,UCB$B_TC_STS(R5),190$ ; Branch if loc unknown
+	BSBW	TAPE_POS		; Estimate current position
+	CLRL	R1
+	SUBW3	R0,UCB$W_DA(R5),R1	; See how far it has to go
+	BGTR	170$			; Branch if positive
+	MNEGW	R1,R1			; Take absolute value
+170$:	SUBL	#10,R1			; Deduct 10 blocks
+	BLSS	190$			; If within 10, stop it
+	MOVZWL	UCB$W_TC_SPEED(R5),R0	; Get tape speed
+	BNEQ	180$			; Branch if valid
+	MOVZBL	#35,R0			; Else assume best case
+180$:	MULL	R0,R1			; Compute time to destination
+	CMPL	R1,R2			; See if it will get there during xfer
+	BGTR	200$			; Branch if not
+190$:	BSBW	STOP_UNIT		; Stop the drive
+200$:	SOBGTR	(SP),160$		; and loop for all units
+	ADDL	#4,SP			; Clean counter off stack
+	MOVL	(SP)+,R5		; Restore original UCB
+;
+; All other units have now been properly disposed of. Set up datapaths,
+; map registers, etc., to initiate the transfer. There is one more wrinkle:
+; If we get stalled in REQDPR or REQMPR, the timing assumptions go out
+; the window. Set up a 100ms timer request around those calls. If it
+; fires, we will just stop everything. Because we are playing with the
+; timer queue, the driver must run at IOLOCK8, which is the only IO lock
+; below the timer lock.
+;
+	BISB	#TC_STS_M_TIMER,UCB$B_TC_STS(R5) ; Mark timer active
+	READ_SYSTIME R0			; Get current system time
+	ADDL	#T100MS,R0		; Compute 100ms from mow
+	ADWC	#0,R1
+	PUSHL	R5			; Save UCB address
+	MOVAB	UCB$R_TC_TQE(R5),R5	; Get TQE address
+	JSB	G^EXE$INSTIMQ		; And set it up.
+	POPL	R5			; Restore UCB
+	REQDPR				; Request datapath
+	REQMPR				; Request map registers
+	BBCC	#TC_STS_V_TIMER,UCB$B_TC_STS(R5),210$ ; Branch if timer tripped
+	LOCK	LOCKNAME=TIMER,-	; Lock timer queue
+		SAVIPL=-(SP)
+	REMQUE	UCB$R_TC_TQE(R5),R0	; Pull TQE out of timer queue
+	UNLOCK	LOCKNAME=TIMER,-	; Unlock timer queue
+		NEWIPL=(SP)+
+210$:	LOADUBA				; Load UNIBUS map registers
+	MOVL	UCB$L_CRB(R5),R3	; Get address of CRB
+	MOVZWL	UCB$W_BOFF(R5),R1	; Get byte offset in page
+	INSV	CRB$L_INTD+VEC$W_MAPREG(R3),#9,#7,R1
+					; Insert high 7 bits of address
+	EXTZV	#7,#2,CRB$L_INTD+VEC$W_MAPREG(R3),R0
+					; Get memory extension bits
+	INSV	R0,#TC_CM_V_XBA,#TC_CM_S_XBA,UCB$W_TC_XFER(R5)
+					; Insert into transfer command
+	MOVZWL	UCB$W_BCNT(R5),R2	; Get transfer byte count
+	DIVL	#2,R2			; Calculate transfer word count
+	MOVB	#TC_STS_M_SEEK!TC_STS_M_STOP,-
+		UCB$B_TC_STS(R5) 	; Indicate seek, stop at end
+	DEVLOCK	230$			; Interlock and check for powerfail
+	MOVW	R1,TC_BA(R4)		; Load bus address register
+	MNEGW	R2,TC_WC(R4)		; Load word count register
+	MOVW	UCB$W_TC_SEEK(R5),TC_CM(R4) ; Load command register, execute
+	WFIKPCH	230$,#2			; Wait for interrupt and keep channel
+	IOFORK				; Create fork process
+	PURDPR				; Purge datapath, check/clear errors
+	BLBS	R0,220$			; Branch if no datapath error
+	BISB2	#TC_STS_M_DPPE,-	; Set datapath purge error
+		UCB$B_TC_STS(R5)
+	BISW2	#TC_CM_M_ERROR,-	; Force summary error bit on
+		UCB$W_TC_CM(R5)
+;
+; Check for errors and analyze. If we lost position (meaning the short
+; seek code found the drive more than 20 blocks off target), the transfer
+; was aborted. We release the datapath and map registers and go back to
+; the long seek code, so that other seeks in progress can be monitored.
+;
+220$:	BBCC	#TC_STS_V_POSLOST,UCB$B_TC_STS(R5),240$
+	DECB	UCB$B_TC_ROCK(R5)	; Count a try
+	BLEQ	250$			; Branch if out of tries
+	RELDPR				; Release the datapath
+	RELMPR				; and the map registers
+	BRW	100$			; and go back to a long seek
+
+230$:	BRB	280$
+
+240$:	BBS	#TC_CM_V_ERROR,UCB$W_TC_CM(R5),250$
+					; If set, device errors
+	BBC	#UCB$V_DIAGBUF,UCB$W_DEVSTS(R5),270$
+					; If clr, no diagnostic buffer
+250$:	EXTZV	#VEC$V_DATAPATH,-	; Extract datapath number
+		#VEC$S_DATAPATH,-	;     from CRB and save it
+		CRB$L_INTD+VEC$B_DATAPATH(R3),-
+		UCB$W_TC_DPN(R5)	;
+	MOVL	R1,UCB$L_TC_DPR(R5)	; Save datapath register contents
+	EXTZV	#9,#7,UCB$W_TC_BA(R5),R0; Get low bits of final map register number
+	EXTZV	#TC_CM_V_XBA,#TC_CM_S_XBA,UCB$W_TC_CM(R5),R1
+					; Get high bits of final map register number
+	INSV	R1,#7,#2,R0		; Insert high bits of final map register
+	CMPW	#495,R0			; Legal map register number?
+	BGEQ	260$			; If GEQ yes
+	MOVZWL	#495,R0			; Restrict map register number
+260$:	MOVL	(R2)[R0],UCB$L_TC_FMPR(R5) ; Save final map register
+	CLRL	UCB$L_TC_PMPR(R5)	; Clear previous map register contents
+	DECL	R0			; Calculate previous map register number
+	CMPV	#VEC$V_MAPREG,#VEC$S_MAPREG,- ; Any previous map register?
+		CRB$L_INTD+VEC$W_MAPREG(R3),R0 ;
+	BGTR	270$			; If GTR no
+	MOVL	(R2)[R0],UCB$L_TC_PMPR(R5) ; Save previous map register
+270$:	MULW3	#2,UCB$W_TC_WC(R5),UCB$W_BCR(R5) ; Convert word to byte count
+	CLRL	R0
+	ADDW3	UCB$W_BCNT(R5),UCB$W_BCR(R5),R0 ; Compute bytes actually passed
+	DIVL	#512,R0			; Compute block count
+	ADDW	#3,R0			; Add stop distance
+	ADDW	R0,UCB$W_TC_BLOCK(R5) ; Update current block number
+280$:	RELDPR				; Release data path
+	RELMPR				; Release map registers
+RLSCHN:	RELCHAN				; Release channel
+
+;
+; Return registers.
+;
+	.ENABL	LSB
+
+RETREG:					; Return final device registers
+	MOVZWL	UCB$W_TC_ST(R5),R1	; Retrieve control status register
+	MOVZWL	UCB$W_TC_CM(R5),R2	; Retrieve command register
+	BBSC	#UCB$V_POWER,UCB$W_STS(R5),50$ ; If set, power failure
+	BBSC	#UCB$V_TIMOUT,UCB$W_STS(R5),30$ ; If set, device timeout
+	BBC	#TC_CM_V_ERROR,R2,10$	; If clr, no errors
+	JSB	G^ERL$DEVICERR		; Allocate and fill error message buffer
+	BBS	#IO$V_INHRETRY,UCB$W_FUNC(R5),20$ ; If set, retry inhibited
+	BITW	#TC_ST_M_ENDZ!-		; End zone or
+		 TC_ST_M_ILO!-		;     illegal operation or
+		 TC_ST_M_SELE,R1	;     selection error?
+	BNEQ	20$			; If NEQ yes
+;
+; Retriable error exit.
+;
+	CVTBL	@UCB$L_DPC(R5),-(SP)	; Get branch displacement
+	ADDL	(SP)+,UCB$L_DPC(R5)	; Calculate return address - 1
+10$:	INCL	UCB$L_DPC(R5)		; Adjust to correct return address
+	JMP	@UCB$L_DPC(R5)		; Return to driver
+;
+; Fatal controller or drive error exit.
+;
+20$:	BRW	FATALERR		;
+;
+; Device time out. Treat as medium offline, which is the usual cause.
+;
+30$:	JSB	G^ERL$DEVICTMO		; Log device time out
+	MOVZWL	#SS$_MEDOFL,R0		; Return medium offline error
+	MNEGW	UCB$W_BCNT(R5),UCB$W_BCR(R5) ; Reset transfer byte count
+	BRW	FUNCXT			;
+;
+; Power failure.
+;
+50$:	BRW	FDISPATCH		; Restart operation
+
+	.DSABL	LSB
+
+	.SBTTL	TC11-TU56 register dump routine
+;
+; TC_REGDUMP - TC11-TU56 register dump routine
+;
+; This routine is called to save the controller and drive registers in a
+; specified buffer.  It is called from the device error logging routine and
+; from the diagnostic buffer fill routine.
+;
+; Inputs:
+;	R0 = address of register save buffer.
+;	R4 = CSR address.
+;	R5 = UCB address.
+;
+; Outputs:
+;	The controller and drive registers are saved in the specified buffer.
+;
+ 
+TC_REGDUMP:				; TC11-TU56 register dump routine
+	MOVL	#<TC_DT+2+8>/2,(R0)+	; Insert number of device registers
+	MOVAL	UCB$W_TC_ST(R5),R1	; Get address of saved device registers
+	MOVL	#<TC_DT+2>/2,R2		; Set number of registers to move
+10$:	MOVZWL	(R1)+,(R0)+		; Move register to buffer
+	SOBGTR	R2,10$			; Branch if more to move
+	MOVZWL	(R1)+,(R0)+		; Insert datapath number
+	MOVL	(R1)+,(R0)+		; Insert datapath register
+	MOVL	(R1)+,(R0)+		; Insert final map register
+	MOVL	(R1),(R0)+		; Insert previous map register
+	RSB				;
+
+	.SBTTL	Estimate current tape position
+;+
+; TAPE_POS - Estimate current tape position
+;
+; This routine computes an estimate of the current tape position, using
+; its measured speed and last recorded address.
+;
+; Inputs:
+;	R5 = UCB
+;
+; Outputs:
+;	R0 = block address
+;	R1 destroyed
+;-
+
+TAPE_POS:
+	MOVZWL	UCB$W_TC_SPEED(R5),R1	; Get speed to compute position
+	BNEQ	10$			; Branch if valid
+	MOVW	#47,R1			; Else assume average
+10$:	SUBL3	UCB$L_TC_TIME(R5),G^EXE$GQ_SYSTIME,R0 ; Compute time passed
+	DIVL	#10000,R0		; In milliseconds
+	ADDL	#100,R0			; Add stop time
+	DIVL	R1,R0			; Compute how many blocks passed
+	BBC	#TC_CM_V_REV,UCB$W_TC_SEEK(R5),20$ ; Branch if moving forward
+	MNEGL	R0,R0			; Make count neg if reverse
+20$:	ADDW	UCB$W_TC_BLOCK(R5),R0	; Adjust block address
+	BGEQ	30$			; Branch if still positive
+	CLRW	R0			; Backed into end zone - zero it
+30$:	RSB
+
+	.SBTTL	Stop selected drive
+;+
+; STOP_UNIT - Stop selected drive
+;
+; This routine is called to stop a running tape unit.
+;
+; Inputs:
+;	R4 = CSR
+;	R5 = UCB
+;
+; Outputs:
+;	R0 & R1 destroyed
+;-
+
+STOP_UNIT:
+	MOVW	UCB$W_TC_STOP(R5),TC_CM(R4) ; Issue the stop command
+					; If address is valid
+	BBCC	#TC_STS_V_VALID,UCB$B_TC_STS(R5),40$
+	BSBW	TAPE_POS		; Estimate new tape position
+	MOVW	R0,UCB$W_TC_BLOCK(R5)	; And save it
+30$:	CLRW	UCB$W_TC_SPEED(R5)	; Speed is no longer valid
+40$:	BICB	#TC_STS_M_MOVING,UCB$B_TC_STS(R5) ; Clear in motion bit
+	TIMEWAIT  #5,#TC_CM_M_READY,TC_CM(R4),W
+	RSB
+
+	.SBTTL	Stop all moving drives
+;+
+; STOP_MOTION - Stop all moving drives
+;
+; This routine is called as a timer subroutine when the driver has stalled
+; for an extended time in REQDPR or REQMPR. All drives are stopped because
+; the seek timing assumptions have become invalid.
+;
+; Inputs:
+;	R3 = IDB$L_UCBLST in IDB
+;	R4 = CSR
+;	R5 = TQE in active UCB
+;
+; Outputs:
+;	R0 & R1 destroyed
+;-
+
+STOP_MOTION:
+	FORKLOCK SAVIPL=-(SP),PRESERVE=NO ; Get driver fork lock
+	BBCC	#TC_STS_V_TIMER,-	; Clear timer enabled flag
+		UCB$B_TC_STS-UCB$R_TC_TQE(R5),40$
+	PUSHL	R5			; Save R5
+	MOVZWL	IDB$W_UNITS-IDB$L_UCBLST(R3),R0 ; Get count of units
+10$:	MOVL	(R3)+,R5		; Get next UCB address
+	BEQL	30$			; Branch if non-existent unit
+	BBC	#TC_STS_V_MOVING,UCB$B_TC_STS(R5),30$ ; Branch if not seeking
+	BSBW	STOP_UNIT		; Stop the drive
+30$:	SOBGTR	R0,10$			; and loop for all units
+	MOVL	(SP)+,R5		; Restore original UCB
+40$:	FORKUNLOCK NEWIPL=(SP)+,PRESERVE=NO ; Release driver fork lock
+	RSB
+
+	.SBTTL	TC11 DECtape controller interrupt dispatcher
+;+
+; TC$INT - TC11 DECtape controller interrupt dispatcher
+;
+; This routine is entered via a JSB instruction when an interrupt occurs on a
+; TC11 DECtape controller.  The state of the stack on entry is:
+;
+;	00(SP) = address of IDB address.
+;	04(SP) = saved R0.
+;	08(SP) = saved R1.
+;	12(SP) = saved R2.
+;	16(SP) = saved R3.
+;	20(SP) = saved R4.
+;	24(SP) = saved R5.
+;	28(SP) = interrupt PC.
+;	32(SP) = interrupt PSL.
+;
+; Interrupt dispatching occurs as follows:
+;	If the interrupting controller is currently owned and the owner unit is
+;	expecting an interrupt, then that unit is dispatched.  
+;-
+ 
+TC$INT::				; TC11 DECtape controller interrupt dispatcher
+	MOVL	@(SP)+,R3		; Get IDB address
+	MOVL	IDB$L_CSR(R3),R4	; Get CSR address
+	MOVL	IDB$L_OWNER(R3),R5	; Get owner UCB address
+	BEQL	10$			; If zero, no owner
+	DEVICELOCK -			; Take device lock for ISR
+		LOCKADDR=UCB$L_DLCK(R5),-
+		CONDITION=NOSETIPL,-
+		PRESERVE=NO
+	BBCC	#UCB$V_INT,UCB$W_STS(R5),10$ ; If clear, no interrupt expected
+	BBC	#TC_STS_V_SEEK,UCB$B_TC_STS(R5),40$
+					; If clear, no seek in progress
+	CVTWL	TC_CM(R4),R0		; Read command register
+	BLSS	30$			; If LSS, error during seek
+	MOVZWL	TC_DT(R4),R1		; Read data register
+	SUBW3	R1,UCB$W_DA(R5),R2	; See how far we have left to go
+	BBS	#TC_CM_V_REV,R0,50$	; If set, moving in reverse
+	BBS	#TC_STS_V_LONG,UCB$B_TC_STS(R5),60$ ; Branch if long seek
+	BNEQ	60$			; Branch if not there yet
+;
+; We have arrived at the desired block, moving forward, and in short
+; seek mode. Now initiate the transfer.
+;
+	IFPOWERFAIL	40$		; Raise IPL and branch on powerfail
+	ADDL3	#30,G^EXE$GL_ABSTIM,UCB$L_DUETIM(R5) ; Compute new timeout
+	MOVW	R1,UCB$W_TC_BLOCK(R5)	; Save block number read
+	MOVW	UCB$W_TC_XFER(R5),TC_CM(R4) ; Load command register with transfer command
+	BICB2	#TC_STS_M_SEEK,UCB$B_TC_STS(R5) ; Clear seek in progress
+5$:	BISW	#UCB$M_INT,UCB$W_STS(R5) ; Set interrupt expected
+10$:	DEVICEUNLOCK -			; Release device lock
+		LOCKADDR=UCB$L_DLCK(R5),-
+		PRESERVE=NO
+	POPR	#^M<R0,R1,R2,R3,R4,R5>	; Restore registers
+	REI				; Dismiss interrupt
+;
+; To here on errors. Analyze the error and continue if appropriate.
+;
+30$:	MOVL	UCB$L_MAXBLOCK(R5),R1	; Assume we're at end
+	BBC	#TC_CM_V_REV,R0,35$	; Branch if forward
+	CLRL	R1			; Else we're at end
+35$:	SUBW3	R1,UCB$W_DA(R5),R2	; See how far we have left to go
+	CVTWL	TC_ST(R4),R0		; Read status register
+	BLSS	70$			; If LSS, seeked to end zone -- reverse
+	BBS	#TC_STS_V_LONG,UCB$B_TC_STS(R5),40$ ; Branch if long seek
+	BBS	#TC_ST_V_MTE,R0,85$	; If set, mark track error -- ignore
+40$:	BRW	130$			; Fatal seek error
+;
+; Evaluate the block number just read. Turn the tape around if necessary.
+; Note that if turn-around is needed in a long seek, we stop the tape
+; here. This prevents it from coasting in the wrong direction until it is
+; polled next.
+;
+50$:	MNEGW	R2,R2			; In reverse - invert distance
+	ADDW2	#3,R2			; Add turn around bias
+60$:	BGTR	80$			; Br if no turn around necessary
+70$:	DECB	UCB$B_TC_ROCK(R5)	; Count turn arounds
+	BLEQ	40$			; Br if hung
+	XORB2	#TC_CM_M_REV@-8,UCB$W_TC_SEEK+1(R5) ; Complement direction
+	MNEGW	R2,R2			; Make distance positive again
+	CLRW	UCB$W_TC_SPEED(R5)	; Speed is now unknown
+	BICB	#TC_STS_M_VALID!TC_STS_M_MOVING,-
+		UCB$B_TC_STS(R5)	; Position not valid, not moving
+	BISB	#TC_STS_M_STOP,UCB$B_TC_STS(R5) ; Mark for stop
+	BBS	#TC_STS_V_LONG,UCB$B_TC_STS(R5),120$ ; Branch if long seek
+80$:	BBS	#TC_STS_V_LONG,UCB$B_TC_STS(R5),100$ ; Branch if long seek
+;
+; Continue the short seek by re-issuing the read block number command.
+;
+	CMPW	R2,#20			; See if we're more than 20 blocks out
+	BGTRU	90$			; If so, we blew the seek - bail out
+	MOVW	R1,UCB$W_TC_BLOCK(R5)	; Save block number read
+85$:	IFPOWERFAIL	40$		; Raise IPL and branch on powerfail
+	ADDL3	#2,G^EXE$GL_ABSTIM,UCB$L_DUETIM(R5) ; Compute new timeout
+	MOVW	UCB$W_TC_SEEK(R5),TC_CM(R4) ; Load command register
+	BRW	5$
+;
+; To here if we discover that we are more than 20 blocks off target in
+; a short seek. We must abort the seek, because another seeking drive might
+; come due while we are seeking.
+;
+90$:	BISB	#TC_STS_M_POSLOST,UCB$B_TC_STS(R5) ; Flag position lost
+;
+; To here on all long seeks. If we have a valid previous block number,
+; compute the tape speed. Store the new block number and time stamp.
+;
+100$:	MOVL	G^EXE$GQ_SYSTIME,R3	; Get current system time
+	BBCS	#TC_STS_V_VALID,UCB$B_TC_STS(R5),115$ ; Branch if not valid
+	MOVZWL	UCB$W_TC_BLOCK(R5),R0	; Get last block read
+	SUBL	R1,R0			; Compute distance traveled
+	BGTR	110$			; Branch if positive
+	MNEGL	R0,R0			; Take absolute value
+	BEQL	115$			; Branch if hasn't moved
+110$:	SUBL3	UCB$L_TC_TIME(R5),R3,R2	; Compute delta time
+	DIVL	R0,R2			; Compute speed
+	DIVL	#10000,R2		; Convert to milliseconds
+	MOVW	R2,UCB$W_TC_SPEED(R5)	; and store it
+115$:	MOVL	R3,UCB$L_TC_TIME(R5)	; Save time stamp
+120$:	MOVW	R1,UCB$W_TC_BLOCK(R5)	; Save block number read
+;
+; Hardware function completed, by either success, error, or powerfail.
+; Save all controller registers and return to driver.
+;
+130$:	MOVAB	TC_ST(R4),R2		; Get CSR address
+	MOVAB	UCB$W_TC_ST(R5),R3	; Get address of register save area
+	MOVW	(R2)+,(R3)+		; Save control status register
+	MOVW	(R2)+,(R3)+		; Save command register
+	MOVW	(R2)+,(R3)+		; Save word count register
+	MOVW	(R2)+,(R3)+		; Save bus address register
+	MOVW	(R2),(R3)		; Save data buffer register
+	TSTB	UCB$B_TC_ROCK(R5)	; Check if rock count exhausted
+	BLEQ	170$			; Branch if yes - force error
+140$:	BBCC	#TC_STS_V_STOP,-	; Branch if no stop command
+		UCB$B_TC_STS(R5),160$
+	MOVW	UCB$W_TC_STOP(R5),TC_CM(R4)
+					; Stop transport
+160$:	MOVQ	UCB$L_FR3(R5),R3	; Restore driver context
+	JSB	@UCB$L_FPC(R5)		; Call driver at interrupt return
+	BRW	10$			; Branch to dismiss interrupt
+;
+; To here if we run out the rock count. This can happen if the desired
+; block number is unreadable, or if the tape format is confused.
+;
+170$:	BISW	#TC_ST_M_MTE,UCB$W_TC_ST(R5) ; Simulate mark track error
+	BISW	#TC_CM_M_ERROR,UCB$W_TC_CM(R5)
+	BRB	140$			; Stop tape and exit
+
+	.SBTTL	TC11 DECtape controller initialization
+;+
+; TC_TC11_INIT - TC11 DECtape controller initialization
+;
+; This routine is called via a JSB instruction at system startup and after
+; a power recovery restart to allow initialization of TC11 DECtape controllers.
+; 
+; Inputs:
+;	R0 = scratch.
+;	R1 = scratch.
+;	R2 = scratch.
+;	R3 = scratch.
+;	R4 = CSR address.
+;	R5 = IDB address.
+;	All interrupts are locked out.
+;
+; Outputs:
+;	The TC11 controller is initialized.
+;-
+ 
+TC_TC11_INIT:				; TC11 DECtape controller initialization
+	MOVW	#<TC_CM_M_GO!F_SAT>,TC_CM(R4) ; Initialize controller
+	TIMEWAIT  #5,#TC_CM_M_READY,TC_CM(R4),W
+	RSB				; Return
+
+	.SBTTL	TU56 DECtape unit initialization
+;
+; TC_TU56_INIT - TU56 DECtape unit initialization
+;
+; This routine is called at system initialization and at power recovery.
+;
+; Inputs:
+;	R3 = CSR address.
+;	R4 = CSR address.
+;	R5 = UCB address.
+;
+; Outputs:
+;	Unit parameters are established.
+;
+
+TC_TU56_INIT:				; TU56 unit initialization
+	CLRB	UCB$B_TC_STS(R5)	; Initialize status byte
+	BISW2	#UCB$M_ONLINE,UCB$W_STS(R5)
+					; Set unit online
+	BICW2	#UCB$M_VALID,UCB$W_STS(R5)
+					; Set unit software invalid
+;
+; Initialize the TQE at the end of the DECtape UCB.
+;
+	ASSUME	TQE$B_TYPE EQ TQE$W_SIZE+2
+	ASSUME	TQE$B_RQTYPE EQ TQE$B_TYPE+1
+	ASSUME	TQE$L_FR4 EQ TQE$L_FR3+4
+
+	MOVL	#<TQE$C_LENGTH>!-	; Init block prefix & type
+		 <DYN$C_TQE@16>!-
+		 <TQE$C_SSSNGL@24>,-
+		 TQE$W_SIZE+UCB$R_TC_TQE(R5)
+	MOVL	UCB$L_CRB(R5),R3	; Find CRB
+	ADDL3	#IDB$L_UCBLST,CRB$L_INTD+VEC$L_IDB(R3),R3
+					; and UCB list in IDB
+	MOVQ	R3,TQE$L_FR3+UCB$R_TC_TQE(R5)
+	MOVAB	STOP_MOTION,TQE$L_FPC+UCB$R_TC_TQE(R5)
+	RSB				;
+
+TC_END:					; Address of last location in driver
+ 
+	.END

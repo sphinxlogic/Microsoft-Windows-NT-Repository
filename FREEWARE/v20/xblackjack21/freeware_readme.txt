@@ -1,0 +1,64 @@
+XBLACKJACK21, GAMES, Game of blackjack under X Window
+
+
+    Xblackjack is a MOTIF/OLIT
+    based tool constructed to get you ready for the casino.  It
+    was inspired by a book called "Beat the Dealer" by Edward O. Thorp, Ph.D.
+    of UCLA.  A number of important statistics are maintained for display,
+    and used by the program to implement Thorp's "Complete Point System"
+    (high-low system).
+    Harvey Dubner presented the strategy at a panel session of the 1963
+    Fall Joint Computer Conference.
+
+    The COUNT
+    used by the strategy starts at zero after the shuffle.
+    When you see a 2, 3, 4, 5, or 6 you add one to the COUNT.
+    Subtract one when you see a ten, face card, or ace.
+    The 7, 8, and 9 have no effect on the COUNT.
+    When the COUNT is positive your odds are favorable;  you should bet more,
+    and then stand, double down, and split more often.
+
+    The complete system takes the number of uplayed cards into account; a
+    COUNT of 2 in the last hand is better than a COUNT of 2 in the first hand.
+
+    All selections are made using the LEFT
+    mouse button.
+    Bets are placed using the scale labelled "your bet".
+    Choices are made by clicking on the
+    pushbuttons (split, double down, hit, or stand).
+    
+    Game status and results are shown in the message pushbutton
+    below the card area.  Pressing it will reveal the high-low
+    INDEX calculation:
+
+                (COUNT*100)/UNSEEN
+
+    The strategy recommends you bet half the INDEX in favorable situations,
+    and only buy insurance when the INDEX is greater than 8.
+    When  making a choice, the relevant table corresponding to the best
+    choice is revealed too:
+
+
+                Pair Spliting
+
+                Doubling Down
+
+                Drawing or Standing with Hard Hands
+
+                Drawing or Standing with Soft Hands
+
+    Press the message button repeatedly to cycle through the relevant tables.
+    There are separate standing tables for HARD and SOFT hands.  A hand is SOFT
+    if it contains an Ace that can contribute 11 to the total without
+    exceeding 21.  All other hands are HARD.
+
+    When making choices, first decide if you should split (when you can), then
+    whether or not to double down, and finally if you should hit or stand.
+
+    Test the strategy using the slider to the right of the card area.
+    The program will play unattended, until you return the slider to the
+    bottom.  You can stop by pressing the bottom area of the scale to return
+    the slider there immediately, or click on the message pushbutton.
+
+
+   

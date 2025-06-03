@@ -1,0 +1,248 @@
+This is a description of the VMS qi server and how it is different from the 
+CSO implementation.  See the files in the CCSO documentation directory for
+the  base documentation.  A new command (select) and a modified command
+(change) are described at the end of this document.
+
+First, there is no code in common with CCSO.  Second, the file structure is 
+completely different.  Other than that, they're pretty much identical. 
+
+Lets start with the configuration (.cnf) file.  It is similar to the
+prod.cnf CCSO file, except the field numbers are completely different, the
+max size and merge option fields (fields 3 and 5) are ignored but kept for
+CCSO compatability.  It looks like:
+
+2:name:120:Full name.:O:Indexed:Lookup:Public:Default:
+
+Version 1 limits the attributes to Indexed, Lookup, Public and Default.
+Version 2 adds Encrypted, Change, Unique and Localpub attributes.
+
+There are two database files: the index (.index) and the data (.data)
+files.  The index file is a fixed-length indexed file that contains the
+contents of data fields with the Indexed attribute.  It has 3 fields:
+
+Keyword:    30 character keyword (name, etc.) to look up
+Field:      2 digit field number that the keyword came from
+ID:         9 digit foreign key to data file
+
+The primary key is made up of the Keyword+Field+ID fields.
+The secondary key is made up of ID+Field fields.
+
+The data file is a variable-length indexed file that contains the various
+data elements to retrieve.  It has 4 fields:
+
+ID:         9 digit identifier
+Field:      2 digit field number
+Sequence:   2 digit sequence number (00-99, probably can overflow to ZZ)
+Attributes: 1 digit encoded attribute set
+Data:       1-120 characters of data
+
+A single key is made up of the ID+Field+Sequence fields.
+
+The maximum size of a field is 120 x 100 characters, usually organized as
+up  to 100 lines of up to 120 characters each, although clients may add a
+layer of encoding that allows concatenation of records. 
+
+
+Getting started.
+
+The QI_BUILD program expects to see a file in the same format as the data
+file described above.  There are a couple of reasons for this:
+
+* There are going to be lots of raw data file formats and I can only pick one.
+* Programs (such as qi_build) can act on the ASCII file or the .data file.
+* A dump program is not necessary.
+
+The QI_MAKE program will convert most fixed-length field, sequential data 
+files to the QI_BUILD data file format.  QI_MAKE reads a data file 
+(input.QI_MAKE) that describes the input file (input.DAT) format and the 
+translations of fields to field number/data. 
+
+QI_MAKE is described in detail in QI_MAKE.DOC.
+
+
+Procedure to create a database:
+
+The command to run MAKE, read the file INPUT and write the file OUTPUT is
+MAKE := $device:[path]QI_MAKE.EXE
+MAKE INPUT OUTPUT [sequence]
+
+As it runs, QI_MAKE prints the ID number every hundred input records.
+
+
+QI_MAKE creates a data file that has a record format something like:
+81100132701000Tanner Bruce
+
+
+You can then run the build program that will build the .INDEX file with all
+the indexable fields.  If you wish, build will also create the .DATA file
+(although running convert may be faster).
+
+See QI_BUILD.DOC for details.
+
+QI_BUILD reads the field definitions (input.CNF), input data (input.DAT)
+and creates an index file (output.INDEX) and optionally a data file
+(output.DATA).
+
+
+The nameserver uses logical names that must be defined /SYSTEM/EXEC.
+These logical names are not used by QI_MAKE or QI_BUILD.
+
+CSO_CONFIG points to the .CNF file
+CSO_INDEX points to the .INDEX file
+CSO_DATA points to the .DATA file
+CSO_LOG points to the usage log file
+CSO_SITEINFO points to a file that gives the siteinfo output.
+CSO_DOMAIN contains your domain name; the minimum amount of a host address
+           that must match to be considered a local host for 'localpub' fields.
+CSO_APISHR points to QI_API.EXE
+CSO_HELPLIB points to the CSO help file directory root
+CSO_MAILDOMAIN contains your mail domain displayed by the siteinfo command
+
+The nameserver is designed to run as a "inetd" style process under a
+server.  To do this for MultiNet, you run the MultiNet server configuration
+program: 
+
+$ multinet config/server
+SERVER-CONFIG>add cso
+[Adding new configuration entry for service "CSO"]
+Protocol: [TCP] 
+TCP Port number: 105
+Program to run: device:[path]qi.exe
+[Added service CSO to configuration]
+SERVER-CONFIG>exit
+
+You must also perform a RESTART command (or run MULTINET:START_SERVER.COM)
+to restart the MULTINET_SERVER with the new CSO definition.
+
+At this point you should be able to access the namserver via telnet, ph,
+gopher (with the appropriate link entry) or some web browsers. The query
+command semantics are a little different from those of the CCSO nameserver.
+
+There are four 'modes' that the query command will operate under:
+
+1. In 'exact' mode, an indexed field is searched exactly and whatever is
+   found is returned.
+2. In 'approximate' mode, if an exact match fails the field is searched for 
+   any keys that start with the query value.
+3. In 'soundex' mode, if an exact match fails the name field is searched via 
+   a soundex (phoneme hashing) function to return all entries that 'sound 
+   like' the query value.
+4. A combination of 'approximate' and 'soundex' modes.
+
+Name field searches also automatically perform a nickname search.
+
+Approximate searches can be forced by wildcard queries (e.g. 'query a*')
+and soundex searches can be forced by performing a query on the soundex
+field (e.g. 'query soundex=stephen'). 
+
+There are six global mode flags that can be set: approximate, soundex,
+debug, record, wild and remote.  These modes are defined by the SET
+command. SET APPROXIMATE=ON and SET SOUNDEX=ON sets the 'approximate' and
+'soundex' modes described above.  SET DEBUG=ON tells qi to emit internal
+debugging information, SET RECORD=ON tells qi to record all reponses in the
+log file, SET WILD=ON/OFF defines whether non-indexed fields are matched
+partially or exactly (qi.h is sent out with WILD on by default).
+SET REMOTE=ON tells qi to treat the client as non-local even if it passes
+all the local checking; this is for on-behalf-of gateways to deny localpub
+access.
+
+SET command keywords may be abbreviated. 
+SET <flag>=OFF, will reset the mode for all of the flags.
+SET EXACT=ON is a synonym for SET APPROXIMATE=OFF SOUNDEX=OFF.
+
+
+Troubleshooting:
+
+Your client won't work and you swear that you've followed all the
+directions.  Here are some things to check:
+
+1. Run qi interactively and see if you can do a query.
+$ run device:[path]qi.exe
+qi> status
+qi> query some name
+qi> exit
+
+If you have problems in step 1, check your database files contents and
+protections and your CSO_* logical names for exec mode and system table.
+
+2. run qi over a telnet connection.
+$ telnet our.host/port=105
+query some name
+exit
+
+If you have problems with step 2, check your server configuration, qi.exe
+protection.  Have you restarted the server after changing the
+configuration?
+
+3. Use your nameserver client (ph, mail system, etc.) and issue SET DEBUG=ON
+LOG=ON prior to a query and then check the contents of the CSO_LOG file.
+
+
+New command:
+
+Due to the relationship between the index and data files, a unique key (the
+ID) is necessary.  Before an ADD comand may be given, this ID must be
+selected; either directly or from a range of available IDs.
+
+select id
+
+Prepares a subsequent 'add' with an available ID.
+
+Example
+
+    select 812000123
+
+will create any fields made with the next 'add' command with the ID
+81200123.  Selecting an ID of 0 will invalidate any previous 'select'ed ID.
+
+select field=value
+
+Performs a lookup of the entry for 'field' (which must be Unique) which
+contains 'value'.  The value of the field defined in qi.h by CONTROL_FIELD
+(by default field 95, labeled 'next_id') is retrieved for use by the 'add'
+command and then incremented and placed back in the field.
+
+Example
+
+    select alias=control
+
+will get the 'next_id' field (e.g. 1000) for the entry that has the alias
+"control".  This field is then incremented (next_id becomes 1001) and the
+next 'add' command will create an entry with ID 1000.
+
+The 'select field=value' is so useful that it is automated by default.  If
+an 'add' is performed without a valid ID prepared by a 'select', the alias
+field is searched for the value DEFAULT_SELECT (defined in qi.h to be
+"control").
+
+
+Modified command:
+
+The change command has been modified to allow you to set attributes on a
+per-field basis.  This allows you to raise or lower the 'visibility' of a
+specific field instead of the default for a field that is in the
+configuration file.
+
+change [field=]value ... set field=attribute
+
+The "set" clause will apply an attribute to a field instance.  The
+attributes are Public, Local, Suppress, None and Unchanged.  Case is
+ignored and attributes may be abbreviated.
+
+Example
+
+    change alias=joe.smith set phone=local
+
+will only allow display of the joe.smith 'phone' field for local queries.
+
+ Public is analogous to the configuration attribute Public.
+ Local is analogous to the configuration attribute LocalPub.
+ Suppress only allows owner and Hero access.
+ None reverts the field to the default configuration attributes.
+ Unchanged will reset the 'changed' flag and will not modify the other
+ attributes.
+
+ Default is an alias for None.
+
+The configuration file field attribute 'ForcePub' will override the
+per-field attributes and always treat the field as public.

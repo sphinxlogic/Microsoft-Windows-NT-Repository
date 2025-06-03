@@ -1,0 +1,1162 @@
+	.Title	Show_GblSection_Users_Vax
+	.Ident	"V1.0-3"
+
+;
+;	This program will attempt to list all processes on an OpenVMS VAX 
+;	system which are referencing a given System Global Section.
+;
+;                                                                           
+;*                                                                          
+;*      This program is provided AS IS and as such offers no warranty,      
+;*      implied or otherwise by DIGITAL EQUIPMENT CORPORATION or any        
+;*      of it's employees.  Any loss of services or damages incurred by     
+;*      the use of this program are the sole responsibility of those        
+;*      authorizing it's execution.                                         
+;*                                                                          
+;                                                                           
+; 
+;
+;	Author:		Ian Megarity (191107)
+;			Digital MCS Customer Support Centre
+;			Basingstoke  UK
+;	Mail:		Comics::Megarity
+;			megarity@uvo.mts.dec.com
+;
+;	Date:		12-NOV-1993
+;
+;
+;
+;	Revision History
+;
+;	Date		Version		Who
+;	----		-------		---
+;	12-NOV-1993	V1.0		Ian Megarity (191107)
+;
+;	Initial Version.
+;	Many thanks to Rob Hasking for reviewing the code.
+;
+;
+;
+;	28-Feb-1995	V1.0-1		Ian M
+;	
+;	Re-arrange what happens just before exiting the KAST routine to
+;	ensure that the last thing that's done is to wake up the initiating
+;	process.  Previous behaviour was to do the wakeup and then restore
+;	registers before exiting.  Now we restore registers first, then
+;	do the wakeup before exiting.
+;
+;
+;	12-April-1995	V1.0-2		Ian M
+;
+;	Tidy up the code in some areas.
+;
+;
+;
+;	17-Oct-1995	V1.0-3		Ian M
+;
+;	Avoid using LIB$GET_FOREIGN or LIB$GET_INPUT for input so that we can
+;	input lower-case and not have it converted to upper-case automatically.
+;	Also only upcase the input if it does not contain any upper-case
+;	characters. This amendment was needed because the name of one of the
+;	global sections used by Decnet/OSI contains both upper and lower case
+;	characters.
+;	Ensure that the process name in the "Interrogating" message is
+;	padded to 15 characters.
+;	Check the PFN in all valid PTEs to ensure that it's in main memory
+;	and not in I/O space.
+;	Change the FAO macro used from Im$Fao_S to Im$FaoC_S so that there
+;	are fewer .ASCID directives in the program.
+;	Include the current image name in the output when a process is found
+;	to be referencing the given global section.
+;
+;
+;
+;
+;
+;*****************************************************************************
+	.Macro  Im$FaoC_S Ctrstr,P1,P2,P3,P4,P5,P6,P7,P8,P9,P10,-
+			P11,P12,P13,P14,P15, -
+			?Label
+;*****************************************************************************
+;       Note that "Ctrstr" must be defined using the .ASCIC directive.
+;*****************************************************************************
+	.Globl  Sys$Fao, Sys$FaoL
+
+	.Save_Psect     Local_Block
+	.Psect  ImFao$Data      Wrt,NoExe,Ovr,Long
+Fao_Msg'Label':
+	.AsciC  /$FAO failure code returned ... /
+	.Align  Long
+Fao_Msg_Descr'Label':
+Fao_Msg_Length'Label':
+	.Long   0
+Fao_Msg_Address'Label':
+	.Long   0
+Fao_Descr'Label':
+Fao_Length'Label':
+	.Word   1000
+	.Word   0
+Fao_Buffer_Address'Label':
+	.Long   0
+Fao_Buffer'Label':
+	.Blkb   1000
+Fao_Chan'Label':
+	.Word   0
+CtrStr_Descr'Label':
+CtrStr_Length'Label':
+	.Long   0
+CtrStr_Address'Label':
+	.Long   0
+
+	.Restore_Psect
+	MovzbL  Fao_Msg'Label', Fao_Msg_Length'Label'
+	Moval   Fao_Msg'Label'+1,       Fao_Msg_Address'Label'
+	MovzbL  CtrStr,	 CtrStr_Length'Label'
+	Moval   CtrStr+1,       CtrStr_Address'Label'
+	Movw    #1000,  Fao_Length'Label'
+	Moval   Fao_Buffer'Label',      Fao_Buffer_Address'Label'
+	$$T2 = 3
+	.IRP    $$T1,  <P15,P14,P13,P12,P11,-
+			P10,P9,P8,P7,P6,P5,P4,P3,P2,P1>
+		.IF NB $$T1
+			PUSHL   $$T1
+			$$T2=$$T2+1
+		.ENDC
+	.ENDR
+	$Pushadr Fao_Descr'Label',Context=Q
+	$Pushadr Fao_Length'Label',Context=W
+	$Pushadr CtrStr_Descr'Label',Context=Q
+	Calls   #$$T2,G^Sys$Fao
+	Blbs    R0,     Label
+	Pushl   R0
+	Pushaq  Fao_Msg_Descr'Label'
+	Calls   #1,     G^Lib$Put_Output
+	Popl    R0
+	$Exit_S R0
+
+Label:  Pushaq  Fao_Descr'Label'
+	Calls   #1,     G^Lib$Put_Output
+
+	.Endm   Im$FaoC_S
+;*****************************************************************************
+
+
+
+
+	.Library	"Sys$Library:Lib.MLb"
+	.Link		"Sys$System:Sys.Stb"/Selective_Search
+
+	$AcbDef
+	$DdbDef
+	$DynDef
+	$FcbDef
+	$GsdDef
+	$Lib$RoutinesDef
+	$PhdDef
+	$JpiDef
+	$PcbDef
+	$PhdDef
+	$PriDef
+	$PteDef
+	$SecDef
+	$SbDef
+	$StateDef
+	$UcbDef
+	$WcbDef
+
+	.Psect	Ro_Data	Rd,NoWrt,NoExe,Long
+
+	.Align	Long
+W_Ctl_1:
+	.AsciC	"R6:!XL R7:!XL R8:!XL R2:!XL R3:!XL"
+	.Align	Long
+W_Ctl_3:
+	.AsciC	"Exiting from EXEC mode - !ZL entries found."
+	.Align	Long
+;W_Ctl_4:
+;	.Ascid	"!XL !XL !31AC !XL (!ZL,!ZW,!ZB)"
+;	.Align	Long
+W_Ctl_5:
+	.AsciC	"GSD Address is !XL, Vpx: !XL, Ref: !XW, Gstx: !XW!/" -
+		"WCB: !XL, !ZL !XL !ZB (!ZW,!ZW,!ZW) !XL !XL"
+	.Align	Long
+W_Ctl_6:
+;	.AsciC	"Pid: !XL"
+	.AsciC	"Pid: !XL, Sts: !XL  !XL  !XL  !XL"
+;	.AsciC	"Pid: !XL, Image Name: !AS"
+	.Align	Long
+;W_Ctl_7:
+;	.Ascid	"PID of current process is !XL"
+;	.Align	Long
+W_Ctl_8:
+	.AsciC	"Interrogating !15AS (PID !XL) - please wait ... "
+;	.AsciC	"Searching PTEs for PID !XL (!AS) ... "
+;	.AsciC	"Retrieving PTE data for PID !XL (!AS)"
+	.Align	Long
+W_Ctl_9:
+	.AsciC	"Address of allocated ACB is !XL, Swapper PID is !XL"
+	.Align	Long
+W_Ctl_10:
+;	.AsciC	"** PID !XL refers to !AS at PTE !XL, VA: !XL (Sts: !XB) **!/"
+	.AsciC	"** PID !XL refers to !AS at PTE !XL, VA: !XL (Sts: !XB) **!/" -
+		"   Image name: !AS"
+	.Align	Long
+W_Ctl_11:
+	.AsciC	"R6:!XL R7:!XL R8:!XL R9:!XL R11:!XL"
+	.Align	Long
+W_Ctl_12:
+	.AsciC	"!/!_Number of Processes found referencing !AS was !ZL!/"
+	.Align	Long
+W_Ctl_21:
+	.AsciC	"!/Searching GSDs in GSDSYS for !AS ... "
+	.Align	Long
+W_Ctl_22:
+	.Ascid	"$!ZL$!AC!ZW:"
+	.Align	Long
+W_Ctl_23:
+	.Ascid	"!AC$!AC!ZW:"
+	.Align	Long
+W_Ctl_24:
+	.AsciC	"Associated file spec is !AS (!ZL)"
+	.Align	Long
+Susp_Msg:
+	.AsciC	"Process is suspended - ignoring it ... "
+	.Align	Long
+Hiber_Msg:
+	.AsciC	"Hibernating ... "
+	.Align	Long
+Next_Process_Msg:
+	.AsciC	"Calling $GetJpi for next process ... "
+	.Align	Long
+Dealloc_Msg:
+	.AsciC	"Deallocating ACB ... "
+	.Align	Long
+Swapper_Msg:
+	.AsciC	"Ignoring SWAPPER ... "
+
+;	.Align	Long
+;Header_Line:
+;	.Ascid	"Gste     Gsd      Name                            " -
+;		"Ucb      File-Id"
+
+	.Align	Long
+Upper_Chars:
+	.Ascid	"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+
+
+	.Psect	Rw_Data	Wrt,NoExe,Long
+
+In_Fab:
+	$Fab	Fnm=<Sys$Input:>, -
+		Fac=<Get>
+
+In_Rab:
+	$Rab	Fab=In_Fab, -
+		Pbf=Global_Section_Prompt, -
+		Psz=Global_Section_Prompt_Size, -
+		Ubf=Global_Section_Buffer, -
+		Usz=Global_Section_Length, -
+		Rop=<Cco,Pmt,Pta>
+		
+
+Global_Section_Descr:
+Global_Section_Length:
+	.Word	32
+	.Word	0
+	.Address -
+		Global_Section_Buffer
+Global_Section_Buffer:
+	.Blkb	32
+
+	.Align	Long
+Process_Name_Descr:
+Process_Name_Length:
+	.Word	15
+	.Word	0
+	.Address -
+		Process_Name_Buffer
+Process_Name_Buffer:
+	.Blkb	15
+
+	.Align	Long
+Global_Section_Prompt:
+	.Ascii	"Name of Global Section : "
+Global_Section_Prompt_Size = . - Global_Section_Prompt
+
+	.Align	Long
+Sec_RefCnt:
+	.Long	0
+Sec_Wcb:
+	.Long	0
+Sec_AlloClass:
+	.Long	0
+Sec_Dev:
+	.Long	0
+Sec_Unit:
+	.Long	0
+Sec_Fid:
+	.Long	0
+	.Long	0
+Sec_Node:
+	.Long	0
+	.Long	0
+Acp_Status:
+	.Long	0
+
+Dev_Descr:
+Dev_Length:
+	.Long	32
+	.Address -
+		Dev_Buffer
+Dev_Buffer:
+	.Blkb	32
+
+	.Align	Long
+File_Spec_Descr:
+File_Spec_Length:
+	.Long	64
+	.Address -
+		File_Spec_Buffer
+File_Spec_Buffer:
+	.Blkb	64
+
+	.Align	Long
+Arg_List_1:
+	.Long	12
+	.Address -
+		Global_Section_Descr
+	.Address -
+		Our_Acb + Acb_L_Gsd
+	.Address -
+		Our_Acb + Acb_L_Vpx
+	.Address -
+		Sec_RefCnt
+	.Address -
+		Our_Acb + Acb_L_Gstx		; Sec_Gstx
+	.Address -
+		List_Head_Address
+	.Address -
+		Sec_Wcb
+	.Address -
+		Sec_AlloClass
+	.Address -
+		Sec_Dev
+	.Address -
+		Sec_Unit
+	.Address -
+		Sec_Fid
+	.Address -
+		Sec_Node
+
+
+	.Align	Long
+Arg_List_2:
+	.Long	6
+Current_Pid:
+	.Long	0				; Arg 1.
+	.Address -				; Arg 2.
+		Our_Acb_Address
+Current_Pte:
+	.Long	0				; Arg 3.
+	.Address -				; Arg 4.
+		Our_Acb + Acb_L_Status
+	.Address -				; Arg 5.
+		Our_Acb + Acb_L_Pte_Count
+Current_Va:
+	.Long	0
+
+
+	.Align	Long
+Arg_List_3:
+	.Long	4
+	.Address -
+		Our_Acb
+	.Long	Our_Acb_Length
+Our_Acb_Address:
+	.Long	0
+Swapper_Epid:
+	.Long	0
+List_Head_Address:
+	.Long	0
+
+Jpi_Item_List:
+	.Word	4
+	.Word	Jpi$_Pid
+	.Address -
+		Current_Pid
+	.Long	0
+
+	.Word	63
+	.Word	Jpi$_ImagName
+	.Address -
+		Image_Name_Buffer
+	.Address -
+		Image_Name_Length
+
+	.Word	15
+	.Word	Jpi$_PrcNam
+	.Address -
+		Process_Name_Buffer
+	.Address -
+		Process_Name_Length
+
+	.Word	4
+	.Word	Jpi$_Sts
+	.Address -
+		Process_Sts
+	.Long	0
+
+	.Word	4
+	.Word	Jpi$_State
+	.Address -
+		Process_State
+	.Long	0
+
+
+	.Long	0			; Item List terminator.
+
+
+Jpi_Item_List_2:
+	.Word	4
+	.Word	Jpi$_Pid
+	.Address -
+		Current_Pid
+	.Long	0
+
+	.Long	0			; Item List terminator.
+
+
+
+
+	.Align	Long
+Process_Sts:
+	.Long	0
+Process_State:
+	.Long	0
+
+Image_Name_Descr:
+Image_Name_Length:
+	.Word	63
+	.Word	0
+	.Address -
+		Image_Name_Buffer
+Image_Name_Buffer:
+	.Blkb	63
+
+	.Align	Long
+
+All_Pids:
+	.Long	-1
+;	.Long	^X22200090		; SMISERVER ...
+Jpi_Iosb:
+	.Long	0
+	.Long	0
+Process_Count:
+	.Long	0
+
+
+;
+;
+;	What follows is the ACB plus other data that's going to be used
+;	to get the relevant data back from the target process.
+;
+Our_Acb:
+	$Defini	Acb,,Acb$K_Length
+	$Def	Acb_L_MyPid	.Long	0
+	$Def	Acb_L_Gsd	.Long	0
+	$Def	Acb_L_Vpx	.Long	0
+	$Def	Acb_L_Gstx	.Long	0
+	$Def	Acb_L_Pte_Count	.Long	0
+	$Def	Acb_L_Status	.Long	0
+	$Def	Acb_L_Va	.Long	0
+	$Def	Acb_L_Pte	.Blkl	16
+	Acb_L_Code_Start	= .
+	$Defend
+
+	.Blkb	Acb_L_Code_Start
+
+
+Code_Start	= .
+;
+;
+;	Here's the AST code that will be executed by each of the target
+;	processes as a Special Kernel mode AST.
+;	All it does is get the target process to search it's own PTEs for
+;	references to the given GSD.
+;
+;	Also, bear in mind that on entry to a Special Kmode AST, R5 will
+;	contain the address of the ACB.
+;
+;	First of all, save registers R6 to R11.
+;	Also please note that we don't need to save R0 thru R5 since they've
+;	already been saved on the stack by the ASTDEL code.
+;
+;
+	Pushr	#^M<R6,R7,R8,R9,R10,R11>
+
+	Movl	G^Ctl$Gl_Pcb,	R6		; R6 <- PCB address.
+	Movl	Pcb$L_Phd(R6),	R6		; R6 <- PHD address.
+
+	Movl	#Ss$_Normal,	Acb_L_Status(R5)
+	Clrl	Acb_L_Pte(R5)
+
+	Movl	Phd$L_FreP0Va(R6),	R1
+	Ashl	#-9,  R1, 	R1		; R1 <- # of P0 PTEs.
+	Ashl	#2,	R1, 	R1		; R1 <- Size of P0 PTE region.
+	Addl2	Phd$L_P0Br(R6),	R1		; R1 <- End VA of P0 PTE region.
+
+	Movl	Phd$L_FreP1Va(R6), R11
+	Subl3	R11, #^X7FFFFE00,	R11
+	Ashl	#-9,	R11,	R11		; Convert it to PTEs.
+	Ashl	#2,	R11,	R11		; Convert it to bytes.
+	Ashl	#9,  G^Swp$Gl_BSlotSz,	R0	; Balance slot size in bytes.
+	Subl3	R11,	R0,	R11		; R11 <- distance of start
+						; of P1 PTEs from start of PHD.
+	Addl2	R6,	R11			; Add on PHD address to get 
+						; start VA of P1 PTEs in R11.
+
+	Movl	Acb_L_Pte_Count(R5),	R7
+	Movl	G^Pfn$Al_Pte,	R9		; R9 <- PTE array start address.
+	Movl	Acb_L_Vpx(R5),	R10
+	Movl	Acb_L_Gstx(R5),	R2
+	Movl	Phd$L_P0br(R6),	R6		; R6 <- start of P0 PTEs.
+	Clrl	R0
+;
+;
+;	Here we go loop the loop ...
+;
+;
+10$:	Movl	(R6),	R3			; Move next PTE into R3.
+	Beql	900$				; Skip if Zero.
+	Bbc	#Pte$V_Valid, R3, 20$		; Valid bit set ?
+	Brw	200$
+
+20$:						; PTE is invalid.
+
+	Bbc	#Pte$V_Typ1, R3, 30$		; If Typ1 bit clear ?
+	Brw	900$
+
+30$:	Bbs	#Pte$V_Typ0, R3, 40$		; Is Typ0 bit set ?
+	Brw	900$
+
+40$:
+	CmpzV	#Pte$V_Gptx, #Pte$S_Gptx, R3, R10	; Compare the GPTX.
+
+	Beql	50$				; Yes !!
+	Brw	900$				; If not, then move onto 
+						; next PTE.
+
+50$:	Movl	R6,	Acb_L_Pte(R5)		; We have a match.
+;	Ashl	#9, R0,	Acb_L_Va(R5)
+;	Movl	R1,	Acb_L_Va(R5)
+	Clrl	Acb_L_Status(R5)
+	Brw	950$
+
+
+200$:						; PTE is valid.
+	Extzv	#0, #21, R3,	R8		; Extract the PFN and put
+						; it in R8.
+	Cmpl	R8,	G^Mmg$Gl_MaxPfn		; Is the PFN within range ?
+	BleqU	210$				; Yes, then continue.
+	Brb	900$				; No, then ignore it.
+
+210$:	Movl	(R9)[R8],	R8		; Move PTE array element
+						; into R8.
+	Subl2	G^Mmg$Gl_Gptbase,	R8
+	Ashl	#-2,	R8, R8
+
+	Cmpl	R8,	R10			; Is it the same as the VPX ?
+	Bneq	900$				; No.
+	Movl	R6,	Acb_L_Pte(R5)		; Yes - We have a match.
+	Movl	#2,	Acb_L_Status(R5)
+	Brw	950$
+
+
+900$:	SobGtr	R7,	910$
+	Brw	990$
+
+910$:
+	Addl2	#4,	R6
+	Incl	R0			; Increment PTE count.
+	Cmpl	R6,	R11		; If it's a P1 PTE, then go get next one.
+	BgtrU	920$
+	Cmpl	R6,	R1		; If a P0 PTE, then go get next one.
+	BleqU	920$
+;
+;
+;	If we've got this far, then we're in "No-Mans Land", ie in the 
+;	currently un-used region between the P0 PTEs and the P1 PTEs.
+;	Since none of these are in use, there's no point in processing them
+;	so let's just skip to the start of the P1 PTEs.
+;
+
+	Subl3	R1,  R11,  R4		; Compute size of "No-Mans Land"
+					; region in bytes and store it in R4.
+	Ashl	#-2,	R4,	R4	; Convert it to PTEs.
+	Subl2	R4,	R7		; Subtract this number from the number
+					; of PTEs that are yet to be processed.
+	Addl2	R4,	R0		; Add it to R0.
+	Movl	R11,	R6		; Finally, update the current PTE
+					; address to reflect the fact that
+					; we're now processing P1 PTEs.
+
+920$:
+	Brw	10$
+
+950$:
+					; We get here if a match has been found.
+					; Now we must work out the VA.
+	Cmpl	R6,	R1		; Is it a P0 PTE ?
+	BgtrU	960$
+	Ashl	#9,	R0,	Acb_L_Va(R5)
+	Brw	990$
+
+960$:						; Ok, so it's a P1 PTE.
+	Subl3	R0, Acb_L_Pte_Count(R5),  R4
+	Ashl	#9, 	R4,	R4		; Convert it to a VA.
+	Subl3	R4,  #^X7FFFFE00, Acb_L_Va(R5)
+
+
+;
+;	Before exiting, let's restore the registers that were saved when we
+;	entered this routine. Then all that remains to be done is wake up
+;	the initiating process.
+;
+990$:
+	Popr	#^M<R6,R7,R8,R9,R10,R11>
+
+	Movl	Acb_L_MyPid(R5),R1
+	Lock	Lockname=Sched, -
+		SavIpl=-(Sp), -
+		Preserve=Yes
+	Jsb	G^Sch$Wake
+	UnLock	Lockname=Sched, -
+		NewIpl=(Sp)+, -
+		Condition=RESTORE
+
+	Rsb
+Code_End:
+
+Our_Acb_Length = . - Our_Acb
+
+
+
+	.Psect	Code	Exe,NoWrt
+	.Entry	Show_GblSection_Users_Vax, ^M<>
+
+;
+;	Get the PID of the current process.
+;
+	$GetJpiW_S -
+		Efn=#16, -
+		ItmLst = Jpi_Item_List_2, -
+		Iosb = Jpi_Iosb
+	Blbs	R0,	1$
+	Ret
+
+1$:	Movzwl	Jpi_Iosb,	R0
+	Blbs	R0,	2$
+	Ret
+
+2$:	Movl	Current_Pid,	Our_Acb + Acb_L_MyPid
+
+3$:	Movw	#32,	Global_Section_Length
+
+	$Open	Fab=In_Fab
+	Blbs	R0,	4$
+	Ret
+
+4$:	$Connect Rab=In_Rab
+	Blbs	R0,	5$
+	Ret
+
+5$:	$Get	Rab=In_Rab
+	Blbs	R0,	6$
+	Ret
+
+6$:	Movw	In_Rab + Rab$W_Rsz,	Global_Section_Length
+
+;	$Lib_Get_Foreign_S -
+;		Global_Section_Descr, -
+;		Global_Section_Prompt, -
+;		Global_Section_Length
+	Blbs	R0,	10$
+	Cmpl	R0,	#Rms$_Eof
+	Bneq	7$
+	Movl	#Ss$_Normal,	R0
+
+7$:	Ret
+
+10$:
+	Tstw	Global_Section_Length
+	Bneq	15$
+	Brw	3$
+
+15$:	Pushaq	Upper_Chars
+	Pushaq	Global_Section_Descr
+	Calls	#2,	G^Str$Find_First_In_Set
+	Tstl	R0
+	Bneq	20$			; Some upper case chars found, so 
+					; let's leave the input string alone.
+	Pushaq	Global_Section_Descr	; Otherwise, if no upper case characters
+	Pushaq	Global_Section_Descr	; were found, then upcase the lot.
+	Calls	#2,	G^Str$UpCase
+
+20$:
+;	$Lib_Put_Output_S -
+;		Global_Section_Descr
+
+;
+;
+;	The Global Section ListHead addresses are :-
+;
+;		EXE$GL_GSDSYSGL - System list.
+;		EXE$GL_GSDGRPFL - Group list.
+;		EXE$GL_GSDDELFL - Delete-Pending list.
+;
+;
+;	So, if one wanted to process the Delete-Pending Global section list
+;	instead of the System list, all one has to do is modify the following
+;	line so it uses EXE$GL_GSDDELFL instead of EXE$GL_GSDSYSGL.
+;
+;
+;
+
+	Moval	G^Exe$Gl_GsdSysFl,	List_Head_Address
+
+;----------------------------------------------------------------------
+
+	Im$FaoC_S -
+		CtrStr=W_Ctl_21, -
+		P1=#Global_Section_Descr
+	$CmExec_S -
+		Routin=Get_Gsd_Info, -
+		ArgLst=Arg_List_1
+	Blbs	R0,	30$
+	Ret
+
+30$:
+	Tstl	Sec_Wcb			; Do we have a real WCB or not ?
+	Bneq	35$
+	Brw	57$
+
+35$:	Movl	Sec_AlloClass,	R10
+	Beql	40$
+	Moval	W_Ctl_22,	R9
+	Brw	50$
+
+40$:	Moval	W_Ctl_23,	R9
+	Moval	Sec_Node,	R10
+
+50$:	$Fao_S -
+		CtrStr=(R9), -
+		OutLen=Dev_Length, -
+		OutBuf=Dev_Descr, -
+		P1=R10, -
+		P2=#Sec_Dev, -
+		P3=Sec_Unit
+
+;	$Lib_Put_OutPut_S -
+;		Dev_Descr
+
+	Pushal	Acp_Status
+	Pushl	#0
+	Pushal	File_Spec_Length
+	Pushal	File_Spec_Descr
+	Pushal	Sec_Fid
+	Pushal	Dev_Descr
+	Calls	#6, G^Lib$Fid_To_Name
+	Blbs	R0,	55$
+	Ret
+
+55$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_24, -
+		P1=#File_Spec_Descr, -
+		P2=Sec_RefCnt
+
+57$:
+;	Im$FaoC_S -
+;		CtrStr=W_Ctl_5, -
+;		P1=Our_Acb+Acb_L_Gsd, -
+;		P2=Our_Acb+Acb_L_Vpx, -
+;		P3=Sec_RefCnt, -
+;		P4=Our_Acb+Acb_L_Gstx, -
+;		P5=Sec_Wcb, -
+;		P6=Sec_AlloClass, -
+;		P7=Sec_Dev, -
+;		P8=Sec_Unit, -
+;		P9=Sec_Fid, -
+;		P10=Sec_Fid+2, -
+;		P11=Sec_Fid+4, -
+;		P12=Sec_Node
+
+
+	$Cmkrnl_S -
+		Routin=Setup_Acb, -
+		ArgLst=Arg_List_3
+	Blbs	R0,	60$
+	Ret
+
+60$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_9, -
+		P1=Our_Acb_Address, -
+		P2=Swapper_Epid
+
+;
+;
+;	It's at this point that we start to go through all processes on the
+;	system and fire a KAST at each one in order to find which ones have
+;	an interest in a particular global section.
+;
+100$:
+;	Im$FaoC_S -
+;		Next_Process_Msg
+	$GetJpiW_S -
+		Efn=#16, -
+		PidAdr = All_Pids, -
+		ItmLst = Jpi_Item_List, -
+		Iosb = Jpi_Iosb
+	Blbc	R0,	105$
+	Brw	130$
+
+105$:	Cmpw	R0,	#Ss$_Suspended		; May not be able to ignore !!
+	Beql	107$
+	Brw	110$
+
+107$:	Im$FaoC_S -
+		Susp_Msg
+	Brw	100$
+
+110$:	Cmpw	R0,	#Ss$_NoMoreProc
+	Beql	120$
+	Ret
+
+120$:	Brw	900$
+
+130$:	Movzwl	Jpi_Iosb,	R0
+	Blbs	R0,	140$
+	Ret
+
+140$:	Cmpl	Current_Pid,	Swapper_Epid
+	Beql	142$
+	Brw	145$
+
+142$:	Im$FaoC_S -
+		Swapper_Msg
+	Brw	100$
+
+145$:	Im$FaoC_S -
+		CtrStr=W_Ctl_8, -
+		P1=#Process_Name_Descr, -
+		P2=Current_Pid
+	$CmKrnl_S -
+		Routin=Search_Proc_Ptes, -
+		ArgLst=Arg_List_2
+	Blbs	R0,	150$
+	Ret
+
+150$:
+;	Im$FaoC_S -
+;		Hiber_Msg
+
+	$Hiber_S
+
+	$CmKrnl_S -
+		Routin=Retrieve_Data, -
+		ArgLst=Arg_List_2
+	Blbs	R0,	160$
+	Ret
+
+160$:
+;	Im$FaoC_S -
+;		CtrStr=W_Ctl_6, -
+;		P1=Current_Pid, -
+;		P2=Process_Sts, -
+;		P3=Current_Pte, -
+;		P4=Sec_Status, -
+;		P5=Sec_Pte_Count
+
+	Movl	Our_Acb + Acb_L_Status,	R0
+	Blbc	R0,	170$
+	Brw	180$	
+
+170$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_10, -
+		P1=Current_Pid, -
+		P2=#Global_Section_Descr, -
+		P3=Current_Pte, -
+		P4=Current_Va, -
+		P5=Our_Acb+Acb_L_Status, -
+		P6=#Image_Name_Descr
+
+	Incl	Process_Count
+180$:
+	Brw	100$
+
+;----------------------------------------------------------------------
+
+900$:
+	Im$FaoC_S -
+		CtrStr=W_Ctl_12, -
+		P1=#Global_Section_Descr, -
+		P2=Process_Count
+;	Im$FaoC_S -
+;		Dealloc_Msg
+	$Cmkrnl_S -
+		Routin=Dealloc_Acb, -
+		ArgLst=Arg_List_3
+	Blbs	R0,	910$
+	Ret
+
+910$:
+
+
+
+999$:
+	Ret
+
+
+	.Entry	Search_Proc_Ptes, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Epid		= 4		; External PID (Value).
+	Acb_Adr		= 8		; ACB address in pool (Reference).
+
+	Movab	G^Exe$SigToRet,	(Fp)
+
+	Movl	Epid(Ap),	R0
+	Jsb	G^Exe$Epid_To_Ipid
+	Tstl	R0
+	Bneq	10$
+	Movl	#Ss$_NoSuchDev,	R0
+	Brw	999$
+
+10$:
+	Movl	@Acb_Adr(AP),	R5
+	Movb	#<Acb$M_Kast!Acb$M_NoDelete>, -	; Make it a special KAST whose
+			Acb$B_Rmod(R5)		; ACB doesn't get deleted.
+	Movl	R0,	Acb$L_Pid(R5)
+	Movl	#Pri$_TiCom,	R2
+	Jsb	G^Sch$Qast
+
+999$:
+	Ret
+
+
+
+	.Entry	Retrieve_Data, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Epid		= 4		; External PID (Value).
+	Acb_Adr		= 8		; ACB address in pool (Reference).
+	W_Pte		= 12		; Pte (Value).
+	W_Status	= 16		; Status (Reference).
+	W_Pte_Count	= 20		; Pte count (Reference).
+	W_Va		= 24		; Process VA at which the Global 
+					; section is mapped.
+
+	Movab	G^Exe$SigToRet,	(Fp)	; Set up a condition handler.
+
+	Movl	@Acb_Adr(Ap),	R5
+	Movl	Acb_L_Pte(R5),	W_Pte(Ap)
+	Movl	Acb_L_Status(R5),	@W_Status(Ap)
+	Movl	Acb_L_Pte_Count(R5),	@W_Pte_Count(Ap)
+	Movl	Acb_L_Va(R5),	W_Va(Ap)
+
+999$:
+	Movl	#Ss$_Normal,	R0
+	Ret
+
+
+
+	.Entry	Get_Gsd_Info, ^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+
+	Gbl_Name	= 4
+	Gsd_Addr	= 8
+	Vpx		= 12
+	Ref_Cnt		= 16
+	Gstx		= 20
+	List_Head	= 24
+	Wcb		= 28		; Passed back by REF.
+	AlloClass	= 32
+	Dev		= 36
+	Unit_Num	= 40
+	File_Id		= 44
+	Node_Name	= 48		; Passed back by REF.
+
+	Movab	G^Exe$SigToRet,	(Fp)	; Set up a condition handler.
+
+	Movl	Gbl_Name(Ap),	R9	; Address of descr in R9.
+	Movl	4(R9),	R10		; Address of data in R10
+	Movzwl	(R9),	R9		; Length of data in R9.
+
+	Movl	@List_Head(Ap),	R6
+	Movl	R6,		R7
+
+	Clrl	R4				; Clear counter.
+
+10$:	Movl	(R6),	R6
+	Cmpl	R6,	R7			; Have we reached the end yet ?
+	Bneq	20$
+	Movl	#Ss$_NoSuchSec,	R0
+	Brw	900$
+
+20$:	Incl	R4
+	Cmpb	Gsd$T_GsdNam(R6),	R9	; Is the name the
+	Bneq	10$				; correct length ?
+	Cmpc3	R9, -
+		Gsd$T_GsdNam+1(R6),	(R10)	; Is it the correct name ?
+	Bneq	10$
+
+	Movl	R6,	@Gsd_Addr(Ap)
+
+
+30$:	Cvtwl	Gsd$W_Gstx(R6),	R8	; Extract the GSTE from the GSD.
+	Movl	R8,	@Gstx(Ap)
+	Mnegl	R8,	R8		; Change it's sign from -ve to +ve.
+	Ashl	#2,	R8,	R8	; Convert it from longword
+					; index to byte index.
+
+	Movl	G^Mmg$Gl_SysPhd,	R2
+	Movl	Phd$L_PstBasoff(R2),	R3
+	Addl2	R3,	R2			; R2 now points at the end of
+						; the Global Section Table.
+
+	Subl2	R8,	R2		; R2 now points to the Global
+					; Section Table Entry that we're
+					; interested in.
+
+	Movl	Sec$L_Gsd(R2),		R9
+
+	Extzv	#0, #22, Sec$L_VpxPfc(R2), R3
+
+	Movl	R3,	@Vpx(Ap)
+	Movl	Sec$L_RefCnt(R2),	@Ref_Cnt(Ap)
+	Divl2	Sec$L_PagCnt(R2),	@Ref_Cnt(Ap)
+
+	Movl	Sec$L_Window(R2),		@Wcb(Ap)
+
+	Movl	Sec$L_Window(R2),	R2	; WCB address in R2.
+	Beql	800$
+	Movl	Wcb$L_OrgUcb(R2),	R3	; UCB address in R3.
+	Movl	Wcb$L_Fcb(R2),		R2	; FCB address in R2.
+	Movl	File_Id(Ap),		R6
+
+	Movl	Fcb$W_Fid(R2),		(R6)+
+	Movw	Fcb$W_Fid_Rvn(R2),	(R6)
+
+	Movw	Ucb$W_Unit(R3),		@Unit_Num(AP)
+	Movl	Ucb$L_Ddb(R3),		R3
+	Movl	Ddb$T_Name(R3),		@Dev(Ap)
+
+	Movl	Ddb$L_AlloCls(R3),	@AlloClass(Ap)	
+
+	Movl	Ddb$L_Sb(R3),		R3
+	Beql	800$
+
+	Movl	Node_Name(Ap),		R6
+	Movl	Sb$T_NodeName(R3),	(R6)+
+	Movl	Sb$T_NodeName+4(R3),	(R6)
+	
+
+;	Im$FaoC_S -
+;		CtrStr=W_Ctl_1, -
+;		P1=R6, -
+;		P2=R7, -
+;		P3=R8, -
+;		P4=R2, -
+;		P5=R3
+
+
+800$:	Movl	#Ss$_Normal,	R0
+
+900$:
+
+;	Im$FaoC_S -
+;		CtrStr=W_Ctl_3, -
+;		P1=R4
+
+	Ret
+
+
+	.Entry	Setup_Acb, ^M<R2,R3,R4,R5,R6,R7,R8>
+
+	W_Acb		= 4		; Passed in by REF.
+	W_Acb_Size	= 8		; Passed in by VALUE.
+	W_Acb_Address	= 12		; Passed back by VALUE.
+	W_Swap_Epid	= 16		; Passed back by VALUE.
+
+	Movab	G^Exe$SigToRet,	(Fp)
+
+	Movl	W_Acb(Ap),	R6
+	Movl	W_Acb_Size(Ap),	R7
+	Movw	R7,	Acb$W_Size(R6)
+	Movb	#<Acb$M_Kast!Acb$M_NoDelete>, -	; Make it a special KAST whose
+			Acb$B_Rmod(R6)		; ACB doesn't get deleted.
+
+	Movl	Acb_L_MyPid(R6), R0
+	Jsb	G^Exe$Epid_To_Ipid
+	Movl	R0,	Acb_L_MyPid(R6)
+	Jsb	G^Exe$Ipid_To_Pcb
+	Tstl	R0
+	Blss	5$
+	Ret
+
+5$:	Movl	Pcb$L_Phd(R0),	R3
+	Movl	Phd$L_P0Br(R3),	R4
+
+;	Movl	G^Swp$Gl_BSlotSz, R2	; R2 = Balance slot size in pages.
+;	Ashl	#9, R2, R2		; R2 = Balance slot size in bytes.
+
+	Ashl	#9, G^Swp$Gl_BSlotSz, R2 ; R2 = Balance slot size in bytes.
+	Addl3	R2, R3, R5		; R5 = address of start of next
+					; balance slot.
+	Subl2	R4,	R5		; R5 = size of PTE region in bytes.
+	Ashl	#-2, R5, R5		; R5 = number of PTEs.
+	Movl	R5,	Acb_L_Pte_Count(R6)
+
+	Movl	R7,	R1
+	Jsb	G^Exe$AloNonPaged
+	Blbs	R0,	10$
+	Ret
+
+10$:
+	Movw	R1,	Acb$W_Size(R6)
+	Movl	R2,	R8
+	Pushr	#^M<R0,R1,R2,R3,R4,R5>
+	Movc3	R7, (R6), (R8)			; Copy all the data to pool.
+	Popr	#^M<R0,R1,R2,R3,R4,R5>
+	Moval	Acb_L_Code_Start(R2),	Acb$L_Kast(R2)
+	Movl	R2,	W_Acb_Address(Ap)
+	Movb	#Dyn$C_Acb,	Acb$B_Type(R2)	; Update the TYPE field.
+
+;
+;	Finally, let's get the SWAPPER's EPID and pass it back.
+;
+	Movl	G^Sch$GL_SwpPid,	R0
+	Jsb	G^Exe$Ipid_To_Epid
+	Movl	R0,	W_Swap_Epid(Ap)
+
+	Movzwl	#Ss$_Normal,	R0
+	Ret
+
+
+	.Entry	Dealloc_Acb, ^M<R2,R3,R4,R5,R6,R7,R8>
+
+	W_Acb		= 4		; Passed in by REF.
+	W_Acb_Size	= 8		; Passed in by VALUE.
+	W_Acb_Address	= 12		; Passed back by VALUE.
+
+	Movab	G^Exe$SigToRet,	(Fp)
+
+	Movl	W_Acb_Address(Ap),	R0
+	Jsb	G^Exe$DeaNonPaged
+
+	Movl	#Ss$_Normal,	R0
+	Ret
+
+
+	.End	Show_GblSection_Users_Vax

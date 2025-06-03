@@ -1,0 +1,51 @@
+# --------------------------------------------
+# A simple PROC file
+# Jason Ng, NCSA Dec 1993
+# Detailed description found in proc-fmt.html.
+# --------------------------------------------
+
+HEADING   <H2> A Simple GSQL Proc File example </H2>;
+TEXT <IMG SRC=http://base.ncsa.uiuc.edu:1234/strip.gif>;
+
+SUB user WHERELIST AS helpdeskdb..user.logon like '$';
+SHOW user TITLE "Ticket User<p>" FIELD;
+
+SUB subject WHERELIST AS upper(helpdeskdb..ticket.subject) like upper('%$%');
+SHOW subject TITLE "Ticket subject<p>" FIELD;
+TEXT (eg, try <i> meeting </i> );
+
+
+SUB in_mthopen WHERELIST AS convert(char(13),helpdeskdb..ticket.open_date,1) 
+			like '$/%';
+SHOW  in_mthopen TITLE "for which month?<p>" PULLDOWN
+         , 01,02,03,04,05,06,07,08,09,10,11,12;
+
+#------------------------------------------------------- 
+
+SUB rticket     SELECTLIST AS helpdeskdb..ticket.ticket;
+SUB rrecipient  SELECTLIST AS helpdeskdb..recipient.recipient_name;
+SUB rsubject    SELECTLIST AS helpdeskdb..ticket.subject;
+SUB ruser       SELECTLIST AS helpdeskdb..user.logon;
+SUB ropen_date  SELECTLIST AS convert(char(12),helpdeskdb..ticket.open_date,1);
+SUB ropen_name  SELECTLIST AS 
+			( clientdb..client.last_name+','+clientdb..client.first_name);
+
+SUB  _displaylist    SELECTLIST AS $;
+SHOW _displaylist    TITLE  "Select field(s) to see:" SCROLL 
+      rsubject,  rticket, rrecipient, ruser, ropen_date, ropen_name;
+
+#------------------------------------------------------- 
+
+SQLPROG  /afs/ncsa.uiuc.edu/.u9/likkai/sybase/src/sqlmain;
+
+FROMLIST  helpdeskdb..ticket , helpdeskdb..user, helpdeskdb..recipient, 
+           clientdb..client;
+WHERELIST helpdeskdb..ticket.uid = helpdeskdb..user.uid and 
+			 helpdeskdb..ticket.opened_by = clientdb..client.client_id and 
+			 helpdeskdb..ticket.recipient_id = helpdeskdb..recipient.recipient_id;
+
+DEFINE  LOGIN whoever;
+DEFINE  PASSWORD whatever;
+DEFINE  SYBASE_ENV SYBASE=/usr/local/sybase;
+
+

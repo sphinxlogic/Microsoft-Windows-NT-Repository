@@ -1,0 +1,2741 @@
+%TITLE	'SEND_DECNET'
+MODULE send_decnet(
+	MAIN		= main,
+	IDENT		= 'V1.0-2',
+	ADDRESSING_MODE(EXTERNAL	= GENERAL,
+			NONEXTERNAL	= WORD_RELATIVE)) =
+BEGIN
+!++
+!
+! Facility:	SEND_DECNET
+! Author:	Darrell Burkhead
+!		COPYRIGHT © 1994, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+! Date:		February 24, 1994
+!
+! Abstract:
+!
+!	This program is based on the JNet SEND command for interactive
+!	messages (but not for files).  It can be used to send messages to
+!	local users and to other users in a VMScluster (if a SEND server
+!	process is running on the remote system).
+!
+!	Note: In many cases, virtual memory deallocation is left to image
+!	      rundown, especially in cases where an error is detected that
+!	      will cause the program to exit.
+!
+! Revision History:
+!	V1.0-2		Darrell Burkhead	23-JUN-1994 11:15
+!		Added support for adding the SEND command to DCLTABLES.EXE.
+!
+!	V1.0-1		Darrell Burkhead	15-APR-1994 17:58
+!		Removed the stubs for the SEND/REMOTE and SEND/COMMAND
+!		variants.  We will be dropping our BITNET connection.
+!
+!	V1.0		Darrell Burkhead	24-FEB-1994 15:10
+!		Creation.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY	'SEND_DEFS';
+LIBRARY 'SEND_COMM_DEFS';
+
+!
+! Table of contents.
+!
+FORWARD ROUTINE
+	main,				!Main entry point
+	already_parsed,			!Check for SEND in command tables
+	get_local_node,			!Saves the local node name
+	get_user_info,			!Get necessary info w/$GETJPI
+	parse_common,			!Handle the common qualifiers
+	dealloc_value_que,		!Deallocate a LNMENT queue
+	translate_lnm,			!Translate a logical name
+	add_subdest,			!Add a subdestination to a DESTENT
+	rem_subdest,			!Remove a subdestination
+	add_dest,			!Add a destination to a DESTENT queue
+	rem_dest,			!Remove a destination
+	parse_dest,			!Add a user@node format destination
+	add_node,			!Add a node to the node queue (if it
+					!...is not already there)
+	rem_node,			!Remove a node
+	add_cluster,			!Add the nodes of the cluster to the
+					!...node queue
+	unquote,			!Unquote a string
+	send_cmd,			!Send interactive message routine
+	do_send,			!The common back end
+	build_prompt,			!Construct the prompt string
+	decnet_setup,			!Connect to nodes and send setup msgs
+	node_error,			!Invalidate a node
+	connect_done_ast,		!Called to start sending an init msg
+	alloc_ior,			!Allocate an I/O request block
+	dealloc_ior,			!Deallocate an I/O request block
+	read_network,			!Read a network channel
+	read_network_ast,		!Completion of network read
+	write_network,			!Write to a network channel
+	write_network_ast,		!Completion of network write
+	purge_dest_que,			!Clear out invalid destinations
+	image_privs_off,		!Turn off installed privs
+	image_privs_on,			!Turn on installed privs
+	spawn_line,			!Spawn for messages beginning with $
+	send_a_message;			!Set a line of message text to the dest
+
+EXTERNAL ROUTINE
+	CLI$DCL_PARSE,			!Parse a command
+	CLI$DISPATCH,			!Call a command routine
+	CLI$GET_VALUE,			!Get the value for an entity
+	CLI$PRESENT,			!Test for the prescence of an entity
+	LIB$FREE_VM,			!Deallocate virtual memory
+	LIB$FREE_EF,			!Deallocate an event flag
+	LIB$GET_EF,			!Allocate an event flag
+	LIB$GET_FOREIGN,		!Get the foreign command line
+	LIB$GET_INPUT,			!Read a line from SYS$INPUT
+	LIB$GET_VM,			!Allocate virtual memory
+	LIB$GETDVI,			!Get device information
+	LIB$SPAWN,			!Spawn a subprocess
+	LIB$SYS_FAO,			!Formatted ASCII output
+	OTS$CVT_TU_L,			!Convert a numeric string to a longword
+	SMG$CREATE_KEY_TABLE,		!To make Ctrl-Z a terminator
+	SMG$CREATE_VIRTUAL_KEYBOARD,	!Open SYS$INPUT and set up recall buff
+	SMG$DELETE_VIRTUAL_KEYBOARD,	!Close SYS$INPUT
+	SMG$READ_COMPOSED_LINE,		!Read messages w/recall
+	STR$COMPARE_EQL,		!Compare 2 strings for equality
+	STR$CONCAT,			!Concatenate strings
+	STR$COPY_DX,			!Copy by descriptor
+	STR$COPY_R,			!Copy by reference.
+	STR$FIND_FIRST_NOT_IN_SET,	!Skip a set of characters
+	STR$FREE1_DX,			!Free a dynamic descriptor
+	STR$POS_EXTR,			!Extract a substring
+	STR$POSITION,			!Search for a substring
+	STR$PREFIX,			!Prefix a dynamic descriptor
+	STR$RIGHT,			!Extract after a postition
+!
+	get_reqid;			!Get the broadcast class to use
+
+EXTERNAL
+	send_table,			!The command table
+	CLI$_ABSENT,			!Entity not present in command
+	LIB$_INSEF,			!Out of event flags
+	SMG$_EOF,			!EOF from SMG$READ_COMPOSED_LINE
+	send_sent,			!Sent to a user
+	send_senttrm,			!Sent to a terminal
+	send_invwait,			!Invalid wait time
+	send_timeout,			!Timed out sending to ...
+	send_notrcving,			!No broadcast for ...
+	send_newprompt,			!First destination removed, build a
+					!...new prompt
+	send_nodests,			!All destinations removed
+	send_msgerr,			!Error from $BRKTHRUW
+	send_connerr,			!Error connecting to a DECnet node
+	send_noderr,			!Error communicating with a DECnet node
+	send_ambigterm,			!Ambiguous remote terminal name
+	send_notlogin,			!User not logged in
+	send_nobitnet,			!BITNET addr, NYI
+	send_toomany,			!Too many destinations
+	send_nobrdclass;		!Bad broadcast class log name
+!
+! String constants for qualifiers and parameters:
+!
+BIND
+	bottom		= %ASCID'BOTTOM',
+	clusterwide	= %ASCID'CLUSTERWIDE',
+	from_node	= %ASCID'FROM_NODE',
+	from_terminal	= %ASCID'FROM_TERMINAL',
+	from_user	= %ASCID'FROM_USER',
+	log		= %ASCID'LOG',
+	message		= %ASCID'MESSAGE',
+	prompt		= %ASCID'PROMPT',
+	destination	= %ASCID'DESTINATION',
+	top		= %ASCID'TOP',
+	to_node		= %ASCID'TO_NODE',
+	to_user		= %ASCID'TO_USER',
+	wait		= %ASCID'WAIT',
+	at_str		= %ASCID'@',
+	net_devnam	= %ASCID'_NET:';
+
+OWN
+	reqid,					!$BRKTHRU reqid
+	node_buf	: $BBLOCK[15],
+	local_node	: $BBLOCK[DSC$C_S_BLN]	!The local node name
+			  PRESET([DSC$W_LENGTH]	= %ALLOCATION(node_buf),
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= node_buf),
+	user_buf	: $BBLOCK[12],
+	local_user	: $BBLOCK[DSC$C_S_BLN]	!The local user name
+			  PRESET([DSC$W_LENGTH]	= %ALLOCATION(user_buf),
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= user_buf),
+	term_buf	: $BBLOCK[8],
+	local_term	: $BBLOCK[DSC$C_S_BLN]	!The local term name
+			  PRESET([DSC$W_LENGTH]	= %ALLOCATION(term_buf),
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= term_buf),
+	keyboard_id,				!Used to read messages
+	key_table_id,				!...
+	node_queue	: VECTOR[2,LONG]	!Head of DECnet node queue
+			  INITIAL(node_queue, node_queue),
+	init_message	: CLIMSGDEF;
+
+
+%SBTTL	'MAIN'
+ROUTINE main=
+BEGIN
+!+
+!
+!  Routine:	MAIN
+!
+!  Functional Description:
+!
+!	This routine is the main entry point for SEND.  It parses the command
+!	line and dispatches to the appropriate command routine.
+!
+!  Implicit Inputs:
+!
+!	The command line; send_table, the CLD table for SEND;
+!	reqid, filled in with the broadcast class used by SEND.
+!
+!  Returns:
+!
+!	R0	- the image exit status.
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+LOCAL
+	sndctx	: SNDBLKDEF,
+	command	: $BBLOCK[DSC$C_S_BLN];
+
+    $INIT_DYNDESC(command);
+
+    $INIT_DYNDESC(sndctx[SNDBLK_Q_FROMUSER]);
+    $INIT_DYNDESC(sndctx[SNDBLK_Q_FROMNODE]);
+    $INIT_DYNDESC(sndctx[SNDBLK_Q_FROMTERM]);
+    $INIT_DYNDESC(sndctx[SNDBLK_Q_MESSAGE]);
+    $INIT_DYNDESC(sndctx[SNDBLK_Q_MSGPREFIX]);
+    sndctx[SNDBLK_L_FLAGS] = 0;			!Common initialization of the
+    sndctx[SNDBLK_L_WAIT] = 5;			!...send-context structure
+    sndctx[SNDBLK_L_DESTHEAD] = sndctx[SNDBLK_L_DESTTAIL] =
+		sndctx[SNDBLK_Q_DESTQUE];
+
+    status = get_reqid(reqid);			!Get the $BRKTHRU reqid
+    IF NOT .status THEN RETURN send_nobrdclass;	!Error getting broadcast class
+
+    IF .status
+    THEN status = SMG$CREATE_KEY_TABLE(		!Create a key table where
+				key_table_id);	!...Ctrl-Z is a terminator
+    IF .status
+    THEN status = SMG$CREATE_VIRTUAL_KEYBOARD(	!Open SYS$INPUT w/default
+				keyboard_id);	!...recall size
+
+    IF .status AND NOT already_parsed()
+    THEN BEGIN
+	status = LIB$GET_FOREIGN(command);	!Get the rest of the command
+	IF .status
+	THEN status = STR$PREFIX(command,	!Build up a full command line
+				%ASCID'SEND ');
+	IF .status
+	THEN status = CLI$DCL_PARSE(		!Parse the command
+			command, send_table,
+			LIB$GET_INPUT)
+		OR STS$M_INHIB_MSG;		!Don't resignal error messages
+	END;					!End of parse by hand
+
+    IF .status
+    THEN status = send_cmd(sndctx);		!Call the command routine
+
+    .status					!Return the final status to DCL
+END;						!End of main
+
+
+%SBTTL	'ALREADY_PARSED'
+ROUTINE already_parsed =
+!+
+!
+!  Routine:		ALREADY_PARSED
+!
+!  Functional Description:
+!
+!	Test whether the SEND command was parsed by DCL.
+!
+!  Parameters:
+!
+!	none.
+!
+!  Implicit Inputs:
+!
+!	bottom		- string descriptor containing BOTTOM.
+!
+!  Returns:
+!
+!	R0	- Status,
+!		  CLI$_IVQUAL, if the SEND command hasn't been parsed.
+!		  SS$_NORMAL, if the SEND command has been parsed.
+!-
+BEGIN
+EXTERNAL ROUTINE
+	LIB$SIG_TO_RET	: BLISS ADDRESSING_MODE(GENERAL);
+
+ENABLE
+	LIB$SIG_TO_RET;			!Return signaled condition codes
+
+    CLI$PRESENT(bottom);			!If DCL didn't parse the SEND
+						!...command, this routine will
+						!...signal CLI-W-IVQUAL, which
+						!...will be returned
+    RETURN SS$_NORMAL;				!Otherwise, DCL did parse it
+						!...return success
+END;						!End of already_parsed
+
+
+%SBTTL	'GET_LOCAL_NODE'
+ROUTINE get_local_node=
+BEGIN
+!+
+!
+!  Routine:	GET_LOCAL_NODE
+!
+!  Functional Description:
+!
+!	This routine calls $GETSYI to get the local node name.
+!
+!  Parameters:
+!
+!	None.
+!
+!  Implicit Inputs:
+!
+!	local_node	- a static descriptor to receive the local node name.
+!
+!  Returns:
+!
+!	R0	- status
+!		  Errors returned by $GETSYIW.
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+LOCAL
+	iosb	: VECTOR[4,WORD],
+	syi_list: $ITMLST_DECL(ITEMS = 1);
+
+    $ITMLST_INIT(ITMLST = syi_list,
+	(ITMCOD	= SYI$_NODENAME,
+	 BUFADR	= .local_node[DSC$A_POINTER],
+	 BUFSIZ	= .local_node[DSC$W_LENGTH],
+	 RETLEN	= local_node[DSC$W_LENGTH]));
+    status = $GETSYIW(				!Get the local node name
+		CSIDADR	= %REF(0),
+		ITMLST	= syi_list,
+		IOSB	= iosb);
+    IF .status THEN status = .iosb[0];
+
+    RETURN .status;				!Return status to the caller
+END;						!End of get_local_node
+
+
+%SBTTL	'GET_USER_INFO'
+ROUTINE get_user_info(sndctx_a, need_terminal)=
+BEGIN
+!+
+!
+!  Routine:	GET_USER_INFO
+!
+!  Functional Description:
+!
+!	This routine calls $GETJPIW to get the information that will be
+!	necessary to build the message string and to check privileges.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.  The context
+!			  block will be filled in with this process's username,
+!			  terminal name, and process privileges.  Note:
+!			  the username and/or terminal name will be overwritten
+!			  if the /USER and/or /TERMINAL qualifiers are present.
+!	need_terminal	- need to get the terminal name?
+!
+!  Implicit Inputs:
+!
+!	local_user	- where to put the username
+!	local_term	- where to put the terminal name
+!
+!  Returns:
+!
+!	R0	- status
+!		  Errors returned by $GETJPIW, STR$COPY_R or LIB$GETDVI.
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	space_ptr 	: REF $BBLOCK;
+
+BIND
+	sndctx	= .sndctx_a : SNDBLKDEF;
+
+BUILTIN	NULLPARAMETER;
+
+LOCAL
+	iosb		: VECTOR[4,WORD],
+	pid,
+	jpi_list	: $ITMLST_DECL(ITEMS=4),
+	jpi_list2	: $ITMLST_DECL(ITEMS=1);
+
+    $ITMLST_INIT(ITMLST=jpi_list,
+	(ITMCOD	= JPI$_MASTER_PID,
+	 BUFADR	= pid,
+	 BUFSIZ	= %ALLOCATION(pid)),
+	(ITMCOD	= JPI$_USERNAME,
+	 BUFADR	= .local_user[DSC$A_POINTER],
+	 BUFSIZ	= .local_user[DSC$W_LENGTH]),
+	(ITMCOD	= JPI$_PROCPRIV,
+	 BUFADR	= sndctx[SNDBLK_Q_PRIVS],
+	 BUFSIZ	= 8),
+	(ITMCOD	= JPI$_IMAGPRIV,
+	 BUFADR	= sndctx[SNDBLK_Q_IMAGPRIV],
+	 BUFSIZ	= 8));
+    status = $GETJPIW(				!Get process info
+		ITMLST	= jpi_list,
+		IOSB	= iosb);
+    IF .status
+    THEN status = .iosb[0];
+    IF .status
+    THEN BEGIN					!Fix the lengths
+	IF NOT CH$FAIL(space_ptr = CH$FIND_CH(.local_user[DSC$W_LENGTH],
+					.local_user[DSC$A_POINTER], %C' '))
+	THEN local_user[DSC$W_LENGTH] = CH$DIFF(
+				.space_ptr, .local_user[DSC$A_POINTER]);
+	IF NOT NULLPARAMETER(need_terminal) AND .need_terminal
+	THEN BEGIN
+	    $ITMLST_INIT(ITMLST=jpi_list2,
+		(ITMCOD	= JPI$_TERMINAL,
+		 BUFADR	= .local_term[DSC$A_POINTER],
+		 BUFSIZ	= .local_term[DSC$W_LENGTH],
+		 RETLEN	= local_term[DSC$W_LENGTH]));
+	    status = $GETJPIW(			!Now get the terminal name
+		PIDADR	= pid,
+		ITMLST	= jpi_list2,
+		IOSB	= iosb);
+	    IF .status
+	    THEN status = .iosb[0];
+	    IF .status AND .local_term[DSC$W_LENGTH] GTRU 0
+	    THEN local_term[DSC$W_LENGTH] = .local_term[DSC$W_LENGTH]-1;
+	    END;				!End of get the terminal name
+	END;					!End of good first $GETJPIW
+
+    .status					!Return status to the caller
+END;						!End of get_user_info
+
+
+%SBTTL	'PARSE_COMMON'
+ROUTINE parse_common(sndctx_a, parse_terminal)=
+BEGIN
+!+
+!
+!  Routine:	PARSE_COMMON
+!
+!  Functional Description:
+!
+!	This routine parses the qualifiers that are common to all variants
+!	of the SEND command.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.  The context
+!			  block will be updated to reflect the qualifiers
+!			  present.
+!	parse_terminal	- an optional flag indicating whether the /TERMINAL
+!			  qualifier should be parsed.
+!
+!  Implicit Inputs:
+!
+!	local_user	- my username
+!	local_term	- my terminal name
+!	local_node	- my node name
+!
+!  Returns:
+!
+!	R0	- status
+!		  SYSTEM-F-NOCMKRNL, if /NODE, /TERMINAL, or /USER are present
+!				and the user doesn't have the CMKRNL privilege.
+!		  Errors parsing qualifiers.
+!-
+REGISTER
+	status		: INITIAL(SS$_NORMAL),
+	need_cmkrnl	: INITIAL(0),
+	parse_term;
+
+BUILTIN	NULLPARAMETER;
+
+BIND
+	sndctx		= .sndctx_a	: SNDBLKDEF,
+	prefix_fao	= %ASCID'!AS(!AS) - ';
+
+    sndctx[SNDBLK_V_LOG] = CLI$PRESENT(log);
+    sndctx[SNDBLK_V_PROMPT] = CLI$PRESENT(prompt);
+
+    parse_term = NOT NULLPARAMETER(parse_terminal) AND .parse_terminal;
+    IF .parse_term
+    THEN IF CLI$PRESENT(from_terminal)
+	THEN BEGIN
+	    status = CLI$GET_VALUE(from_terminal, sndctx[SNDBLK_Q_FROMTERM]);
+	    IF .status AND
+		STR$COMPARE_EQL(sndctx[SNDBLK_Q_FROMTERM], local_term) NEQ 0
+	    THEN need_cmkrnl = 1;
+	    END
+    ELSE status = STR$COPY_DX(			!Use the local term name
+		sndctx[SNDBLK_Q_FROMTERM], local_term);
+
+    IF .status AND CLI$PRESENT(from_node)
+    THEN BEGIN
+	status = CLI$GET_VALUE(from_node, sndctx[SNDBLK_Q_FROMNODE]);
+	IF .status AND
+		STR$COMPARE_EQL(sndctx[SNDBLK_Q_FROMNODE], local_node) NEQ 0
+	THEN need_cmkrnl = 1;
+	END
+    ELSE status = STR$COPY_DX(			!Use the local node name
+		sndctx[SNDBLK_Q_FROMNODE], local_node);
+
+    IF .status AND CLI$PRESENT(from_user)
+    THEN BEGIN
+	status = CLI$GET_VALUE(from_user, sndctx[SNDBLK_Q_FROMUSER]);
+	IF .status AND
+		STR$COMPARE_EQL(sndctx[SNDBLK_Q_FROMUSER], local_user) NEQ 0
+	THEN need_cmkrnl = 1;
+	END
+    ELSE status = STR$COPY_DX(			!Use the local user name
+		sndctx[SNDBLK_Q_FROMUSER], local_user);
+
+    IF .status AND .need_cmkrnl
+    THEN BEGIN
+	BIND privs = sndctx[SNDBLK_Q_PRIVS] : $BBLOCK;
+
+	IF NOT .privs[PRV$V_CMKRNL]
+	THEN status = SS$_NOCMKRNL;		!No privilege
+	END;
+
+    IF .status AND .parse_term
+    THEN status = LIB$SYS_FAO(			!Build the local message prefix
+		prefix_fao, 0,
+		sndctx[SNDBLK_Q_MSGPREFIX],
+		sndctx[SNDBLK_Q_FROMUSER],
+		sndctx[SNDBLK_Q_FROMTERM]);
+
+    .status					!Return status to the caller
+END;						!End of parse_common
+
+
+%SBTTL	'DEALLOC_VALUE_QUE'
+ROUTINE dealloc_value_que(value_que_a)=
+BEGIN
+!+
+!
+!  Routine:	DEALLOC_VALUE_QUE
+!
+!  Functional Description:
+!
+!	This routine deallocates all of the entries in the value queue passed
+!	in.
+!
+!  Parameters:
+!
+!	value_que_a	- address of the value-queue head.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!-
+LOCAL	new_value	: REF LNMENTDEF;
+
+BIND	value_que	= .value_que_a	: LNMENTDEF;
+
+BUILTIN	REMQUE;
+
+    WHILE REMQUE(.value_que, new_value) NEQ 3
+    DO LIB$FREE_VM(%REF(LNMENT_S_LNMENTDEF), new_value);
+
+    SS$_NORMAL
+END;						!End of dealloc_value_que
+
+
+%SBTTL	'TRANSLATE_LNM'
+ROUTINE translate_lnm(lnm_a, value_que_a, log_it, cluster_dest)=
+BEGIN
+!+
+!
+!  Routine:	TRANSLATE_LNM
+!
+!  Functional Description:
+!
+!	This routine attempts to translate a logical name given.  The value(s)
+!	for the logical name are returned in a queue.  If the logical name
+!	can't be translated, then the logical name itself is returned as the
+!	one value in the queue.
+!
+!  Parameters:
+!
+!	lnm_a		- address of a descriptor containing the logical name
+!	value_que_a	- address of the value-queue head.
+!	log_it		- a flag specifying the /LOG status for this dest
+!	cluster_dest	- a flag specifying the /CLUSTERWIDE status for this
+!			  dest
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!		SS$_NORMAL, if all of the values were translated successfully
+!			or if lnm isn't a logical name.
+!		Other errors returned by $TRNLNM and LIB$GET_VM.
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	src_len;
+
+BIND
+	lnm		= .lnm_a	: $BBLOCK,
+	value_que	= .value_que_a	: LNMENTDEF,
+	lnm_table	= %ASCID'LNM$DCL_LOGICAL';
+
+BUILTIN	INSQUE,
+	NULLPARAMETER;
+
+LOCAL
+	temp_log,
+	temp_cluster,
+	lnm_list1	: $ITMLST_DECL(ITEMS=1),
+	curr_index	: LONG,
+	max_index	: LONG VOLATILE,
+	lnm_list2	: $ITMLST_DECL(ITEMS=2),
+	itmlst_ptr	: REF $BBLOCK INITIAL(lnm_list2+ITM$S_ITEM),
+	new_value	: REF LNMENTDEF VOLATILE;
+
+MACRO
+	alloc_lnment=
+	BEGIN
+	status = LIB$GET_VM(			!Allocate a value-queue entry
+		%REF(LNMENT_S_LNMENTDEF), new_value);
+	IF .status
+	THEN BEGIN
+	    new_value[LNMENT_L_FLAGS] = 0;
+	    new_value[LNMENT_V_CLUSTERWIDE] = .temp_cluster;
+	    new_value[LNMENT_V_LOG] = .temp_log;
+	    END;				!End of allocated an entry
+	END%;					!End of alloc_lnment
+
+    temp_log =					!Copy to a reliable place
+		(IF NULLPARAMETER(log_it)	!Check for omitted params
+		 THEN 0
+		 ELSE .log_it);
+    temp_cluster =				!Copy to a reliable place
+		(IF NULLPARAMETER(cluster_dest)	!Check for omitted params
+		 THEN 0
+		 ELSE .cluster_dest);
+    $ITMLST_INIT(ITMLST=lnm_list1,
+	(ITMCOD	= LNM$_MAX_INDEX,
+	 BUFADR	= max_index,
+	 BUFSIZ	= %ALLOCATION(max_index)));
+    status = $TRNLNM(				!Get the count of values
+		TABNAM	= lnm_table,
+		LOGNAM	= lnm,
+		ITMLST	= lnm_list1);
+    IF .status EQL SS$_NOLOGNAM OR		!Couldn't translate the lnm?
+	(.status AND .max_index EQL -1)
+    THEN BEGIN
+    !
+    ! Set up a queue with just the logical name.
+    !
+	alloc_lnment;
+	new_value[LNMENT_L_LENGTH] = src_len = .lnm[DSC$W_LENGTH];
+		CH$MOVE(.src_len, .lnm[DSC$A_POINTER],
+			new_value[LNMENT_T_BUFFER]);
+	INSQUE(.new_value, .value_que[LNMENT_L_BLINK]);
+	RETURN(.status);			!Return status to the caller
+	END
+    ELSE IF NOT .status
+    THEN RETURN(.status);
+!
+! Set up for the equivalence name loop.
+!
+    $ITMLST_INIT(ITMLST=lnm_list2,
+	(ITMCOD = LNM$_INDEX,
+	 BUFADR	= curr_index,
+	 BUFSIZ	= %ALLOCATION(curr_index)),
+	(ITMCOD	= LNM$_STRING,
+	 BUFADR	= 0,
+	 BUFSIZ	= max_lnm_len));
+    curr_index = 0;
+
+    DO BEGIN
+	alloc_lnment;				!Allocate a value-queue entry
+	IF .status
+	THEN BEGIN				!Allocated the entry
+	    new_value[LNMENT_L_LENGTH] = 0;	!$GETJPI only fills in a word
+	    itmlst_ptr[ITM$L_BUFADR] = new_value[LNMENT_T_BUFFER];
+	    itmlst_ptr[ITM$L_RETLEN] = new_value[LNMENT_L_LENGTH];
+
+	    status = $TRNLNM(			!Get the value at the curr indx
+			TABNAM	= lnm_table,
+			LOGNAM	= lnm,
+			ITMLST	= lnm_list2);
+	    IF .status
+	    THEN BEGIN
+		INSQUE(.new_value, .value_que[LNMENT_L_BLINK]);
+		curr_index = .curr_index+1;
+		END;
+	    END;
+    END WHILE .status AND .curr_index LEQ .max_index;
+
+    .status					!Return status to the caller
+END;						!End of translate_lnm
+
+
+%SBTTL	'ADD_SUBDEST'
+ROUTINE add_subdest(dest_a, decnode_a)=
+BEGIN
+!+
+!
+!  Routine:	ADD_SUBDEST
+!
+!  Functional Description:
+!
+!	This routine adds a new entry to a sub-destination queue.
+!
+!  Parameters:
+!
+!	dest_a		- address of the destination block holding this
+!			  sub destination
+!	decnode_a	- the address of a the node-queue entry for a remote
+!
+!  Returns:
+!
+!	R0	- status,
+!		  Errors returned by LIB$GET_VM.
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	dest		= .dest_a		: DESTENTDEF,
+	decnode		= .decnode_a		: NODENTDEF;
+
+BUILTIN	INSQUE;
+
+LOCAL
+	new_subdst	: REF SUBDSTDEF,
+	new_noddst	: REF NODDSTDEF;
+
+    status = LIB$GET_VM(			!Allocate the dest que entry
+		%REF(SUBDST_S_SUBDSTDEF), new_subdst);
+    IF .status AND decnode NEQA 0
+    THEN BEGIN
+	status = LIB$GET_VM(			!Allocate the node dest que ent
+		%REF(NODDST_S_NODDSTDEF), new_noddst);
+	IF .status
+	THEN BEGIN
+	    new_noddst[NODDST_L_FLAGS] = 0;
+	    new_noddst[NODDST_L_DEST] = dest;
+	    new_noddst[NODDST_L_SUBDST] = .new_subdst;
+	    INSQUE(.new_noddst, .decnode[NODENT_L_NODDSTTAIL]);
+	    END;				!End of fill in the noddst
+	END;					!End of allocate the rest
+    IF .status
+    THEN status = LIB$GET_EF(new_subdst[SUBDST_L_EFN]);
+    IF .status
+    THEN BEGIN
+	new_subdst[SUBDST_L_EFNMASK] =		!Convert to a bitmask
+		1^(.new_subdst[SUBDST_L_EFN]-32);
+	new_subdst[SUBDST_L_FLAGS] = 0;
+	new_subdst[SUBDST_V_TERMINAL] = .dest[DESTENT_V_TERMINAL];
+	new_subdst[SUBDST_V_VALID] = 1;
+	new_subdst[SUBDST_L_DECNODE] = .decnode_a;
+	INSQUE(.new_subdst, .dest[DESTENT_L_SUBDSTTAIL]);
+	END;					!End of fill in the subdst
+
+    RETURN .status;				!Return status to the caller
+END;						!End of add_subdest
+
+
+%SBTTL	'REM_SUBDEST'
+ROUTINE rem_subdest(subdest_a_a)=
+BEGIN
+!+
+!
+!  Routine:	REM_SUBDEST
+!
+!  Functional Description:
+!
+!	This routine removes and deallocates a sub destination queue entry.
+!
+!  Parameters:
+!
+!	subdest_a_a	- the address of a longword containing the address
+!			  of the entry
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+BIND
+	subdest	= .subdest_a_a			: REF SUBDSTDEF,
+	decnode	= .subdest[SUBDST_L_DECNODE]	: NODENTDEF;
+
+BUILTIN	REMQUE;
+
+    REMQUE(.subdest, subdest);			!Remove from the queue
+    IF decnode NEQA 0
+    THEN BEGIN
+	LOCAL
+	    cur_noddst	: REF NODDSTDEF;
+
+	IF .decnode[NODENT_V_VALID]		!Tell the node to quit sending
+	THEN BEGIN				!...to this destination
+	    LOCAL
+		done_msg	: CLIMSGDEF PRESET(
+				[CLIMSG_W_MSGLEN] = CH$DIFF(
+						done_msg[CLIMSG_B_DESTLEN],
+						done_msg),
+				[CLIMSG_W_MSGTYP] = msg_donedest,
+				[CLIMSG_L_IDENT]  = .subdest[SUBDST_L_EFN]);
+
+	    $QIO(				!Send the donedest message
+		CHAN	= .decnode[NODENT_W_NETCHN],
+		FUNC	= IO$_WRITEVBLK,
+		P1	= done_msg,
+		P2	= .done_msg[CLIMSG_W_MSGLEN]);
+	    END;				!End of send donedest message
+
+	cur_noddst = .decnode[NODENT_L_NODDSTHEAD];
+	WHILE .cur_noddst NEQA decnode[NODENT_Q_NODDSTQUE]
+	DO IF .cur_noddst[NODDST_L_SUBDST] EQL .subdest
+	   THEN EXITLOOP
+	   ELSE cur_noddst = .cur_noddst[NODDST_L_FLINK];
+
+	IF .cur_noddst NEQA decnode[NODENT_Q_NODDSTQUE]
+	THEN BEGIN
+	    REMQUE(.cur_noddst, cur_noddst);	!Remove from the node's queue
+	    LIB$FREE_VM(			!Deallocate the memory
+		%REF(NODDST_S_NODDSTDEF), cur_noddst);
+	    END;				!End of found noddst
+	END;					!End of decnode subdest
+		
+    LIB$FREE_EF(subdest[SUBDST_L_EFN]);
+    LIB$FREE_VM(				!Deallocate the dest que entry
+		%REF(SUBDST_S_SUBDSTDEF), subdest);
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of rem_subdest
+
+
+%SBTTL	'ADD_DEST'
+ROUTINE add_dest(full_dest_a, dest_len, dest_offset, node_len, node_offset,
+		is_bitnet, is_terminal, log_it, dest_que_a, decnode_a,
+		cluster_dest)=
+BEGIN
+!+
+!
+!  Routine:	ADD_DEST
+!
+!  Functional Description:
+!
+!	This routine adds a new entry to a destination queue.
+!
+!  Parameters:
+!
+!	full_dest_a	- address of a string descriptor containing the full
+!			  destination string
+!	dest_len	- the length of the user or terminal name
+!	dest_offset	- the offset into the full destination of the start of
+!			  the user or terminal name
+!	node_len	- the length of the node name
+!	node_offset	- the offset into the full destination of the start of
+!			  the node name
+!	is_bitnet	- a flag indicating whether this is a BITNET address
+!	is_terminal	- a flag indicating whether this is a terminal name
+!	log_it		- a flag indicating whether /LOG was present
+!	dest_que_a	- address of the destination queue.
+!	decnode_a	- the address of a the node-queue entry for a remote
+!			  DECnet node.  0 otherwise.
+!	cluster_dest	- a flag indicating whether this is a clusterwide
+!			  destination.
+!
+!  Implicit Inputs:
+!
+!	node_queue	- the queue of node names.
+!
+!  Returns:
+!
+!	R0	- status,
+!		  Errors returned by STR$COPY_DX or LIB$GET_VM.
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	full_dest	= .full_dest_a	: $BBLOCK,
+	dest_que	= .dest_que_a	: DESTENTDEF;
+
+BUILTIN	INSQUE;
+
+LOCAL
+	new_dest	: REF DESTENTDEF;
+
+IF .is_bitnet THEN SIGNAL(send_nobitnet);
+    status = LIB$GET_VM(			!Allocate the dest que entry
+		%REF(DESTENT_S_DESTENTDEF), new_dest);
+    IF .status
+    THEN BEGIN
+	BIND
+	    dest_desc	= new_dest[DESTENT_Q_DESTDSC]	: $BBLOCK,
+	    node_desc	= new_dest[DESTENT_Q_NODEDSC]	: $BBLOCK;
+
+	$INIT_DYNDESC(new_dest[DESTENT_Q_FULLDEST]);
+	new_dest[DESTENT_V_BITNET] = .is_bitnet;
+	new_dest[DESTENT_V_LOG] = .log_it;
+	new_dest[DESTENT_V_TERMINAL] = .is_terminal;
+	new_dest[DESTENT_L_SUBDSTHEAD] =
+		new_dest[DESTENT_L_SUBDSTTAIL] = new_dest[DESTENT_Q_SUBDSTQUE];
+	status = add_subdest(			!Add the main destination
+			.new_dest, .decnode_a);
+	IF .status
+	THEN BEGIN
+	    status = STR$COPY_DX(		!Copy the full destination
+			new_dest[DESTENT_Q_FULLDEST], full_dest);
+	    IF .status
+	    THEN BEGIN
+		BIND
+		    full_dest	= new_dest[DESTENT_Q_FULLDEST]	: $BBLOCK;
+
+		dest_desc[DSC$B_CLASS] =
+			node_desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+		dest_desc[DSC$B_DTYPE] =
+			node_desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+		dest_desc[DSC$W_LENGTH] = .dest_len;
+		node_desc[DSC$W_LENGTH] = .node_len;
+		dest_desc[DSC$A_POINTER] = CH$PLUS(.full_dest[DSC$A_POINTER],
+						.dest_offset);
+		node_desc[DSC$A_POINTER] = CH$PLUS(.full_dest[DSC$A_POINTER],
+						.node_offset);
+		END;				!End of set up node & dest
+	    END;				!End of copy the full dest
+	IF .status
+	THEN status = STR$COPY_DX(		!Copy the node
+		new_dest[DESTENT_Q_NODEDSC], node_desc);
+	IF .status AND .cluster_dest
+	THEN BEGIN
+	    LOCAL
+		cur_node	: REF NODENTDEF;
+
+	    add_cluster();			!Make sure cluster nodes are
+						!...there
+	    cur_node = .node_queue[0];		!Point to the head of the queue
+	    WHILE .cur_node NEQA node_queue	!Loop through the node queue
+	    DO BEGIN
+		IF .cur_node[NODENT_V_CLUSTER]
+		THEN BEGIN			!Cluster member found
+		    status = add_subdest(	!Add cluster destination
+				.new_dest, .cur_node);
+		    IF NOT .status THEN EXITLOOP;
+		    END;			!End of add this destination
+
+		cur_node = .cur_node[NODENT_L_FLINK];
+		END;				!End of cluster node loop
+	    END;				!End of add cluster dests
+	IF .status
+	THEN INSQUE(.new_dest, .dest_que[DESTENT_L_BLINK]);
+	END;					!End of allocated the entry
+
+    .status					!Return status to the caller
+END;						!End of routine add_dest
+
+
+%SBTTL	'REM_DEST'
+ROUTINE rem_dest(dest_a_a)=
+BEGIN
+!+
+!
+!  Routine:	REM_DEST
+!
+!  Functional Description:
+!
+!	This routine removes an entry from a destination queue.
+!
+!  Parameters:
+!
+!	dest_a_a	- the address of a longword containing the address
+!			  of the entry to remove
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+BIND
+	dest	= .dest_a_a	: REF DESTENTDEF;
+
+BUILTIN	REMQUE;
+
+    REMQUE(.dest, dest);			!Remove from the queue
+    STR$FREE1_DX(dest[DESTENT_Q_FULLDEST]);	!Free the associated memory
+    LIB$FREE_VM(				!...
+	%REF(DESTENT_S_DESTENTDEF), dest);
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of rem_dest
+
+
+%SBTTL	'PARSE_DEST'
+ROUTINE parse_dest(fulldest_desc_a, dest_que_a, log_it, clusterwide)=
+BEGIN
+!+
+!
+!  Routine:	PARSE_DEST
+!
+!  Functional Description:
+!
+!	This routine takes a destination name of one of the following forms
+!	and adds it to the destination queue:
+!
+!		user
+!		terminal
+!		user@node
+!		node::user
+!
+!  Parameters:
+!
+!	fulldest_desc_a	- address of a string descriptor containing the
+!			  destination name.  Assumed to be a static descriptor
+!	dest_que_a	- address of the destination queue.
+!	log_it		- a flag indicating whether /LOG was present
+!	clusterwide	- a flag indicating whether /CLUSTERWIDE was present
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status,
+!		  Errors returned by add_dest
+!-
+REGISTER
+	status	: INITIAL(SS$_NORMAL),
+	pos	: REF $BBLOCK;
+
+BIND
+	fulldest_desc	= .fulldest_desc_a	: $BBLOCK;
+
+LOCAL
+	dest_desc	: $BBLOCK[DSC$C_S_BLN],
+	node_desc	: $BBLOCK[DSC$C_S_BLN],
+	decnode		: REF NODENTDEF INITIAL(0),
+	devclass,
+	is_bitnet,
+	is_terminal,
+	cluster_dest	: INITIAL(0);
+
+MACRO
+	double_colon_string	= %STRING('::')%;
+
+    dest_desc[DSC$B_CLASS] = node_desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+    dest_desc[DSC$B_DTYPE] = node_desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+
+    IF NOT CH$FAIL(pos = CH$FIND_CH(
+			.fulldest_desc[DSC$W_LENGTH],
+			.fulldest_desc[DSC$A_POINTER],
+			%C'@'))
+    THEN BEGIN
+	dest_desc[DSC$A_POINTER] = .fulldest_desc[DSC$A_POINTER];
+	dest_desc[DSC$W_LENGTH] = CH$DIFF(.pos, .fulldest_desc[DSC$A_POINTER]);
+
+	node_desc[DSC$A_POINTER] = .pos+1;
+	node_desc[DSC$W_LENGTH] = .fulldest_desc[DSC$W_LENGTH]-
+				.dest_desc[DSC$W_LENGTH]-1;
+	is_bitnet = 1;
+	is_terminal = 0;
+	END					!End of user@node form
+    ELSE BEGIN
+	IF NOT CH$FAIL(pos = CH$FIND_SUB(
+			.fulldest_desc[DSC$W_LENGTH],
+			.fulldest_desc[DSC$A_POINTER],
+			%CHARCOUNT(double_colon_string),
+			UPLIT(%ASCII double_colon_string)))
+	THEN BEGIN
+	    LOCAL
+		iosb		: VECTOR[4,WORD],
+		syi_list	: $ITMLST_DECL(ITEMS=1),
+		cluster_memb	: BYTE;
+
+	    node_desc[DSC$A_POINTER] = .fulldest_desc[DSC$A_POINTER];
+	    node_desc[DSC$W_LENGTH] = CH$DIFF(.pos, 
+					.fulldest_desc[DSC$A_POINTER]);
+	    dest_desc[DSC$A_POINTER] = .pos+%CHARCOUNT(double_colon_string);
+	    dest_desc[DSC$W_LENGTH] = .fulldest_desc[DSC$W_LENGTH]-
+				.node_desc[DSC$W_LENGTH]-
+				%CHARCOUNT(double_colon_string);
+	    $ITMLST_INIT(ITMLST = syi_list,
+			(ITMCOD	= SYI$_CLUSTER_MEMBER,
+			 BUFADR	= cluster_memb,
+			 BUFSIZ	= %ALLOCATION(cluster_memb)));
+	    status = $GETSYIW(			!Is this a DECnet node?
+			NODENAME= node_desc,
+			ITMLST	= syi_list,
+			IOSB	= iosb);
+	    IF .status THEN status = .iosb[0];
+	    IF NOT .status
+	    THEN cluster_memb = 0;		!Error, assume not cluster memb
+	    status = add_node(node_desc, 1, .cluster_memb, decnode);
+	    IF .status AND .decnode EQL 0
+	    THEN node_desc[DSC$W_LENGTH] = 0;	!Local node
+	    END					!End of :: found
+	ELSE BEGIN
+	    dest_desc[DSC$A_POINTER] = .fulldest_desc[DSC$A_POINTER];
+	    dest_desc[DSC$W_LENGTH] = .fulldest_desc[DSC$W_LENGTH];
+	    node_desc[DSC$W_LENGTH] = 0;
+	    END;				!End of just a user or term
+
+	IF .status
+	THEN BEGIN
+	    is_bitnet = 0;
+	    is_terminal =
+	    (IF LIB$GETDVI(%REF(DVI$_DEVCLASS), 0,!Is this a device?
+			dest_desc, devclass)
+	     THEN .devclass EQL DC$_TERM	!Is this a terminal?
+	     ELSE 0);				!No, treat as a username
+
+	    cluster_dest = .clusterwide AND	!Is this a clusterwide dest?
+			.pos EQL 0 AND NOT .is_terminal;
+	    END;				!End of common part
+	END;					!End of other forms
+
+    add_dest(fulldest_desc,			!Add to the queue
+		.dest_desc[DSC$W_LENGTH],
+		CH$DIFF(.dest_desc[DSC$A_POINTER],
+			.fulldest_desc[DSC$A_POINTER]),
+		.node_desc[DSC$W_LENGTH],
+		CH$DIFF(.node_desc[DSC$A_POINTER],
+			.fulldest_desc[DSC$A_POINTER]),
+		.is_bitnet, .is_terminal, .log_it,
+		.dest_que_a, .decnode, .cluster_dest)
+END;						!End of parse_dest
+
+
+%SBTTL	'ADD_NODE'
+ROUTINE add_node(node_a, required, cluster, nodent_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ADD_NODE
+!
+!  Functional Description:
+!
+!	This routine adds a new entry to the node queue.  This routine assumes
+!	that it is being given a valid DECnet node name.
+!
+!  Parameters:
+!
+!	node_a		- the address of a descriptor containing the node name.
+!	required	- was this node explicitly given on the command line
+!			  (or in a logical name)?
+!	cluster		- is this node a member of the cluster?
+!	nodent_a_a	- the address of a longword to receive the address
+!			  of the node entry added (or found).
+!
+!  Implicit Inputs:
+!
+!	node_queue	- the queue of node names
+!	local_node	- a descriptor containing the local node name.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	cur_node	: REF NODENTDEF;
+
+BUILTIN	INSQUE;
+
+BIND
+	node	= .node_a	: $BBLOCK,
+	nodent	= .nodent_a_a	: REF NODENTDEF,
+	ncb_fao	= %ASCID %STRING('!AS::"TASK=',object_name_string,'"');
+
+    IF CH$EQL(.node[DSC$W_LENGTH],		!Is this the local node name?
+		.node[DSC$A_POINTER],
+		.local_node[DSC$W_LENGTH],
+		.local_node[DSC$A_POINTER])
+    THEN BEGIN					!Yes, don't add to the queue
+	nodent = 0;				!Local node pointer
+	RETURN SS$_NORMAL;
+	END;
+
+    cur_node = .node_queue[0];			!Point to the head of the queue
+    WHILE .cur_node NEQA node_queue		!Loop through the node queue
+    DO BEGIN
+	BIND cur_name	= cur_node[NODENT_Q_NAME]	: $BBLOCK;
+
+	IF CH$EQL(.node[DSC$W_LENGTH],		!Is this node already in the
+		.node[DSC$A_POINTER],		!...queue?
+		.cur_name[DSC$W_LENGTH],
+		.cur_name[DSC$A_POINTER])
+	THEN BEGIN				!Yes, make sure required bit
+	    IF .required			!...is set, if necessary
+	    THEN cur_node[NODENT_V_REQUIRED] = 1;
+	    nodent = .cur_node;			!Point to the node found
+	    RETURN SS$_NORMAL;			!Already added, get out
+	    END					!End of found node
+	ELSE cur_node = .cur_node[NODENT_L_FLINK];
+	END;					!End of node loop
+
+    status = LIB$GET_VM(			!Allocate a node entry
+		%REF(NODENT_S_NODENTDEF), nodent);
+    IF .status
+    THEN BEGIN
+	$INIT_DYNDESC(nodent[NODENT_Q_NCB]);
+	$INIT_DYNDESC(nodent[NODENT_Q_NAME]);
+	status = STR$COPY_DX(			!Copy the node name
+		nodent[NODENT_Q_NAME], node);
+	END;
+    IF .status
+    THEN status = LIB$SYS_FAO(			!Format the NCB
+			ncb_fao, 0, nodent[NODENT_Q_NCB],
+			nodent[NODENT_Q_NAME]);
+    IF .status
+    THEN status = $ASSIGN(			!Assign the network channel
+		DEVNAM	= net_devnam,
+		CHAN	= nodent[NODENT_W_NETCHN]);
+!    THEN status = LIB$ASN_WTH_MBX(		!Assign the network and mbx
+!		net_devnam, %REF(max_mbx_msg),	!...channels
+!		%REF(4*max_mbx_msg), nodent[NODENT_W_NETCHN],
+!		nodent[NODENT_W_MBXCHN]);
+    IF .status
+    THEN BEGIN
+	nodent[NODENT_L_FLAGS] = 0;		!Set up the flags
+	nodent[NODENT_V_CLUSTER] = .cluster;
+	nodent[NODENT_V_REQUIRED] = .required;
+	nodent[NODENT_V_VALID] = 1;
+	nodent[NODENT_L_NODDSTHEAD] = nodent[NODENT_L_NODDSTTAIL] =
+		nodent[NODENT_Q_NODDSTQUE];
+	INSQUE(.nodent, .node_queue[1]);	!Add to the tail of the queue
+	END;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of add_node
+
+
+%SBTTL	'REM_NODE'
+ROUTINE rem_node(node_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ADD_NODE
+!
+!  Functional Description:
+!
+!	This routine removes a node from the node queue.
+!
+!  Parameters:
+!
+!	node_a_a	- the address of a longword containing the address of
+!			  the entry to remove.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+BIND
+	node	= .node_a_a	: REF NODENTDEF;
+
+BUILTIN	REMQUE;
+
+    REMQUE(.node, node);			!Remove from the queue
+    IF .node[NODENT_V_ACCEPTED]
+    THEN $CANCEL(CHAN = .node[NODENT_W_NETCHN]);!Cancel any outstanding I/O's
+    $DASSGN(CHAN = .node[NODENT_W_NETCHN]);	!Deassign the network channel
+    STR$FREE1_DX(node[NODENT_Q_NCB]);		!Free the associated memory
+    STR$FREE1_DX(node[NODENT_Q_NAME]);		!...
+    LIB$FREE_VM(				!...
+	%REF(NODENT_S_NODENTDEF), node);
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of rem_node
+
+
+%SBTTL	'ADD_CLUSTER'
+ROUTINE add_cluster=
+BEGIN
+!+
+!
+!  Routine:	ADD_CLUSTER
+!
+!  Functional Description:
+!
+!	This routine repeatedly calls add_node to add cluster nodes to the
+!	node queue.  The first time it is called, it sets cluster_added, so
+!	later calls won't do anything.
+!
+!  Parameters:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+OWN
+	cluster_added	: INITIAL(0);		!Has this rtn been called
+
+LOCAL
+	temp		: REF NODENTDEF,
+	all_nodes	: INITIAL(-1),
+	iosb		: VECTOR[4,WORD],
+	syi_list	: $ITMLST_DECL(ITEMS=2),
+	nodebuf		: $BBLOCK[15] VOLATILE,
+	node_desc	: $BBLOCK[DSC$C_S_BLN] VOLATILE
+			  PRESET([DSC$W_LENGTH]	= 0,
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= nodebuf),
+	cluster_memb	: BYTE VOLATILE;
+
+    IF .cluster_added
+    THEN RETURN SS$_NORMAL			!Already called, get out
+    ELSE cluster_added = 1;			!Set up for later calls
+
+    $ITMLST_INIT(ITMLST = syi_list,		!Set up for the cluster search
+	(ITMCOD	= SYI$_NODENAME,
+	 BUFADR	= nodebuf,
+	 BUFSIZ	= %ALLOCATION(nodebuf),
+	 RETLEN	= node_desc[DSC$W_LENGTH]),
+	(ITMCOD	= SYI$_CLUSTER_MEMBER,
+	 BUFADR	= cluster_memb,
+	 BUFSIZ	= %ALLOCATION(cluster_memb)));
+
+    DO BEGIN
+	status = $GETSYIW(			!Get the next DECnet node
+			CSIDADR	= all_nodes,
+			ITMLST	= syi_list,
+			IOSB	= iosb);
+	IF .status
+	THEN status = .iosb[0];
+	IF .status AND .cluster_memb
+	THEN status = add_node(node_desc, 0, 1, temp);
+    END WHILE .status;				!Loop until error or out of
+						!...nodes
+    IF .status EQL SS$_NOMORENODE
+    THEN status = SS$_NORMAL;			!Acceptable error, ignore it
+	
+    RETURN .status;				!Return status to the caller
+END;						!End of add_cluster
+
+
+%SBTTL	'UNQUOTE'
+ROUTINE unquote(string_a)=
+BEGIN
+!+
+!
+!  Routine:	UNQUOTE
+!
+!  Functional Description:
+!
+!	This routine takes string and strips double quote characters from the
+!	beginning and end of it.
+!
+!  Parameters:
+!
+!	string_a	- the address of a dynamic descriptor holding the
+!			  string to be unquoted.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status	: INITIAL(SS$_NORMAL),
+	end_pos;
+
+BIND
+	string	= .string_a			: $BBLOCK;
+
+    IF .string[DSC$W_LENGTH] NEQ 0 AND
+	CH$RCHAR(.string[DSC$A_POINTER]) EQL %C'"'
+    THEN BEGIN					!Non-null string which starts
+						!...with "
+	end_pos =				!Check for a trailing "
+	(IF CH$RCHAR(CH$PLUS(.string[DSC$A_POINTER],
+				.string[DSC$W_LENGTH]-1)) EQL %C'"'
+	 THEN .string[DSC$W_LENGTH]-1
+	 ELSE .string[DSC$W_LENGTH]);
+
+	status = STR$POS_EXTR(			!Chop off quote character(s)
+		string, string, %REF(2), %REF(.end_pos));
+	END;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of unquote
+
+
+%SBTTL	'SEND_CMD'
+GLOBAL ROUTINE send_cmd(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	SEND_CMD
+!
+!  Functional Description:
+!
+!	This routine is called in response to a basic SEND command.  It
+!	pulls all of the required information out of the command line and
+!	calls do_send.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.  Once this
+!			  block is filled in, it will be passed to do_send.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!		  Errors parsing qualifiers and parameters.
+!		  Errors returned by do_send.
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	pos	: REF $BBLOCK;
+
+BIND
+	sndctx	= .sndctx_a	: SNDBLKDEF;
+
+LOCAL
+	temp_wait,
+	temp_desc	: $BBLOCK[DSC$C_S_BLN],
+	value_que	: LNMENTDEF
+			  PRESET([LNMENT_L_FLINK] = value_que,
+				 [LNMENT_L_BLINK] = value_que),
+	log_value	: REF LNMENTDEF;
+
+    $INIT_DYNDESC(temp_desc);
+
+    status = get_local_node();
+    IF .status
+    THEN status = get_user_info(sndctx, 1);	!Call $GETJPI for some stuff
+    IF .status
+    THEN status = parse_common(sndctx, 1);	!Parse common qualifiers
+    IF .status
+    THEN BEGIN
+    !
+    ! Parse the rest of the qualifiers.
+    !
+	sndctx[SNDBLK_L_BRKFLAGS] =		!Build the flags argument for
+	(IF CLI$PRESENT(top)			!$BRKTHRU
+	 THEN BRK$M_SCREEN			!Top line
+	 ELSE IF CLI$PRESENT(bottom)
+	 THEN BRK$M_SCREEN OR BRK$M_BOTTOM	!Bottom line
+	 ELSE 0);
+
+	IF CLI$PRESENT(wait)
+	THEN BEGIN
+	    status = CLI$GET_VALUE(wait, temp_desc);
+	    IF .status
+	    THEN BEGIN
+		status = OTS$CVT_TU_L(
+			temp_desc, temp_wait);
+		IF .status AND .temp_wait GTRU 0 AND
+			.temp_wait LSSU 5
+		THEN SIGNAL(send_invwait)
+		ELSE sndctx[SNDBLK_L_WAIT] = .temp_wait;
+		END;				!End of convert wait time
+	    END;				!End of wait not negated
+	END;
+    IF .status AND CLI$PRESENT(message)
+    THEN BEGIN
+	status = CLI$GET_VALUE(			!Get the message to send
+			message, sndctx[SNDBLK_Q_MESSAGE]);
+	IF .status
+	THEN status = unquote(			!Strip off quotes
+			sndctx[SNDBLK_Q_MESSAGE]);
+	END;
+    IF .status
+    THEN BEGIN
+	log_value = value_que;
+	DO BEGIN
+	    status = CLI$GET_VALUE(		!Get the next destination
+				destination, temp_desc);
+	    IF .status
+	    THEN status = translate_lnm(	!Try to translate the lognam
+			temp_desc, value_que,
+			CLI$PRESENT(log), CLI$PRESENT(clusterwide));
+	END WHILE .status;			!End of dest params loop
+
+	IF .status EQL CLI$_ABSENT
+	THEN status = SS$_NORMAL;		!Acceptable error, ignore it
+	END;					!End of get dest params
+
+    IF .status
+    THEN BEGIN
+	LOCAL desc : $BBLOCK[DSC$C_S_BLN];
+
+	STR$FREE1_DX(temp_desc);		!Clean up
+	desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+	desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+	log_value = .value_que[LNMENT_L_FLINK];
+	WHILE .log_value NEQA value_que
+	DO BEGIN
+	    desc[DSC$W_LENGTH] = .log_value[LNMENT_L_LENGTH];
+	    desc[DSC$A_POINTER] = log_value[LNMENT_T_BUFFER];
+	    status = parse_dest(desc, sndctx[SNDBLK_Q_DESTQUE],
+			    	.log_value[LNMENT_V_LOG],
+				.log_value[LNMENT_V_CLUSTERWIDE]);
+	    IF NOT .status
+	    THEN EXITLOOP
+	    ELSE log_value = .log_value[LNMENT_L_FLINK];
+	    END;				!End of logname value loop
+	END;					!End of process a queue
+
+    IF .status
+    THEN BEGIN
+	dealloc_value_que(value_que);		!Finished with the value queue
+	status = do_send(sndctx);		!Send the message(s)
+	END;
+
+    .status					!Return status to the caller
+END;						!End of send_cmd
+
+
+%SBTTL	'DO_SEND'
+ROUTINE do_send(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	DO_SEND
+!
+!  Functional Description:
+!
+!	This routine is the common backend to all of the variants of the SEND
+!	command.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	sndctx	= .sndctx_a			: SNDBLKDEF,
+	message = sndctx[SNDBLK_Q_MESSAGE]	: $BBLOCK;
+
+LOCAL
+	prompt_string	: $BBLOCK[DSC$C_S_BLN];
+
+EXTERNAL ROUTINE LIB$GET_INPUT;
+
+    status = decnet_setup(sndctx);		!Connect to nodes and alloc EFs
+    IF .status
+    THEN status = purge_dest_que(		!Clean up after decnet_setup
+		sndctx[SNDBLK_Q_DESTQUE]);
+    IF NOT .status OR .status EQL send_nodests	!Error or out of destinations?
+    THEN RETURN .status;			!Yes, return the status
+
+    IF .message[DSC$W_LENGTH] NEQ 0
+    THEN status = send_a_message(sndctx)
+    ELSE BEGIN
+	$INIT_DYNDESC(prompt_string);
+	status =
+	(IF .sndctx[SNDBLK_V_PROMPT]
+	 THEN build_prompt(sndctx, prompt_string)
+	 ELSE SS$_NORMAL);
+
+	WHILE .status				!Loop until finished sending
+	DO BEGIN				!...or out of destinations
+	    status = SMG$READ_COMPOSED_LINE(	!Read a line with cmd recall
+			keyboard_id, key_table_id,
+			message,
+			IF .sndctx[SNDBLK_V_PROMPT]
+			THEN prompt_string
+			ELSE 0);
+	    IF .status
+	    THEN BEGIN
+		BIND first_char = .message[DSC$A_POINTER] : BYTE;
+
+		IF .message[DSC$W_LENGTH] EQL 0
+		THEN EXITLOOP			!Blank line, get out
+		ELSE IF .first_char EQL %C'$'
+		THEN status = spawn_line(sndctx)
+		ELSE BEGIN
+		    status = send_a_message(	!Send the line provided
+					sndctx);
+		    IF .status
+		    THEN BEGIN
+			status = purge_dest_que(
+					sndctx[SNDBLK_Q_DESTQUE]);
+			IF .status EQL send_nodests
+			THEN EXITLOOP		!Out of destinations
+			ELSE IF .status EQL send_newprompt AND
+				.sndctx[SNDBLK_V_PROMPT]
+			THEN status = build_prompt( !Prompt out-of-date
+				sndctx, prompt_string);
+			END;			!End of set up for next msg
+		    END;			!End of message line
+		END;				!End of got a message
+	    END;				!End of prompting loop
+
+	IF .status EQL SMG$_EOF			!Acceptable error
+	THEN status = SS$_NORMAL;		!Ignore it
+	END;					!End of message text omitted
+
+    .status					!Return status to the caller
+END;						!End of do_send
+
+
+%SBTTL	'BUILD_PROMPT'
+ROUTINE build_prompt(sndctx_a, prompt_a)=
+BEGIN
+!+
+!
+!  Routine:	BUILD_PROMPT
+!
+!  Functional Description:
+!
+!	This routine builds a prompt string from the first destination in
+!	the destination queue.  Prompt strings are of the form:
+!
+!		user@node:
+!		user:
+!		terminal:
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!	prompt_a	- the address of a dynamic descriptor to receive the
+!			  prompt string.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	sndctx		= .sndctx_a			: SNDBLKDEF,
+	bitnet_fao	= %ASCID'!_(!AS)!AS: ',
+	other_fao	= %ASCID'!_!AS: ';
+
+LOCAL
+	first_dest	: REF DESTENTDEF;
+
+    first_dest = .sndctx[SNDBLK_L_DESTHEAD];	!Point to the first destination
+    status =
+    (BIND node = first_dest[DESTENT_Q_NODEDSC] : $BBLOCK;
+     IF .node[DSC$W_LENGTH] NEQ 0
+     THEN LIB$SYS_FAO(				!Build a BITNET/DECnet prompt
+		bitnet_fao, 0, .prompt_a,
+		first_dest[DESTENT_Q_NODEDSC],
+		first_dest[DESTENT_Q_DESTDSC])
+     ELSE LIB$SYS_FAO(				!Just use the user or term name
+		other_fao, 0, .prompt_a,
+		first_dest[DESTENT_Q_DESTDSC]));
+			
+    .status					!Return status to the caller
+END;						!End of routine build_prompt
+
+
+%SBTTL	'DECNET_SETUP'
+ROUTINE decnet_setup(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	DECNET_SETUP
+!
+!  Functional Description:
+!
+!	This routine handles all of the preprocessing required after the
+!	destination queue has been created and filled in:
+!
+!		1) Connecting to the DECnet nodes referenced.
+!		2) Sending the init message to the DECnet nodes.
+!		3) Sending an add_dest message to each node for each
+!		   destination that references that node.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	init_message	- filled in with the init message that is sent to
+!			  each node.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL, errors are signaled
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	num_terms,
+	src_len;
+
+BIND
+	sndctx		= .sndctx_a			: SNDBLKDEF,
+	from_user	= sndctx[SNDBLK_Q_FROMUSER]	: $BBLOCK,
+	from_node	= sndctx[SNDBLK_Q_FROMNODE]	: $BBLOCK;
+
+LOCAL
+	wait_mask	: INITIAL(0),
+	cur_node	: REF NODENTDEF,
+	cur_dest	: REF DESTENTDEF,
+	cur_subdst	: REF SUBDSTDEF;
+
+    IF .node_queue[0] EQLA node_queue
+    THEN RETURN SS$_NORMAL;			!No DECnet stuff, get out
+!
+! Fill in the init message.
+!
+    init_message[CLIMSG_W_MSGTYP] = msg_init;
+    init_message[CLIMSG_L_BRKFLGS] = .sndctx[SNDBLK_L_BRKFLAGS];
+    init_message[CLIMSG_L_TIMEOUT] = .sndctx[SNDBLK_L_WAIT];
+    init_message[CLIMSG_B_USERLEN] = src_len = .from_user[DSC$W_LENGTH];
+    CH$MOVE(.src_len,				!Copy the from username
+	.from_user[DSC$A_POINTER], init_message[CLIMSG_T_USERBUF]);
+    init_message[CLIMSG_B_NODELEN] = src_len = .from_node[DSC$W_LENGTH];
+    CH$MOVE(.src_len,				!Copy the from nodename
+	.from_node[DSC$A_POINTER], init_message[CLIMSG_T_NODEBUF]);
+    init_message[CLIMSG_W_MSGLEN] = .src_len+
+			CH$DIFF(init_message[CLIMSG_T_NODEBUF],
+				init_message);
+
+    cur_node = .node_queue[0];			!Point to the first node
+    WHILE .cur_node NEQ node_queue
+    DO BEGIN					!Loop through the nodes
+	BIND
+	    noddst = .cur_node[NODENT_L_NODDSTHEAD]	: NODDSTDEF,
+	    subdst = .noddst[NODDST_L_SUBDST]		: SUBDSTDEF;
+
+	cur_node[NODENT_L_EFN] = .subdst[SUBDST_L_EFN];
+	cur_node[NODENT_L_EFNMASK] = .subdst[SUBDST_L_EFNMASK];
+	$CLREF(EFN = .cur_node[NODENT_L_EFN]);
+	status = $QIO(				!Connect to this node
+			CHAN	= .cur_node[NODENT_W_NETCHN],
+			FUNC	= IO$_ACCESS,
+			IOSB	= cur_node[NODENT_Q_IOSB],
+			P2	= cur_node[NODENT_Q_NCB],
+			ASTADR	= connect_done_ast,
+			ASTPRM	= .cur_node);
+	IF NOT .status	
+	THEN node_error(cur_node, .status)	!On error, save the status
+	ELSE wait_mask = .wait_mask OR		!Wait for completion
+			.cur_node[NODENT_L_EFNMASK];
+
+	cur_node = .cur_node[NODENT_L_FLINK];	!Point to the next node
+	END;					!End of node-queue loop
+
+    IF .wait_mask NEQ 0
+    THEN $WFLAND(				!Wait until all are finished
+		EFN 	= 32,			!Cluster 1
+		MASK	= .wait_mask);		!The EFs to wait for
+!
+! Wait for all of the node setup to finish.
+!
+    cur_node = .node_queue[0];			!Point to the first node
+    WHILE .cur_node NEQ node_queue
+    DO BEGIN					!Loop through the nodes
+	IF .cur_node[NODENT_W_STATUS]
+	THEN cur_node[NODENT_V_RDYTOSEND] = 1	!All setup finished for node
+	ELSE IF .sndctx[SNDBLK_V_LOG] OR	!Error and node name explicitly
+		.cur_node[NODENT_V_REQUIRED]	!...referenced or /LOG?
+	THEN SIGNAL(send_connerr, 1,		!Yes, signal the error
+			cur_node[NODENT_Q_NAME],
+			.cur_node[NODENT_W_STATUS]);
+	cur_node = .cur_node[NODENT_L_FLINK];	!Point to the next node
+	END;					!End of node-queue loop
+
+    cur_dest = .sndctx[SNDBLK_L_DESTHEAD];	!Point to the first entry
+    WHILE .cur_dest NEQA sndctx[SNDBLK_Q_DESTQUE]
+    DO BEGIN
+	IF .cur_dest[DESTENT_V_TERMINAL]
+	THEN BEGIN
+	    num_terms = 0;
+	!
+	! Invalidate everything but the terminal.  Used in case this was a
+	! clusterwide send to a terminal on a remote node.
+	!
+	    cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+	    WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+	    DO BEGIN
+		IF .cur_subdst[SUBDST_V_TERMINAL]
+		THEN num_terms = .num_terms+1
+		ELSE cur_subdst[SUBDST_V_VALID] = 0;
+
+		cur_subdst = .cur_subdst[SUBDST_L_FLINK];
+		END;
+
+	    IF .num_terms GTRU 1
+	    THEN BEGIN
+	    !
+	    ! Found this terminal name on more than one remote node.
+	    !
+		cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+		WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+		DO BEGIN
+		    cur_subdst[SUBDST_V_VALID] = 0;
+		    cur_subdst = .cur_subdst[SUBDST_L_FLINK];
+		    END;			!End of invalidate loop
+
+		SIGNAL(send_ambigterm, 1, cur_dest[DESTENT_Q_DESTDSC]);
+		END;				!End of ambiguous term name
+	    END;				!End of found a terminal
+
+	cur_dest = .cur_dest[DESTENT_L_FLINK];
+	END;					!End of dest queue loop
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of decnet_setup
+
+
+%SBTTL	'NODE_ERROR'
+ROUTINE node_error(node_a, status)=
+BEGIN
+!+
+!
+!  Routine:	NODE_ERROR
+!
+!  Functional Description:
+!
+!	This routine is called when an error that justifies closing the
+!	connection to a node is detected.
+!
+!  Parameters:
+!
+!	node_a		- the address of the node block for the node being
+!			  invalidated.
+!	status		- the error status to save
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+BIND
+	node	= .node_a	: NODENTDEF;
+
+LOCAL
+	cur_noddst	: REF NODDSTDEF;
+
+    node[NODENT_V_VALID] = 0;			!Invalidate the node
+    node[NODENT_W_STATUS] = .status;		!Save the error status
+
+    cur_noddst = .node[NODENT_L_NODDSTHEAD];
+    WHILE .cur_noddst NEQA node[NODENT_Q_NODDSTQUE]
+    DO BEGIN
+	BIND subdst = .cur_noddst[NODDST_L_SUBDST] : SUBDSTDEF;
+
+	subdst[SUBDST_V_VALID] = 0;		!Invalidate this sub dest
+	IF .node[NODENT_V_RDYTOSEND]		!Someone might be waiting for
+	THEN BEGIN				!...this event flag, set it
+	    $SETEF(EFN = .subdst[SUBDST_L_EFN]);
+	    subdst[SUBDST_W_STATUS] = 1;	!Don't treat as an error
+	    END;				!End of complete send
+	    
+	cur_noddst = .cur_noddst[NODDST_L_FLINK];
+	END;					!End of sub dest loop
+
+    IF NOT .node[NODENT_V_RDYTOSEND]		!Still synchronizing by the
+    THEN $SETEF(EFN = .node[NODENT_L_EFN]);	!...node's event flag, set it
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of node_error
+
+
+%SBTTL	'CONNECT_DONE_AST'
+ROUTINE connect_done_ast(node_a)=
+BEGIN
+!+
+!
+!  Routine:	CONNECT_DONE_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of the IO$_ACCESS.  It starts
+!	the chain of reads from the network channel and sends an init message
+!	to the node.
+!
+!  Parameters:
+!
+!	node_a		- the address of the node-queue entry for the node
+!			  to which we are connecting.
+!
+!  Implicit Inputs:
+!
+!	init_message	- the init message to send to all of the nodes
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	node	= .node_a	: NODENTDEF;
+
+LOCAL
+	ior	: REF IORDEF;
+
+    status = .node[NODENT_W_STATUS];
+    IF .status
+    THEN BEGIN
+	node[NODENT_V_ACCEPTED] = 1;		!Connection completed
+	status = write_network(			!Initialize the connection.
+			node, init_message);
+	IF .status
+	THEN status = alloc_ior(ior);		!Allocate a read IOR
+	IF .status
+	THEN BEGIN
+	    ior[IOR_L_ASTPRM] = node;
+	    status = read_network(.ior);	!Start a read
+	    IF NOT .status
+	    THEN dealloc_ior(ior);		!Error, free the IOR
+	    END;				!End of allocated IOR
+	END;					!End of IOSB success
+
+    IF NOT .status
+    THEN node_error(node, .status);		!Invalid node
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of connect_done_ast
+
+
+%SBTTL	'ALLOC_IOR'
+ROUTINE alloc_ior(ior_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ALLOC_IOR
+!
+!  Functional Description:
+!
+!	This routine allocates an I/O request block.
+!
+!  Parameters:
+!
+!	ior_a_a		- the address of a longword to receive the address of
+!			  the block allocated.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+    LIB$GET_VM(%REF(IOR_S_IORDEF), .ior_a_a)	!Allocate the memory
+END;						!End of alloc_ior
+
+
+%SBTTL	'DEALLOC_IOR'
+ROUTINE dealloc_ior(ior_a_a)=
+BEGIN
+!+
+!
+!  Routine:	DEALLOC_IOR
+!
+!  Functional Description:
+!
+!	This routine deallocates an I/O request block.
+!
+!  Parameters:
+!
+!	ior_a_a		- the address of a longword to containing the address
+!			  of the IOR.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+    LIB$FREE_VM(%REF(IOR_S_IORDEF), .ior_a_a)	!Allocate the memory
+END;						!End of dealloc_ior
+
+
+%SBTTL	'READ_NETWORK'
+ROUTINE read_network(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	READ_NETWORK
+!
+!  Functional Description:
+!
+!	This routine starts a read on a node's network channel.
+!
+!  Parameters:
+!
+!	ior_a		- the address of an I/O request block
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	ior	= .ior_a		: IORDEF,
+	node	= .ior[IOR_L_ASTPRM]	: NODENTDEF;
+
+    $QIO(					!Read the network channel
+	CHAN	= .node[NODENT_W_NETCHN],
+	FUNC	= IO$_READVBLK,
+	IOSB	= ior[IOR_Q_IOSB],
+	ASTADR	= read_network_ast,
+	ASTPRM	= ior,
+	P1	= node[NODENT_T_SRVMSG],
+	P2	= SRVMSG_S_SRVMSGDEF)
+END;						!End of read_network
+
+
+%SBTTL	'READ_NETWORK_AST'
+ROUTINE read_network_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	READ_NETWORK_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a network read.
+!
+!  Parameters:
+!
+!	ior_a		- the address of the I/O request block for this read
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	node	= .ior[IOR_L_ASTPRM]	: NODENTDEF,
+	reply	= node[NODENT_T_SRVMSG]	: SRVMSGDEF,
+	repiosb	= reply[SRVMSG_Q_IOSB]	: IOSBDEF;
+
+LOCAL
+	cur_noddst	: REF NODDSTDEF;
+
+    status = .ior[IOR_W_STATUS];
+    IF .status EQL SS$_ABORT OR .status EQL SS$_CANCEL OR
+	NOT .node[NODENT_V_VALID]
+    THEN BEGIN
+	dealloc_ior(ior_a);			!Finished with this IOR
+	RETURN SS$_NORMAL;			!Node not valid, get out
+	END;
+
+    IF .status
+    THEN BEGIN
+	status = (CASE.repiosb[IOSB_W_STATUS]
+		  FROM msg_normal TO msg_unkident OF
+		  SET
+		    [msg_normal]:	SS$_NORMAL;
+		    [msg_cmkrnl]:	SS$_NOCMKRNL;
+		    [msg_protocol]:	SS$_PROTOCOL;
+		    [msg_local]:	SS$_REMRSRC;
+		    [msg_ident]:	SS$_IVIDENT;
+		    [msg_unkident]:	SS$_NORMAL;	!Ignore this error
+		    [INRANGE,
+		     OUTRANGE]:		SS$_PROTOCOL;
+		  TES);
+	CASE .reply[SRVMSG_W_MSGTYP]
+	FROM msg_init TO msg_send OF
+	  SET
+	    [msg_init]:
+		BEGIN
+		REGISTER src_len;
+		LOCAL add_message : CLIMSGDEF;
+
+		IF .status
+		THEN BEGIN
+		    node[NODENT_V_INITED] = 1;
+		    cur_noddst = .node[NODENT_L_NODDSTHEAD];
+		    add_message[CLIMSG_W_MSGTYP] = msg_adddest;
+		    WHILE .cur_noddst NEQA node[NODENT_Q_NODDSTQUE]
+		    DO BEGIN			!Loop through the dests
+			BIND
+			  dest	= .cur_noddst[NODDST_L_DEST]	: DESTENTDEF,
+			  name	= dest[DESTENT_Q_DESTDSC]	: $BBLOCK,
+			  subdst= .cur_noddst[NODDST_L_SUBDST]	: SUBDSTDEF;
+
+			add_message[CLIMSG_L_IDENT] = .subdst[SUBDST_L_EFN];
+			add_message[CLIMSG_B_DESTLEN] = src_len =
+					.name[DSC$W_LENGTH];
+			CH$MOVE(.src_len, .name[DSC$A_POINTER],
+				add_message[CLIMSG_T_DESTBUF]);
+			add_message[CLIMSG_W_MSGLEN] = .src_len+
+					CH$DIFF(add_message[CLIMSG_T_DESTBUF],
+						add_message);
+			status = write_network(	!Send an add dest request
+					node, add_message);
+			IF NOT .status
+			THEN EXITLOOP		!Error, ignore this node
+			ELSE cur_noddst = .cur_noddst[NODDST_L_FLINK];
+			END;			!End of add dest loop
+		    END;			!End of successful init
+		END;				!End of init reply
+	    [msg_adddest]:
+		BEGIN
+		IF .status
+		THEN BEGIN
+		    REGISTER
+			found	: INITIAL(0),
+			done	: INITIAL(1);
+
+		    cur_noddst = .node[NODENT_L_NODDSTHEAD];
+		    WHILE .cur_noddst NEQA node[NODENT_Q_NODDSTQUE]
+		    DO BEGIN			!Loop through the dests
+			BIND
+			    subdst = .cur_noddst[NODDST_L_SUBDST] : SUBDSTDEF,
+			    dest   = .cur_noddst[NODDST_L_DEST]   : DESTENTDEF;
+
+			IF .subdst[SUBDST_L_EFN] EQL .reply[SRVMSG_L_IDENT]
+			THEN BEGIN
+			    found = 1;
+			    cur_noddst[NODDST_V_ADDED] = 1;
+			    IF .repiosb[IOSB_V_TERMINAL]
+			    THEN subdst[SUBDST_V_TERMINAL] =
+					dest[DESTENT_V_TERMINAL] = 1;
+			    IF NOT .done THEN EXITLOOP;
+			    END			!End of found the subdst added
+			ELSE IF NOT .cur_noddst[NODDST_V_ADDED]
+			THEN BEGIN
+			    done = 0;
+			    IF .found THEN EXITLOOP;
+			    END;		!End of wait for more replies
+
+			cur_noddst = .cur_noddst[NODDST_L_FLINK];
+			END;			!End of completion check loop
+
+		    IF NOT .found		!Bad ident, assume protocol err
+		    THEN status = SS$_PROTOCOL
+		    ELSE IF .done
+		    THEN BEGIN			!All dests added, success
+			node[NODENT_W_STATUS] = 1;
+			$SETEF(EFN = .node[NODENT_L_EFN]);
+			END;			!End of finished w/node setup
+		    END;			!End of successful add dest
+		END;				!End of add dest reply
+	    [msg_donedest]:	;
+	    [msg_send]:
+		BEGIN
+		cur_noddst = .node[NODENT_L_NODDSTHEAD];
+		WHILE .cur_noddst NEQA node[NODENT_Q_NODDSTQUE]
+		DO BEGIN			!Loop through the dests
+		    BIND
+			    subdst = .cur_noddst[NODDST_L_SUBDST] : SUBDSTDEF,
+			    dest   = .cur_noddst[NODDST_L_DEST]   : DESTENTDEF;
+
+		    IF .subdst[SUBDST_L_EFN] EQL .reply[SRVMSG_L_IDENT]
+		    THEN BEGIN
+			subdst[SUBDST_W_STATUS] = .status;
+			subdst[SUBDST_W_SNTCNT] = .repiosb[IOSB_W_SNTCNT];
+			subdst[SUBDST_W_TMOCNT] = .repiosb[IOSB_W_TMOCNT];
+			subdst[SUBDST_W_REJCNT] = .repiosb[IOSB_W_REJCNT];
+			$SETEF(EFN = .subdst[SUBDST_L_EFN]);
+			status = SS$_NORMAL;	!Don't generate a node error
+			EXITLOOP;
+			END			!End of found sub dest
+		    ELSE cur_noddst = .cur_noddst[NODDST_L_FLINK];
+		    END;			!End of sub dest loop
+		END;
+	    [OUTRANGE]:		status = SS$_PROTOCOL;
+	  TES;
+	END;					!End of successful read
+
+    IF .status
+    THEN status = read_network(ior);		!Start another read
+
+    IF NOT .status
+    THEN BEGIN
+	node_error(node, .status);		!Error, invalidate this node
+	dealloc_ior(ior_a);			!Deallocate the IOR
+	END;
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of read_network_ast
+
+
+%SBTTL	'WRITE_NETWORK'
+ROUTINE write_network(node_a, message_a)=
+BEGIN
+!+
+!
+!  Routine:	WRITE_NETWORK
+!
+!  Functional Description:
+!
+!	This routine starts a write on a node's network channel.
+!
+!  Parameters:
+!
+!	node_a		- the address of the node block for the node to write.
+!	message_a	- the address of a client message block containing
+!			  the message to write.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	node	= .node_a	: NODENTDEF,
+	message	= .message_a	: CLIMSGDEF;
+
+LOCAL
+	ior	: REF IORDEF;
+
+    status = alloc_ior(ior);			!Allocate an IOR
+    IF .status
+    THEN BEGIN
+	ior[IOR_L_ASTPRM] = node;		!Save a pointer to the node
+	status = $QIO(				!Read the network channel
+		CHAN	= .node[NODENT_W_NETCHN],
+		FUNC	= IO$_WRITEVBLK,
+		IOSB	= ior[IOR_Q_IOSB],
+		ASTADR	= write_network_ast,
+		ASTPRM	= .ior,
+		P1	= message,
+		P2	= .message[CLIMSG_W_MSGLEN]);
+	IF NOT .status
+	THEN dealloc_ior(ior);
+	END;
+
+    .status					!Return status to the caller
+END;						!End of write_network
+
+
+%SBTTL	'WRITE_NETWORK_AST'
+ROUTINE write_network_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	WRITE_NETWORK_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a network write.
+!
+!  Parameters:
+!
+!	ior_a		- the address of the I/O request block for this write.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	ior	= .ior_a		: IORDEF;
+
+LOCAL
+	node	: REF NODENTDEF INITIAL(.ior[IOR_L_ASTPRM]);
+
+    status = .ior[IOR_W_STATUS];
+    dealloc_ior(ior_a);				!Finished with this IOR
+    IF .status EQL SS$_ABORT OR .status EQL SS$_CANCEL OR
+	NOT .node[NODENT_V_VALID]
+    THEN RETURN SS$_NORMAL;			!Node not valid, get out
+
+    IF NOT .status
+    THEN node_error(.node, .status);		!Error, invalidate this node
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of write_network_ast
+
+
+%SBTTL	'PURGE_DEST_QUE'
+ROUTINE purge_dest_que(dest_que_a)=
+BEGIN
+!+
+!
+!  Routine:	PURGE_DEST_QUE
+!
+!  Functional Description:
+!
+!	This routine removes invalid entries from a destination queue.
+!
+!  Parameters:
+!
+!	dest_que_a	- the address of the head of the queue.
+!
+!  Implicit Inputs:
+!
+!	node_queue	- the queue of nodes
+!
+!  Returns:
+!
+!	R0	- status
+!		  send_nodests, if the destination queue is empty after purging
+!		  send_newprompt, if the first entry in the destination queue
+!				  is removed (but the queue is not empty)
+!		  SS$_NORMAL, otherwise
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	dest_que	= .dest_que_a	: DESTENTDEF;
+
+BUILTIN	REMQUE;
+
+LOCAL
+	prompt_invalid	: INITIAL(0),
+	next_node	: REF NODENTDEF,
+	cur_node	: REF NODENTDEF,
+	next_subdst	: REF SUBDSTDEF,
+	cur_subdst	: REF SUBDSTDEF,
+	next_dest	: REF DESTENTDEF,
+	cur_dest	: REF DESTENTDEF;
+
+    cur_dest = .dest_que[DESTENT_L_FLINK];	!Point to the first entry
+    WHILE .cur_dest NEQA dest_que		!Loop through the dest queue
+    DO BEGIN
+	next_dest = .cur_dest[DESTENT_L_FLINK];	!Point to the next entry
+	
+	cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+	WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+	DO BEGIN
+	    next_subdst = .cur_subdst[SUBDST_L_FLINK];
+	    IF NOT .cur_subdst[SUBDST_V_VALID]
+	    THEN rem_subdest(cur_subdst);	!Invalid dest, delete it
+	    cur_subdst = .next_subdst;		!Move to the next entry
+	    END;				!End of sub-dest loop
+
+	IF .cur_dest[DESTENT_L_SUBDSTHEAD] EQLA
+			cur_dest[DESTENT_Q_SUBDSTQUE]
+	THEN BEGIN				!Empty dest, delete it
+	    IF .cur_dest[DESTENT_L_BLINK] EQL dest_que
+	    THEN prompt_invalid = 1;		!Deleted the first dest, need
+						!...to build a new prompt
+	    rem_dest(cur_dest);
+	    END;				!End of invalid entry
+
+	cur_dest = .next_dest;			!Move to the next entry
+	END;					!End of queue purge loop
+
+    cur_node = .node_queue[0];			!Point to the first entry
+    WHILE .cur_node NEQA node_queue		!Loop through the node queue
+    DO BEGIN
+	next_node = .cur_node[NODENT_L_FLINK];	!Point to the next entry
+	IF .cur_node[NODENT_L_NODDSTHEAD] EQLA
+			cur_node[NODENT_Q_NODDSTQUE]
+	THEN rem_node(cur_node);		!Empty node, delete it
+
+	cur_node = .next_node;			!Move to the next entry
+	END;					!End of node delete loop
+
+    RETURN(
+	IF .dest_que[DESTENT_L_FLINK] EQL dest_que
+	THEN send_nodests			!Out of destinations
+	ELSE IF .prompt_invalid
+	THEN send_newprompt			!Time for a new prompt
+	ELSE SS$_NORMAL);
+END;						!End of purge_dest_que
+
+
+%SBTTL	'IMAGE_PRIVS_OFF'
+ROUTINE image_privs_off(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	IMAGE_PRIVS_OFF
+!
+!  Functional Description:
+!
+!	This routine is called to turn off installed privileges before
+!	spawning.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	sndctx		= .sndctx_a			: SNDBLKDEF,
+	procpriv	= sndctx[SNDBLK_Q_PRIVS]	: VECTOR[2,LONG],
+	imagpriv	= sndctx[SNDBLK_Q_IMAGPRIV]	: VECTOR[2,LONG];
+
+LOCAL
+	dis_privs	: VECTOR[2,LONG]
+			  INITIAL(.imagpriv[0] AND NOT .procpriv[0],
+				  .imagpriv[1] AND NOT .procpriv[1]);
+
+    $SETPRV(					!Turn off the privileges that
+	ENBFLG	= 0,				!...were not already turned on
+	PRVADR	= dis_privs)
+END;						!End of image_privs_off
+
+
+%SBTTL	'IMAGE_PRIVS_ON'
+ROUTINE image_privs_on(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	IMAGE_PRIVS_ON
+!
+!  Functional Description:
+!
+!	This routine is called to turn on installed privileges after
+!	spawning.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	sndctx		= .sndctx_a			: SNDBLKDEF,
+	imagpriv	= sndctx[SNDBLK_Q_IMAGPRIV]	: VECTOR[2,LONG];
+
+    $SETPRV(					!Turn back on the installed
+	ENBFLG	= 1,				!...privileges
+	PRVADR	= imagpriv)
+END;						!End of image_privs_off
+
+
+%SBTTL	'SPAWN_LINE'
+ROUTINE spawn_line(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	SPAWN_LINE
+!
+!  Functional Description:
+!
+!	This routine is called to spawn for messages that begin with $.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+MACRO
+	ws		= %ASCII' 	'%;
+
+BIND
+	sndctx		= .sndctx_a			: SNDBLKDEF,
+	message		= sndctx[SNDBLK_Q_MESSAGE]	: $BBLOCK,
+	whitespace	= %ASCID' 	';
+
+LOCAL
+	pos	: REF $BBLOCK,
+	temp	: $BBLOCK[DSC$C_S_BLN]
+		  PRESET([DSC$W_LENGTH]	= .message[DSC$W_LENGTH]-1,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$A_POINTER]= .message[DSC$A_POINTER]+1),
+	command	: $BBLOCK[DSC$C_S_BLN];
+
+    $INIT_DYNDESC(command);
+
+    pos = STR$FIND_FIRST_NOT_IN_SET(	!Skip over leading whitespace.
+			temp, whitespace);
+    IF .pos NEQ 0
+    THEN BEGIN
+	status = STR$RIGHT(command, message,	!Extract the command portion
+			%REF(.pos+1));		!...skip the $
+	IF NOT .status THEN RETURN .status;	!On error, return status
+	END;
+
+    image_privs_off(sndctx);			!Turn off installed privs
+    status = LIB$SPAWN(				!Spawn a subprocess
+		(IF .pos EQL 0
+		 THEN 0				!No command provided
+		 ELSE command));
+    image_privs_on(sndctx);			!Turn on installed privs
+
+    STR$FREE1_DX(command);
+    .status					!Return status to the caller
+END;						!End of spawn_line
+
+
+%SBTTL	'SEND_A_MESSAGE'
+ROUTINE send_a_message(sndctx_a)=
+BEGIN
+!+
+!
+!  Routine:	SEND_A_MESSAGE
+!
+!  Functional Description:
+!
+!	This routine handles sending a message to the destinations in the
+!	queue.
+!
+!  Parameters:
+!
+!	sndctx_a	- the address of the send-context block.
+!
+!  Implicit Inputs:
+!
+!	reqid		- a longword containing the broadcast class to use.
+!
+!  Returns:
+!
+!	R0	- status
+!		  SS$_NORMAL, errors are signaled
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	sndctx	= .sndctx_a			: SNDBLKDEF,
+	message = sndctx[SNDBLK_Q_MESSAGE]	: $BBLOCK,
+	bell	= %ASCID %STRING(%CHAR(7));
+
+LOCAL
+	sent_count,
+	timeout_count,
+	reject_count,
+	counts_valid,
+	wait_mask	: INITIAL(0),
+	prompt_invalid	: INITIAL(0),
+	cur_node	: REF NODENTDEF,
+	cur_subdst	: REF SUBDSTDEF VOLATILE,
+	cur_dest	: REF DESTENTDEF;
+
+OWN
+	first_message	: INITIAL(1),
+	local_message	: $BBLOCK[DSC$C_S_BLN]
+			  PRESET([DSC$W_LENGTH]	= 0,
+				 [DSC$B_CLASS]	= DSC$K_CLASS_D,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= 0);
+
+    IF .first_message
+    THEN BEGIN
+	first_message = 0;
+	status = STR$PREFIX(			!Prefix with a bell character
+		sndctx[SNDBLK_Q_MESSAGE], bell);
+	IF NOT .status THEN RETURN .status;	!On error, return the status
+	END;
+
+    status = STR$CONCAT(			!Build the local message
+		local_message, sndctx[SNDBLK_Q_MSGPREFIX],
+		sndctx[SNDBLK_Q_MESSAGE]);
+    IF NOT .status THEN RETURN .status;
+
+    cur_dest = .sndctx[SNDBLK_L_DESTHEAD];
+    WHILE .cur_dest NEQ sndctx[SNDBLK_Q_DESTQUE]
+    DO BEGIN
+	cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+	IF .cur_dest[DESTENT_V_BITNET]
+	THEN BEGIN
+	    SIGNAL(send_nobitnet);
+	    cur_subdst[SUBDST_V_VALID] = 0;
+	    END
+	ELSE BEGIN
+	    WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+	    DO BEGIN
+		BIND decnode = .cur_subdst[SUBDST_L_DECNODE] : NODENTDEF;
+
+		$CLREF(EFN = .cur_subdst[SUBDST_L_EFN]);
+		IF decnode EQLA 0
+		THEN status = $BRKTHRU(		!Broadcast to local dest
+			MSGBUF	= local_message,
+			SENDTO	= cur_dest[DESTENT_Q_DESTDSC],
+			SNDTYP	= IF .cur_dest[DESTENT_V_TERMINAL]
+				  THEN BRK$C_DEVICE
+				  ELSE BRK$C_USERNAME,
+			IOSB	= cur_subdst[SUBDST_Q_IOSB],
+			FLAGS	= .sndctx[SNDBLK_L_BRKFLAGS],
+			REQID	= .reqid,
+			TIMOUT	= .sndctx[SNDBLK_L_WAIT],
+			EFN	= .cur_subdst[SUBDST_L_EFN])
+		ELSE status = 1;
+
+		IF NOT .status
+		THEN BEGIN
+		    cur_subdst[SUBDST_W_STATUS] = .status;
+		    cur_subdst[SUBDST_V_VALID] = 0;
+						!Scrap this destination
+		    END				!End of error right away
+		ELSE wait_mask = .wait_mask OR	!Add this EF to the wait mask
+			.cur_subdst[SUBDST_L_EFNMASK];
+
+		cur_subdst = .cur_subdst[SUBDST_L_FLINK];
+		END;				!End of subdest loop
+	    END;				!End of non-bitnet dest
+
+	cur_dest = .cur_dest[DESTENT_L_FLINK];
+	END;					!End of message send loop
+
+    cur_node = .node_queue[0];
+    IF .cur_node NEQA node_queue
+    THEN BEGIN
+	REGISTER
+		ast_stat,
+		src_len;
+	BIND message	= sndctx[SNDBLK_Q_MESSAGE]	: $BBLOCK;
+	LOCAL send_msg	: CLIMSGDEF;
+
+	send_msg[CLIMSG_W_MSGTYP] = msg_send;	!Set up the DECnet message
+	src_len = .message[DSC$W_LENGTH];
+	send_msg[CLIMSG_W_MSGLEN] = .src_len+4;	!Add in the header length
+	CH$MOVE(.src_len,			!Copy the message text
+		.message[DSC$A_POINTER],
+		send_msg[CLIMSG_T_MSGTXT]);
+
+	ast_stat = $SETAST(ENBFLG = 0);		!Turn off interrupts
+
+	DO BEGIN
+	    status =
+	    (IF .cur_node[NODENT_V_VALID]
+	     THEN write_network(		!Pass of the message to a
+			.cur_node, send_msg)	!...remote node
+	     ELSE .cur_node[NODENT_W_STATUS]);	!Resave this error in case it
+						!...was reported before the
+						!...EFs were cleared
+	    IF NOT .status
+	    THEN node_error(.cur_node, .status);!Save the error status
+	    cur_node = .cur_node[NODENT_L_FLINK];
+	END WHILE .cur_node NEQA node_queue;	!Loop until out of nodes
+
+	IF .ast_stat EQL SS$_WASSET
+	THEN $SETAST(ENBFLG = 1);		!Turn interrupts back on
+	END;					!End of DECnet dests
+
+    IF .wait_mask NEQ 0
+    THEN $WFLAND(				!Wait until all are finished
+		EFN 	= 32,			!Cluster 1
+		MASK	= .wait_mask);		!The EFs to wait for
+
+    cur_node = .node_queue[0];
+    WHILE .cur_node NEQA node_queue
+    DO BEGIN
+	IF NOT .cur_node[NODENT_V_VALID] AND	!Node error and /LOG or
+	   (.cur_node[NODENT_V_REQUIRED] OR	!...explicitly-referenced node
+		.sndctx[SNDBLK_V_LOG])
+	THEN SIGNAL(send_noderr, 1,		!Signal an error message
+		cur_node[NODENT_Q_NAME],
+		.cur_node[NODENT_W_STATUS]);
+	cur_node = .cur_node[NODENT_L_FLINK];
+	END;					!End of node error loop
+
+    cur_dest = .sndctx[SNDBLK_L_DESTHEAD];
+    WHILE .cur_dest NEQ sndctx[SNDBLK_Q_DESTQUE]
+    DO BEGIN
+	sent_count = 0;
+	timeout_count = 0;
+	reject_count = 0;
+	counts_valid = 0;
+	status = 1;
+	cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+	WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+	DO BEGIN
+	    BIND decnode = .cur_subdst[SUBDST_L_DECNODE] : NODENTDEF;
+
+	    IF .cur_subdst[SUBDST_V_VALID]
+	    THEN BEGIN
+		counts_valid = 1;		!Found a valid sub dest
+		sent_count = .sent_count+.cur_subdst[SUBDST_W_SNTCNT];
+		timeout_count = .timeout_count+.cur_subdst[SUBDST_W_TMOCNT];
+		reject_count = .reject_count+.cur_subdst[SUBDST_W_REJCNT];
+		END				!End of add in counts
+	    ELSE BEGIN
+		IF NOT .cur_subdst[SUBDST_W_STATUS]
+		THEN BEGIN
+		    status = .cur_subdst[SUBDST_W_STATUS];
+		    EXITLOOP;			!Error, get out to report it
+		    END;			!End of dest error
+		END;				!End of error detected
+
+	    cur_subdst = .cur_subdst[SUBDST_L_FLINK];
+	    END;				!End of count total loop
+
+	IF .status
+	THEN BEGIN
+	    IF .sent_count EQL 0
+	    THEN BEGIN				!Msg not sent to this user
+		status = 0;
+		IF .timeout_count GTRU 0
+		THEN SIGNAL(send_timeout, 1,	!At least one timout
+			cur_dest[DESTENT_Q_FULLDEST])
+		ELSE IF .reject_count GTRU 0
+		THEN SIGNAL(send_notrcving, 1,	!At least one nobroadcast
+			cur_dest[DESTENT_Q_FULLDEST])
+		ELSE IF .counts_valid		!Make sure not DECnet error
+		THEN SIGNAL(send_notlogin, 1,	!User not logged in
+			cur_dest[DESTENT_Q_FULLDEST]);
+		END
+	    ELSE IF .cur_dest[DESTENT_V_LOG]	!Signal for success?
+	    THEN IF .cur_dest[DESTENT_V_TERMINAL]
+		THEN SIGNAL(send_senttrm, 1, cur_dest[DESTENT_Q_FULLDEST])
+		ELSE SIGNAL(send_sent, 4, cur_dest[DESTENT_Q_FULLDEST],
+			.sent_count, .timeout_count, .reject_count);
+	    END
+	ELSE SIGNAL(send_msgerr, 1, cur_dest[DESTENT_Q_FULLDEST], .status);
+
+	IF NOT .status
+	THEN BEGIN
+	    cur_subdst = .cur_dest[DESTENT_L_SUBDSTHEAD];
+	    WHILE .cur_subdst NEQA cur_dest[DESTENT_Q_SUBDSTQUE]
+	    DO BEGIN
+		cur_subdst[SUBDST_V_VALID] = 0;	!Invalidate the subdests
+		cur_subdst = .cur_subdst[SUBDST_L_FLINK];
+		END;				!End of invalidation loop
+	    END;				!End of error detected
+
+	cur_dest = .cur_dest[DESTENT_L_FLINK];
+	END;					!End of destination loop
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of send_a_message
+
+END						!End of module begin
+ELUDOM

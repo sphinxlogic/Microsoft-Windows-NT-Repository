@@ -1,0 +1,153 @@
+%TITLE	'SEND_COMMON'
+MODULE send_common(
+	IDENT		= 'V1.0',
+	ADDRESSING_MODE(EXTERNAL	= GENERAL,
+			NONEXTERNAL	= WORD_RELATIVE)) =
+BEGIN
+!++
+!
+! File:		SEND_COMMON.B32
+! Author:	Darrell Burkhead
+!		COPYRIGHT © 1994, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+! Date:		April 7, 1994
+!
+! Abstract:
+!
+!	This module contains routines that are common to the SEND client and
+!	server.
+!
+! Revision History:
+!
+!	V1.0		Darrell Burkhead	 7-APR-1994 14:29
+!		Creation.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+
+!
+! Table of contents.
+!
+FORWARD ROUTINE
+	get_reqid;			!Determine which user-defined broadcast
+					!...class to use, based on logical names
+	
+
+%SBTTL	'GET_REQID'
+GLOBAL ROUTINE get_reqid(reqid_a)=
+BEGIN
+!+
+!
+!  Routine:	GET_REQID
+!
+!  Functional Description:
+!
+!	This routine determines the broadcast class to use when sending
+!	messages.  It uses one of the following logical names:
+!
+!		SEND_BRD_CLASS	- the name of the broadcast class
+!		JAN_BRD_BASE	- same as above
+!
+!	If neither of these logical names are defined, the default, USER1, is
+!	used.
+!
+!  Parameters:
+!
+!	reqid_a		- the address of a longword to receive the broadcast
+!			  class.
+!
+!  Returns:
+!
+!	R0	- status
+!		  SS$_NORMAL, if a match is found or the default is used.
+!		  SS$_BADPARAM, if the value of a logical name does not match
+!				any of the broadcast classes.
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	src_len;
+
+BIND
+	reqid		= .reqid_a	: LONG,
+	system_table	= %ASCID'LNM$SYSTEM_TABLE';
+
+LOCAL
+	exec_mode	: INITIAL(PSL$C_EXEC),
+	lnm_buf		: $BBLOCK[256],
+	lnm_len		: WORD,
+	lnm_list	: $ITMLST_DECL(ITEMS=1);
+
+MACRO
+	match_class(class)=
+	BEGIN
+	REGISTER string_len : INITIAL(%CHARCOUNT(%STRING(class)));
+
+	IF .src_len EQL .string_len AND		!Attempt to match with this
+	   CH$EQL(.src_len, lnm_buf,		!...class name,
+		.string_len,
+		UPLIT(%ASCII %STRING(class)))
+	THEN BEGIN
+	    reqid = %NAME('BRK$C_',class);	!Save the class number
+	    1
+	    END
+	ELSE 0
+	END%;					!End of match_class
+
+    $ITMLST_INIT(ITMLST = lnm_list,
+	(ITMCOD	= LNM$_STRING,
+	 BUFADR	= lnm_buf,
+	 BUFSIZ	= %ALLOCATION(lnm_buf),
+	 RETLEN	= lnm_len));
+    status = $TRNLNM(				!Translate the first lognam
+		TABNAM	= system_table,
+		LOGNAM	= %ASCID'SEND_BRD_CLASS',
+		ACMODE	= exec_mode,
+		ITMLST	= lnm_list);
+    IF .status EQL SS$_NOLOGNAM
+    THEN status = $TRNLNM(			!No match, try the second log
+		TABNAM	= system_table,
+		LOGNAM	= %ASCID'JAN_BRD_BASE',
+		ACMODE	= exec_mode,
+		ITMLST	= lnm_list);
+    IF .status EQL SS$_NOLOGNAM
+    THEN BEGIN					!Neither lognam was defined
+	reqid = BRK$C_USER1;			!Use the default class
+	status = SS$_NORMAL;			!Don't return an error
+	END
+    ELSE IF .status
+    THEN BEGIN
+    !
+    ! One of the logical names was translated correctly, now try to match it
+    ! it with one of the broadcast class names.
+    !
+	src_len = .lnm_len;
+	IF NOT match_class(GENERAL)
+	THEN IF NOT match_class(PHONE)
+	THEN IF NOT match_class(MAIL)
+	THEN IF NOT match_class(QUEUE)
+	THEN IF NOT match_class(SHUTDOWN)
+	THEN IF NOT match_class(URGENT)
+	THEN IF NOT match_class(DCL)
+	THEN IF NOT match_class(OPCOM)
+	THEN IF NOT match_class(USER1)
+	THEN IF NOT match_class(USER2)
+	THEN IF NOT match_class(USER3)
+	THEN IF NOT match_class(USER4)
+	THEN IF NOT match_class(USER5)
+	THEN IF NOT match_class(USER6)
+	THEN IF NOT match_class(USER7)
+	THEN IF NOT match_class(USER8)
+	THEN IF NOT match_class(USER9)
+	THEN IF NOT match_class(USER10)
+	THEN IF NOT match_class(USER11)
+	THEN IF NOT match_class(USER12)
+	THEN IF NOT match_class(USER13)
+	THEN IF NOT match_class(USER14)
+	THEN IF NOT match_class(USER15)
+	THEN IF NOT match_class(USER16)
+	THEN status = SS$_BADPARAM;		!No match, return error
+	END;					!End of log name translated
+
+    .status					!Return status to the caller
+END;						!End of get_reqid
+
+END						!End of module BEGIN
+ELUDOM

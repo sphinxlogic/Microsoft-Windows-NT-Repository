@@ -1,0 +1,2696 @@
+%title 'Nmail sender'
+module nm$send(
+    	      ident='30',
+    	      addressing_mode(external=general)
+              ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL           
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+!		(Based on a short story by John Covert)
+!
+! Created:	15-Mar-1985
+!
+! Revision history:
+!
+!   01  25-Sep-1985
+!	Change global literals to global variables
+!
+!   02  26-Sep-1985
+!	When defaulting expiration time, don't rewrite it
+!	to the file (implicitly supports format2 control record)
+!
+!   03	04-Dec-1985
+!	Rework report generation and end-of-run summary code to
+!	be more like the 'show' command code
+!
+!   04  24-Jan-1986
+!	If error file not found, then all errors should be soft
+!	since it's more robust that way
+!
+!   05	21-Mar-1986
+!	Allow all text to be returned to sender, if limit is set
+!	as zero.
+!
+!   06	09-Apr-1986
+!	Small tweaks to report-file creation code, so as to make
+!	it look like the equivalent code in NM$MAIL.
+!
+!   07	11-Apr-1986
+!	The NM$GT_xxxx strings are now defined as counted strings
+!
+!   08	21-Apr-1986
+!	Support for sending CC
+!
+!   09	22-Apr-1986
+!	Use CH$FIND_SUB rather than STR$POSITION, CH$EQL rather 
+!	than STR$COMPARE_EQL.
+!
+!   10	08-Sep-1986
+!	Remove network QIO timeout code, this is now handled
+!	elsewhere.
+!
+!   11	18-Nov-1986
+!	Keep address 'last attempt' timestamp in sync with 'last
+!	error' text, rather than updating time at start of pass,
+!	text some time later.  
+!
+!   12	19-Nov-1986
+!  	Send 'full' display with end-of-run confirmation.
+!
+!   13	27-Jun-1987
+!	Flush error text to disk before writing pointer to that
+!  	error text.  Add 'from' and date-time fields to error 
+!	report.
+!
+!   14	28-Aug-1987
+!	If no text to return to sender, say so
+!
+!   15	31-Aug-1987
+!	Pass actual RFM and RAT to network connect routine (rather
+!	than always using VAR-CR)
+!
+!   16	23-Apr-1988
+!	Hooks for tracing
+!
+!   17	30-Jan-1989
+!	Support for MAIL-11 3.1, in particular for
+!	foreign files and the attributes message.
+!
+!   18	12-Feb-1989
+!	Finish foreign file support by implementing
+!	return-to-sender on error.
+!
+!   19	13-Feb-1989
+!	Remove old-style block mode operation.  Any files
+!	older thn format 5 will be sent in record mode.
+!
+!   20	14-Feb-1989
+!	Use different job names for the various jobs we can
+!	submit back into the queue.
+!
+!   21	19-Feb-1989
+!	Support for user-requested cancellation
+!
+!   22	21-Feb-1989
+!	Support for first-run notification broadcast to user
+!
+!   23	23-Feb-1989
+!	Use NM$RESUBMIT_JOB in place of NM$SUBMIT_JOB
+!
+!   24	16-Dec-1991	Cathy Wright
+!	ALPHA specific changes
+!
+!   25	7-May-1992	
+!	Merge VAX, ALPHA cases
+!
+!   26	4-Oct-1993
+!	. Use new ALIAS attribute where appropriate
+!	. Fix up NM$FIND_COLONS to handle quotes in node names
+!
+!   27	19-Nov-1993
+!	Add more details on cancellation
+!
+!   28	10-Dec-1993
+!	. Keep some basic usage statistics internally
+!	. Add call to statistics-logging code in extension image
+!
+!   29	17-Dec-1993
+!	Tweaks to extension calls
+!
+!   30	3-Mar-1994
+!	More tweaks; extension interface 1.2
+!--
+
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+                           
+! 
+! Internal routines
+!
+forward routine
+    nm$handler,
+    nm$scan_control,
+    nm$set_next_group,
+    nm$send_next_group,
+    nm$get_next_addr,
+    nm$find_colons,
+    nm$check_response,
+    nm$send_handler,
+    nm$error_begin     : novalue,
+    nm$error_end       : novalue,
+    nm$post_err_msg,
+    nm$err_lookup,
+    nm$gen_report,
+    nm$gen_return	: novalue,
+    nm$gen_summary	: novalue,
+    nm$gen_ctl_hdr	: novalue,
+    nm$end_ctl_hdr	: novalue,
+    nm$check_done,
+    nm$cancel_rest;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    ctl_flags  : block[%upval,byte],		! Control record flags
+    ctl_form   : byte,				! Nmail file format byte 
+    ctl_rfm    : byte,				! Record format
+    ctl_rat    : byte,				! Record attributes
+    ctl_org    : byte,				! File organization
+    text_vbn   : long,				! VBN of start of text
+    end_vbn    : long,				! VBN past end of text
+    end_off    : word,				! Offset past end of text
+    from_rfa   : vector[3,word],		! RFA of 'from' string
+    to_rfa     : vector[3,word],		! RFA of 'to' string
+    cc_rfa     : vector[3,word],		! RFA of 'cc' string
+    subj_rfa   : vector[3,word],		! RFA of 'subject' string
+    attr_rfa   : vector[3,word],		! RFA of attributes TLD string
+    nxtadr_rfa : vector[3,word],  		! Start RFA for SET_NEXT_GROUP
+    addr_rfa   : vector[3,word],		! RFA of first undone address
+    text_rfa   : vector[3,word],		! RFA of text of the message
+    cur_from   : descrip initial($dynamic),     ! Sender's 'from' address 
+    cur_node   : descrip initial($dynamic),	! Node name currently sending to
+    err_rfa    : vector[3,word],		! RFA of error messages
+    sav_rfa    : vector[3,word],  		! RFA saved during error processing
+    can_rfa    : vector[3,word],		! RFA of cancellation details
+    expired    : long,				! True if /EXPIREd
+    rpt_fid    : block[nm$s_fileid,byte],	! File ID for report file
+    rpt_vbn    : long,				! First VBN for report text
+    error_type : long,				! Severity of error
+    buflen     : alias,				! Size of data in buffer
+    buff_pfx   : initial('    '),		! Must precede 'buffer'
+    buffer     : block[nm$s_ctl_buf,byte] alias;! File I/O buffer
+
+!
+! Maximum number of disk blocks in one read
+!
+literal
+    max_blk_cnt = nm$s_ctl_buf / 512;	
+
+!                                                                       
+! Assorted fixed strings
+!
+bind
+    null     = uplit byte (0),
+    nullstr  = %ascid %char(0),
+    blank    = %ascid '',
+    formfeed = %ascid %char(12),
+    dashes   = %ascid %exactstring(16,%c'-');
+
+
+%sbttl 'nmail daemon sender'
+global routine nm$send_mail (ctl_fileid, retry_delta, nfymsg) =
+
+!++
+! Functional description:
+!
+! Given a control file, which describes a single mail message
+! and the intended recipients, this routine will attempt to
+! send the mail message.
+!
+! The control file is updated to reflect the status of the
+! sending.  When all addresses have been dealt with, the control
+! file is deleted.
+!
+! Any hard errors are reported back to the sender via mail.
+! A hard error is defined to be one whose error message appears
+! in the error message file NM$ERROR.DAT.
+!
+! The sending of the report is itself subject to the usual
+! Nmail retry logic (although in the case of hard errors during
+! report mailing, we quietly drop the report on the floor rather
+! than attempt to mail a report about it...)
+!
+! Formal parameters:
+!
+! ctl_fileid.rr.r  = 28-byte file ID for control file
+! retry_delta.wq.r = delta time interval before next retry
+! nfymsg.wt.dx     = text to include in broadcast (null if none)
+!
+! Routine value:
+!
+! alldone.wl.v   = true if control file completed (and deleted)
+!		   false if there are still things to do
+!
+!--
+
+    begin
+
+    !
+    ! Enable condition handler to ensure files get closed
+    !
+    enable nm$handler;
+
+    !
+    ! Scratch storage
+    !
+    local
+        status,
+    	alldone,
+	job      : vector[2],
+	queue    : vector[2];
+
+    !
+    ! Sundry initialisation
+    !
+    alldone   = false;
+    expired   = false;
+    queue[0]  = .nm$gt_queue[0];
+    queue[1]  = nm$gt_queue[1];
+
+    !
+    ! Open the control file, read the first record (the control
+    ! record).  Save the flags and format bytes.
+    !
+    nm$open_ctl_file(.ctl_fileid, buffer, buflen, false);
+    nm$read_ctl();
+    ctl_flags = .buffer[ctl$b_flags];
+    ctl_form  = .buffer[ctl$b_form];
+
+    !
+    ! Ensure it's a control file before we go writing all over it.
+    !
+    if not nm$chk_ctl_file(buffer, .buflen) then signal(nm$_badfil);
+
+    !
+    ! If a foreign document, it must be block-aligned
+    !
+    if .buffer[ctl$v_for] and not .buffer[ctl$v_blk]
+    then
+	signal(nm$_badflg);
+
+    !
+    ! Save the RFM, RAT and ORG, defaulting them if unspecified. Note this
+    ! must be done after NM$CHK_CTL_FILE since that routine extends old-
+    ! format control records and thus ensures predictable results.
+    !
+    ctl_rfm = .buffer[ctl$b_rfm];
+    ctl_rat = .buffer[ctl$b_rat];
+    ctl_org = .buffer[ctl$b_org];
+    if .ctl_rfm eql 0
+    then
+	begin
+	ctl_rfm = fab$c_var;
+	ctl_rat = fab$m_cr;
+	ctl_org = fab$c_seq;
+	end;
+
+    !
+    ! Save virtual block numbers to the message text, if this is
+    ! a block-aligned file (and if it's a recent format)
+    !
+    text_vbn = .buffer[ctl$l_sotvbn];
+    end_vbn  = .buffer[ctl$l_eotvbn];
+    end_off  = .buffer[ctl$w_eotoff];
+
+    !
+    ! Return reattempt period to caller
+    !
+    if $zeroq(buffer[ctl$q_delta])
+    then
+        $movq(nm$gq_def_delta, .retry_delta)
+    else
+	$movq(buffer[ctl$q_delta], .retry_delta);
+
+    !
+    ! Turn off notification if this is other than the first attempt.
+    ! Notification is used to inform the user only if the first attempt
+    ! at delivery fails.
+    !
+    if .buffer[ctl$w_natt] neq 0 then ctl_flags[ctl$v_nfy] = false;
+
+    !
+    ! Save cancellation info RFA (if cancelled, and if it's
+    ! a file format which supports that sort of thing)
+    !
+    can_rfa[0] = .buffer[ctl$w_canrfa0];
+    can_rfa[1] = .buffer[ctl$w_canrfa2];
+    can_rfa[2] = .buffer[ctl$w_canrfa4];
+
+    !
+    ! Update control record to show details of the latest attempt
+    ! being made.   Also, check for expiration of retry interval
+    !
+    if not .ctl_flags[ctl$v_can]
+    then
+	begin
+	local time_exp : vector[2];
+
+	!
+        ! Update control record to show time of latest attempt. Increment
+        ! count of attempts made.  Record time of first attempt.
+        !
+        buffer[ctl$w_natt] = .buffer[ctl$w_natt] + 1;
+        $gettim(timadr=buffer[ctl$q_time]);
+        if $zeroq(buffer[ctl$q_first]) 
+	then 
+	    $movq(buffer[ctl$q_time], buffer[ctl$q_first]);
+
+        !
+        ! If no expiration date/time is indicated, then apply a default.
+        ! (Note that to make it absolute, we subtract it from the time of
+        !  first attempt, because delta times are stored as negative values)
+        !
+        if $zeroq(buffer[ctl$q_expir])
+        then
+	    $subq(nm$gq_def_expiry, buffer[ctl$q_first], time_exp)
+        else
+	    $movq(buffer[ctl$q_expir], time_exp);    
+
+        !
+        ! Check for expiration date/time being reached or for
+        ! the maximum number of attempts being exceeded
+        !
+        if $cmpq(buffer[ctl$q_time], time_exp) geq 0 or
+           .buffer[ctl$w_mxatt] neq 0 and 
+	   .buffer[ctl$w_natt] gequ .buffer[ctl$w_mxatt]
+        then
+	    expired = true;
+
+        !
+        ! Replace control record on disk
+        !
+	nm$update_ctl();
+
+	!
+	! End of control record update
+	!
+	end;
+
+    !
+    ! Do first scan of file, to get pointers to various interesting
+    ! records for later use.
+    !
+    nm$scan_control();
+
+    !
+    ! If we have an extension image loaded, then we can now tell
+    ! it that we're starting up
+    !
+    if .nm$nmx[nmx$a_symbstart] neq 0
+    then
+	begin
+        nm$rewind_ctl(buffer, buflen);
+	nm$read_ctl();
+	(.nm$nmx[nmx$a_symbstart])(buffer[ctl$q_qued], cur_from, .buffer[ctl$w_natt])
+	end;
+
+    !
+    ! Special cancellation processing: go modify each address status
+    ! to show cancelled, so that we'll return the final error messages
+    ! to the sender.
+    !
+    if .ctl_flags[ctl$v_can]
+    then
+	nm$cancel_rest()
+
+    !
+    ! Loop; each time around the loop, we select and then process
+    ! the next group of addresses. Each group corresponds to one node.
+    !
+    else
+        while begin
+              if .nm$gl_abort_send then signal(nm$_abort);
+	      ch$fill(0, stat$s_stats, nm$iostats);
+              nm$set_next_group()
+	      end
+    	do
+	    begin
+    	    nm$send_next_group();
+	    if .nm$nmx[nmx$a_symbstats] neq 0 
+	    then
+    		(.nm$nmx[nmx$a_symbstats])(cur_node, nm$iostats);
+	    end;
+
+    !
+    ! Go and generate any report for this run (if applicable) and
+    ! if there is a report, then queue up a job to mail it.  In some
+    ! cases such as foreign messages, we may need two jobs.
+    !
+    if not .ctl_flags[ctl$v_norpt]
+    then
+        begin
+	local action;
+	action = nm$gen_report();
+        if .action neq 0
+	then
+	    begin
+	    job[0] = .nm$gt_jobrpt[0];
+	    job[1] = nm$gt_jobrpt[1];
+	    status = nm$resubmit_job(rpt_fid, job, queue, 0, nm$gl_rpt_prio);
+	    if not .status then signal(nm$_resub, 2, job, queue, .status);
+	    end;
+	if .action lss 0
+	then
+	    begin
+	    nm$gen_return();
+	    job[0] = .nm$gt_jobret[0];
+	    job[1] = nm$gt_jobret[1];
+	    status = nm$resubmit_job(rpt_fid, job, queue, 0, nm$gl_ret_prio);
+	    if not .status then signal(nm$_resub, 2, job, queue, .status);
+	    end;
+	end;
+
+    !
+    ! See whether we're all done for this message
+    !
+    alldone = nm$check_done();
+    if .nm$gl_abort_send and not .ctl_flags[ctl$v_can] then alldone = false;
+
+    !
+    ! If we are all done for this message, do we need to send a final
+    ! summary to the sender?
+    !
+    if .alldone and .ctl_flags[ctl$v_summ] and not .ctl_flags[ctl$v_nfy]
+    then
+        begin
+	nm$gen_summary();
+	job[0] = .nm$gt_jobsum[0];
+	job[1] = nm$gt_jobsum[1];
+	status = nm$resubmit_job(rpt_fid, job, queue, 0, nm$gl_sum_prio);
+	if not .status then signal(nm$_resub, 2, job, queue, .status);
+	end;
+
+    !
+    ! Tell caller whether the user needs to be told that this job
+    ! was requeued.  Return the to-string for use in the broadcast.
+    !
+    buflen = 0;
+    if .ctl_flags[ctl$v_nfy] and not .alldone then nm$read_by_rfa(to_rfa);
+    str$copy_r(.nfymsg, buflen, buffer);
+
+    !
+    ! Finished with the control file; close it, and delete
+    ! it if we've finished with it. Ensure abort flag left clear.
+    !
+    nm$close_ctl_file(.alldone);
+    nm$gl_abort_send = false;
+    if .nm$nmx[nmx$a_symbfinish] neq 0
+    then
+	(.nm$nmx[nmx$a_symbfinish])(.alldone);
+
+    !
+    ! Tell caller whether we finished
+    !
+    .alldone
+
+    end;
+
+%sbttl 'outer level handler'
+routine nm$handler (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! Ensures all files are closed on an unwind (which can happen 
+! after some signalled error, at our callers discretion).
+!
+! No other conditions are intercepted.
+! 
+! Formal parameters:
+!
+! sig.mr.r  = signal vector
+! mech.mr.r = mechanism vector
+!
+! Routine value:
+!
+! status.wlc.v = always ss$_resignal 
+!
+!--
+
+    begin
+
+    bind
+    	sig_name = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! We only deal with unwinds
+    !
+    if .sig_name eql ss$_unwind
+    then
+	begin
+        nm$rundown_ctl();
+	nm$rundown_rpt();
+	nm$close_err_file();
+	nm$gl_abort_send = false;
+        if .nm$nmx[nmx$a_symbfinish] neq 0
+        then
+	    (.nm$nmx[nmx$a_symbfinish])(ss$_abort);
+	end;
+
+    !
+    ! Resignal everything
+    !
+    ss$_resignal
+
+    end;
+
+%sbttl 'first scan of control file'
+routine nm$scan_control = 
+
+!++
+! Functional description:
+!
+! Reads the control file and saves pointers to
+! the various interesting records in the file.
+!
+! (Sets up the xxx_rfa loactions, where xxx is
+!  from, nxtadr, to, cc, subj, attr, and text)
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! worktodo.wl.v = true if there is at least one unprocessed address
+!		  false if all done
+!
+!--
+
+    begin
+
+    !
+    ! Scratch
+    !
+    local
+	dsc1 : descrip,
+	dsc2 : descrip,	
+	dsc3 : descrip;
+
+    !
+    ! Flag, set true when we have found the first unprocessed
+    ! address
+    !
+    local
+	first_addr_set : initial(false);
+
+    !
+    ! Flag, set true when the end-of-header record has been read
+    !
+    local
+	end_header : initial(false);
+
+    !
+    ! After the control record there's the 'from' record. 
+    ! Read it, and return the RFA.   Parse out the actual
+    ! address and save it for later.
+    !
+    nm$read_ctl();
+    nm$get_rfa(from_rfa);
+    dsc1[dsc$a_pointer] = buffer;
+    dsc1[dsc$w_length]  = .buflen;
+    nm$parse_token(dsc1, dsc2, dsc3);
+    str$copy_dx(cur_from, dsc2);
+           
+    !
+    ! Scan through the list of addresses...
+    !
+    while begin
+	  nm$read_ctl();
+	  not (.buflen eql 1 and .buffer[byte0] eql 0)
+	  end
+    do
+
+	begin
+
+	!
+	! Check for runt records
+	!
+	if .buflen leq addr$s_hdr then signal(nm$_badfil);
+
+	!
+	! Clear run/pass flags that might have been left
+	! over from a previous attempt (in case of disasters)
+	!
+	if .buffer[addr$v_run] or .buffer[addr$v_pass]
+	then
+	    begin
+	    buffer[addr$v_run] = buffer[addr$v_pass] = false;
+	    nm$update_ctl();
+	    end;
+
+	!
+	! If we haven't finished processing this address record, and it's
+        ! the first one we've seen, then save a pointer for later
+	!
+        if not .buffer[addr$v_done]
+        then
+    	    if not .first_addr_set
+            then
+		begin
+		nm$get_rfa(nxtadr_rfa);
+		first_addr_set = true;
+		end;
+
+	!
+	! End of address loop; keep going until we find a record
+    	! that has a text part consisting of a single null; this
+        ! is the end-of-addresses indicator.
+        !
+	end;
+
+    !
+    ! If we didn't find any addresses, point at the null record,
+    ! to avoid problems with pointers into outer space
+    !  
+    if not .first_addr_set then nm$get_rfa(nxtadr_rfa);
+
+    !
+    ! Collect pointers to the rest of the message header records.
+    ! Note that not all of these records necessarily exist in
+    ! all formats.  If they don't, then we end up pointing at
+    ! the terminator record, a single null.
+    !
+    incr i from 0 to 3 do
+	begin
+	bind 
+	    rfa_list = uplit (to_rfa, cc_rfa, subj_rfa, attr_rfa) : vector;
+	if not .end_header
+	then
+	    nm$read_ctl();
+	nm$get_rfa(.rfa_list[.i]);
+	if .buflen eql 1 and .buffer[byte0] eql 0 then end_header = true;
+	end;
+
+    !
+    ! Skip until end of header information (should be no more, 
+    ! but doing this allows for future enhancements).   
+    !
+    while not .end_header 
+    do
+	begin
+	nm$read_ctl();
+	if .buflen eql 1 and .buffer[byte0] eql 0 then end_header = true;
+	end;
+
+    !
+    ! That's all we need or can get for foreign documents
+    !
+    if .ctl_flags[ctl$v_for]
+    then
+	begin
+	text_rfa[0] = text_rfa[1] = text_rfa[2] = 0;
+	return .first_addr_set;
+	end;
+
+    !
+    ! If there's a pad record (to make the text start on a block
+    ! boundary) then eat it.
+    !
+    if .ctl_flags[ctl$v_blk] then nm$read_ctl();
+
+    !
+    ! Finally, we're at the text of the message. Read first record
+    ! and save a pointer to it.  Check any claims made about block
+    ! alignment.
+    !
+    nm$read_ctl();
+    nm$get_rfa(text_rfa);
+    if .ctl_flags[ctl$v_blk] 
+    then
+	if not nm$chk_aligned(text_rfa) then signal(nm$_badalg);
+
+    !
+    ! Return true/false according to whether we found any
+    ! unprocessed addresses.
+    !
+    .first_addr_set
+
+    end;
+
+%sbttl 'get next group of addresses'
+routine nm$set_next_group =
+
+!++
+! Functional description:
+!
+! Scans the address list and flags the entries that are to be processed
+! during this pass. All the selected entries will be for the same node.
+!
+! Also records the location of the first record for some other node, as
+! a preformance booster for subsequent scans.
+!
+! (Scan starts at the record identified by nxtadr_rfa; on exit
+!  this location will have been updated to point to the first address 
+!  for a node other than the one we're dealing with this time, or to
+!  the end-of-addresses record if there are no more.  The RFA of the
+!  first selected record, probably the same one that nxtadr_rfa
+!  originally pointed to, is returned in addr_rfa).
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value/completion codes:
+!
+! worktodo.wl.v = true if one or more addresses was selected
+!		  false otherwise
+!
+!--
+
+    begin
+
+    local
+	this_node_set : initial(false),
+	next_node_set : initial(false),
+        thisnode      : descrip initial($static);
+
+    !
+    ! Set up to read first unprocessed address, and
+    ! also return RFA of this address for subsequent
+    ! stages
+    !
+    nm$point_rfa(nxtadr_rfa);
+    nm$get_rfa(addr_rfa);
+
+    !
+    ! Now, scan through addresses, selecting those which are as-yet
+    ! unprocessed during this run, and which are for the same node
+    !
+    while begin
+    	  nm$read_ctl(); 
+    	  not (.buflen eql 1 and .buffer[byte0] eql 0)
+          end
+    do
+        begin
+
+        !
+        ! If we still need to look at it..
+        !
+	if not (.buffer[addr$v_done] or .buffer[addr$v_run])
+	then
+	    begin
+	    local 
+    	        match,
+		index;
+
+	    !
+	    ! Isolate the node name by scanning for the first colons
+    	    !
+	    index = nm$find_colons(buffer[addr$t_text], .buflen-addr$s_hdr);
+    	    thisnode[dsc$w_length]  = (if .index eql 0 then 0 else .index-2);
+	    thisnode[dsc$a_pointer] = buffer[addr$t_text];
+
+	    !
+	    ! If this is the first time through then save the
+	    ! node name
+	    !
+	    if not .this_node_set
+	    then
+		begin
+		str$copy_dx(cur_node, thisnode);
+		this_node_set = true;
+		match  = true;
+		end
+
+	    !
+	    ! Otherwise, compare this node name to the first one
+	    ! we saw.
+	    !
+	    else
+		match = ch$eql(
+			      .cur_node[dsc$w_length], .cur_node[dsc$a_pointer],
+			      .thisnode[dsc$w_length], .thisnode[dsc$a_pointer]
+			      );
+
+	    !
+	    ! Conditionally set flags to show it's been seen by this run, 
+    	    ! and it's to be dealt with during this pass. Rewrite to disk.
+	    !
+	    if .match 
+	    then
+		begin
+		buffer[addr$v_run] = buffer[addr$v_pass] = true;
+		nm$update_ctl();
+		end
+
+	    !
+	    ! Node name doesn't match - but save RFA for the first 'other'
+    	    ! node name we've seen, so we can be a little more efficient
+            ! on subsequent scans
+            !
+	    else
+		if not .next_node_set 
+		then 
+		    begin
+		    nm$get_rfa(nxtadr_rfa);
+		    next_node_set = true;
+		    end;
+
+	    !
+	    ! End of as-yet-unprocessed record case
+	    !
+	    end
+
+	!
+	! If it's already been seen this run, the process-this-pass
+	! flag might still be set from the previous pass. Turn it
+	! off if so. (Should never happen?)
+	!
+	else
+	    if .buffer[addr$v_pass] 
+	    then
+		begin
+		buffer[addr$v_pass] = false;
+		nm$update_ctl();
+		end;
+
+	!
+    	! End of loop through addresses
+	!
+ 	end;
+
+    !
+    ! If we got here without seeing anything for some 'other' 
+    ! node, then point the next-time RFA to the end record
+    !
+    if not .next_node_set then nm$get_rfa(nxtadr_rfa);
+
+    !
+    ! Flush changes to disk
+    !
+    nm$flush_ctl();
+
+    !
+    ! Return true if we found something, false if we didn't
+    !
+    .this_node_set
+
+    end;
+
+%sbttl 'send message to next group of recipients'
+routine nm$send_next_group =
+
+!++
+! Functional description:
+!
+! This routine takes care of sending the complete mail message
+! to all addresses flagged for consideration during this pass.
+!
+! Successful sends will be flagged as 'done' in the control file.
+! Unsuccessful sends will be left pending; the error text is stored
+! in the control file for later analysis and reporting.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! status.wlc.v = success/failure status
+!
+!--
+
+    begin
+
+    !
+    ! Local data
+    !
+    local
+        blk_cnt,
+	blk_ok,
+	cc_ok,
+	attr_ok,
+	for_ok,
+	confirmed : initial (0),
+	delivered : initial (0),
+        addr	  : ref vector[,byte],
+	addrlen;
+
+    !
+    ! Establish handler which will deal with any errors
+    ! that are signalled
+    !
+    enable nm$send_handler;
+    
+    !
+    ! Request block mode only if the data is block-aligned in the
+    ! file, and we have pointers to the start and end of the text.
+    !
+    if .ctl_flags[ctl$v_blk] and .text_vbn neq 0 and .end_vbn neq 0
+    then
+	blk_ok = true
+    else
+	blk_ok = false;
+
+    !
+    ! Set up logical link to target node. Determine how many blocks 
+    ! we can send in one network QIO, and determine protocol options
+    ! to use.
+    !
+    nm$gl_phase = ph$k_conn;
+    nm$net_connect(
+		  cur_node, 
+		  .blk_ok, 		 blk_ok,	! blockmode option
+		  true,       		 cc_ok,    	! cc message option
+		  .ctl_flags[ctl$v_for], attr_ok,	! attributes option
+		  .ctl_flags[ctl$v_for], for_ok,	! foreign file option
+		  .ctl_rfm, .ctl_rat, .ctl_org,		! file characteristics
+		  blk_cnt				! blockmode count
+       		  );
+    if .blk_cnt gtr max_blk_cnt then blk_cnt = max_blk_cnt;
+    
+    !
+    ! Send the 'from' string
+    !
+    nm$gl_phase = ph$k_from;
+    nm$read_by_rfa(from_rfa);
+    nm$net_send(buffer, .buflen);
+    
+    !
+    ! Now, scan through addresses, selecting those which are as-yet
+    ! unprocessed during this run, and which are for the same node
+    !
+    nm$gl_phase = ph$k_addr;
+    nm$point_rfa(addr_rfa);
+    while nm$get_next_addr(addr, addrlen) do
+	begin
+	nm$net_send(.addr, .addrlen);
+	if nm$check_response() then confirmed = .confirmed + 1;
+	end;
+    nm$net_send(null, 1);
+
+    !
+    ! If there was at least one good address confirmed, then carry 
+    ! on and send the message text (etc)
+    !
+    if .confirmed neq 0
+    then
+	begin
+
+	!
+	! Send the 'to' string and possibly the 'cc' string
+        !
+	nm$gl_phase = ph$k_to;
+        nm$read_by_rfa(to_rfa);
+	nm$net_send(buffer, .buflen);
+	if .cc_ok
+	then
+	    begin
+	    nm$gl_phase = ph$k_cc;
+	    nm$read_by_rfa(cc_rfa);
+	    nm$net_send(buffer, .buflen);
+	    end;
+
+	!
+	! Send the 'subj' string
+	!
+        nm$gl_phase = ph$k_subj;
+	nm$read_by_rfa(subj_rfa);
+	nm$net_send(buffer, .buflen);
+
+        !
+	! Send the attributes record if we need to
+    	!
+	if .attr_ok 
+	then
+	    begin
+	    nm$gl_phase = ph$k_attr;
+	    nm$read_by_rfa(attr_rfa);
+            nm$net_send(buffer, .buflen);
+	    end;
+
+	!
+	! At last, it's time to send the actual message text.  Do
+	! this in block mode if the slave mail agreed to accept
+	! block mode (and if the message has been suitably aligned
+	! within the control file).   Note by the way that we only know
+        ! how to do single-block-at-a-time transfers.
+	!
+	nm$gl_phase = ph$k_text;
+        if .blk_ok
+        then
+	    begin
+	    nm$point_vbn(.text_vbn);
+	    while begin
+	          nm$read_ctl_blk(1);
+	          nm$get_vbn() lssu .end_vbn
+	          end
+	    do
+	        nm$net_send(buffer, .buflen);
+	    if .end_off neq 0
+	    then
+	        nm$net_send(buffer, .end_off);
+	    end
+
+	!    	
+	! Send the text by records if block mode was refused. The end
+        ! of text is indicated by a record containing a single null.
+	!
+	else
+	    begin
+	    nm$point_rfa(text_rfa);
+	    while begin
+		  nm$read_ctl();
+		  not (.buflen eql 1 and .buffer[byte0] eql 0)
+		  end
+	    do
+		nm$net_send(buffer, .buflen);
+	    end;
+
+	!
+	! Send end-of-text record
+ 	!
+        nm$gl_phase = ph$k_text;
+        nm$net_send(null, 1);
+
+	!
+	! Check for success/failure responses. If failure, the appropriate
+	! updating has been done. If a success, then we must show a 'done'
+	! status. Also, flush RMS buffers so the doneness is recorded on
+    	! disk immediately (as, in the words of JRC$S, "users like it").
+	!
+	nm$gl_phase = ph$k_sts;
+	nm$point_rfa(addr_rfa);
+	while nm$get_next_addr(addr, addrlen) do
+	    begin
+	    if nm$check_response()
+    	    then
+	        begin
+		delivered = .delivered + 1;
+		$gettim(timadr=buffer[addr$q_time]);
+    	        buffer[addr$b_flags] = addr$m_done;
+		buffer[addr$b_err]   = err$k_sent;
+    		buffer[addr$w_rfa0]  = 0;
+    		buffer[addr$w_rfa2]  = 0;
+    		buffer[addr$w_rfa4]  = 0;
+	    	nm$update_ctl();
+    	        nm$flush_ctl();
+	    	end;
+	    end;
+
+	!
+	! End of sending message
+	!
+	end;
+
+    !
+    ! Disconnect logical link
+    !
+    nm$gl_phase = ph$k_disc;
+    nm$net_disconnect();
+    nm$gl_phase = ph$k_null;
+
+    true
+    end;
+
+%sbttl 'get next address'
+routine nm$get_next_addr (aptr, alen) =
+
+!++
+! Functional description:
+!
+! Locates the next address record flagged for this
+! pass. Parses out the node part of the address, and
+! returns a pointer to all that's left.
+!
+! Formal parameters:
+!
+! aptr.wa.r = pointer to actual addressee (after the node::)
+! alen.wl.r = lenght of actual addressee
+!
+! Routine values:
+!
+! gotone.wl.v = true if we found one
+!		false otherwise
+!
+!--
+
+    while true do
+	begin
+
+	!
+	! Read next record
+	!
+	nm$read_ctl();
+
+        !
+        ! If this is the end-of-addresses marker, quit the loop.
+    	!
+	if .buflen eql 1 and .buffer[byte0] eql 0
+        then
+	    begin
+    	    .aptr = .alen = 0;
+	    return false;
+	    end;
+
+	!
+	! If address is marked for this pass, then process it.
+	!
+	if .buffer[addr$v_pass]
+	then
+	    begin
+    	    local
+		index;
+	    index = nm$find_colons(buffer[addr$t_text], .buflen-addr$s_hdr);
+	    .aptr = buffer[addr$t_text] + .index;
+	    .alen = .buflen - addr$s_hdr - .index;
+            return true;
+	    end;
+
+	end;
+
+%sbttl 'look for double colons'
+routine nm$find_colons (buff : ref vector[,byte], len) =
+
+!++
+! Functional description:
+!
+! Parses a node::user string to locate the first pair of
+! colons not protected by quotes.
+!
+! Foormal parameters:
+!
+! buff.rt.dx = buffer to scan
+! len.rl.v   = length of data in buffer
+!
+! Routine value:
+!
+! index.wl.v = length of node name including colons
+!	       (0 if not found)
+!
+!--
+
+    begin
+
+    local 
+	inquotes : initial (false);
+
+    incr i from 0 to .len-2 do
+	begin
+
+	!
+	! If these are the colons, we're done
+	!
+	if .buff[.i] eql ':' and .buff[.i+1] eql ':' and not .inquotes
+	then
+	    return .i+2;
+
+        !
+        ! Special case: if we see a percent sign or an exclamation
+        ! point, this is a complicated case which only MAIL knows how
+    	! to deal with, so we exit with no node name (and then the
+        ! mail will be sent to the local node for MAIL to worry about)
+        !
+        if .buff[.i] eql '%' or .buff[.i] eql '!' and not .inquotes 
+	then 
+	    exitloop;
+
+	!
+	! Keep track of whether we're inside quotes or not (so we
+	! can handle weird stuff like DEC:".foo::bar"::mumble)
+	!
+	if .buff[.i] eql '"' 
+	then 
+	    inquotes = not .inquotes;
+
+	!
+        ! So far, okay.  Keep checking.
+	! 
+	end;
+
+    !
+    ! Colons not located, or tricky case detected
+    !
+    return 0
+
+    end;
+
+%sbttl 'check response from remote'
+routine nm$check_response =
+
+!++
+! Functional description:
+!
+! This routine is called to receive and check the response from
+! the remote MAIL listener.  The response will either be a single
+! message with the low-order bit set (meaning success), or else
+! a message with the low-order bit clear (meaning failure) followed
+! by some number of error text records.
+!
+! The error text is stored at the end of the control file.
+!
+! The current address record is filled in with a pointer to the
+! error text, and is rewritten to the file with the 'active
+! this pass' bit turned off.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! ok.wl.v = true if confirmed by remote
+!	    false if rejected
+!
+!--
+
+    begin
+
+    local
+	len,
+	buff : vector[nm$s_rcv_buf,byte] alias,
+	bdsc : descrip initial(0,0);
+
+    !
+    ! Get back status code from remote; if the low-order bit
+    ! is set, then it's a success, and we return fast
+    !
+    nm$net_receive(buff, len);
+    if .buff[0] then return true;
+
+    !
+    ! Otherwise, set up for writing error messages
+    !
+    nm$error_begin();
+
+    !
+    ! Now, loop reading error messages from the remote, and
+    ! saving them in the file
+    !
+    while 
+	begin
+	nm$net_receive(buff, len);
+    	not (.len eql 1 and .buff[0] eql 0)
+        end
+    do
+	begin
+	bdsc[dsc$a_pointer] = buff;
+	bdsc[dsc$w_length] = .len;
+	nm$post_err_msg(bdsc);
+	end;
+
+    !
+    ! And finish it off
+    !
+    nm$error_end(false);
+
+    !
+    ! Return false to show we failed
+    !
+    false
+
+    end;
+
+%sbttl 'condition handler'
+routine nm$send_handler (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine is invoked as a condition handler to field any signals
+! that are let loose whilst we're actually sending the mail. It turns
+! the signalled condition into text and appends that text to the end
+! of the control file, pointing all 'active this pass' addresses to
+! the error text. The stack is unwound.
+!
+! Note, if there are any I/O errors during execution of this routine,
+! they will be signalled back to outer level handlers.  The most likely
+! error is failure to extend the file to add the error text; we avoid
+! getting the file into a mess by not pointing the address records at
+! the error messages until after they're all written.
+!
+! For success statuses and severe errors, this handler simply resignals.
+! For errors and warnings the signal vector is turned into text and added
+! to the control file as described above.
+!
+! In the event of an unwind signal, we ensure that an active logical 
+! link is aborted.
+!
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal vector
+! mech.mr.r = mechanism vector
+!
+! Routine values:
+!
+! sts.wlc.v = ss$_resignal (which the system ignores if
+!			    we've asked for an unwind)
+!
+!--
+
+    begin
+
+    local
+	save_args  : block[4,byte];
+    bind
+    	sig_name = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! Skip processing if it's:
+    !   .  any success status (although who signalled it, i dunno)
+    !   .  any fatal error (these are usually file I/O problems)
+    !
+    if .sig_name[sts$v_severity] or
+       .sig_name[sts$v_severity] geq sts$k_severe
+    then
+	return ss$_resignal;
+
+    !
+    ! If it's an unwind, then kill the logical link
+    !
+    if .sig_name eql ss$_unwind
+    then
+	begin
+	nm$net_abort();
+	nm$gl_phase = ph$k_null;
+	return ss$_resignal;
+	end;
+
+    !
+    ! Begin error processing
+    !
+    nm$error_begin();
+
+    !
+    ! Diddle the first word of the signal vector to reduce the
+    ! argument count by 2 (drop the PC/PSL) and to force display
+    ! of all message components. Then, write messages to control file.
+    !
+    save_args = .sig[chf$l_sig_args];
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] - 2;
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] or put_all;
+    $putmsg(msgvec=.sig, actrtn=nm$post_err_msg);
+    sig[chf$l_sig_args] = .save_args;
+
+    !
+    ! Set returned R0 value to same as signalled condition
+    !
+    $setstatus(mech, .sig_name);
+    
+    !
+    ! End error processing; set all 'this pass' addresses to
+    ! point to the same error.
+    !
+    nm$error_end(true);
+
+    !
+    ! Set up to unwind the stack. (If the unwind fails, which it
+    ! shouldn't, then we'll return ss$_resignal and let someone else
+    ! worry).
+    !
+    setunwind();
+    ss$_resignal
+
+    end;
+
+%sbttl 'set up to write error messages'
+routine nm$error_begin : novalue =
+
+!++
+! Functional description:
+!
+! This routine is called at the beginning of error processing.
+! It saves the current RFA (warning: any changes to the record
+! that have not been rewritten will be lost), positions to EOF,
+! writes an error header, and saves the RFA of the header.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Local data
+    ! 
+    local
+	hdr_buf : block[err$s_hdr,byte];
+
+    !
+    ! Save current positional context in the file, and
+    ! point to the end
+    ! 
+    nm$get_rfa(sav_rfa);
+    nm$point_eof_ctl();
+
+    !
+    ! Prepare the header record, and note that we don't yet
+    ! know the severity of the error
+    !
+    hdr_buf[err$b_type] = error_type = err$k_unk;
+
+    !
+    ! Write out the header, and remember the RFA
+    !
+    nm$write_ctl(hdr_buf, err$s_hdr);
+    nm$get_rfa(err_rfa);
+
+    end;
+
+%sbttl 'finished writing error messages'
+routine nm$error_end (all) : novalue =
+
+!++
+! Functional description:
+!
+! This routine is called at the end of error processing. It writes
+! a terminating null record, then re-reads the record that was current
+! at the beginning of error processing. The RFA field in that record
+! is updated to point at the error messages. The flags are updated.
+!
+! Formal parameters: 
+!
+! all.rl.v = true if all 'this pass' addresses should be set
+!	     to the same error
+!	   = false if only the one that was current should be 
+!	     affected
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Table to give new flags settings based on error type
+    !
+    bind flags_vec = 
+	uplit byte(
+		addr$m_run + addr$m_msg,		! Unknown
+		addr$m_run + addr$m_msg + addr$m_done,	! Hard
+		addr$m_run,				! Soft
+		addr$m_run + addr$m_msg + addr$m_done,	! Expired
+		addr$m_run + addr$m_msg + addr$m_done	! Cancelled
+		  ) : vector[4,byte];
+
+    ! 
+    ! Working storage
+    !
+    local
+	tstamp : vector[2];
+
+    !
+    ! Write a record consisting of a single null, as a terminator
+    !
+    nm$write_ctl(null, 1);
+
+    !
+    ! Save current time
+    !
+    $gettim(timadr=tstamp);
+
+    !
+    ! Update error message header with results of analysis
+    ! (if we didn't identify the error, then default to soft)
+    !
+    if .error_type eql err$k_unk then error_type = err$k_soft;
+    nm$read_by_rfa(err_rfa);
+    buffer[err$b_type] = .error_type;
+    nm$update_ctl();
+
+    !
+    ! Flush error text to disk before we fill in pointers to the text
+    ! (maintains consistency of file for other readers)
+    !
+    nm$flush_ctl(); 
+
+    !
+    ! If this is the last attempt, convert soft errors to something harder
+    !
+    if .expired and .error_type eql err$k_soft 
+    then
+        error_type = err$k_expir;
+
+    !
+    ! Rest of routine differs depending on whether one or
+    ! all addresses affected.  In the case where just one is
+    ! affected, we re-read it, point it to the error message,
+    ! twiddle the status bits, and update it on disk. 
+    !
+    if not .all 
+    then
+        begin
+	nm$read_by_rfa(sav_rfa);
+        $movq(tstamp, buffer[addr$q_time]);
+	buffer[addr$w_rfa0]  = .err_rfa[0];
+	buffer[addr$w_rfa2]  = .err_rfa[1];
+	buffer[addr$w_rfa4]  = .err_rfa[2];
+	buffer[addr$b_flags] = .flags_vec[.error_type];
+	buffer[addr$b_err]   = .error_type;
+	nm$update_ctl();
+        end    
+
+    !
+    ! The case where all addresses are affected is similar to
+    ! the single case, except we loop through the file selecting
+    ! all those addresses flagged for this pass.
+    !
+    else
+	begin
+	nm$point_rfa(addr_rfa);
+	while nm$get_next_addr(%ref(0), %ref(0)) do
+	    begin
+            $movq(tstamp, buffer[addr$q_time]);
+	    buffer[addr$w_rfa0]  = .err_rfa[0];
+	    buffer[addr$w_rfa2]  = .err_rfa[1];
+	    buffer[addr$w_rfa4]  = .err_rfa[2];
+	    buffer[addr$b_flags] = .flags_vec[.error_type];
+	    buffer[addr$b_err]   = .error_type;
+	    nm$update_ctl();
+	    end;
+	end;
+    
+    !
+    ! Ensure everything is written out to disk, so that in
+    ! the event of disaster we don't lose too much.
+    !
+    nm$flush_ctl();
+
+    end;
+
+%sbttl 'post one line of error message'
+routine nm$post_err_msg (text : ref descrip) =
+
+!++
+! Functional description:
+!
+! This routine appends one line of error message to the 
+! control file, and also checks the severity of the
+! error by looking it up in the fatal list
+!
+! Formal parameters:
+!
+! text.mt.ds = error message to write/check
+!	       (may be upcased by analysis)
+!
+! Routine value:
+!
+! status.wlc.v = 0, always
+!
+!--
+
+    begin
+
+    !
+    ! Firstly, write message to file
+    !
+    nm$write_ctl(.text[dsc$a_pointer], .text[dsc$w_length]);
+
+    !
+    ! If we don't yet know how severe this error is, go and
+    ! find out
+    !
+    if .error_type eql err$k_unk
+    then
+	if nm$err_lookup(.text[dsc$a_pointer], .text[dsc$w_length])
+	then
+	    error_type = err$k_hard;
+
+    !
+    ! Return 'false' so we don't output anything to SYS$OUTPUT
+    !
+    false
+    
+    end;
+
+%sbttl 'look up error message in file'
+routine nm$err_lookup (buf : ref vector[,byte], len) =
+
+!++
+! Functional description:
+!
+! Checks to see whether the given string matches an entry
+! in the error message file.
+!
+! A match occurs if a string from the error message file
+! occurs anywhere within the input string.
+!
+! If no error file is found, then the effect is the same
+! as if it were found but was empty i.e. nothing matches
+!
+! Formal parameters:
+!
+! buf.mt.r = input string to be looked up (note this will
+!	     be upcased in place)
+! len.rl.v = length of input string
+!
+! Routine value:
+!
+! found.wl.v = true if string was found
+!	       false otherwise
+!
+!--
+
+    begin
+
+    builtin
+        insque;
+
+    !
+    ! Definitons for error message block
+    !
+    macro
+	err$l_flink   = 00,0,32,0 % ,
+	err$l_blink   = 04,0,32,0 % ,
+	err$q_str     = 08,0,00,0 % ,
+	 err$w_length = 08,0,16,0 % ,
+	 err$b_dtype  = 10,0,08,0 % ,
+	 err$b_class  = 11,0,08,0 % ,
+	 err$a_pointer= 12,0,32,0 % ;
+    literal
+        err$s_blk = 16;
+    own
+        err_list_set : initial(false),
+        err_list     : block[2*%upval,byte] alias
+		       initial(err_list,err_list);
+
+    !
+    ! Local data
+    !
+    local
+        status,
+    	match    : initial(false),
+	err_blk  : ref block[,byte],
+	inp_str  : descrip initial($static);
+
+    !
+    ! If we haven't already done so, then load up the list
+    ! of fatal error messages
+    !
+    if not .err_list_set
+    then
+	begin
+	local
+	    err_buff : vector[nm$s_err_buf,byte] alias,
+	    err_str  : descrip initial(nm$s_err_buf, err_buff);
+
+	!
+	! Open file. If not there, all errors are soft.
+	!
+	status = nm$open_err_file();
+	if not .status then return .match;
+
+	!
+	! Loop adding error messages to our linked list. Note that the
+	! storage (list blocks and dynamic strings) is never deallocated
+	! during the life of the image.
+	!
+	while nm$read_err(err_buff, err_str[dsc$w_length]) do
+	    if .err_str[dsc$w_length] neq 0
+	    then
+		begin
+		status = lib$get_vm(%ref(err$s_blk), err_blk);
+		if not .status then signal(.status);
+		err_blk[err$w_length]  = 0;
+		err_blk[err$b_dtype]   = dsc$k_dtype_t;
+		err_blk[err$b_class]   = dsc$k_class_d;
+		err_blk[err$a_pointer] = 0;
+		str$upcase(err_blk[err$q_str], err_str);
+		insque(.err_blk, .err_list[err$l_blink]);
+		end;
+
+	!
+	! Show loaded for next time, and close file
+	!
+	err_list_set = true;
+	nm$close_err_file();
+	end;
+
+
+    !
+    ! Make a descriptor for the input string,
+    ! and upcase it in place
+    !
+    inp_str[dsc$w_length]  = .len;
+    inp_str[dsc$a_pointer] = .buf;
+    str$upcase(inp_str, inp_str);
+
+    !
+    ! Now breeze through the list of known fatal
+    ! errors until we find a match or come to the end
+    !
+    err_blk = err_list;
+    while (err_blk = .err_blk[err$l_flink]) neq err_list do
+	if ch$find_sub(
+		      .inp_str[dsc$w_length], .inp_str[dsc$a_pointer],
+		      .err_blk[err$w_length], .err_blk[err$a_pointer]
+		      ) neq 0
+        then 
+   	    begin
+	    match = true;
+            exitloop;
+	    end;
+
+    !
+    ! Return status of match
+    !
+    .match
+
+    end;
+
+
+%sbttl 'generate run report file'
+routine nm$gen_report =
+
+!++
+! Functional description:
+!
+! Scans the entire address list. If any record is flagged as
+! having a message (addr$v_msg set) then the error message is
+! added to the report file.
+!
+! The addr$v_msg bit is left asserted by this routine; it will
+! only be turned off when we have submitted the report job. This
+! allows recovery in the case of a system crash.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! rpt_reqd.rl.v = +1 if the report is to be mailed
+!		  -1 if the report is to be mailed and a 
+!		     separate return-to-sender message is needed
+!		   0 if no action is needed
+!
+!--
+
+    begin
+
+    !
+    ! Strings derived from the message we're reporting on. To avoid
+    ! worrying about mopping up dynamic storage on signalled errors,
+    ! these descriptors are 'own' and the storage will automatically
+    ! get reused on subsequent entries.
+    !
+    own
+        mail_to     : descrip initial($dynamic),
+        mail_cc	    : descrip initial($dynamic),
+        mail_subj   : descrip initial($dynamic),
+	this_to     : descrip initial($dynamic);
+
+    !
+    ! Other fixed data cells
+    !
+    own
+	who_canned  : descrip initial($static),
+	why_canned  : descrip initial($static),
+	time_qued   : vector[2],
+	time_canned : vector[2];
+
+    !
+    ! Report header - different styles are used depending
+    ! on whether this is an ordinary failure report or
+    ! the result of a cancellation.
+    !
+    bind
+	rpt_hdr = $msgplit(
+		          nm$_rblurb, 0,		! "Errors were encountered.."
+			  nm$_rblurt, 1, time_qued	! Creation date/time
+			  ),
+	can_hdr = $msgplit(
+ 		          nm$_cblurb, 1, time_qued,  	! "Your message cancelled..."
+ 			  nm$_cblurt, 2, who_canned, 	! Who cancelled
+					 time_canned,	! When cancelled
+			  ),
+	can_hd2 = $msgplit(
+ 		          nm$_cblurb, 1, time_qued,  	! "Your message cancelled..."
+ 		          nm$_cblurn, 0			! "No more details"
+                          );
+
+    !
+    ! Message vectors to be used to report back the details of
+    ! the current message.  The second format is used when there's
+    ! no CC text.
+    !
+    bind
+  	info_hdr = $msgplit(
+		          nm$_text,   1, blank,		! blank line
+			  nm$_xfrom,  1, cur_from,	! Original sender
+		          nm$_xto,    1, mail_to,	! Original 'to' string
+		          nm$_xcc,    1, mail_cc,	! Original 'cc' string
+		          nm$_xsubj,  1, mail_subj	! Original 'subj' string
+		          ),
+	info_hd2 = $msgplit(
+		          nm$_text,   1, blank,		! blank line
+			  nm$_xfrom,  1, cur_from,	! Original sender
+		          nm$_xto,    1, mail_to,	! Original 'to' string
+		          nm$_xsubj,  1, mail_subj	! Original 'subj' string
+		          );
+
+    !
+    ! More message vectors
+    !
+    bind
+  	grp_hdr = $msgplit(
+		          nm$_text,   1, blank,		! blank line
+    		          nm$_text,   1, dashes,	! separator line
+		          nm$_gblurb, 0,		! "The following error..."
+		          nm$_thisad, 1, this_to,	! address of this message
+    		          nm$_text,   1, blank		! blank line
+		          ),
+	txt_sep = $msgplit(
+		          nm$_text,   1, blank,		! blank line
+    		          nm$_text,   1, dashes		! separator line
+			  ),
+	can_re1 = $msgplit(
+		          nm$_text,   1, blank,		! blank line
+    		          nm$_cwhy1,  1, why_canned	! "Reason ..."
+			  ),
+	can_re2 = $msgplit(
+    		          nm$_cwhy2,  1, why_canned	! more reasoning
+			  );
+
+    !
+    ! Messages associated with the returned original message text
+    !
+    bind
+ 	txt_hdr = $msgplit(
+		          nm$_tblurb, 0,		! "Text of your message follows"
+    		          nm$_text,   1, formfeed	! new page
+		          ),                         
+ 	ztx_hdr = $msgplit(
+		          nm$_zblurb, 0			! "No text..."
+		          ),
+ 	ntx_hdr = $msgplit(
+		          nm$_nblurb, 0			! "Text suppressed..."
+		          ),
+ 	mtx_hdr = $msgplit(
+		          nm$_mblurb, 0			! "Returned separately..."
+		          );
+
+    !
+    ! Final dispostion of this entry -- hard, soft or soft-but-expired
+    !
+    bind
+	unkn_rpt = $msgplit(
+		           nm$_text,   1, blank,	! blank line
+	    	           nm$_eunkn,  0		! "Unknown error"
+	    	           ),
+	hard_rpt = $msgplit(
+		           nm$_text,   1, blank,	! blank line
+	    	           nm$_ehard,  0,		! "Hard error"
+		           nm$_enomor, 0		! "No more attempts..."
+	    	           ),
+	soft_rpt = $msgplit(
+		           nm$_text,   1, blank,	! blank line
+	    	           nm$_esoft,  0,		! "Soft error"
+		           nm$_emor,   0		! "Attempts continue..."
+	    	           ),
+	exp_rpt  = $msgplit(
+		           nm$_text,   1, blank,	! blank line
+	    	           nm$_eexp,   0,		! "Soft error but expired"
+		           nm$_enomor, 0		! "No more attempts..."
+	    	           ),
+	can_rpt  = $msgplit(
+		           nm$_text,   1, blank,	! blank line
+	    	           nm$_ecan,   0,		! "Soft error but cancelled"
+		           nm$_enomor, 0		! "No more attempts..."
+                           );
+
+    !
+    ! Report type vector, indexed by err$k_xxx code
+    !
+    bind
+	rpt_vec = plit(unkn_rpt, hard_rpt, soft_rpt, exp_rpt, can_rpt) : vector;
+
+    !
+    ! Local data
+    !
+    local
+	rpt_open : initial(0),
+	errtype,
+        count;
+
+
+    !
+    ! Get some pertinent stuff from the control record
+    !
+    nm$rewind_ctl(buffer, buflen);
+    nm$read_ctl();
+    $movq(buffer[ctl$q_qued], time_qued);
+
+    !
+    ! Scan through all address records... note the assumption that
+    ! the addresses are immediately after the 'from' record.
+    !
+    nm$read_by_rfa(from_rfa);
+    while begin
+          nm$read_ctl();
+          not (.buflen eql 1 and .buffer[byte0] eql 0)
+          end
+    do
+	if .buffer[addr$v_msg]
+	then
+
+	    begin
+
+            !
+            ! Save RFA of this record, so we can get back here.
+    	    ! Also extract the RFA of the error message.
+            !
+	    nm$get_rfa(sav_rfa);
+	    err_rfa[0] = .buffer[addr$w_rfa0];
+	    err_rfa[1] = .buffer[addr$w_rfa2];
+	    err_rfa[2] = .buffer[addr$w_rfa4];
+
+	    !
+	    ! Save copy of address for error blurb
+	    !
+	    str$copy_r(this_to, %ref(.buflen-addr$s_hdr), buffer[addr$t_text]);
+
+	    !
+	    ! If the report file hasn't yet been started, then start it.
+	    !
+	    if not .rpt_open
+	    then
+		begin
+
+		!
+		! Open file, create control file header
+		!
+	        nm$gen_ctl_hdr(nm$_rsubj, 0);
+    		rpt_open = 1;
+
+		!
+		! Save copies of the 'to', 'cc' and 'subj' strings
+		!
+		nm$read_by_rfa(to_rfa);
+		str$copy_r(mail_to, buflen, buffer);
+		nm$read_by_rfa(cc_rfa);
+		str$copy_r(mail_cc, buflen, buffer);
+		nm$read_by_rfa(subj_rfa);
+		str$copy_r(mail_subj, buflen, buffer);
+
+       		!
+		! If this is a cancellation, then we need to go and
+		! get the details (username, time, reason) and write
+		! them to the report.
+		!
+		if .ctl_flags[ctl$v_can]
+		then
+		    if .can_rfa[0] neq 0 or 
+		       .can_rfa[1] neq 0 or 
+		       .can_rfa[2] neq 0
+		    then
+		    	begin
+			local candy;
+		    	nm$read_by_rfa(can_rfa);
+		    	$movq(buffer[can$q_time], time_canned);
+		    	who_canned[dsc$w_length]  = max(.buflen - can$s_hdr, 0);
+		    	who_canned[dsc$a_pointer] = buffer[can$t_user];
+			nm$write_rpt_vec(can_hdr);
+			candy = can_re1;
+	    		while begin
+	    	  	      nm$read_ctl();
+	    	  	      not (.buflen eql 1 and .buffer[byte0] eql 0)
+	    	  	      end
+	    		do
+			    begin
+			    why_canned[dsc$w_length] = .buflen;
+			    why_canned[dsc$a_pointer] = buffer;
+	    		    nm$write_rpt_vec(.candy);
+			    candy = can_re2;
+			    end;
+       			end
+		    else
+			nm$write_rpt_vec(can_hd2)
+
+		!
+		! Normal case - write the normal report header
+		!
+		else
+		    nm$write_rpt_vec(rpt_hdr);
+
+		!
+		! Provide details of this message (to/from/etc.)
+		! 		    
+		nm$write_rpt_vec(if .mail_cc[dsc$w_length] neq 0 then info_hdr else info_hd2);
+
+		end;
+
+	    !
+	    ! Put in some blurb to say 'here are the error messages'
+            ! for this particular destination address
+	    !
+	    nm$write_rpt_vec(grp_hdr);
+
+    	    !
+	    ! Copy the error messages to the report
+	    !
+	    nm$read_by_rfa(err_rfa);
+	    while begin
+	    	  nm$read_ctl();
+	    	  not (.buflen eql 1 and .buffer[byte0] eql 0)
+	    	  end
+	    do
+	    	nm$write_rpt(buff_pfx, .buflen+(buffer-buff_pfx));
+
+	    !
+	    ! Recover the address record
+	    !
+	    nm$read_by_rfa(sav_rfa);
+
+	    !
+	    ! Write message to report to give our analysis of the severity
+	    !
+	    errtype = .buffer[addr$b_err];
+	    if .errtype gequ .rpt_vec[-1] then errtype = err$k_unk;
+	    nm$write_rpt_vec(.rpt_vec[.errtype]);
+
+	    !
+	    ! End of loop/if processing
+	    !
+	    end;
+
+
+    !
+    ! If we started a report file, then finish it off by adding
+    ! the text of the original message
+    !
+    if .rpt_open
+    then
+
+	begin
+
+	!
+	! Insert separator text
+	!
+	nm$write_rpt_vec(txt_sep);
+                        
+	!
+	! If no-return-to-sender was requested, then simply 
+	! insert a single line reminding user of that fact
+	!
+	if .ctl_flags[ctl$v_noret]
+	then
+	    nm$write_rpt_vec(ntx_hdr)
+
+	! 
+	! If the message was a foreign document, then we have to
+	! return it as a separate message
+	!
+	else 
+	if .ctl_flags[ctl$v_for]
+	then
+	    begin
+	    nm$write_rpt_vec(mtx_hdr);
+	    rpt_open = -1;
+	    end
+
+	!
+	! Otherwise, return message to sender.
+        !
+	else
+	    begin 
+
+	    !
+	    ! Copy the original text to the report file, preceded
+	    ! by an explanatory header
+	    !
+	    count = 0;
+	    nm$point_rfa(text_rfa);
+	    while begin
+	          nm$read_ctl();
+	          not (.buflen eql 1 and .buffer[byte0] eql 0)
+	          end
+	    do
+	    	begin
+	        if .count eql 0 then nm$write_rpt_vec(txt_hdr);
+	    	count = .count + 1;
+	    	nm$write_rpt(buffer, .buflen);
+	    	end;
+
+	    !
+  	    ! If there was no text, say so
+	    !
+	    if .count eql 0 then nm$write_rpt_vec(ztx_hdr);
+
+	    !
+	    ! End of return-to-sender case
+	    !
+	    end;
+
+	!
+	! Write a final null as the terminator, and close the file.
+	!
+  	nm$write_rpt(null, 1);
+	nm$end_ctl_hdr(0);
+
+	end;
+
+
+    !
+    ! Return status to say whether report to be mailed
+    !
+    .rpt_open
+
+    end;
+
+%sbttl 'generate return-to-sender message'
+routine nm$gen_return : novalue =
+
+!++
+! Functional description:
+!
+! Generates a control file which will be used to return
+! a message to the sender.  
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	rpt_flags : block[%upval,byte] initial(0);
+
+    !
+    ! We can only work in block mode if we have the VBN pointers
+    !
+    if .ctl_flags[ctl$v_blk] and .text_vbn neq 0 and .end_vbn neq 0
+    then
+	rpt_flags = .ctl_flags;
+    
+    !
+    ! Generate standard control file header
+    !
+    nm$gen_ctl_hdr(nm$_msubj, .rpt_flags);
+
+    !
+    ! Copy text blockwise from the old control file to
+    ! the report control file
+    !
+    if .rpt_flags[ctl$v_blk]
+    then
+	begin
+        nm$point_vbn(.text_vbn);
+        do
+	    begin
+  	    nm$read_ctl_blk(1);
+  	    nm$write_rpt_blk(buffer, 512);
+	    end
+    	while
+	    nm$get_vbn() lssu .end_vbn;
+	end
+
+    !
+    ! Copy text by records, including the terminator
+    !
+    else
+	begin
+	nm$point_rfa(text_rfa);
+	do 
+	    begin
+	    nm$read_ctl();
+	    nm$write_rpt(buffer, .buflen);
+	    end
+	while 
+	    not (.buflen eql 1 and .buffer[byte0] eql 0);
+	end;
+
+    !
+    ! Close file
+    !
+    nm$end_ctl_hdr(.rpt_flags);
+    
+    end;
+
+%sbttl 'generate final summary'
+routine nm$gen_summary : novalue =
+
+!++
+! Functional description:
+!
+! Sends a final summary of the processing of this message.
+! (The summary is identical to the default SHOW QUEUE display).
+!
+! This routine is called immediately before all traces of 
+! the message are deleted by Nmail.  Cautious users request
+! this option if positive feedback is required.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Call common routine to start report
+    !
+    nm$gen_ctl_hdr(nm$_ssubj, 0);
+
+    !
+    ! Now use 'SHOW' code to generate the display. Add a null 
+    ! record to terminate the text, and close the file.
+    !
+    nm$do_show_display(sho$k_full, 0);
+    nm$write_rpt(null, 1);
+    nm$end_ctl_hdr(0);
+
+    end;
+
+%sbttl 'generate standard ctl file'
+routine nm$gen_ctl_hdr (subjmsg, cflags) : novalue =
+
+!++
+! Functional description:
+!
+! Opens a report file and writes the standard header bumph.
+! 
+! On exit, the input control file will be left positioned 
+! just after the 'from' record.  The output report file will
+! be positioned ready to write the text of the message.
+!
+! Formal parameters:
+!
+! subjmsg.rlc.v  = message number giving subject string
+!		   for mailed report 
+! cflags.rb.v    = control flags for generated file, only
+!		   'blk' and 'for' bits are permitted
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Fixed bits and pieces for the report header
+    !
+    bind
+        addr_hdr = %ascid %exactstring(addr$s_hdr,0);
+
+    !
+    ! Prototype control record
+    !
+    own
+        ctl_rec_buf : block[ctl$s_hdr,byte] alias,
+        ctl_rec     : descrip initial(ctl$s_hdr, ctl_rec_buf);
+
+    !
+    ! Strings derived from the mesage we're reporting on. For my
+    ! convenience (laziness) these strings are never deallocated;
+    ! they will just be replaced with each reuse of the routine.
+    !
+    own
+	sender_addr : descrip initial($dynamic),
+        sender_name : descrip initial($dynamic),
+	forn_attrib : descrip initial($dynamic);
+
+    !
+    ! Plit which shows all messages which comprise the standard header
+    ! 
+    own
+	ctl_hdr	: $msgvec(
+		         nm$_text,  1, ctl_rec,		! control flags
+		         nm$_textc, 1, nm$gt_daemon,	! our name as 'from'
+		         nm$_text,  1, sender_addr, 	! senders address
+		         nm$_text,  1, nullstr,		! null to terminate
+		         nm$_text,  1, sender_name,	! senders name as 'to'
+	   	    	 nm$_text,  1, blank,		! no 'cc' string
+		         0,         0,			! filled in with subject
+			 nm$_text,  1, forn_attrib,	! attributes string
+		         nm$_text,  1, nullstr		! null to terminate
+		         );
+    bind 
+	ctl_subj = ctl_hdr[19];
+
+    !
+    ! Local data
+    !
+    local
+	dsc1 	: descrip,
+	dsc2 	: descrip,
+	dsc3 	: descrip;
+
+    !
+    ! Plug subject message code into the header vector
+    !
+    ctl_subj = .subjmsg;
+
+    !
+    ! Initialise control record
+    !
+    ch$fill(0, ctl$s_hdr, ctl_rec_buf);
+    ctl_rec_buf[ctl$b_form]  = ctl$k_form;
+    ctl_rec_buf[ctl$w_nm]    = ctl$k_nm;
+    ctl_rec_buf[ctl$b_flags] = .cflags and ctl$m_blk+ctl$m_for;
+    ctl_rec_buf[ctl$v_norpt] = true;
+
+    !
+    ! Fill in the control record with the time at which this
+    ! request was created, and the expiration date/time. Use
+    ! default delta value.
+    !
+    $gettim(timadr=ctl_rec_buf[ctl$q_qued]);
+    $subq(nm$gq_def_expiry, ctl_rec_buf[ctl$q_qued], ctl_rec_buf[ctl$q_expir]);
+
+    !
+    ! If this report may be sent in block mode, we copy
+    ! the file attributes from the original message.
+    !
+    if .ctl_rec_buf[ctl$v_blk]
+    then
+	begin
+	ctl_rec_buf[ctl$b_rfm] = .ctl_rfm;
+	ctl_rec_buf[ctl$b_rat] = .ctl_rat;
+	ctl_rec_buf[ctl$b_org] = .ctl_org;
+	end;
+
+    !
+    ! If this is a foreign file, copy the attributes string
+    ! from the original message;  otherwise use blank.
+    !
+    if .ctl_rec_buf[ctl$v_for]
+    then
+	begin
+	nm$read_by_rfa(attr_rfa);
+	dsc1[dsc$a_pointer] = buffer;
+	dsc1[dsc$w_length]  = .buflen;
+        str$copy_dx(forn_attrib, dsc1);
+	end
+    else
+	if .forn_attrib[dsc$w_length] neq 0
+	then
+	    str$copy_dx(forn_attrib, blank);
+
+    !
+    ! Take the 'from' string apart to figure out who we have to
+    ! return the report to, if any.  Save two copies; one as the
+    ! textual to-list, the other as the actual address.
+    !
+    nm$read_by_rfa(from_rfa);
+    dsc1[dsc$a_pointer] = buffer;
+    dsc1[dsc$w_length]  = .buflen;
+    nm$parse_token(dsc1, dsc2, dsc3);
+    str$copy_dx(sender_name, dsc2);
+    str$concat(sender_addr, addr_hdr, sender_name);
+
+    !
+    ! Open control file for report
+    !
+    nm$create_rpt_file(rpt_fid);
+
+    !
+    ! Write the standard header to the file, followed
+    ! by a pad-record if this is a block-aligned message
+    !
+    nm$write_rpt_vec(ctl_hdr);
+    if .ctl_rec_buf[ctl$v_blk] 
+    then 
+	begin
+	nm$pad_blk_rpt(true);
+	rpt_vbn = nm$get_vbn_rpt() + 1;
+	end;
+
+    end;
+
+%sbttl 'end standard ctl file'
+routine nm$end_ctl_hdr (cflags : block[,byte]) : novalue =
+
+!++
+! Functional description:
+!
+! Finishes up an internally-generated control file, by updating
+! the header record and closing the file.
+! 
+! Formal parameters:
+!
+! cflags.rb.v    = control flags for generated file, only
+!		   'blk' and 'for' bits are permitted
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! For block-mode report files, update the control record with 
+    ! the text pointers.  Note that it is assumed that this report
+    ! file has been written by copying data from the original message
+    ! file, hence any terminators are already in place, and the offset
+    ! to the end-of-message is the same as for the original data.
+    !
+    if .cflags[ctl$v_blk]
+    then
+	begin
+	local vbn2;
+
+	!
+	! Save VBN for last block of message text (for non-foreign
+	! messages, this is the block with the start of the terminator
+	! record).
+	!
+	vbn2 = nm$get_vbn_rpt();
+
+	!
+	! If the terminator record is straddling the block end, we
+	! didn't get all of it.  Add an extra block to complete
+	! the terminator (and pad record).
+	!
+	if not .cflags[ctl$v_for] and .end_off gtr 508
+	then
+	    begin
+	    nm$read_ctl_blk(1);
+	    nm$write_rpt_blk(buffer, 512);
+	    end;
+
+	!
+	! Re-read the control record, and update it with the
+	! VBNs and offset describing the message text.
+	!
+	nm$rewind_rpt(buffer, buflen);
+	nm$read_rpt();
+	buffer[ctl$l_sotvbn] = .rpt_vbn;
+	buffer[ctl$l_eotvbn] = .vbn2;
+	buffer[ctl$w_eotoff] = .end_off;
+	nm$update_rpt();
+
+	!
+	! End of block-mode stuff
+	!
+	end;
+
+    !
+    ! Close the report file
+    !
+    nm$close_rpt_file(false);
+
+    end;
+
+%sbttl 'check for completion'
+routine nm$check_done =
+
+!++           
+! Functional description:
+!
+! Scans the entire address list to determine whether all
+! addresses have been processed.  Turns off the message
+! and run bits for each address, as well.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! done.wl.v = true if all done
+!	      false otherwise
+!
+!--
+
+    begin
+
+    local
+	done : initial(ss$_normal);
+
+    !
+    ! Scan through the address records...
+    !
+    nm$read_by_rfa(from_rfa);
+    while begin
+	  nm$read_ctl();
+	  not (.buflen eql 1 and .buffer[byte0] eql 0)
+	  end
+    do
+    	begin
+
+    	!
+	! Alas, we are undone
+	!
+    	if not .buffer[addr$v_done] 
+	then 
+	    done = ss$_retry and not sts$m_severity;
+
+	!
+	! Turn off any bits that happen to be left on
+	!
+	if .buffer[addr$v_msg] or .buffer[addr$v_run]
+	then
+	    begin
+	    buffer[addr$v_msg] = false;
+    	    buffer[addr$v_run] = false;
+	    nm$update_ctl();
+	    end;
+
+	!
+	! End of address loop
+	!
+	end;
+
+    !
+    ! Return true if all done, false otherwise
+    !
+    .done
+
+    end;
+
+
+%sbttl 'cancel all unsent addresses'
+routine nm$cancel_rest =
+
+!++           
+! Functional description:
+!
+! Scans the entire address list and changes the state of all
+! incomplete entries to show that the entry has been cancelled.
+! If there is a soft message from a previous run, the message bit
+! is asserted so that the error message will be returned to
+! the sender.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! canned.wl.v = true if at least one address was cancelled
+!	        false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! Small routine to add a message to the file if there
+    ! isn't one for a particular address.  This can only happen
+    ! if the message hasn't been attempted.
+    !
+    routine add_can_msg =
+	begin
+	local evec : vector[2] initial(1+put_txt, nm$_nevtry);
+	nm$error_begin();
+	$putmsg(msgvec=evec, actrtn=nm$post_err_msg);
+	nm$error_end(false);
+	nm$read_by_rfa(sav_rfa);
+	true
+	end;
+
+    !
+    ! Local storage
+    !
+    local 
+	canned : initial(false),
+	msgflg : initial(false);
+
+    !
+    ! Scan through the address records...
+    !
+    nm$read_by_rfa(from_rfa);
+    while begin
+	  nm$read_ctl();
+	  not (.buflen eql 1 and .buffer[byte0] eql 0)
+	  end
+    do
+    	if not .buffer[addr$v_done] 
+	then 
+	    begin
+
+	    !
+	    ! If there's no error text for this address, then add some.
+	    !
+	    if .buffer[addr$w_rfa0] eql 0 and
+	       .buffer[addr$w_rfa2] eql 0 and
+	       .buffer[addr$w_rfa4] eql 0 
+	    then
+		if not .msgflg 
+		then 
+		    msgflg = add_can_msg()
+		else
+		    begin
+		    buffer[addr$w_rfa0] = .err_rfa[0];
+		    buffer[addr$w_rfa2] = .err_rfa[1];
+		    buffer[addr$w_rfa4] = .err_rfa[2];
+		    $gettim(timadr=buffer[addr$q_time]);
+		    end;
+
+	    !
+	    ! Update flags and error type for this address
+	    !
+	    buffer[addr$b_err]   = err$k_canc;
+	    buffer[addr$b_flags] = addr$m_msg + addr$m_done + addr$m_run;
+	    nm$update_ctl();
+	    canned = true;
+
+	    !
+	    ! End of address loop
+	    !
+	    end;
+
+    !
+    ! Ensure all changes written to disk
+    !
+    nm$flush_ctl();
+
+    !
+    ! Return true if at least one needed to be cancelled
+    !
+    .canned
+
+    end;
+
+end
+eludom

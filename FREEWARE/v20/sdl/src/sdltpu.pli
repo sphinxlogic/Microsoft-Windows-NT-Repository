@@ -1,0 +1,202 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1988							    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Creates the TPU language output from the SDL tree.
+
+author:
+	Mark Bramhall
+
+date:
+	 2-Feb-1988
+                        C H A N G E    L O G
+
+_______________________________________________________________________________
+      Date      | Name  | Description
+________________|_______|______________________________________________________
+    25-Apr-1991 |  AWF  | X3.2-0 Merged into ALPHA SDL.  *NO* changes made at 
+                |       |        this time!!
+________________|_______|______________________________________________________
+    31-Oct-1991 |  AWF  | X3.2-1 Output names are now up to 64 chars.  Fix
+		|	|	 for EVMS QAR 1098.  Note that input names are 
+		|	|	 still limited to 32 chars. 
+________________|_______|______________________________________________________
+*/
+
+sdl$output: procedure (out_file, def_filename, sdl$_shr_data)
+	    options (ident ('X3.2-1'));
+
+    %include 'sdl$library:sdlmsgdef.in';
+    %include 'sdl$library:sdlnodef.in';
+    %include 'sdl$library:sdlshr.in';
+    %include 'sdl$library:sdltypdef.in';
+
+    dcl out_file char (128) var;
+    dcl def_filename char (132) var;
+    dcl output_file file output record sequential;
+    dcl buf char (1024) var;
+    dcl need_eom fixed bin;
+
+/*** main ***/
+
+    on undefinedfile (output_file)
+	begin;
+	    call errmsg (sdl$_shr_data,
+			 sdl$_outfilopn,
+			 ,
+			 out_file || '.TPU');
+	    goto exit;
+	end;
+
+    open file (output_file)
+	 title (out_file)
+	 environment (default_file_name (def_filename || '.TPU'));
+    outfile = output_file;
+
+    call sdl$header (sdl$_shr_data, '! ', '', line_length);
+
+    buf = '';
+    need_eom = 0;
+    call outputnode (tree_root->nod$a_flink, tree_root);
+    if need_eom = 1
+    then
+	call sdl$putline (outfile, 'endmodule;', line_length);
+
+    close file (output_file);
+
+exit:
+
+    return;
+
+/*** output node ***/
+
+outputnode: procedure (initp, startp);
+
+    dcl (initp, startp, p) ptr;
+    dcl based_string char (1024) var based;
+    dcl temp_name char (132) var;
+
+    p = initp;
+    do while (p ^= startp);
+	goto case (p->nod$b_type);
+
+case (nod$k_modulnode):
+	if need_eom = 1
+	then
+	    call sdl$putline (outfile, 'endmodule;', line_length);
+	call sdl$putline (outfile, ' ', line_length);
+	buf = 'module ' || p->nod$t_name;
+	if p->nod$t_naked ^= ''
+	then
+	    buf = buf || ' ident "' || p->nod$t_naked || '"';
+	need_eom = 1;
+	goto common;
+
+case (nod$k_constnode):
+	temp_name = p->nod$t_name;
+	if length (temp_name) > 64
+	then do;
+	    call errmsg (sdl$_shr_data,
+			 sdl$_namtrunc,
+			 p->nod$l_srcline,
+			 temp_name);
+	    temp_name = substr (temp_name, 1, 64);
+	end;
+	buf = 'constant '
+	   || temp_name
+	   || ' := '
+	   || trim (p->nod$l_typeinfo)
+	   || ';';
+	goto common;
+
+case (nod$k_rootnode):
+	temp_name = '??? rootnode ???';
+	goto common_error;
+
+case (nod$k_commnode):
+	goto common;
+
+case (nod$k_entrynode):
+	temp_name = '??? entrynode ???';
+	goto common_error;
+
+case (nod$k_itemnode):
+	temp_name = '??? itemnode ???';
+	goto common_error;
+
+case (nod$k_parmnode):
+	temp_name = '??? parmnode ???';
+	goto common_error;
+
+case (nod$k_objnode):
+	temp_name = '??? objnode ???';
+	goto common_error;
+
+case (nod$k_headnode):
+	temp_name = '??? headnode ???';
+	goto common_error;
+
+case (nod$k_typnode):
+	temp_name = '??? typnode ???';
+	goto common_error;
+
+common_error:
+	call errmsg (sdl$_shr_data,
+		     sdl$_typnotsup,
+		     p->nod$l_srcline,
+		     temp_name);
+	buf = '! ' || temp_name;
+
+common:
+	if p->nod$a_comment ^= null ()
+	 & sdl$v_comment_opt
+	then
+	    do;
+	    if buf ^= ''
+	    then
+		buf = fill (buf, 56);
+	    buf = buf || '!' || p->nod$a_comment->based_string;
+	    if length(buf) > line_length
+	    then
+		buf = substr (buf, 1, line_length);
+	    end;
+	call sdl$putline (outfile, buf, line_length);
+	buf = '';
+	if p->nod$a_child ^= null ()
+	then
+	    if (p->nod$w_datatype ^= typ$k_structure)
+	     & (p->nod$w_datatype ^= typ$k_union)
+	    then
+		call outputnode (p->nod$a_child->nod$a_flink, p->nod$a_child);
+	p = p->nod$a_flink;
+	end;
+
+    return;
+
+end outputnode;
+
+end sdl$output;

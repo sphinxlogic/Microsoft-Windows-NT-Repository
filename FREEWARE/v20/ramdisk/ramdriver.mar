@@ -1,0 +1,1420 @@
+	.Title	RAMDriver	- RAM disk driver for VAX/VMS
+	.Ident	/V02.016/
+	.Enable	SUP
+	.Subtitle	Introduction
+
+;+
+;
+; ----- RAMDriver:  RAM disk driver for VAX/VMS
+;
+;
+; Facility:
+;
+;	VAX/VMS executive, I/O subsystem.
+;
+; Abstract:
+;
+;	This module implements a RAM disk driver, whereby a collection
+;	of pages from memory behave as though they were a disk	drive.
+;	The driver  is $QIO compatible with  the DEC supplied PDDRIVER
+;	but is much more efficient  since it does  most of its work at
+;	IPL$_ASTDEL rather  than at  IPL$_SYNCH  (it uses  a MUTEX for
+;	synchronization).
+;
+; Environment:
+;
+;	VAX/VMS native mode, VMS V5.0 or later, resident, kernel mode,
+;	IPL$_ASTDEL and above.
+;
+;
+;
+; Version:	V02.016
+; Date:		28-May-1994
+;
+; Copyright © 1988, 1989, 1990, 1991, 1992  San Diego Supercomputer Center
+; Copyright © 1993,1994  TGV, Incorporated.
+;
+; Gerard K. Newman	12-Mar-1988
+; TGV, Incorporated
+; 101 Cooper Street
+; Santa Cruz, CA  95060
+; 408.457.5200
+;
+; Internet:	GKN@TGV.COM
+; BITNET:	GKN@SDSC.BITNET
+; SPAN:		SDSC::GKN (27.1)
+; uucp:		ucsd!gkn
+;
+;
+; Modifications:
+;
+;	29-Jun-1988	GKN	Do away with RAMD_STASH and instead compute the
+;				buffer virtual address using the SVAPTE provided
+;				to us in the IRP (why I didn't think about this
+;				before I don't know).  This allows us to process
+;				IRPs which are queued directly to our start I/O
+;				routine without benefit of passing through our
+;				FDT ($CRMPSC and, indirectly, $IMGACT are examples
+;				of things that do this).
+;	17-Jan-1989	GKN	Changes for VMS V5, which includes fixes for image
+;				activation (i.e., page fault reads into pages which
+;				don't have the valid bits set in their PTEs yet).
+;	16-Apr-1990	GKN	Cure the pathological case where we're called on to
+;				satisfy a page fault read for a process executing
+;				at IPL$_ASTDEL and therefore can't queue an AST to
+;				it -- in this case, since the driver never looks
+;				busy, just skip queueing the AST and drive on (we
+;				will have the correct process context).
+;	28-Jun-1990	GKN	Recover more gracefully from being unable to
+;				allocate non-paged pool on an IO$_FORMAT.
+;	 5-Jul-1990	GKN	Call IOC$PTETOPFN to extract the PFN from PTEs
+;				which do not have the VALID bits lit.
+;	 6-Jul-1990	GKN	LDR$ALLOC_PT doesn't do partial allocations, so
+;				save some work in RAMD_SMAP.  LDR$DEALLOC_PT
+;				doesn't deallocate page table entries unless they're
+;				*completely zero*.  Bogus.  Check for IRP$M_SWAPIO
+;				to thwart people who swap on this thing (actually,
+;				I should just let the system crash to teach them
+;				not to do that ;-).
+;	16-Nov-1990	GKN	Move IRP$L_WCBSAVE to someplace that doesn't get
+;				tromped on during segmented I/O.
+;	21-Nov-1990	GKN	Argh!!!  Save the WCB before dealing with paging I/O.
+;	 4-Jan-1991	GKN	Set UCB$L_MEDIA_ID to make this twidget become
+;				servable via the MSCP server (ref. VMS V5.2 release
+;				notes).  Also check for IIRPs in RAMD_STARTIO and don't
+;				try to use system space addresses as PIDs to queue ASTs
+;				to.  Also purge the TLB before we use the remapped
+;				system space (as well as after -- abject paranoia).
+;				As a further enhancement, don't trip the other CPUs in
+;				an SMP set when flushing the TLB since we always are
+;				executing at IPL$_SYNCH when messing with remapped
+;				system space and hence can't be rescheduled on another
+;				processor.
+;	21-Jan-1992	GKN	Back out the MEDIA_ID change until I understand why
+;				this annoys the MSCP server.
+;	 8-Jan-1993	GKN	VMS V5.5 apparently introduces some change where
+;				someone is putting IO$_PACKACKs directly into the
+;				I/O queue, which hurt when we try to do something
+;				with them.  The solution here is to complete them
+;				quickly and painlessly.  I wish I knew *who* was
+;				sticking them in there, and *why*...
+;	19-Jan-1993	GKN	For my next trick, be suspicious of IRPs with
+;				IRP$M_MVIRP set in IRP$W_STS.  Treat them just like
+;				we do paging/swapping I/O.  Also, stop using non-paged
+;				pool and steal pages off of the free list instead.
+;				This way we can return the pages to someplace more
+;				useful than non-paged pool.  Set DEV$M_NOCLU in
+;				UCB$L_DEVCHAR2 to get the configure process to leave
+;				us alone.
+;	20-Jan-1993	GKN	Rescind Media_ID change and DEV$M_NOCLU for MSCP
+;				support.
+;	21-Jan-1993	GKN	VMS V6 support (DPT$M_XPAMOD).
+;	29-Mar-1993	GKN	Argh!!  Fix MSCP server support (finally!).  The dufus who
+;				wrote the MSCP server didn't bother to set IRP$M_FUNC on
+;				read functions;  hence, everything looked like a write to
+;				us.  The cure is to forget about looking at IRP$W_STS and
+;				check out IRP$W_FUNC instead.  This is a bogus change.
+;	28-May-1994	GKN	(with thanks to JWMANLY@amherst.edu) Ensure that we
+;				check only the function code (and not the modifier
+;				bits) when deciding if we have a read or a write
+;				request in RAMD_STARTIO:.  The old code would decide
+;				that we had a write request if we had a read with any
+;				function modifiers (egad!).
+;
+;-
+
+	.Page
+	.Subtitle	Local definitions
+
+	.Link	 "SYS$SYSTEM:SYS.STB"/Selective_Search	;Grab the system symbol table
+	.Library "SYS$LIBRARY:LIB.MLB"			;Get special macros from here
+
+	.NoCross			;Save a tree
+
+	$ACBDEF				;AST control block offsets
+	$CRBDEF				;Controller request block definitions
+	$DCDEF				;Device class & type definitions
+	$DDBDEF				;Device data block definitions
+	$DDTDEF				;Driver dispatch table offsets
+	$DEVDEF				;Device independent status bits
+	$DPTDEF				;Driver prologue table offsets
+	$DYNDEF				;Nonpaged pool data structure type codes
+	$IDBDEF				;Interrupt dispatch block offsets
+	$IODEF				;I/O function codes
+	$IPLDEF				;Interrupt priority levels
+	$IRPDEF				;I/O request packet definitions
+	$ORBDEF				;Object rights block definitions
+	$PCBDEF				;Process control block offsets
+	$PFNDEF				;PFN database stuff
+	$PHDDEF				;Process header offsets
+	$PRDEF				;Internal processor registers
+	$PTEDEF				;Page table entry format
+	$SSDEF				;System service codes
+	$UCBDEF				;UCB offsets
+	$VADEF				;Virtual address space stuff
+	$VECDEF				;Interrupt transfer vector offsets
+
+	.Cross				;Turn CREF back on
+
+
+; Local definitions
+
+P1		=	0		;QIO parameter P1
+
+.Iif NDF DT$_RAM_DISK, DT$_RAM_DISK = 58	;Showed up in V5.3 (maybe V5.2)
+.Iif NDF DPT$M_XPAMOD, DPT$M_XPAMOD = ^x4000	;Shows up in VMS V6
+.Iif NDF DPT$M_SNAPSHOT, DPT$M_SNAPSHOT = ^x800	;Showed up in VMS V5.5 (maybe V5.4)
+
+
+; IRP overlays
+
+$EQU	IRP$L_WCBSAVE	IRP$L_DUTUFLAGS	;Safe place to stash the WCB address
+$EQU	IRP$L_PAGE_VA	IRP$W_DUTUCNTR	;Paging I/O virtual address
+$EQU	IRP$L_NSPTES	IRP$L_RBOFF	;Number of SPTEs we allocated
+$EQU	IRP$L_SPTE	IRP$L_UBARSRCE	;Starting SPTE
+
+
+; UCB offsets which follow the standard disk UCB.
+
+$DEFINI	UCB				;Start of the UCB offsets
+
+.	=	UCB$K_LCL_DISK_LENGTH	;Start after the standard disk crap
+
+$DEF	UCB$L_RAMD_BUFF	 .Blkl		;Address of the disk buffer
+$DEF	UCB$L_RAMD_MUTEX .Blkl		;Disk access MUTEX
+$DEF	UCB$L_RAMD_SPTE	 .Blkl		;Starting system page table address of the disk buffer.
+$DEF	UCB$K_RAMD_LENG			;Length of a RAM disk UCB
+
+$DEFEND	UCB				;End of the UCB offsets
+
+	.Page
+	.Subtitle	Standard device driver tables
+
+
+; Driver prologue table.
+
+	DPTAB	-			   ;Driver prologue table
+		End	 = RAMD_END,-	   ;End of the driver
+		Adapter	 = NULL,-	   ;No adapter (no hardware)
+		SMP	 = YES,-	   ;We can deal with SMP
+		Flags	 = DPT$M_XPAMOD,-  ;S1 space Ok
+		Unload	 = RAMD_UNLOAD,-   ;Unload routine
+		Name	 = RAMDRIVER,-	   ;Driver name
+		UCBSize	 = UCB$K_RAMD_LENG ;UCB size
+
+
+; Initialization table.
+
+	DPT_Store INIT			;Initialization table
+
+; Device data block (DDB).
+
+	DPT_Store DDB,DDB$L_ACPD,L,<^a/F11/>	;Default ACP name
+	DPT_Store DDB,DDB$L_ACPD+3,B,DDB$K_SLOW	;ACP class
+
+; Unit control block (UCB).
+
+	DPT_Store UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8    ;Fork IPL spin lock index
+	DPT_Store UCB,UCB$B_DIPL,B,IPL$_SYNCH	    ;Device IPL
+	DPT_Store UCB,UCB$L_DEVCHAR,L,<-	    ;Device characteristics:
+			DEV$M_FOD!-		    ;   File oriented
+			DEV$M_DIR!-		    ;   Directory structured
+			DEV$M_AVL!-		    ;   Available
+			DEV$M_SHR!-		    ;   Shareable
+			DEV$M_IDV!-		    ;   Capable of input
+			DEV$M_ODV!-		    ;   Capable of output
+			DEV$M_RND>		    ;   Random access
+	DPT_Store UCB,UCB$L_DEVCHAR2,L,<-	    ;More device characteristics:
+			DEV$M_NLT!-		    ;   No bad block data on last track
+			DEV$M_NNM>		    ;   Prefix the name with "node$"
+	DPT_Store UCB,UCB$W_DEVSTS,W,<-		    ;Device status:
+			UCB$M_NOCNVRT>		    ;   No LBN conversion
+	DPT_Store UCB,UCB$B_DEVCLASS,B,DC$_DISK	    ;It's a disk
+	DPT_Store UCB,UCB$B_DEVTYPE,B,DT$_RAM_DISK  ;It's a funny looking disk
+	DPT_Store UCB,UCB$W_DEVBUFSIZ,W,512	    ;Buffer size
+	DPT_Store UCB,UCB$B_TRACKS,B,1		    ;1 track/cylinder
+	DPT_Store UCB,UCB$B_SECTORS,B,1		    ;1 sector/track
+	DPT_Store UCB,UCB$L_MEDIA_ID,L,<^x91241680> ;Device name = RD, media ID = RAMD
+
+
+; Reinitialization table.
+
+	DPT_Store REINIT			;Reinitialization table
+
+; Controller request block (CRB).
+
+	DPT_Store CRB,CRB$L_INTD+VEC$L_INITIAL,D,RAMD_CTRL_INIT	 ;Controller initialization
+	DPT_Store CRB,CRB$L_INTD+VEC$L_UNITINIT,D,RAMD_UNIT_INIT ;Unit initialization
+
+; Device data block (DDB).
+
+	DPT_Store DDB,DDB$L_DDT,D,RAMD$DDT	;Driver dispatch table address
+
+	DPT_Store END				;End of the initialization tables.
+
+
+; Driver dispatch table.
+
+	DDTAB	-			 ;Driver dispatch table
+		DevNam	= RAMD,-	 ;Device name
+		Start	= RAMD_STARTIO,- ;Start I/O
+		Unsolic	= 0,-		 ;No unsolicited interrupt service (no interrupts)
+		FuncTB	= RAMD_FUNCTAB,- ;Function decision table address
+		Cancel	= 0,-		 ;No cancel I/O
+		RegDmp	= 0,-		 ;Register dump (no registers!)
+		DiagBf	= 0,-		 ;No diagnostic bufer
+		ErlgBf	= 0		 ;No error logging buffer
+
+
+; Function decision table.
+
+RAMD_FUNCTAB:				;Function decision table.
+
+; Legal functions.
+
+	FuncTab	,<-			;Legal functions:
+		UNLOAD,-		;   Unload
+		PACKACK,-		;   Pack acknowlege
+		AVAILABLE,-		;   Drive available
+		SENSECHAR,-		;   Sense characteristics
+		SENSEMODE,-		;   Sense mode
+		FORMAT,-		;   Format (special)
+		READVBLK,-		;   Read virtual
+		READLBLK,-		;   Read logical
+		READPBLK,-		;   Read physical
+		WRITEVBLK,-		;   Write virtual
+		WRITELBLK,-		;   Write logical
+		WRITEPBLK,-		;   Write physical
+		ACCESS,-		;   Access / lookup
+		ACPCONTROL,-		;   XQP control, actually
+		CREATE,-		;   Create / enter
+		DEACCESS,-		;   Deaccess
+		DELETE,-		;   Delete
+		MODIFY,-		;   Modify
+		MOUNT>			;   Mount volume
+
+; Buffered functions.
+
+	FuncTab	,<-			;Buffered functions:
+		UNLOAD,-		;   Unload
+		PACKACK,-		;   Pack acknowlege
+		AVAILABLE,-		;   Drive available
+		SENSECHAR,-		;   Sense characteristics
+		SENSEMODE,-		;   Sense mode
+		FORMAT,-		;   Format (special)
+		ACCESS,-		;   Access / lookup
+		ACPCONTROL,-		;   XQP control, actually
+		CREATE,-		;   Create / enter
+		DEACCESS,-		;   Deaccess
+		DELETE,-		;   Delete
+		MODIFY,-		;   Modify
+		MOUNT>			;   Mount volume
+
+; Direct functions and FDT mapping.
+
+	FuncTab	+ACP$READBLK,<-		;Read functions:
+		READVBLK,-		;   Read virtual
+		READLBLK,-		;   Read logical
+		READPBLK>		;   Read physical
+	FuncTab	+ACP$WRITEBLK,<-	;Write functions:
+		WRITEVBLK,-		;   Write virtual
+		WRITELBLK,-		;   Write logical
+		WRITEPBLK>		;   Write physical
+	FuncTab	+ACP$ACCESS,<-		;Access functions:
+		ACCESS,-		;   Access
+		CREATE>			;   Create
+	FuncTab	+ACP$DEACCESS,<-	;Deaccess function:
+		DEACCESS>		;   Deaccess
+	FuncTab	+ACP$MODIFY,<-		;Modify functions:
+		ACPCONTROL,-		;   ACP control
+		DELETE,-		;   Delete
+		MODIFY>			;   Modify
+	FuncTab	+ACP$MOUNT,<-		;Mount function:
+		MOUNT>			;   Mount volume
+	FuncTab	RAMD_PACKACK,<-		;Pack acknowlege function:
+		PACKACK>		;   Pack acknowlege
+	FuncTab	RAMD_UNL_AVL,<-		;Unload functions:
+		UNLOAD,-		;   Unload
+		AVAILABLE>		;   Available
+	FuncTab	RAMD_FORMAT,<-		;Format function:
+		FORMAT>			;   Format (special)
+	FuncTab	+EXE$SENSEMODE,<-	;Sense functions
+		SENSEMODE,-		;   Sense mode
+		SENSECHAR>		;   Sense characteristics
+
+	.Page
+	.Subtitle	RAMD_UNLOAD	- Driver unload routine
+
+;+
+;
+; ----- RAMD_UNLOAD:  Driver unload routine
+;
+;
+; This routine is called in response to the SYSGEN UNLOAD command.
+;
+; Environment:
+;
+;	IPL$_POWER, process context.
+;
+; Inputs:
+;
+;	None.
+;
+; Outputs:
+;
+;	None.
+;
+;-
+
+RAMD_UNLOAD:				;Driver unload routine
+
+	MOVL	#SS$_NORMAL,R0		;Allow driver to be unloaded.
+	RSB				;	...
+
+	.Page
+	.Subtitle	RAMD_CTRL_INIT	- Controller initialization
+
+;+
+;
+; ----- RAMD_CTRL_INIT:  Controller initialization
+;
+;
+; This routine is called to perform controller specific initialization
+; during the SYSGEN LOAD or RELOAD  commands and  during power failure
+; recovery.  Since  there isn't a  controller this  routine doesn't do
+; a whole lot.
+;
+; Environment:
+;
+;	IPL$_POWER, system context.
+;
+; Inputs:
+;
+;	R5	- IDB address
+;
+; Outputs:
+;
+;	Not much.
+;
+;-
+
+RAMD_CTRL_INIT:				;Controller initialization
+
+;%%%	JSB	G^INI$BRK		;%%% Whistle up XDELTA
+	CLRL	IDB$L_CSR(R5)		;No CSR
+	RSB				;Done
+
+	.Page
+	.Subtitle	RAMD_UNIT_INIT	- Unit initialization
+
+;+
+;
+; ----- RAMD_UNIT_INIT:  Unit initialization
+;
+;
+; This routine is called during the SYSGEN LOAD command (but not RELOAD) and
+; during power failure recovery.  We initialize our MUTEX and return.
+;
+; Environment:
+;
+;	IPL$_POWER, system context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;
+; Outputs:
+;
+;	Unit set online.
+;
+;-
+
+RAMD_UNIT_INIT:					;Unit initialization
+
+	BBSC	#UCB$V_POWER,UCB$L_STS(R5),10$	;Nothing to do on powerfail recovery
+	MOVL	#^xFFFF,UCB$L_RAMD_MUTEX(R5)	;Initialize the MUTEX
+	BISW	#UCB$M_ONLINE,UCB$W_STS(R5)	;We're on the air
+
+10$:	RSB					;Done.
+
+	.Page
+	.Subtitle	RAMD_PACKACK	- Handle IO$_PACKACK
+
+;+
+;
+; ----- RAMD_PACKACK:  Handle IO$_PACKACK
+;
+;
+; This routine is called during FDT processing to handle IO$_PACKACK.
+; We set the valid bits in the UCB and return.
+;
+; Environment:
+;
+;	IPL$_ASTDEL, process context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	Volume valid changed.
+;
+;-
+
+RAMD_PACKACK:				;Handle IO$_PACKACK
+
+	BBSS	#UCB$V_LCL_VALID,UCB$L_STS(R5),10$ ;Already valid?
+	BISW	#UCB$M_VALID,UCB$L_STS(R5)	   ;No, it is now.
+	INCB	UCB$B_ONLCNT(R5)		   ;Another system has this one on line
+
+10$:	MOVL	#SS$_NORMAL,R0		;Success!
+	JMP	G^EXE$FINISHIOC		;Post the I/O request complete
+
+	.Page
+	.Subtitle	RAMD_UNL_AVL	- Handle IO$_UNLOAD and IO$_AVAILABLE
+
+;+
+;
+; ----- RAMD_UNL_AVL:  Handle IO$_UNLOAD and IO$_AVAILABLE
+;
+;
+; This routine is called as an FDT routine for IO$_UNLOAD and IO$_AVAILABLE.
+; We clear the volume valid bits and post the I/O request complete.
+;
+; Environment:
+;
+;	IPL$_ASTDEL, process context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	Volume valid cleared.
+;
+;-
+
+RAMD_UNL_AVL:				;Handle IO$_UNLOAD and IO$_AVAILABLE
+
+	BBCC	#UCB$V_LCL_VALID,UCB$L_STS(R5),10$ ;Volume valid?
+	BICW	#UCB$M_VALID,UCB$W_STS(R5)	   ;Volume no longer valid
+	DECB	UCB$B_ONLCNT(R5)		   ;Another system has let go of this one
+
+10$:	MOVL	#SS$_NORMAL,R0		;Success!
+	JMP	G^EXE$FINISHIOC		;Post the I/O request complete.
+
+	.Page
+	.Subtitle	RAMD_FORMAT	- Handle IO$_FORMAT
+
+;+
+;
+; ----- RAMD_FORMAT:  Handle IO$_FORMAT
+;
+;
+; This routine is called as an FDT routine for IO$_FORMAT, which is
+; used to  allocate and deallocate the  memory which  comprises the
+; blocks of  the "disk".  P1 is the new size of the disk.  We first
+; deallocate the  existing chunk (all data is lost), and allocate a
+; chunk of the new size.
+;
+; Environment:
+;
+;	IPL$_ASTDEL, process context.
+;
+; Inputs:
+;
+;	AP	- Address of P1
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	Disk size changed.
+;
+;-
+
+RAMD_FORMAT:				;Handle IO$_FORMAT
+
+	PUSHL	R3			;Keep the IRP safe.
+
+; Ensure that the disk isn't mounted.
+
+	MOVL	#SS$_DEVMOUNT,R0		;Presume failure
+	BBC	#DEV$V_MNT,UCB$L_DEVCHAR(R5),10$ ;Branch if it's not mounted.
+	JMP	G^EXE$FINISHIOC			;Lose.
+
+; Lock the disk MUTEX for write access.
+
+10$:	MOVAB	UCB$L_RAMD_MUTEX(R5),R0	;Address the MUTEX
+	JSB	G^SCH$LOCKW		;Lock the MUTEX for write access.
+
+; Next deallocate the existing buffer.
+
+	BSBW	RAMD_DEALLOC		;Deallocate the existing buffer
+
+; Now allocate a new buffer.
+
+	MOVL	#SS$_NORMAL,R0		;Presume nothing to allocate.
+	MOVL	P1(AP),R2		;Get this many PTEs
+	BNEQ	20$			;If GTR, got work to do.
+	BRW	60$			;If EQL we're done (damn VAX branch instructions!)
+
+20$:	LOCK	MMG,PRESERVE=NO		;Lock the memory management database
+	JSB	G^LDR$ALLOC_PT		;Allocate some system address space
+	BLBS	R0,30$			;Win
+	BRW	50$			;Lose (damn VAX branch instructions!)
+
+; Turn the SVAPTE into a useful S0 address.
+
+30$:	MOVL	R1,UCB$L_RAMD_SPTE(R5)	;Save the SPTE
+	SUBL3	G^MMG$GL_SPTBASE,R1,R0	;Get the byte offset into the SPT
+	MULL	#128,R0			;Convert same into a virtual page # (128*4 = 512)
+	BISL3	#VA$M_SYSTEM,R0,R9	;Turn it into an S0 address
+	MOVL	R9,UCB$L_RAMD_BUFF(R5)	;Stash it.
+
+; Allocate PFNs and populate the PTEs we've got.
+
+	MOVL	R2,UCB$L_MAXBLOCK(R5)	;Disk size in blocks
+	MOVL	R2,R10			;Page counter.
+	MOVL	R1,R11			;Starting SPTE
+
+40$:	JSB	G^MMG$ALLOCPFN		;Get a PFN
+	BBS	#31,R0,50$		;We lose.
+
+; Adjust the PFN database.
+
+	MOVAW	G^PFN$AW_REFCNT,R2	;Maintain PIC.
+	INCW	@(R2)[R0]		;One more reference
+	MOVAL	G^PFN$AL_PTE,R2		;Maintain PIC.
+	MOVL	R11,@(R2)[R0]		;Back pointer to the SVAPTE
+	MOVAB	G^PFN$AB_STATE,R2	;Maintain PIC.	
+	MOVB	#PFN$C_ACTIVE,@(R2)[R0]	;Page is active.
+	MOVAB	G^PFN$AB_TYPE,R2	;Maintain PIC.
+	MOVB	#PFN$C_SYSTEM,@(R2)[R0]	;Page is a system page.
+	DECL	G^PFN$GL_PHYPGCNT	;One less page available
+
+; Map the page as KW.
+
+	BISL3	#<PTE$M_VALID!-		;Page is valid
+		  PTE$C_KW>,R0,(R11)+	; and is KW.
+	INVALIDATE_TB R9,-		;Clobber the TLB
+	<MOVAB	512(R9),R9>		;Next page.
+	SOBGTR	R10,40$			;Loop.
+	MOVL	#SS$_NORMAL,R0		;Success.
+
+; Here when done, one way or another.
+
+50$:	UNLOCK	MMG,PRESERVE=YES	;Unlock the MMG spinlock, save status in R0
+
+60$:	PUSHL	R0			;Save the status
+	BLBS	R0,70$			;If LBS, we're really done.
+	BSBB	RAMD_DEALLOC		;Deallocate what we partially allocated
+
+70$:	MOVW	UCB$L_MAXBLOCK(R5),-	;Copy the disk size
+		UCB$W_CYLINDERS(R5)	; as the number of cylinders.
+	MOVAB	UCB$L_RAMD_MUTEX(R5),R0	;Address the MUTEX
+	JSB	G^SCH$UNLOCK		;Unlock same
+	POPR	#^m<R0,R3>		;Restore status & IRP
+	JMP	G^EXE$FINISHIOC		;Complete the request now.
+
+; Local subroutine to deallocate the RAMD disk buffer and release the
+; PFNs associated with it.  Handles partial allocations (cleanup).
+
+RAMD_DEALLOC:				;Deallocate the existing buffer.
+
+	MOVL	UCB$L_RAMD_BUFF(R5),R10	;Buffer there?
+	BNEQ	10$			;Yes, drive on.
+	RSB				;Didn't get very far.
+
+10$:	MOVL	UCB$L_MAXBLOCK(R5),R11	;Page count.
+	LOCK	MMG,PRESERVE=NO		;Lock the MMG database
+	MOVL	UCB$L_RAMD_SPTE(R5),R9	;Starting SPTE
+
+; Release the PFNs.
+
+20$:	EXTZV	#PTE$V_PFN,#PTE$S_PFN,-	;Extract the
+		(R9),R0			; PFN
+	BEQL	30$			;If EQL none there.
+	MOVAL	G^PFN$AL_PTE,R2		;Maintian PIC.
+	CLRL	@(R2)[R0]		;Clear the back pointer
+	MOVAW	G^PFN$AW_REFCNT,R2	;Maintain PIC.
+	DECW	@(R2)[R0]		;One less reference
+	BNEQ	40$			;If NEQ we can't deallocate it.
+	JSB	G^MMG$DALLOCPFN		;Deallocate the PFN
+	CLRL	(R9)+			;Empty the PTE
+	INCL	G^PFN$GL_PHYPGCNT	;One more available page
+	INVALIDATE_TB R10,-		;Invalidate the TLB everywhere
+	<MOVAB	512(R10),R10>		;Next page, please
+	SOBGTR	R11,20$			;Loop.
+
+; Deallocate the SPTEs.
+
+30$:	MOVL	UCB$L_RAMD_SPTE(R5),R1	;Starting SPTE
+	MOVL	UCB$L_MAXBLOCK(R5),R2	;This many PTEs
+	JSB	G^LDR$DEALLOC_PT	;Deallocate them.
+
+40$:	CLRL	UCB$L_RAMD_SPTE(R5)	;No SPTEs
+	CLRL	UCB$L_RAMD_BUFF(R5)	;No buffer.
+	CLRL	UCB$L_MAXBLOCK(R5)	;Disk size is now zero.
+	CLRW	UCB$W_CYLINDERS(R5)	;	...
+	UNLOCK	MMG,PRESERVE=NO		;Unlock the MMG spinlock
+	RSB				;Done
+
+	.Page
+	.Subtitle	RAMD_STARTIO	- Start I/O routine
+
+;+
+;
+; ----- RAMD_STARTIO:  Start I/O routine
+;
+;
+; This  routine is called  as a fork process to start an I/O request.
+; The only requests which get here are reads and writes (both logical
+; and physical).
+;
+; Recall  that we're  at IPL$_SYNCH and  do not have process context.
+; The  only way we  can move  data to  or from user space is to use a
+; system  virtual  page to  double  map the  user's  buffer  and call
+; IOC$MOVxUSER,  which is very slow and is doubly bad because it must
+; execute at  IPL$_SYNCH.  This  is what  DEC's PDDRIVER does (and is
+; why that driver may not be a win on a busy system).
+;
+; A better solution is  to execute with process context, where we can
+; run at IPL$_ASTDEL and use a MOVC3 instruction to transfer the data
+; to user space.  Normally one would do this sort of thing in the FDT
+; routines and  simply bypass the driver start I/O routine.  However,
+; due to  the complex nature  of the FDT processing required for file
+; oriented devices it is desirable to let DEC's routines do it. Those
+; routines  (in SYSACPFDT) exit  by queueing the  IRP to the driver's
+; start I/O routine, so we're almost (but not quite) stuck.
+;
+; So, what we must do is to get back our lost process context.  We do
+; this by  queueing a kernel mode AST back to the requesting process.
+; The AST  routine (below) will transfer  the data  and then post the
+; I/O request complete.  Once we have our process context back we can
+; backtrack from the  SVAPTE in the IRP to a process virtual address,
+; and can therefore use a MOVC3 for data transfer.
+;
+; We make a special case  out of erase requests (IRPs with IO$V_ERASE
+; set in IRP$W_FUNC).  The normal case for these kinds of requests is
+; that the erase pattern is 0 , and VMS will use the preallocated PPT
+; and erase pattern found at EXE$GL_ERASEPPT and EXE$GL_ERASEPB.  The
+; The  other case would be  that the user  specifies a non-zero erase
+; pattern (probably via  $ERAPAT and setting LOADERAPAT to 1) and the
+; PPT and EPB  are allocated from  non-paged  pool someplace.  In any
+; event, we ignore all of this addres space jiggery-pokerey (although
+; it's pretty  neat, if you think about  it)  and simply  use a MOVC5
+; instruction to process erase requests, using an erase pattern of 0.
+; If someone at the NCSC has a  problem with this then THEY can write
+; the code to deal with it.
+;
+; Another special case is for page reads:  if we're satisfying a page
+; fault from our ramdisk,  then attempting to use the virtual address
+; which caused the  fault to begin  with to write into isn't going to
+; do us  a whole lot of  good.  So, if  we detect  that we're doing a
+; page fault read then we double-map the buffer into system space and
+; use this  address range for the I/O.  We  do it this way because it
+; eases the  synchronization problems with the  swapper  which  would
+; arise if we directly  manipulated the user's page table entries (we
+; would have to  light the valid  bit and KW  and run  owning the MMG
+; interlock at IPL$_SYNCH).  The down side to this is that we place a
+; strain on  free system address space  (SPTREQ) and can cause a fair
+; number of TB flushes,  which aren't too cheap on an SMP system.  We
+; must also  deal with the  case of  satisfying page  fault reads for
+; procsses executing at IPL$_ASTDEL, which of course will prevent the
+; delivery of our AST.  In this case, since we're "never busy", we're
+; guaranteed to still  have current process  context  (necessary  for
+; locking the MUTEX) and  can just skip  the queueing of the AST (but
+; with the performance hit of having to run at IPL$_SYNCH -- too hard
+; to lower IPL back to IPL$_ASTDEL in a controlled fashion).
+;
+; Since we us a MUTEX for synchronization, we can allow multiple read
+; requests to execute in parallel (since we can lock a MUTEX for read
+; or write access).  In order for this to happen the device must look
+; like it is not busy to IOC$INITIATE when it's called to start up an
+; I/O request.  We do this by clearing the busy bit in the UCB before
+; we queue the AST.
+;
+; Environment:
+;
+;	IPL$_SYNCH, fork context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	IRP used as an ACB and a kernel mode AST is queued to the
+;	requesting process to complete the I/O request.
+;
+;-
+
+RAMD_STARTIO:					;Start I/O routine
+
+	BICW	#UCB$M_BSY,UCB$W_STS(R5)	;Device must not look busy
+
+; Sanity check the function code.  The MSCP server and mount verification
+; code deposit things other than IO$_READPBLK and IO$_WRITEPBLK  into our
+; I/O queue and expect us to do something inteligent.  Crappy assumption,
+; if you ask me.
+
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,-	;Fetch only the
+		IRP$W_FUNC(R3),R0		; function code
+	CMPL	R0,#IO$_READPBLK		;Read physical?
+	BEQL	10$				;If EQL yes
+	CMPL	R0,#IO$_WRITEPBLK		;Write physical?
+	BEQL	10$				;If EQL yes
+
+; Ok -- internal function code.  Handle out of line.
+
+	BRW	RAMD_INTERNAL			;Internal special functions -- handle out of line
+
+10$:	MOVL	IRP$L_WIND(R3),IRP$L_WCBSAVE(R3) ;Keep the WCB address safe
+	BITW	#<IRP$M_PAGIO!-			 ;Paging I/O?
+		  IRP$M_SWAPIO!-		 ;Swapping I/O?
+		  IRP$M_SRVIO!-			 ;MSCP server I/O?
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	 ;Mount verify I/O?
+	BNEQ	20$				 ;If NEQ yes
+	TSTL	IRP$L_PID(R3)			 ;Internal IRP?
+	BLSS	20$				 ;If LSS yes, no process to queue the AST to.
+	MOVL	R3,R5				 ;Copy the IRP address and make believe it's an ACB
+	BISB	#ACB$M_KAST,ACB$B_RMOD(R5)	 ;Say we're a kernel AST
+	MOVAB	RAMD_KAST,ACB$L_KAST(R5)	 ;Execute this routine
+	CLRL	R2				 ;No priority increment (could use PRI$_IOCOM, I guess)
+	JMP	G^SCH$QAST			 ;Queue the AST and return
+
+; Paging I/O (probably a page fault read) or IIRP (Mount verification).
+;
+; Pathological case:  if the  process  we're doing  paging I/O on  behalf of is
+; executing at IPL$_ASTDEL,  then  queuing an AST will  not work  (it'll hang).
+; Since this device doesn't look  busy,  IRPs will never  wind up on our queue,
+; so at  this point we  still have  process context  (i.e.,  we're  not  a fork
+; process)  from the  process which  caused the  page  fault.  So,  in order to
+; prevent hangs, skip  the queueing  of the AST  in this case and just drive on
+; -- the only thing  to consider here  is that we're  at IPL$_SYNCH rather than
+; IPL$_ASTDEL -- some performance impact, but less than hanging the system ;-)
+;
+; If this is an internal  IRP, we don't have a process context to play with, so
+; queuing an AST is likeley to hurt ;-)  I suppose, if we were really desperate
+; we could borrow the SWAPPER for this ...
+
+20$:	BSBW	RAMD_SMAP		;Go map this buffer into system space
+	BRB	RAMD_KAST_1		;Join common code
+
+; Ok - we're back at IPL$_ASTDEL with (the correct one, even!) process context.
+; R0-R5 are available for use, and R5 is the address of the IRP (er, ACB).  The
+; PCB address is in R4 (thanks to the AST dispatcher).
+
+RAMD_KAST:				;Ref. label
+
+	MOVL	R5,R3			;Put the IRP where most everything expects to find it
+	MOVL	IRP$L_UCB(R3),R5	;Address our UCB
+
+RAMD_KAST_1:				;Ref. label
+
+; Backtrack from the SVAPTE to a usable virtual address.
+
+	BSBW	SVAPTE_TO_VA			;Get a usable virtual address
+	BISW	IRP$W_BOFF(R3),R2		;Merge in the proper byte offset
+
+; Compute the "disk" address based on whether it's logical or physical I/O.
+
+	MULL3	#512,IRP$L_MEDIA(R3),R1		;Presume logical I/O
+	BBC	#IRP$V_PHYSIO,IRP$W_STS(R3),10$	;Branch if it's logical I/O
+
+; Physical I/O ... Byte offset = Sector size * ((Sectors per track) * Track + Sector)
+
+	MOVZBL	UCB$B_SECTORS(R5),R1	;Grab the sectors/track
+	MULW	IRP$L_MEDIA+2(R3),R1	;Multiply by track number
+	ADDW	IRP$L_MEDIA(R3),R1	;Add in the sector
+	DECL	R1			;Make it zero based
+	MULL	#512,R1			;Multiply by the sector size
+
+; Ok - now we have the byte offset into the disk buffer in R1.
+
+10$:	MOVAB	UCB$L_RAMD_MUTEX(R5),R0	;Address the MUTEX
+	ADDL	UCB$L_RAMD_BUFF(R5),R1	;Point to the right spot in the disk buffer
+	PUSHR	#^m<R3,R4,R5>		;Save volatile registers
+
+; Dispatch to the the correct routine.
+
+	MOVAB	RAMD_READ,R5			;Presume it's a read
+
+; Danger Will Robinson!!    Bogus Hack Alert!!
+;
+; The MSCP server doesn't set IRP$V_FUNC on read requests, so we have to check
+; the function code instead.  This is just plain wrong.
+;
+;	BBS	#IRP$V_FUNC,IRP$W_STS(R3),20$	;Branch if this is the case	CAN'T DO THIS DUE TO DEC BRAIN DAMAGE
+
+	CMPZV	#IRP$V_FCODE,#IRP$S_FCODE,-	;Read?
+		IRP$W_FUNC(R3),#IO$_READPBLK	;	...
+	BEQL	20$				;If EQL yes.
+	MOVAB	RAMD_WRITE,R5			;Else it's a write
+
+20$:	JSB	(R5)				;Call the correct routine.
+
+; Here to post the I/O request complete.
+
+	POPR	#^m<R3,R4,R5>			 ;Restore the IRP, PCB, and UCB addresses
+	PUSHL	R3				 ;Keep the IRP address safe from RAMD_UNLOCK
+	BSBW	RAMD_UNLOCK			 ;Unlock our MUTEX
+	POPL	R3				 ;Restore the IRP address
+	MOVL	IRP$L_WCBSAVE(R3),IRP$L_WIND(R3) ;Restore the window pointer
+	ASHL	#16,IRP$L_BCNT(R3),R0		 ;Shift the byte count to the high word of R0
+	MOVW	#SS$_NORMAL,R0			 ;Success
+	CLRL	R1				 ;No further status
+	BITW	#<IRP$M_PAGIO!-			 ;Paging I/O?
+		  IRP$M_SWAPIO!-		 ;Swapping I/O?
+		  IRP$M_SRVIO!-			 ;MSCP server I/O?
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	 ;Mount verify I/O?
+	BNEQ	40$				 ;	...
+	FORKLOCK LOCK=UCB$B_FLCK(R5),-		 ;Grab the
+		SAVIPL=-(SP),-			 ; fork lock
+		PRESERVE=YES			 ;  to modify
+	MOVL	R3,UCB$L_IRP(R5)		 ;   the UCB
+
+30$:	JSB	G^IOC$REQCOM		 ;Post the request complete (& look for more work)
+	FORKUNLOCK LOCK=UCB$B_FLCK(R5),- ;Release the
+		NEWIPL=(SP)+,-		 ; fork lock
+		PRESERVE=YES,-		 ;	...
+		CONDITION=RESTORE	 ;	...
+	RSB				 ;Done
+
+; Here for paging I/O completion -- we already own the fork lock, and
+; IOC$INSIOQC expects to release it ...
+
+40$:	BSBW	RAMD_FREE_SPTES		;Release the system page table entries used to map the buffer
+	MOVL	R3,UCB$L_IRP(R5)	;Stash the IRP address
+	JMP	G^IOC$REQCOM		;Post this request complete (& look for more work)
+
+	.Page
+	.Subtitle	RAMD_INTERNAL	- Handle internal I/O requests
+
+;+
+;
+; ----- RAMD_INTERNAL:  Handle internal I/O requests
+;
+;
+; This routine is called to handle an internal I/O request (other than
+; read or write).  The  problem is that  both the  MSCP server and the
+; mount verification  code (for VMS  V5.5  especially) both put things
+; directly into our I/O queue which are not read or write requests.
+;
+; We cope with  IO$_NOP (MSCP), IO$_PACKACK (both), IO$_UNLOAD (MSCP),
+; and IO$_AVAILABLE (MSCP) here.  Anything else wins an SS$_ILLIOFUNC.
+;
+; Environment:
+;
+;	IPL$_SYNCH, fork context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address.
+;	R0	- Function code
+;
+; Outputs:
+;
+;	Internal function code sent to I/O postprocessing just as
+;	quickly as we can get rid of it.
+;
+;-
+
+RAMD_INTERNAL:				;Handle internal I/O requests
+
+	TSTL	R0			;IO$_NOP?
+	BEQL	30$			;If EQL yes, done.
+	CMPL	#IO$_PACKACK,R0		;IO$_PACKACK?
+	BEQL	10$			;If EQL yes
+	CMPL	#IO$_AVAILABLE,R0	;IO$_AVAILABLE?
+	BEQL	20$			;If EQL yes
+	CMPL	#IO$_UNLOAD,R0		;IO$_UNLOAD?
+	BEQL	20$			;If EQL yes
+
+; Bzzzt.  Thank you for playing.  Here's what we've got for our losers:
+
+	MOVQ	#SS$_ILLIOFUNC,R0	;You lose.
+	REQCOM				;Post the request complete
+
+; IO$_PACKACK.
+
+10$:	BBSS	#UCB$V_LCL_VALID,UCB$L_STS(R5),30$ ;Already valid?
+	BISW	#UCB$M_VALID,UCB$L_STS(R5)	   ;No, now it is.
+	INCB	UCB$B_ONLCNT(R5)		   ;Another system has us on line.
+	BRB	30$				   ;Exit via common code.
+
+; IO$_UNLOAD/IO$_AVAILABLE.
+
+20$:	BBCC	#UCB$V_LCL_VALID,UCB$L_STS(R5),30$ ;Volume valid?
+	BICW	#UCB$M_VALID,UCB$L_STS(R5)	   ;Not any more.
+	DECB	UCB$B_ONLCNT(R5)		   ;Another system has let go of this one.
+;	BRB	30$				   ;Exit via common code.
+
+30$:	MOVQ	#SS$_NORMAL,R0		;Success.
+	REQCOM				;Done.
+
+	.Page
+	.Subtitle	RAMD_READ	- Process a read IRP
+
+;+
+;
+; ----- RAMD_READ:  Process a read IRP
+;
+;
+; This routine is called to process a read IRP, which involves a transfer
+; from the "disk" to the user's buffer.
+;
+; Environment:
+;
+;	IPL$_ASTDEL, process context.
+;
+; Inputs:
+;
+;	R4	- PCB address
+;	R3	- IRP address
+;	R2	- User buffer address
+;	R1	- Disk buffer address
+;
+; Outputs:
+;
+;	Data read into the user's buffer.
+;
+;-
+
+RAMD_READ:				 ;Process a read IRP
+
+	BSBW	RAMD_LOCK_READ		 ;Lock the MUTEX for read access
+	MOVC3	IRP$L_BCNT(R3),(R1),(R2) ;Read the data
+	RSB				 ;Done
+
+	.Page
+	.Subtitle	RAMD_WRITE	- Process a write IRP
+
+;+
+;
+; ----- RAMD_WRITE:  Process a write IRP
+;
+;
+; This routine is called to process a write IRP, which involves a transfer
+; from the user's buffer to the "disk".  Erase requests also come here.
+;
+; Environment:
+;
+;	IPL$_ASTDEL, process context.
+;
+; Inputs:
+;
+;	R4	- PCB address
+;	R3	- IRP address
+;	R2	- User buffer address
+;	R1	- Disk buffer address
+;
+; Outputs:
+;
+;	Data written from the user's buffer
+;
+;-
+
+RAMD_WRITE:					;Process a write IRP
+
+	BSBW	RAMD_LOCK_WRITE			;Lock the MUTEX for write access
+	BBS	#IO$V_ERASE,IRP$W_FUNC(R3),10$	;Erase?
+	MOVC3	IRP$L_BCNT(R3),(R2),(R1)	;Nope.
+	RSB					;Done
+
+10$:	MOVC5	#0,(SP),#0,IRP$L_BCNT(R3),(R1)	;Erase the data
+	RSB					;Done
+
+	.Page
+	.Subtitle	RAMD_LOCK_READ	- Lock our MUTEX for read  access
+	.Subtitle	RAMD_LOCK_WRITE	- Lock our MUTEX for write access
+;+
+;
+; ----- RAMD_LOCK_READ:   Lock our MUTEX for read  access
+; ----- RAMD_LOCK_WRITE:  Lock our MUTEX for write access
+;
+;
+; These routines will  lock our MUTEX for either read or write access,
+; and are sensitive to whether or not we can receive ASTs.  If we can,
+; the standard SCH$LOCK{R,W}  routines are called.  Failure to acquire
+; the lock in this case will suspend the process in MWAIT.
+;
+; If we can't receive ASTs (paging I/O) then we call SCH$LOCK{R,W}EXEC
+; routines to  lock  the MUTEX  without process  context.  Failure  to
+; acquire the lock in this  case complicates things quite a bit.  What
+; we'd really like to  do is to drop IPL back  down to IPL$_ASTDEL and
+; stick the process  in MWAIT,  but I'm  not convinced  I can  do that
+; safely.  The problem is the length of the call stack that eventually
+; got us  here -- we came  thru  EXE$INSIOQC  prior to  the start  I/O
+; routine, and  hit EXE$BUILDPKTR at some  point before that, and from
+; there the  path gets a bit fuzzy.  So, what we do instead is to look
+; at the kind of I/O request we're processing.  If it's a read request
+; (the usual case) we simply drive  on as if we had acquired the lock.
+; If it's a write  request then we  complete the  I/O request  with an
+; error.  The idea here is that the only way to get a page fault write
+; on a ram disk is to either have  a paging file open on it (dumb), or
+; for someone to  have a global  section with  backing store set  to a
+; file on the  ram disk (dumb).  In either  case I just can't convince
+; myself that the extra work to make this work "right" is worth it.
+;
+; Pie-in-the-sky-department:
+;
+; It would be nice to come up with an interlock which had granularity
+; of, say, 1 block, rather than the entire disk.
+;
+; Inputs:
+;
+;	R4	- PCB address
+;	R3	- IRP address
+;	R2	- User buffer address
+;	R1	- Disk buffer address
+;	R0	- MUTEX address
+;
+; Outputs:
+;
+;	MUTEX locked if possible.
+;
+;-
+
+RAMD_LOCK_READ:				;Lock our MUTEX for read  access
+
+	BITW	#<IRP$M_PAGIO!-			;Paging I/O?
+		  IRP$M_SWAPIO!-		;Swapping I/O?
+		  IRP$M_SRVIO!-			;MSCP server I/O?
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	;Mount verify I/O?
+	BNEQ	10$				;If NEQ yes, special case
+	JMP	G^SCH$LOCKR			;Lock the MUTEX and return
+
+; Here for a page fault read.
+
+10$:	JSB	G^SCH$LOCKREXEC		;Attempt to lock the MUTEX
+	BLBS	R0,20$			;Win
+	INCW	UCB$W_ERRCNT(R5)	;Count up these errors
+	BBSS	#IRP$V_MBXIO,-		;Flag the fact
+		IRP$W_STS(R3),20$	; that we don't have to unlock
+
+20$:	RSB				;Done
+
+RAMD_LOCK_WRITE:			;Lock our MUTEX for write access
+
+	BITW	#<IRP$M_PAGIO!-			;Paging I/O? (dumb)
+		  IRP$M_SWAPIO!-		;Swapping I/O? (dumber)
+		  IRP$M_SRVIO!-			;MSCP server I/O (dumbest)
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	;Mount verify I/O? (exquisitly dumb)
+	BNEQ	10$				;If NEQ yes, special case
+	JMP	G^SCH$LOCKW			;Nope, lock the MUTEX and return
+
+; Here for a page fault write (dumb).
+
+10$:	JSB	G^SCH$LOCKWEXEC		;Attempt to lock the MUTEX
+	BLBC	R0,20$			;Lose
+	RSB				;Win
+
+; Lossage.  Defeat the I/O request.
+
+20$:	CMPL	(SP)+,(SP)+		;Clean the stack
+	POPR	#^m<R3,R4,R5>		;Restore the registers
+	BSBW	RAMD_FREE_SPTES		;Release the system page table entries
+	MOVL	IRP$L_WCBSAVE(R3),-	;Restore the
+		IRP$L_WIND(R3)		; window pointer
+	MOVL	R3,UCB$L_IRP(R5)	;Stash the IRP address
+	INCW	UCB$W_ERRCNT(R5)	;Count up these errors.
+	MOVQ	#SS$_CTRLERR,R0		;Indicate error
+	JMP	G^IOC$REQCOM		;Punt this request.
+
+	.Page
+	.Subtitle	RAMD_UNLOCK	- Unlock our MUTEX
+
+;+
+;
+; ----- RAMD_UNLOCK:  Unlock our MUTEX
+;
+;
+; This routine  is called to unlock  our MUTEX.  We are sensitive to our
+; ability to receive ASTs.   If we can,  then we simply call SCH$UNLOCK.
+; If we  can't  (paging I/O), we call  SCH$UNLOCKEXEC  instead.  We also
+; use IRP$V_MBXIO  for paging I/O  unlocks to  indicate that  we ignored
+; the error return from SCH$LOCKREXEC and therefore don't need to unlock
+; the MUTEX.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R4	- PCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	MUTEX unlocked if it was locked.
+;
+;-
+
+RAMD_UNLOCK:				;Unlock our MUTEX
+
+	MOVAB	UCB$L_RAMD_MUTEX(R5),R0		;Address our MUTEX
+	BITW	#<IRP$M_PAGIO!-			;Paging I/O?
+		  IRP$M_SWAPIO!-		;Swapping I/O?
+		  IRP$M_SRVIO!-			;MSCP server I/O?
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	;Mount verify I/O?
+	BNEQ	10$				;Yep.
+	JMP	G^SCH$UNLOCK			;Nope.
+
+; Here for paging I/O -- check the MBXIO bit to see if we ignored
+; the error from SCH$LOCKREXEC.
+
+10$:	BBSC	#IRP$V_MBXIO,IRP$W_STS(R3),20$	;Did we ignore an error from SCH$LOCKREXEC?
+	JMP	G^SCH$UNLOCKEXEC		;Nope, unlock and return
+
+20$:	RSB				;Nothing to unlock
+
+	.Page
+	.Subtitle	SVAPTE_TO_VA	- Convert a SVAPTE to a usable virtual address
+
+;+
+;
+; ----- SVAPTE_TO_VA:  Convert a SVAPTE to a usable virtual address
+;
+;
+; This routine will take the  SVAPTE from an IRP and convert it to a usable
+; virtual address.  The virtual address can be P0, P1, or S0 space.
+;
+; A  special case is made for paging I/O:  We use system space addresses to
+; deal  with paging I/O.  RAMD_STARTIO has  allocated and mapped a range of
+; SPTs  on top of  the user's  buffer.  We do this for two reasons.  First,
+; user  PTEs involved  in page  read operations  don't have PTE$M_VALID set
+; until after the I/O request completes.  To use the user virtual addresses
+; specified by  these PTEs we  would have to set PTE$M_VALID and also allow
+; KW access  to the pages temporarily.  To further complicate the situation
+; it is possible  to do page  fault reads during  image activation when the
+; process in question is running  at IPL$_ASTDEL, thus  preventing us  from
+; queueing ASTs to it (bummer!).  So, we just give up and run at IPL$_SYNCH
+; for paging I/O.
+;
+; Note bene:
+;
+; This  routine  assumes  that the  system page table (SPT)  is at a higher
+; virtual address  than  all of the  page tables for  processes (PHDs), and
+; that  the P1  page table is at  a higher virtual  address in the PHD than
+; the P0 page table.  We must  briefly execute at IPL$_SYNCH to prevent the
+; PHD from being outswapped.
+;
+; Environment:
+;
+;	IPL$_ASTDEL or IPL$_SYNCH, process context.
+;
+; Inputs:
+;
+;	R4	- PCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	R2	- Virtual address
+;
+;-
+
+SVAPTE_TO_VA:					;Convert a SVAPTE to a usable virtual address
+
+	MOVL	IRP$L_PAGE_VA(R3),R2		;Presume paging I/O
+	BITW	#<IRP$M_PAGIO!-			;Paging I/O?
+		  IRP$M_SWAPIO!-		;Swapping I/O?
+		  IRP$M_SRVIO!-			;MSCP server I/O?
+		  IRP$M_MVIRP>,IRP$W_STS(R3)	;Mount verify I/O?
+	BNEQ	10$				;Branch if we're right.
+	MOVL	IRP$L_SVAPTE(R3),R2		;Grab the SVAPTE
+	LOCK	LOCKNAME=MMG,-			;Keep the PHD
+		SAVIPL=-(SP),-			; from moving and
+		PRESERVE=YES			;  the SPT from changing
+
+; S0 space address?
+
+	CMPL	R2,G^MMG$GL_SPTBASE	;S0 address?
+	BGEQU	30$			;If GEQU yes, use a different page table
+
+; Nope -- it's a process virtual address.  Check to see if it's P0 or P1 space.
+
+	MOVL	PCB$L_PHD(R4),R1	 ;Grab our process header
+	MULL3	#4,PHD$L_P0LRASTL(R1),R0 ;Get the length of the P0 page table in bytes
+	ADDL	PHD$L_P0BR(R1),R0	 ;Compute the ending address of the P0 page table +1
+	CMPL	R2,R0			 ;Is this a P0 page?
+	BGEQU	20$			 ;If GEQU no, it's a P1 page
+	SUBL	PHD$L_P0BR(R1),R2	 ;Else compute the byte offset into the P0 page table
+	MULL	#128,R2			 ;Convert same into a VA (128*4 = 512)
+	UNLOCK	LOCKNAME=MMG,-		 ;Release the
+		NEWIPL=(SP)+,-		 ; MMG lock
+		CONDITION=RESTORE,-	 ;Leave it the way you found it.
+		PRESERVE=YES		 ;	...
+
+10$:	RSB				 ;Done
+
+; Here when we have a P1 space address.
+
+20$:	SUBL	PHD$L_P1BR(R1),R2	;Compute the byte offset into the P1 page table
+	MULL	#128,R2			;Convert same into a virtual page number (128*4 = 512)
+	BISL	#VA$M_P1,R2		;Bias it into a P1 virtual address
+	UNLOCK	LOCKNAME=MMG,-		;Release the
+		NEWIPL=(SP)+,-		; MMG lock
+		CONDITION=RESTORE,-	;Leave it the way you found it.
+		PRESERVE=YES		;	...
+	RSB				;Done
+
+; Here when we have a system virtual address (eh?)
+
+30$:	SUBL	G^MMG$GL_SPTBASE,R2	;Get the byte offset into the SPT
+	MULL	#128,R2			;Convert same to a virtual page number (128*4 = 512)
+	BISL	#VA$M_SYSTEM,R2		;Convert same into a S0 address
+	UNLOCK	LOCKNAME=MMG,-		;Release the
+		NEWIPL=(SP)+,-		; MMG lock
+		CONDITION=RESTORE,-	;Leave it the way you found it.
+		PRESERVE=YES		;	...
+	RSB				;Done
+
+	.Page
+	.Subtitle	RAMD_SMAP	- Map pages into system virtual address space
+
+;+
+;
+; ----- RAMD_SMAP:  Map pages into system virtual address space
+;
+;
+; This routine is called to map user pages into system space.  These pages are
+; part of a page fault read and hence the valid bit in the PTEs is not set. We
+; could just set the valid bit, but then we would also have to change the page
+; protection to allow kernel  write to the desired pages,  and it becomes more
+; complicated.  In addition, to properly synchronize with the swapper we would
+; have to own the MMG interlock  (to keep the PHD from moving) and thus run at
+; IPL$_SYNCH,  negating any  performance advantage we might  otherwise  get by
+; doing all of these gyrations.
+;
+; Environment:
+;
+;	IPL$_SYNCH, fork context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	System address space allocated and mapped on top of the user's buffer.
+;
+;-
+
+RAMD_SMAP:				;Map pages into system virtual address space
+
+	MOVZWL	IRP$L_BCNT(R3),R2	;Fetch the byte count
+	MOVZWL	IRP$W_BOFF(R3),R0	;Fetch the byte offset
+	MOVAB	511(R2)[R0],R2		;Combine offset and count & round up
+	ASHL	#-VA$S_BYTE,R2,R2	;Convert to a page count
+	JSB	G^LDR$ALLOC_PT		;Allocate some page table entries
+	BLBC	R0,30$			;Lossage!
+
+; We've allocated some page table entries;  map them to the specified physical
+; pages.  We unconditionally map the pages as KW since the only way we can get
+; here is for page reads (well, page writes, too, but KW won't hurt).
+
+	MOVL	R1,IRP$L_SPTE(R3)	;Save the starting SPTE address
+	MOVL	R2,IRP$L_NSPTES(R3)	;Save the number of system page table entries
+	SUBL3	G^MMG$GL_SPTBASE,R1,R0	;Get the byte offset into the SPT
+	MULL	#128,R0			;Convert same to a virtual page # (128*4 = 512)
+	BISL3	#VA$M_SYSTEM,R0,-	;Convert same into a
+		IRP$L_PAGE_VA(R3)	; system virtual address
+	MOVL	IRP$L_SVAPTE(R3),R0	;Fetch the address of the first user PTE
+	PUSHL	R3			;Keep the IRP address safe
+	MOVL	IRP$L_PAGE_VA(R3),R4	;Fetch the system virtual address we're messing with
+
+10$:	MOVL	(R0)+,R3		;Fetch the next PTE
+	BLSS	20$			;Branch if it's valid
+	JSB	G^IOC$PTETOPFN		;Extract the PFN from it.
+
+20$:	BICL3	#^c<PTE$M_PFN>,R3,(R1)	      ;Map the page
+	BISL	#<PTE$M_VALID!PTE$C_KW>,(R1)+ ;Make it valid
+
+; NB - no need  to trip the other  CPUs in an  SMP set since we're never
+; executing below IPL$_SYNCH in this case and hence can't be rescheduled
+; on another processor.
+
+	MTPR	R4,#PR$_TBIS		;Flush the TLB for this page
+	MOVAB	512(R4),R4		;Next page, please.
+	SOBGTR	R2,10$			;Loop.
+	POPL	R3			;Restore the IRP address
+	RSB				;Done.
+
+; Here when we can't get enough page table entries to map the I/O buffer.
+; Post the I/O request complete now (status is SS$_INSFPTES).
+
+30$:	TSTL	(SP)+			 ;Remove the caller's address from the stack
+	JSB	G^IOC$REQCOM		 ;Post the request complete (& look for more work)
+	FORKUNLOCK LOCK=UCB$B_FLCK(R5),- ;Release the
+		NEWIPL=(SP)+,-		 ; fork lock
+		PRESERVE=YES		 ;	...
+	RSB				 ;Done
+
+	.Page
+	.Subtitle	RAMD_FREE_SPTES	- Release SPTEs
+
+;+
+;
+; ----- RAMD_FREE_SPTES:  Release SPTEs
+;
+;
+; This routine is called to release the  system page table entries used
+; to  overmap the user's  buffer when satisfying a page read operation.
+; We must invalidate the translation buffer on all CPUs for the virtual
+; addresses involved.
+;
+; Environment:
+;
+;	IPL$_SYNCH, fork context.
+;
+; Inputs:
+;
+;	R5	- UCB address
+;	R3	- IRP address
+;
+; Outputs:
+;
+;	Page table entries invalidated and freed.
+;
+;-
+
+RAMD_FREE_SPTES:			;Release SPTEs
+
+	PUSHR	#^m<R0,R1,R2,R4>	;Save some registers
+	MOVL	IRP$L_PAGE_VA(R3),R4	;Fetch the starting virtual address
+	MOVL	IRP$L_NSPTES(R3),R1	;Fetch the number of SPTEs
+	BEQL	20$			;If EQL not much to do (bug!)
+	MOVL	IRP$L_SPTE(R3),R0	;Fetch the first SPTE
+
+; NB - no need  to trip the other  CPUs in an  SMP set since we're never
+; executing below IPL$_SYNCH in this case and hence can't be rescheduled
+; on another processor.
+
+10$:	MTPR	R4,#PR$_TBIS		;Flush the TLB for this page
+	CLRL	(R0)+			;Empty the PTE
+	MOVAB	512(R4),R4		;Next page, please
+	SOBGTR	R1,10$			;Loop.
+	MOVL	IRP$L_SPTE(R3),R1	;Fetch the starting SPTE
+	MOVL	IRP$L_NSPTES(R3),R2	;Deallocate this many
+	JSB	G^LDR$DEALLOC_PT	;Return the PTEs
+
+20$:	POPR	#^m<R0,R1,R2,R4>	;Restore some registers
+	RSB				;Done
+
+	.Page
+	.Subtitle	RAMD_END	- End of the driver (for SYSGEN)
+
+RAMD_END:				;Mark the end of the driver for SYSGEN
+
+
+
+
+	.End

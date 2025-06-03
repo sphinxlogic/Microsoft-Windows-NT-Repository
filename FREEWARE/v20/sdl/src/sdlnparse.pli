@@ -1,0 +1,1124 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978-1992                                                  *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	The main routine for SDL.  Processes the command line, opens the
+	required files for input and output, calls the parser and
+	the output language processors
+
+author:
+	C.T. Pacy
+date:
+	revised 22-DEC-1980	ctp
+	revised 25-JUN-1982	ls	update version to 1.5-1
+	revised 06-AUG-1982	ls	update version to 1.6
+	revised 30-SEP-1982	ls	update version to 1.7
+	revised 28-OCT-1982	ls	upgrade command line processing
+	revised 30-NOV-1982	ls	update level increase and no comment option
+	revised 11-May-1983	kd	fix to allow ':'s in the command line for 1.8
+	revised 18-Jun-1983	kd	bump the version to 1.8-2 to reflect the
+					problem found with BLISSF in 1.8.
+	revised 10-Aug-1983	kd	Changed to reflect the new packaging
+					scheme.  Version 2.0.
+	revised 26-Apr-1984	kd	Make fix to INCL_FILE routines. 
+	revised  6-Jul-1984	kd	update to version 2.1.
+
+	revised 13-Feb-1990     William R. Vales  (see change log)
+				Bob Thomson
+	revised 14-Feb-1990	LW	Add EVAX support
+
+			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   11-Jan-1982	!  PHH	! Change log added.  Changed version number to 1.7-4. Added SDL$LIBRARY
+		!	! to INCLUDEs.
+________________!_______!______________________________________________________
+   24-Jan-1982	!  PHH	! Bumped version tp 1.7-5
+________________!_______!______________________________________________________
+   11-May-1983  !  kd	! Allow ':'s in the command line and bump the version to
+		!	! 1.8.
+________________!_______!______________________________________________________
+   18-Jun-1983  |  kd   | Bump the version to 1.8-2 to reflect the bug fix to
+		|	| the BLISSF backend.
+________________!_______!______________________________________________________
+   1-Sept-1983  |  kd	| Make changes necessary for the new sdl packaging 
+		|	| scheme. Add the sdlimgact routine to call the 
+		|	| shareable image(s) with the shared data structure
+		|	| - sdl$_shr_data as an argument.  Bump version to V2.0.
+________________!_______!______________________________________________________
+ 26-Apr-1984	|  kd	| Make fix to INCL_FILE routines.  These were broke in
+		|	| V2.0.  Needed to get the file_level from sdl$_shr_data.
+________________!_______!______________________________________________________
+  6-Jul-1984	|  kd   | Bump the version to 2.1 to reflect fixes from fieldset
+		|	| name changes.
+________________!_______!______________________________________________________
+  8-Nov-1984	|  kd	| Make the version T2.9.  Make the ident field for this
+		|	| module 2-0.
+________________!_______!______________________________________________________
+ 14-Nov-1984	|  kd	| T2.9-1 Fix problem of uninitialized LANG_LIST.
+________________|_______|______________________________________________________
+ 14-May-1985	|  kd	| T2.9-2 process the /MODULE qualifier.
+________________|_______|______________________________________________________
+ 17-Jun-1985	|  kd	| T2.9-3 Add check for sdl$share logical and use a special
+		|	|	 image activator.
+________________|_______|______________________________________________________
+ 21-Jun-1985	|  kd	| T2.9-4 Make fix to ensure that entire directory spec
+		|	|	 is stripped off for the default file name.
+________________|_______|______________________________________________________
+ 25-Jun-1985	|  kd	| T2.9-5 Add stickiness to input file specs.
+________________|_______|______________________________________________________
+ 22-Jul-1985	|  kd	| T2.9-6 Up ident to reflect bug in sdlimgact_v21.
+________________|_______|______________________________________________________
+ 30-Jul-1985	|  kd	| T2.9-7 source file lists not working on command line.
+		|	|	 check for local language qualifiers.
+________________|_______|______________________________________________________
+ 12-Aug-1985	|  kd	| T2.9-8 Bump ident to reflect change in sdllex.mar to
+		|	|	 reinitialize listing line numbers for each
+		|	|	 input source file (excluding include files).
+________________|_______|______________________________________________________
+ 19-Aug-1985	|  kd	| T2.9-9 Bump the ident to reflect change in grammar for
+		|	|	 TYPENAME on constant declarations.
+________________|_______|______________________________________________________
+ 21-Aug-1985	|  kd	| T2.9-10 Remove references to sdl$v_noparse, 
+		|	|	  sdl$v_module and comments and flags.
+________________|_______|______________________________________________________
+ 27-Aug-1985	|  kd	| T2.9-11 Change sdl$v_header_opt back to 
+		|	|	  sdl$v_noheader_opt for compatibility...sigh.
+________________|_______|______________________________________________________
+ 22-Nov-1985	|  kd	| V3.0-1 Bump the version number.
+________________|_______|______________________________________________________
+ 16-Jan-1986	|  pc	| V3.0-2 Bump the version number to reflect correction
+		|	|	 of bugs 127 and 108.
+________________|_______|______________________________________________________
+ 26-FEB-1987	|  pc	| V3.0-3 Use SYS$TRNLNM instead of SYS$TRNLOG and bump
+		|	|        the version for the addition of the LIST attribute
+________________|_______|______________________________________________________
+ 20-MAR-1987	|  jgw	| T3.1-0 Bump the version number to reflect modification
+		|	|        of the LIST parameter option and DEFAULT 0 fix
+		|	|	 for FLOATING parameters.
+________________!_______!______________________________________________________
+ 24-MAR-1987	|  jgw	| T3.1-1 Bump the version number to reflect the
+		|	|        enhanced descriptor passing mechanism
+		|	|	 (RTL_STR_DESC).
+________________!_______!______________________________________________________
+  2-Apr-1987	|  jgw	| X3.1-2 Bump the version number and switch from T to
+		|	|        X in the version number, since X is used for
+		|	|	 development releases.
+________________!_______!______________________________________________________
+ 05-May-1987	|  jgw	| X3.1-3 Bump the ident to reflect front end changes
+		|	|        allowing `*' to be specified for a CHARACTER
+		|	|	 LENGTH and allowing a NAMED parameter to be
+		|	|	 specified for an ENTRY that RETURNS a value.
+________________!_______!______________________________________________________
+ 21-May-1987	|  jgw	| X3.1-4 Bump the ident for the final base level of
+		|	|	 enhancements requested by the RTL.  This
+		|	|	 version includes implementation of NAMED
+		|	|	 with the RETURNS option for an ENTRY that
+		|	|	 returns a value (i.e., a function); the new
+		|	|	 ident also reflects changes made in SDLINTREE
+		|	|	 SDLOUTTRE (as well as SDLNODMSK.SAV) because
+		|	|	 this enhancement added a new field to the
+		|	|	 node definition.
+________________!_______!______________________________________________________
+ 29-Jun-1987	|  jgw	| X3.1-5 Bump the ident for the bug fixes resulting
+		|	|	 from field test of version X3.1-4.
+________________!_______!______________________________________________________
+ 26-Oct-1987	|  jgw	| X3.1-6 Bump the ident for the RETURNS NAMED bug fix
+		|	|	 resulting from field test of version X3.1-5.
+________________!_______!______________________________________________________
+ 19-Nov-1987	|  jgw	| V3.1-7 Commented out the ACCVIO condition handler so
+		|	|	 as not to suppress the symbolic stack dump;
+		|	|	 also, bumped the ident for the release of V3.1.
+________________|_______|______________________________________________________
+ 22-Jan-1988	|  jg	| X3.2-0 Bump the ident for BL1 of extensions.
+________________|_______|______________________________________________________
+ 16-Feb-1988	|  jg	| X3.2-1 Bump the ident for BL2 of extensions.
+________________|_______|______________________________________________________
+ 22-Feb-1988	|  PG	| X3.2-1a Add /SUPPRESS=(PREFIXES, TAG) flags
+________________|_______|______________________________________________________
+ 04-Mar-1988	|  jg	| X3.2-1b Fix banner ident
+________________|_______|______________________________________________________
+ 23-Mar-1988	|  jg	| X3.2-2 Fix initialization of sdl$v_listing_opt.
+		|	|	 Initialize sdl$v_literal_active here.
+		|	|	 Bump the ident for BL3.
+________________|_______|______________________________________________________
+ 04-May-1988	|  jg	| X3.2-3 Bump the ident for BL4.
+________________|_______|______________________________________________________
+ 27-May-1988	|  jgw	| X3.2-4 Change all occurrences of SCA$SHARE to the
+		|	|	 correct SDL$SHARE.  Bump ident.
+________________|_______|______________________________________________________
+ 08-Jul-1988	|  jgw	| X3.2-5 Add check for new /PLI_DEVELOPMENT qualifier.
+		|	|	 Bump ident.
+________________|_______|______________________________________________________
+ 14-Jul-1988	|  jgw	| T3.2-5 Change version string to conform to SQM rules.
+		|	|	 Changed the X to a T (for field test version).
+________________|_______|______________________________________________________
+ 29-Jul-1988	|  jgw	| T3.2-6 Bumped ident.
+________________|_______|______________________________________________________
+ 19-Aug-1988	|  jgw	| T3.2-7 Bumped ident.
+________________|_______|______________________________________________________
+ 07-Sep-1988	|  jgw	| T3.2-8 Bumped ident.
+________________|_______|______________________________________________________
+ 03-Oct-1988	|  jgw	| T3.2-9 Bumped ident.
+________________|_______|______________________________________________________
+ 24-Oct-1988	|  jgw	| V3.2-10 Bumped ident.
+________________|_______|______________________________________________________
+ 13-Feb-1990	|  wrv	| V3.2-VMS1 Bumped ident.
+		|  RHT  | Modifiers are members of VMS tools group.
+		|       | Added code for file dependency recording for VMS
+		|	| VDE system builder.
+________________|_______|______________________________________________________
+ 15-Feb-1990    |  lww  | V3.2-11 add support for /SYMBOLS quallifier
+________________|_______|______________________________________________________
+  8-Nov-1990    |  dlm  | Update ident to EV1-0 for Alpha enhancements
+                |       | ALPHA_xxx names for all images for EVMS toolkit.
+________________|_______|______________________________________________________
+ 28-Nov-1990    |  dlm  | Version for cross toolkit; /VAX and /ALPHA
+                |       | qualifiers, BLISS64 backend.
+________________|_______|______________________________________________________
+ 20-Jun-1991    |  AWF  | Do not process the /SYMBOLS qualifier each time a
+                |       | new file is processed from the command line.  This
+		|	| was creating useless error messages.  This is from
+		|	| EVMS QAR #593.
+________________|_______|______________________________________________________
+ 15-Mar-1992    |  jak  | Updated version and corrected spelling of "alignment".
+		|	| Added /CHECK_ALIGNMENT and /MEMBER_ALIGN qualifiers.
+________________|_______|______________________________________________________
+ 27-Apr-1992    |  jak  | Changed call to INTREE to match call from SDLACTION.
+________________|_______|______________________________________________________
+ 28-Apr-1992    |  jak  | Decremented reset file_level if open of include file 
+		|	| fails.  Was causing ACCVIO in GETLINE.
+________________|_______|______________________________________________________
+    4-May-92	|  JAK  | EV1-8 Add c_development option.
+		|	|	Call old INTREE routine for old sdi file format.
+________________|_______|______________________________________________________
+    20-May-1992	|  jak	| EV1-10 Added subfield option.
+		|	|	Set shrdata_version and node_version.
+________________|_______|______________________________________________________
+     8-Jun-1992	|  jak	| EV1-14 Added MODULE_IDENT and removed "version_vde".
+		|	|	Set version in new include file sdlversion.in.
+________________|_______|______________________________________________________
+     1-Feb-93	|  jak	| EV1-21 Added /B64 qualifier.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+*/		
+%replace MODULE_IDENT by 'EV1-40';
+
+
+/* INCLUDED FILES */
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdlmsgdef.in';	/* necessary for the errmsg routine */
+%include 'sdl$library:sdlgetfnm.in';
+%include pli_file_display;		/* pli file control block layout */
+%include sys$asctim;			/* pli definitions for $asctim */
+%include sys$trnlog;
+%include sys$trnlnm;
+%include cli$get_value;
+%include cli$present;
+%include $lnmdef;
+%include $ssdef;
+
+/* Main procedure */
+sdlmain:	proc options(main,ident(MODULE_IDENT)) returns (fixed bin(31));
+%include 'SDL$LIBRARY:sdlshr.in';	/* declarations of variables that are
+					   shared with the backends */
+%include $stsdef;
+
+/* Declare entry point for collecting dependency data 
+   for VDE system builder. */
+
+declare LIB$REC_DEPENDENCY EXTERNAL entry 
+				(	    
+				any,		/* Function type */
+				character(*) ,	/* File dependency spec. */
+				any		/* Library Index */
+				);
+
+/* CONSTANTS */ 
+	%replace true by '1'b;		
+	%replace false by '0'b;
+	%replace maxlen by 255;
+	%replace maxsymbols by 100;
+
+/* GLOBAL SYMBOLS */
+	dcl (cli$_present, cli$_locpres, cli$_comma, cli$_absent, 
+	    cli$_negated, cli$_defaulted) 
+		globalref fixed bin(31) value; /* cli return values */
+/*	dcl ss$_notran globalref fixed 
+		binary(31) value;	/* return value from sys$trnlog */
+	dcl (rms$_rnf, rms$_nmf) globalref  
+	    fixed bin (31) value;	/* rms return values */
+/*	dcl (ss$_accvio,ss$_normal) 	/* system return values */
+/* 	    globalref value fixed bin(31); */
+	dcl sdl$k_keyword_len globalref 
+	    value fixed bin(31);	/* longest allowable SDL keyword */
+	dcl external_tree_root static 
+		pointer external; 	/* external tree_root to 
+			 		   be assigned the the tree_root value in
+					   sdl$_shr_data structure */	
+	dcl symbol_name (10) char(32) var globaldef;		/* lw */
+	dcl symbol_value (10) fixed bin(31) globaldef;		/* lw */
+	dcl symbol_count fixed bin(31) globaldef;		/* lw */
+	dcl assumed_alignment fixed bin(31) globaldef;		/* lw */
+
+ /* LOCALS */
+/*	dcl result_buf char(128) init (''); /* the result string desc from 
+						sys$trnlog*/
+	dcl related_spec char(128) var init ('');   /* the related file spec */
+/*	dcl result_len fixed bin (15);	    /* resulting length of logical name
+						from sys$trnlog		*/
+	dcl attflag bit (32) aligned;	    /* attribute flag */
+	dcl lang_count fixed bin (31) init (0); 
+	dcl start_lang fixed bin (31) init (0); 
+	dcl local_lang_count fixed bin (31) init (0); 
+					/* number of backends to be called */
+	dcl fptr ptr;			/* file pointer for file_display */
+	dcl retstring char(128) init ('');
+	dcl listname char(128) var
+			init ('');	/* name of listing file */
+	dcl (filename,reopen_filename)  char(128) var 
+			init (''); 	/* input source file name */
+	dcl sticky_name char(128) var 
+			init (''); 	/* input source file name */
+	dcl parsename char(128) var
+			init ('');	/* name of parse tree file */
+	dcl default_ext char(4)
+		init('.SDL');		 /* default extension for input 
+						source file */
+	dcl (i,j,k) fixed bin(31);
+	dcl sym_declared fixed bin (1);
+
+	dcl outfilnam(10) char(128) var; /* list of language specific
+				           output specifiers. */
+	dcl outputfile char(128) var;	/* actual output file spec */
+	dcl tmpname char (128) var init ('');
+	dcl lang_list(10) char(31) var;	/* list of language backends to
+					   be activated */
+	dcl keyword char(32) var init ('');
+	dcl main_return_bits bit(32) aligned based (addr(main_return));
+	dcl status_bits bit(3) based(addr(main_return_bits));
+	dcl timbuf char(23) init ('');
+	dcl short_time char(20) based (addr(timbuf));
+ 	dcl (default_name,reopen_default_name) char(132) var init ('');
+	dcl def_name char(132) var init (''); /* the modified default name
+					         for output file in backends */
+	dcl
+	    SDL$SHARE character(9) static initial('SDL$SHARE'),
+	    nametab character(17) static initial('LNM$FILE_DEV'),
+	    1 results,
+	      2 buffer_length fixed binary(15) initial(maxlen),
+	      2 item_code fixed binary(15) initial(lnm$_string),
+	      2 buffer_address pointer,
+	      2 return_length_address pointer,
+	      2 terminator fixed binary(31) initial(0),
+	    buffer character(maxlen),
+	    return_length fixed binary(15);          /*(1)*/
+	dcl temp fixed bin(31);				/* lw */
+
+/* FILE CONSTANTS and VARIABLES */
+	dcl filelist file;		/* listing file - assigned to 
+						lisfile variable */
+	dcl source_file file;		/* source file - assigned to
+						infile variable */
+	dcl sdifileout file internal;	/* intermediate tree output file */
+
+
+/* ROUTINE ENTRY POINTS */
+	dcl intree entry ( file, ptr ) returns( bit(1) );  /* routine to read the intermediate tree */
+	dcl oldintree entry ( file ); /* routine to read old file format sdi files */
+	dcl outtree entry ( file ); /* routine to write the intermediate tree */
+
+	dcl sdlimgact entry 	(char(31)var , 	/* image name */
+				char(128) var,	/* output file name */
+				char(132) var,	/* default file name */
+				any); 		/* shared structure - 
+						   sdl$_shr_data */	
+	dcl sdlimgact_v21 entry	(char(31)var , 	/* image name */
+				char(128) var,	/* output file name */
+				char(132) var,	/* default file name */
+				any); 		/* shared structure - 
+						   sdl$_shr_data */	
+
+	dcl dump entry 	(char(128));		/* dump file */
+
+	dcl pat$parser entry	(fixed bin (31) value, 
+				fixed bin (31) value,
+				any);		/* share structure - sdl$_shr_data */
+
+
+/** CONDITION HANDLERS **/
+
+/*
+** The following ACCVIO condition handler was commented out by John Ward
+** on 19-Nov-1987 for the release of SDL V3.1.
+**
+** on vaxcondition(ss$_accvio) begin;
+**	call errmsg (sdl$_shr_data,sdl$_abort,,);
+**	goto exit;
+** end;
+*/
+
+on undefinedfile (source_file) begin;
+	call errmsg (sdl$_shr_data, sdl$_infilopn,,(sdl$gt_filename));
+	goto exit;
+end;
+
+/* initialize some variables */
+lang_list = '';
+outfilnam = '';
+outfilnam = '';	
+sdl_listing_header = '';
+errorcount=0;
+full_source='';
+results.buffer_address = addr(buffer);
+results.return_length_address = addr(return_length);
+sdl$v_literal_active = false;	
+symbol_count=0;
+assumed_alignment=0;
+sym_declared = 0;
+
+/*** begin ***/
+/* set sdl_version for backends, headers, etc. */
+%include 'sdl$library:sdlversion.in';
+
+  /* These too, so backends can check for mismatches */
+  shrdata_version = sdl$k_shrdata_rev;
+  node_version    = sdl$k_node_rev;
+
+  main_return =sts$k_success;
+  allocate pli_file_display set (fptr);
+  default_name=default_ext;
+  file_level = 0;
+  lang_count = 0;
+
+/*
+** Start recording dependency information for the VDE system builder.  
+** The function code 1 is the literal VDE$K_DEPEND_BEGIN_RECORD.
+*/
+call lib$rec_dependency(1,'',0);
+
+/*
+** Record the SDL version for the VDE system builder.  
+** The function code 3 is the literal VDE$K_DEPEND_VERSION.
+*/
+call lib$rec_dependency(3, 'SDL Version '||sdl_version,0);
+
+/* check for alpha option */ 
+	sts$value = cli_present('ALPHA_AXP');
+	if sts$value= CLI$_PRESENT | sts$value = CLI$_DEFAULTED then
+		sdl$v_alpha_opt=true;
+	else
+		sdl$v_alpha_opt=false;
+
+/* check for vax option */ 
+	sts$value = cli_present('VAX');
+	if sts$value= CLI$_PRESENT | sts$value = CLI$_DEFAULTED then
+		sdl$v_vax_opt=true;
+	else
+		sdl$v_vax_opt=false;
+
+/* see if the input file is an intermediate file */
+    sts$value = cli_present('NOPARSE');
+    if sts$value = CLI$_PRESENT  
+    then do; 
+	sdl$v_parse_opt = false;
+	default_ext = '.SDI';
+    end;
+    else do;
+	sdl$v_parse_opt = true;
+	default_ext = '.SDL';
+    end;
+
+	sts$value = cli_present('LANGUAGES');
+	/* if we have a globally present /LANGUAGE qualifier */
+	if sts$value = CLI$_PRESENT then
+	    sts$value = cli$get_value('LANGUAGES', retstring);
+	    do while (sts$value = ss$_normal |
+		      sts$value = cli$_comma);
+		/* initialize the language list and filespecs */
+		tmpname='';
+
+		k=index(retstring,'=');	
+		lang_count = lang_count + 1;
+		/*  allow for ':' in the command line in place of '=' */
+		if k = 0 then k = index (retstring, ':');
+		    if k=0 
+		    then 
+			keyword=retstring;
+		    else do;
+			keyword=substr(retstring,1,k-1);
+			if k<length(retstring) then
+			tmpname=substr(retstring,k+1); 
+			/* tmpname is the remainder of the 
+			   language keyword (add as part of 
+			   the output file spec. */
+			outfilnam(lang_count)=tmpname;
+			/* tmpname is part of the output
+			   file spec	*/
+		    end;
+ 
+		i=index(keyword,' ');
+		if i ^=0 then
+		    keyword=substr(keyword,1,i-1);
+
+		/* truncate the keyword if it is too long */
+		if length(keyword)>sdl$k_keyword_len then
+		    keyword=substr(keyword,1,sdl$k_keyword_len);
+		/* add the keyword to the list
+		   of backends to be activated */
+		lang_list( lang_count ) = keyword;
+		sts$value = cli$get_value('LANGUAGES', retstring);
+	    end;
+
+/* get the input file parameter and open it */
+    sts$value = cli$get_value('infile', retstring);
+    do while  (sts$value ^= cli$_absent) ;
+	default_name = sticky_name || default_ext;
+
+/* see if the input file is an intermediate file */
+    sts$value = cli_present('NOPARSE');
+    if (sts$value = CLI$_PRESENT | 
+	sts$value = CLI$_LOCPRES )
+    then do;
+	sdl$v_parse_opt = false;
+	default_ext = '.SDI';
+    end;
+    else do;
+	sdl$v_parse_opt = true;
+	default_ext = '.SDL';
+    end;
+
+/* open file and get result name */
+
+	filename=retstring;	    /* do open */
+
+	open file(source_file) input sequential title(filename) 
+			env(default_file_name(default_name),user_open(sdl$getfnm));
+	reopen_filename = filename;
+	reopen_default_name = default_name;
+    	infile = source_file;
+
+/* get the file characteristics to create a full file spec */
+	call display (source_file, fptr->pli_file_display);
+	if sys$asctim (,timbuf,(fptr->creation_date),) ^= ss$_normal then
+		timbuf='*';
+	full_source=short_time||' '||fptr->expanded_title;
+	filename = sdl$gt_filename;
+	default_name = sdl$gt_filename;
+	filename = translate (filename, ']', '>');
+	filename = translate (filename, '[', '<');
+
+/* Record the file just opened as an input file using the VDE
+   dependency recording routine. The function code 4 is the literal
+   VDE$K_DEPEND_INPUT_FILE. 
+*/
+	call lib$rec_dependency
+		(
+		4, 
+		(sdl$gt_filename),
+		0); 
+
+
+/* isolate file name parts */ 
+	j = index(filename,']');
+	if j ^= 0 then 
+	    sticky_name = '';
+	do while(j ^= 0);
+	    sticky_name = sticky_name || substr(filename,1,j);
+	    filename = substr(filename, j+1);
+	    j = index(filename,']');
+	end;
+	i=index(filename,'.');
+	if i ^= 0 then
+		filename=substr(filename,1,i-1);
+
+
+/* get the language list  */
+	local_lang_count = lang_count;
+	sts$value = cli_present('LANGUAGES');
+	/* if we have a locally present /LANGUAGE qualifier */
+	if sts$value = CLI$_LOCPRES then
+	    sts$value = cli$get_value ('LANGUAGES', retstring);
+	    do while (sts$value = ss$_normal |
+		      sts$value = cli$_comma);
+		/* initialize the language list and filespecs */
+		tmpname='';
+
+		k=index(retstring,'=');	
+		local_lang_count = local_lang_count + 1;
+		/*  allow for ':' in the command line in place of '=' */
+		if k = 0 then k = index (retstring, ':');
+		    if k=0 
+		    then 
+			keyword=retstring;
+		    else do;
+			keyword=substr(retstring,1,k-1);
+			if k<length(retstring) then
+			tmpname=substr(retstring,k+1); 
+			/* tmpname is the remainder of the 
+			   language keyword (add as part of 
+			   the output file spec. */
+			outfilnam(local_lang_count)=tmpname;
+			/* tmpname is part of the output
+			   file spec	*/
+		    end;
+ 
+		i=index(keyword,' ');
+		if i ^=0 then
+		    keyword=substr(keyword,1,i-1);
+
+		/* truncate the keyword if it is too long */
+		if length(keyword)>sdl$k_keyword_len then
+		    keyword=substr(keyword,1,sdl$k_keyword_len);
+		/* add the keyword to the list
+		   of backends to be activated */
+		lang_list( local_lang_count ) = keyword;
+		sts$value = cli$get_value ('LANGUAGES', retstring);
+	    end;
+ 
+	if ^sdl$v_parse_opt then 
+	    /* if the noparse option was selected, then the input tree is the
+		output filename	*/
+	    if intree(source_file, null()) then 
+		do; /* failed ... close, reopen, try again old format */
+		close file(source_file);
+		open file(source_file) input sequential title(reopen_filename) 
+				env(default_file_name(reopen_default_name),user_open(sdl$getfnm));
+		call oldintree(source_file); /* try old format */
+		if external_tree_root = null() then 
+		    call errmsg (sdl$_shr_data, sdl$_infilsdi,,(filename));
+		end;
+
+/* 
+** Process the SYMBOLS qualifier.  This has to be done only ONCE. 
+*/
+	sts$value = cli_present('SYMBOLS');
+	if ((sts$value = CLI$_PRESENT) & (sym_declared = 0)) then do;
+	    sym_declared = 1;
+	    sts$value = cli$get_value ('SYMBOLS', retstring);
+	    do while (sts$value = ss$_normal | sts$value = cli$_comma);
+		k=index(retstring,'=');	
+		/*
+		**  allow for ':' in the command line in place of '='
+		*/
+		if k = 0 then 
+		    k = index (retstring, ':');
+		if k = 0 then 
+		    call errmsg(sdl$_shr_data,sdl$_invsymdef,,
+				substr(retstring,1,length(retstring)));
+		else do;
+		    keyword=substr(retstring,1,k-1);
+		    if length(keyword)>sdl$k_keyword_len then
+			keyword = substr(keyword,1,sdl$k_keyword_len);
+		    temp=fixed(substr(retstring,k+1,1),31);
+		    call put_symbol_value(keyword,temp);
+		    end;
+		sts$value = cli$get_value ('SYMBOLS', retstring);
+	    end;
+	end;	    
+
+
+/* get the assumed alignment */
+								/* lw */
+	sts$value = cli_present('ALIGNMENT');
+	/* if we have a locally present /ALIGNMENT qualifier */
+	if sts$value = CLI$_PRESENT then
+	    do;
+	        sts$value = cli$get_value ('ALIGNMENT', retstring);
+		assumed_alignment=fixed(retstring,31);
+		If assumed_alignment<0 then
+		    do;
+			call errmsg(sdl$_shr_data,sdl$_invalign,,);
+			assumed_alignment=0;
+		    end;
+	    end;	    
+
+
+/* see if listing wanted */
+	sts$value = cli_present('LIST');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then 
+	    sdl$v_listing_opt = true;
+	else
+	    sdl$v_listing_opt = false;				/* jg */
+
+
+	if sdl$v_listing_opt 
+	then do;
+		if cli$get_value('LIST',retstring) = ss$_normal then
+			listname=retstring;
+		else
+			listname='';
+
+
+		/* Set up file structures for receiving the fully resolved
+		   listing file file specification from the open call. The
+		   fully resolved listing file file specification will be
+		   recorded as an output file dependency for the VDE system
+		   builder through the LIB$REC_DEPENDENCY call */
+
+		open file(filelist) output print title(listname) env
+			(default_file_name(filename||'.LIS'),user_open(sdl$getfnm)); 
+		lisfile = filelist;	/* equate the file variable to be 
+					   shared with backends */
+		sdl_listing_header(2)= copy(' ',60)||short_time||
+			'	'||fptr->expanded_title;
+		call display (filelist,fptr->pli_file_display);  
+
+		if sys$asctim (,timbuf,(fptr->creation_date),) ^= ss$_normal
+			then timbuf='*';
+		sdl_listing_header(1)= copy (' ',60)||timbuf||'	SDL '||
+			sdl_version||'			Page ';
+
+
+		/* Record the listing file just opened as an output file via 
+		   the VDE dependency-recording routine. The function code 7 
+		   is the literal VDE$K_DEPEND_OUTPUT_FILE. 
+		*/
+
+		call lib$rec_dependency
+				    (
+				    7,
+				    (sdl$gt_filename),
+				    0
+				    );
+
+	end;
+
+
+/* check for sdl header turned off */ 
+	sts$value = cli_present('HEADER');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_noheader_opt=false;
+	else
+		sdl$v_noheader_opt=true;
+
+/* check for copyright output option */ 
+	sts$value = cli_present('COPYRIGHT');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_copyright_opt=true;
+	else
+		sdl$v_copyright_opt=false;
+
+/* check for no comment output option */ 
+	sts$value = cli_present('COMMENTS');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED)
+	then
+		sdl$v_comment_opt=true;
+	else
+		sdl$v_comment_opt=false;
+
+/* check for global output option */ 
+	sts$value = cli_present('GLOBAL_DEFINITION');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_global_opt=true;
+	else
+		sdl$v_global_opt=false;
+
+/* check for vms output option */ 
+	sts$value = cli_present('VMS_DEVELOPMENT');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_vms_opt=true;
+	else
+		sdl$v_vms_opt=false;
+
+/* Check for /PLI_DEVELOPMENT qualifier */ 
+	sts$value = cli_present('PLI_DEVELOPMENT');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_pli_opt=true;
+	else
+		sdl$v_pli_opt=false;
+
+/* Check for /C_DEVELOPMENT qualifier */ 
+	sts$value = cli_present('C_DEVELOPMENT');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_cc_opt=true;
+	else
+		sdl$v_cc_opt=false;
+
+/* check for the /MODULE qualifier */
+	sts$value = cli_present('MODULE');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED)
+	then
+		sdl$v_module_opt = true;
+	else
+		sdl$v_module_opt = false;
+
+/* check for /SUPPRESS qualifier */
+	sts$value = cli_present('SUPPRESS');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then do;
+		/* /SUPPRESS present, suppress prefix? */
+		sts$value = cli_present('PREFIXES');
+		if sts$value = CLI$_PRESENT then
+			sdl$v_suppress_prefix = true;
+		else
+			sdl$v_suppress_prefix = false;
+
+		/* Suppress tag? */
+		sts$value = cli_present('TAGS');
+		if sts$value = CLI$_PRESENT then
+			sdl$v_suppress_tag = true;
+		else
+			sdl$v_suppress_tag = false;
+		end;
+
+	else do;
+		sdl$v_suppress_prefix = false;
+		sdl$v_suppress_tag = false;
+		end;
+
+/* check for aligning structure members */	    /* jak */
+	sts$value = cli_present('MEMBER_ALIGN');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_member_align=true;
+	else
+		sdl$v_member_align=false;
+
+/* check for checking alignment */		    /* jak */
+	sts$value = cli_present('CHECK_ALIGNMENT');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_check_align=true;
+	else
+		sdl$v_check_align=false;
+
+/* Check for /SUBFIELDS qualifier */ 
+	sts$value = cli_present('SUBFIELDS');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_subfield_opt=true;
+	else
+		sdl$v_subfield_opt=false;
+
+/* Check for /B64 qualifier */ 
+	sts$value = cli_present('B64');
+	if (sts$value = CLI$_PRESENT | 
+	    sts$value = CLI$_LOCPRES |
+	    sts$value = CLI$_DEFAULTED) 
+	then
+		sdl$v_b64_opt=true;
+	else
+		sdl$v_b64_opt=false;
+
+/* initialize whatever needs it */
+	errorcount = 0;
+ 
+
+/* call parser */
+	if sdl$v_parse_opt then
+		PUT SKIP LIST ('THIS VERSION OF SDL DOES NOT SUPPORT PARSING');
+
+	
+/* now set the tree root in the sdl$_shr_data structure */
+ 	sdl$_shr_data.tree_root = external_tree_root;
+
+	close file(source_file);
+
+
+/* see if sdl tree dump wanted */
+	sts$value = cli_present ('DUMP');
+	if sts$value = CLI$_PRESENT | sts$value = CLI$_LOCPRES
+	then do;
+	    if cli$get_value('DUMP',retstring) ^= ss$_normal then
+		retstring='';
+	    call dump(retstring);
+	end;		
+
+	if  sdl$v_parse_opt 
+	then do;
+	    if cli$get_value('PARSE',retstring) ^= ss$_normal 
+	    then 
+		retstring = '';	
+	    if retstring ^= '' 
+	    then 
+		do;
+		call open_sdifileout(sdifileout,retstring);
+		call outtree(sdifileout);
+		close file(sdifileout);
+		end;
+	end;
+
+/*  put out the target sources  */
+	k = index(filename, '.');
+	if k ^= 0 then		
+		def_name = substr(filename, 1, k-1);
+	else
+		def_name = filename;
+
+	if local_lang_count = lang_count then
+	    start_lang = 1;
+	else
+	    start_lang = lang_count + 1;
+
+	if errorcount<20 
+	then do i = start_lang to local_lang_count;
+	    outputfile = outfilnam(i);
+	    /* in order to provide compatibility between sdl v2.1 and
+		v3.0, use a special activator routine.  This routine
+		uses sdl$share which is necessary for the on-site installation
+		of the language libraries.  Once the languages are in sync
+		with the vms that is shipping the latest sdl (V3) then 
+		we can back off this old image activator. */
+
+	    /* do a trnlog on sdl$share...if it is defined, use the special
+		image activator. */
+	    sts$value = sys$trnlnm( , nametab, sdl$share, , results );
+
+	    /* if no logical name was found for
+	       sdl$share...call the normal routine. */
+	    if sts$value = ss$_nolognam
+	    then 
+	    call sdlimgact (lang_list(i) , 
+			outputfile ,
+			def_name ,
+			sdl$_shr_data
+			);
+	    else
+	    call sdlimgact_v21 (lang_list(i) , 
+			outputfile ,
+			def_name ,
+			sdl$_shr_data
+			);
+
+recover2:
+	end;
+	
+	else 
+		call errmsg(sdl$_shr_data, sdl$_nooutput,,);
+
+/* close the listing */
+	if sdl$v_listing_opt 
+	then 
+	    close file(filelist);
+
+	sts$value = cli$get_value('infile', retstring);
+	end;
+
+ 
+exit:
+  if errorcount > 0 then
+	main_return= sdl$_errexit;
+  else
+	if main_return=0 then
+		main_return = sdl$_warnexit;
+  main_return_bits=main_return_bits | sts$m_inhib_msg;
+  revert error;
+
+/*
+ End recording dependency information for the VDE system builder.  
+ The function code 2 is the literal VDE$K_DEPEND_END_RECORD.
+*/
+  call lib$rec_dependency(2,'',0);
+
+  return(main_return);
+
+/*------------------------------------------------------*/
+cli_present:
+    procedure( name )	returns( fixed bin(31) );
+/*
+ * Jacket for CLI$PRESENT to trap errors due to "name not found" 
+ * in CLD command table.
+ */
+    dcl name char(*);
+
+    on error
+	goto not_found;
+
+    return( cli$present(name) );
+
+not_found:
+    return( cli$_absent );
+
+    end cli_present;
+
+end sdlmain; 
+/*------------------------------------------------------*/
+
+/*------------------------------------------------------*/
+open_sdifileout:
+    procedure( outfile, filename );
+
+    dcl /* Parameters */
+	outfile	    file,
+	filename    char(*);
+
+	/* Declare entry point for collecting dependency data
+	   for VDE system builder. */
+	declare lib$rec_dependency external entry
+	                        (
+		                 any,		    /* Function type */
+		                 character(*) ,	    /* File dependency spec */
+			         any		    /* Library index */
+			         );
+
+
+	/*-----------------------------------------------------------*/
+	open file(outfile) sequential output 
+		title(filename) env(default_file_name('.sdi'),user_open(sdl$getfnm));
+	/*-----------------------------------------------------------*/
+
+	/* Record the file just opened as an output file using the VDE
+	   dependency-recording routine. The function code 7 is the literal
+	   VDE$K_DEPEND_OUTPUT_FILE.
+	*/
+
+        call lib$rec_dependency
+                        (
+                        7,
+                        (sdl$gt_filename),
+                        0
+                        );
+
+    end open_sdifileout;
+
+
+/*------------------------------------------------------*/
+/*
+ *	Routines for opening and closing include file
+ *
+ *	date:	30-SEP-1982	ls	copied from above
+ */
+
+open_incl_file:	proc (incl_name, sdl$_shr_data) returns (bit(3));
+%include 'sdl$library:sdlshr.in';
+
+	/* Declare entry point for collecting dependency data 
+	   for VDE system builder. */
+
+	 declare LIB$REC_DEPENDENCY EXTERNAL entry 
+				    (	    
+				    any,	      /* Function type */
+				    character(*) ,   /* File dependency spec. */
+				    any		     /* Library Index */
+				    );
+
+	dcl default_ext char(4)
+		init ('.sdl');
+	dcl incl_name char(128) var;
+	dcl fileincl file input sequential;
+	dcl (i,j,k) fixed bin(31);
+	dcl status_code bit(3);
+
+on undefinedfile (fileincl) begin;
+	call errmsg (sdl$_shr_data, sdl$_infilopn,,(sdl$gt_filename));
+	file_level = file_level - 1;
+	status_code = true;
+	goto exit;
+ end;
+
+ /* just open file and return file def*/
+	status_code = false;
+	file_level = file_level+1;
+
+
+	open file(fileincl) title(incl_name) 
+		env(default_file_name(default_ext),user_open(sdl$getfnm));
+	incl_file = fileincl;		/* equate the file constant to the file
+					   variable shared by backend */
+
+ /* Record the file just opened as an input file using the VDE
+    dependency-recording routine. The function code 4 is the literal
+    VDE$K_DEPEND_INPUT_FILE. 
+ */
+	call lib$rec_dependency
+		(
+		4, 
+		(sdl$gt_filename),
+		0);
+
+  exit:
+  return(status_code|(file_level^=1));
+ 
+end;
+
+close_incl_file :	proc (file_to_be_closed,sdl$_shr_data) ;
+%include 'sdl$library:sdlshr.in';
+ dcl file_to_be_closed file;
+  close file (file_to_be_closed);
+  file_level=file_level-1;
+end;
+
+put_symbol_value: procedure (name,value);  /* lw */
+%include 'sdl$library:sdlshr.in';
+	dcl name char(32) var;
+	dcl value fixed bin(31);
+
+	dcl symbol_name (10) char(32) var globalref;		/* lw */
+	dcl symbol_value (10) fixed bin(31) globalref;		/* lw */
+	dcl symbol_count fixed bin(31) globalref;		/* lw */
+
+	dcl (i) fixed bin(31);
+	do i=1 to symbol_count;
+		if symbol_name(i)=name then
+			do;
+				call errmsg(sdl$_shr_data,sdl$_symalrdef,,
+					        substr(name,1,length(name)));
+				return;
+			end;
+	end;
+	symbol_count=symbol_count+1;
+	symbol_name(symbol_count)=name;
+	symbol_value(symbol_count)=value;
+	return;
+end;
+

@@ -1,0 +1,202 @@
+NNTP_XMIT
+---------
+
+
+NNTP_XMIT is a utility used to send news items from the local  system to a
+remote system using the NNTP transfer protocols. The  actual protocol used is
+the local system sending "ihave" messages  to the remote system notifying that
+system of locally held message  identifier strings, to which the remote system
+will either respond  with a "please send me" string to receive the actual text
+of the  relevant item, or a rejection indicating that it already has the  item.
+This utility essentially makes the local system is the  active partner in the
+transfer.
+
+The list of message identifier strings is set up by NEWS itself  when
+performing  both ADDing of NEWS batch files or local POSTing  of news items. In
+either case the NEWS.SYS file is consulted, and  if the system flag is 'n' or
+'nx', then the message identifier  string is appended into the message file for
+each relevant remote  system.
+
+The message identifier files are, by default, organised as  sequential text
+files with one identifier string per line. In most  cases this should be
+adequate, but where the NEWS traffic level is  high, or the remote system is
+connected with a low bandwidth line,  there may be contention on this file
+between the NEWS writer and  the NNTP_XMIT reader. In such cases the 'nx' flag
+should used in  the NEWS.SYS file, and a shared access RMS indexed file is used
+to  store the message identifier strings.
+
+Installation
+------------
+
+NEWS_FILES:[NEWS_DIST]NNTP_XMIT.EXE is created by the NEWSBUILD  procedure. The
+installation procedure is to copy this file to the  news_manager area, and
+ensure that the protection (or ACLs) on the .EXE file are such that onlt the
+NEWS_MANAGER account may execute  the program. The NEW_MANAGER account
+login.com should also contain  the entry:
+
+	$ NNTP_XMIT :== $ NEWS_MANAGER:NNTP_XMIT
+
+
+Execution
+---------
+
+The execution of NNTP_XMIT should be using a procedure such as:
+
+	$ ! Obtain SYSPRV to allow reading of all NEWS item files
+	$ SET PROC/PRIV=SYSPRV
+	$ NNTP_XMIT command parameters
+
+
+Command Parameters
+------------------
+
+$ NNTP_XMIT [-s] [-x] [-t decnet-task] node protocol id-file
+            [log-file] [debug-file]
+
+-s		optional parameter    is used in conjunction with the  DECnet
+protocol to specify that stream input routines wshould be  used insetad of
+record-based input calls. This is only relevant  when connecting to a remote
+NNTP server running on an Ultrix  platform over DECnet. For remote VMS systems,
+this option is not  required.
+
+-x		optional parameter      is used to spscify that the id- file is
+an RMS indexed file (corresp[onding to the 'nx' flag in  the NEWS.SYS file
+entry.. If not specified sequential text read  functions will be used to read
+the file.
+
+-t decnet-task	optional parameter     is used to specify the  remote DECnet
+object string. By default NNTP_XMIT will attempt to  connect to the defined
+task for the remote node. For remote Ultrix  DECnet NNTP servers the parameter
+-t NNTP=   should be used. The  parameter is not consulted if the TCP protocol
+is selected.
+
+node		required parameter      is used to specify the name  of the
+remote system. In the case of DECnet this is normally the  DECnet nodename, and
+in the case of TCP, the TCP node name. An IP  address may be used instead of a
+node name.
+
+protocol	  required parameter     is used to specify the  transport
+protocol to use. This keyword may be either DECNET or  TCP. In the case of TCP,
+normally NEWSBUILD will determine which  of the supported TCP implementations
+(Multinet, WIN or CMU) has  been loaded into the local system, and will use
+this as the  default TCP protocol automatically. The keywords MULTINET, WIN and
+CMU may be used instead of TCP. In the case of TCP the  NNTP_XMIT  process will
+attempt to connect to remote TCP port 119 (the remote  NNTP_server port).
+
+id-file		required parameter    is the full filename of the
+mesage-identifier file to use as input to the NNTP_XMIT process.
+
+log-file		optional parameter    is the name of a file to which
+will be appended a one line summary of the activity of the  NNTP_XMIT process
+on completion. This summary will list the number  of identifiers offered to the
+remote system, the number accepted,  rejected, and the number of local lookup
+failures.
+
+debug-file	optional parameter    is the name of a file which  will receive
+a full traffic log of NNTP_XMIT. This file will  expand quite rapidly when
+processing a large batch of identifiers,  so the parmater should be used only
+in a controlled testing  environment.
+
+
+Logical Name Environment
+------------------------
+
+There are two logical names which are consulted by NNTP_XMIT:
+
+NEWS_node_TASK
+
+This logical name is translated if the DECnet protocol is  selected, and no -t
+command parameter is used. If this logical  name is defined, then the
+translation is used as the task string.  If no such logical name exists, then
+the default string of  "TASK=NNTP" is used. e.g.
+
+	$ DEFINE NEWS_EMU_TASK    "NNTP="
+
+will cause NNTP to use the object string "NNTP=" when connecting  to node EMU.
+
+
+NEWS_STOP
+
+If defined as a /SYSTEM/EXEC logical name, NNTP_XMIT will not run,  and the
+process will stop as soon as this name is defined during  execution (see the
+next section).
+
+
+Actions
+-------
+
+NNTP_XMIT will establish a NNTP connection to the remote system,  and then
+commence a sequence of "ihave" messages to the remote  server. The remote
+server will respond with either a send text or  a reject response.
+
+This process will continue until:
+
+	a)  the input identifier file is fully read, or
+
+	b)  5,000 message identifiers are offerred to the remote
+	    system (this number is a compile time constant,
+	    NNTP_MAX_OFFER in NNTP_XMIT.C), or
+
+	c)  the logical name 'NEWS_STOP" is defined on the local
+	    system as a /STSTEM/EXEC logical name, or
+
+	d)  the remote or local system terminates the transport
+	    link.
+
+There are two ways in which NNTP_XMIT manages the identifier file:
+
+Sequential files (the default reader) are opened in read mode, and  a second
+work file NNTP_pid.tmp is opened in the same directory in  write mode. If an
+item cannot be locally read, then the text will  be written to this temp file
+for a subsequent retry. If the  trransfer is terminated before complete reading
+of the input file,  all unofferred message identifier strings are then written
+into  this work file. On exit the original input file is deleted, and  the work
+file is renamed to the original input file name.
+
+With indexed files, NNTP_XMIT makes a sequential pass thorough the  file. All
+offers (i.e. remote acceptance or remote rejection) are  followed by deletion
+of the corresponding record from the  identifier file.
+
+
+Compilation constants
+---------------------
+
+NNTP_MAX_OFFER
+
+The maximum number of items to offer to the remote system in any  single
+execution pass. Distribution settting is 5000.
+
+
+CLIENT_TIMER
+
+The maximum time which the local system will wait for remote data  before
+terminating the link on a timeout. The distribution value  is 250 (seconds).
+
+RESP_TIMER
+
+The maximum time to wait when "pinging" the remote system to check  that it is
+still alive. The distribution value is 30 (seconds).
+
+
+Examples
+--------
+
+$ nntp_xmit wombat.bush.au tcp news_manager_dev:[ihave_wombat]wombat.idx -
+	news_manager:nntpxmit.log
+
+This command will contact the remote system wombat.bush.au using tcp.
+
+
+
+$ nntp_xmit emu decnet -s -t "NNTP=" -
+	news_manager_dev:[ihave_emu]emu.ids news_manager:nntpxmit.log
+
+This command will use DECnet to contact the remote Ultrix NNTP  server over
+DECnet
+
+
+
+$ nntp_xmit koala decnet news_manager_dev:[ihave_koala]koala.ids -
+	news_manager:nntpxmit.log
+
+This command will use DECNET to contact a remote VMS NNTP server.

@@ -1,0 +1,593 @@
+MODULE Rotate_globe (ADDRESSING_MODE (NONEXTERNAL = LONG_RELATIVE) ,
+        ADDRESSING_MODE (EXTERNAL = LONG_RELATIVE) ,
+        MAIN = Rotate
+        ) =
+BEGIN
+!
+!
+!  FUNCTION:
+!
+!     A quick and dirty program to rotate a circular image within a 256² bit
+!     map by an arbitrary value (in radians!).
+!
+!     To change how much the image is rotated modify the literal Rotation.
+!
+!     The input file is the logical GLOBE_DATA.
+!
+!     The output file is the logical ROTATED_GLOBE_DATA.
+!
+!
+!  CHANGE HISTORY:
+!
+!
+!  AUTHOR:
+!
+!     David Dantowitz                27-JAN-1988
+!
+
+LIBRARY 'sys$library:starlet.l32';
+
+LITERAL
+!
+! Modify this value to change the amount of rotation.
+!
+! %E'0.401425728' is 23 degrees (in radians)
+!
+  Rotation = %E'0.401425728',
+  Nframes = 30,
+  Width = 256,
+  Height = 256;
+
+STRUCTURE
+  Array2 [I, J; M, N] =
+    [M*N*%UPVAL]
+    (Array2 + (I*N + J)*%UPVAL);
+
+STRUCTURE                                       !
+  Bit_array [I, J; M, N] =                      !
+    [M*N + 7/8]                                 !
+    Bit_array<I*M + J, 1, 0>;
+
+OWN
+  Record_number,
+!
+!
+!
+  R_fab : $fab (                                !
+      Dna = UPLIT ('.DAT'),                     !
+      Dns = 4,                                  !
+      Fac = Get,                                !
+      Fop = (Cbt, Tef, Dfw, Mxv),               !
+      Mrs = 512,                                !
+      Org = Seq,                                !
+      Rfm = Fix),
+!
+!
+!
+  R_rab : $rab (                                !
+      Fab = R_fab,                              !
+      Ksz = 4,                                  !
+      Rac = Key,                                !
+      Rop = (Rah, Wbh),                         !
+      Rsz = 512,                                !
+      Usz = 512),
+!
+!
+!
+  W_fab : $fab (                                !
+      Dna = UPLIT ('.DAT'),                     !
+      Dns = 4,                                  !
+      Fac = Put,                                !
+      Fop = (Cbt, Tef, Dfw, Mxv),               !
+      Mrs = 512,                                !
+      Org = Seq,                                !
+      Rfm = Fix),
+!
+!
+!
+  W_rab : $rab (                                !
+      Fab = W_fab,                              !
+      Ksz = 4,                                  !
+      Rac = Key,                                !
+      Rop = (Rah, Wbh),                         !
+      Rsz = 512,                                !
+      Usz = 512);
+
+
+ROUTINE Read_init (File_name_p, Fab_p, Rab_p) =
+  BEGIN
+
+  BIND
+    File_name = .File_name_p : BLOCK [8, BYTE],
+    Fab = .Fab_p : $fab_decl,
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+!
+! Set the file name
+!
+  Fab [Fab$l_fna] = .File_name [Dsc$a_pointer];
+  Fab [Fab$b_fns] = .File_name [Dsc$w_length];
+  Status = $open (Fab = Fab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Status = $connect (Rab = Rab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$open (File_name_p) =
+!
+! file_name_p is a descriptor.
+!
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Record_number = 1;
+  Status = Read_init (.File_name_p, R_fab, R_rab);
+  .Status
+  END;
+
+ROUTINE Write_init (File_name_p, Fab_p, Rab_p) =
+  BEGIN
+
+  BIND
+    File_name = .File_name_p : BLOCK [8, BYTE],
+    Fab = .Fab_p : $fab_decl,
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+!
+! Set the file name
+!
+  Fab [Fab$l_fna] = .File_name [Dsc$a_pointer];
+  Fab [Fab$b_fns] = .File_name [Dsc$w_length];
+  Status = $create (Fab = Fab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Status = $connect (Rab = Rab);
+
+  IF NOT .Status THEN RETURN .Status;
+
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$open_write (File_name_p) =
+!
+! file_name_p is a descriptor.
+!
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Record_number = 1;
+  Status = Write_init (.File_name_p, W_fab, W_rab);
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$close =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = $close (Fab = R_fab);
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$close_write =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = $close (Fab = W_fab);
+  .Status
+  END;
+
+ROUTINE Get_record (Rab_p, Rec_num, Rec_addr) =
+  BEGIN
+
+  BIND
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+  Rab [Rab$l_ubf] = .Rec_addr;
+  Rab [Rab$l_kbf] = Rec_num;
+  $get (Rab = Rab)
+  END;
+
+ROUTINE Put_record (Rab_p, Rec_num, Rec_addr) =
+  BEGIN
+
+  BIND
+    Rab = .Rab_p : $rab_decl;
+
+  LOCAL
+    Status;
+
+  Rab [Rab$l_rbf] = .Rec_addr;
+  Rab [Rab$l_kbf] = Rec_num;
+  $put (Rab = Rab)
+  END;
+
+ROUTINE Rmsutil_d$next_record (A) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = Get_record (R_rab, .Record_number, .A);
+  Record_number = .Record_number + 1;
+  .Status
+  END;
+
+ROUTINE Rmsutil_d$next_record_write (A) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  Status = Put_record (W_rab, .Record_number, .A);
+  Record_number = .Record_number + 1;
+  .Status
+  END;
+
+ROUTINE READ (The_frame : REF VECTOR [Height*Width/32]) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  INCR I FROM 0 TO Height*Width/(32*512/4) - 1 DO
+    BEGIN
+    Status = Rmsutil_d$next_record (The_frame [.I*128]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  .Status
+  END;
+
+ROUTINE WRITE (The_frame : REF VECTOR [Height*Height/32]) =
+  BEGIN
+
+  LOCAL
+    Status;
+
+  INCR I FROM 0 TO Height*Height/(32*512/4) - 1 DO
+    BEGIN
+    Status = Rmsutil_d$next_record_write (The_frame [.I*128]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  .Status
+  END;
+
+ROUTINE Rotate =
+  BEGIN
+!
+!
+!  FUNCTION:
+!
+!     This routine will rotate each frame of the bit mapped image.
+!
+!
+!  AUTHOR:
+!
+!     David Dantowitz                  27-JAN-1988
+!
+
+  LOCAL
+    Status,
+    X_map : Array2 [Height, Height] INITIAL ( REP Height*Height OF (-1)),
+    Y_map : Array2 [Height, Height] INITIAL ( REP Height*Height OF (-1)),
+    Old_world : Array2 [Nframes, Height*Width/32],
+    New_world : Array2 [Nframes, Height*Height/32];
+
+!
+! Read the original image
+!
+  Status = Rmsutil_d$open (%ASCID'GLOBE_DATA');
+
+  IF NOT .Status THEN RETURN .Status;
+
+  INCR I FROM 0 TO Nframes - 1 DO
+    BEGIN
+    Status = READ (Old_world [.I, 0]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  Status = Rmsutil_d$close ();
+
+  IF NOT .Status THEN RETURN .Status;
+
+!
+! Compute the transformation for each point
+!
+
+  INCR I FROM 0 TO Height - 1 DO
+
+    INCR J FROM 0 TO Height - 1 DO
+      BEGIN
+
+      EXTERNAL ROUTINE
+        Mth$cos : ADDRESSING_MODE (GENERAL),
+        Mth$sin : ADDRESSING_MODE (GENERAL),
+        Mth$sqrt : ADDRESSING_MODE (GENERAL),
+        Mth$atan2 : ADDRESSING_MODE (GENERAL);
+
+      BUILTIN
+        Cvtlf,
+        Cvtfl,
+        ADDF,
+        SUBF,
+        MULF;
+
+      LITERAL
+        Radius2 = (Height/2)*(Height/2);
+
+      LOCAL
+        X,
+        X2,
+        Y,
+        Y2,
+        Angle,
+        R,
+        R_2,
+        R_2i,
+        Sin,
+        Cos;
+
+      MACRO
+        Cvtfl_r (Xx, Yy) =
+!
+! Convert the floating value to an integer
+! 
+        BEGIN
+        LOCAL
+          Rounded;
+        ADDF(Xx, %REF(%E'0.5'), Rounded);
+        Cvtfl(Rounded, Yy)
+        END%;
+
+      MACRO
+        Image_to_world (Xx) =
+!
+! Convert the image coordinated to world coordinates (origin at the image's
+! center)
+!
+        SUBF(%REF(%E'127.5'),Xx, Xx)%;
+
+      MACRO
+        World_to_image (Xx) =
+!
+! Convert the world coordinates to the image's original coordinates
+!
+
+        ADDF(%REF(%E'127.5'), Xx, Xx)%;
+
+!
+! Convert the integers into floating point values
+!
+      Cvtlf (I, X);
+      Cvtlf (J, Y);
+!
+! Change the system (move the origin)
+!
+      Image_to_world (X);
+      Image_to_world (Y);
+!
+! Compute the squared distance from the origin
+!
+!
+! X2=X*X
+!
+      MULF (X, X, X2);
+!
+! y2=Y*Y
+!
+      MULF (Y, Y, Y2);
+!
+! R2 = X2 + Y2
+!
+      ADDF (X2, Y2, R_2);
+!
+! Convert the squared radius to an integer
+!
+      Cvtfl_r (R_2, R_2i);
+!
+! If this point is out side of the circle then it SHOULD be blank.  If this is
+! the case then we do not have to remap it.
+!
+! Now, you may think, "Hey, why map any point inside the circle that is blank?"
+! Well, the answer is because we are creating one mapping for all the images,
+! not one for each frame (there are 30 frames!)
+!
+
+      IF .R_2i LEQ Radius2
+      THEN
+        BEGIN
+!
+! Convert the rectangular coordinates to polar coordinates.
+!
+        Angle = Mth$atan2 (Y, X);
+!
+! Rotate the point by changing the angle
+!
+        ADDF (%REF (Rotation), Angle, Angle);
+!
+! Compute the point's distance from the origin
+!
+        R = Mth$sqrt (R_2);
+!
+! Convert the point (with the new angle) to rectangular coordinates
+!
+!
+! Compute the SIN and COS of the angle
+!
+        Sin = Mth$sin (Angle);
+        Cos = Mth$cos (Angle);
+!
+! Get the new rectangular coordinates
+!
+        MULF (Cos, R, X);
+        MULF (Sin, R, Y);
+!
+! Conver the coordinates back to the original system (old origin)
+!
+        World_to_image (X);
+        World_to_image (Y);
+!
+! Save the points in the X and Y maps.
+!
+        Cvtfl_r (X, X_map [.I, .J]);
+        Cvtfl_r (Y, Y_map [.I, .J]);
+        END
+      ELSE
+        BEGIN
+!
+! The point is outside the circle, do not remap it.
+!
+        X_map [.I, .J] = 0;
+        Y_map [.I, .J] = 0;
+        END;
+
+      END;
+
+!
+! Rotate the globe (each frame) using the X and Y maps.
+!
+
+  INCR Frame FROM 0 TO Nframes - 1 DO
+    BEGIN
+
+    BIND
+      A = New_world [.Frame, 0] : Bit_array [Height, Height],
+      B = Old_world [.Frame, 0] : Bit_array [Height, Height];
+
+    INCR I FROM 0 TO Height - 1 DO
+
+      INCR J FROM 0 TO Width - 1 DO
+
+        IF .X_map [.I, .J] NEQ 0 AND .Y_map [.I, .J] NEQ 0
+        THEN
+          A [.X_map [.I, .J], .Y_map [.I, .J]] = .B [.I, .J];
+
+    END;
+
+!
+! post-process the image
+!
+! This is necessary because some points get mapped to the same point in the
+! new image.  (Rotating a bit-mapped image by an arbitrary amount is not
+! a simple process!)
+!
+
+  INCR Frame FROM 0 TO Nframes - 1 DO
+    BEGIN
+
+    LOCAL
+      Copy_frame : Bit_array [Height, Height];
+
+    LITERAL
+      Byte_count = Height*Height/8;
+
+    BIND
+      A = New_world [.Frame, 0] : Bit_array [Height, Height];
+
+!
+! If all four non-diagonal neighbors are SET then set this point too.
+!
+
+    INCR I FROM 1 TO Height - 2 DO
+
+      INCR J FROM 1 TO Width - 2 DO
+
+        IF .A [.I, .J] EQL 0
+        THEN
+
+          IF                                    !
+            .A [.I - 1, .J - 1] AND             !
+            .A [.I - 1, .J + 1] AND             !
+            .A [.I + 1, .J - 1] AND             !
+            .A [.I + 1, .J + 1]
+          THEN
+            A [.I, .J] = 1;
+
+!
+! The next post-processing pass gets rid of some jagged edges.  The above
+! algorithm does not work on edges.
+!
+!
+! copy the frame, as we will be modifying the real frame.
+!
+    CH$MOVE (Byte_count, A, Copy_frame);
+!
+! If 4 or more neighbors (of the eight neighbors) are set then set this point.
+!
+
+    INCR I FROM 1 TO Height - 2 DO
+
+      INCR J FROM 1 TO Width - 2 DO
+
+        IF .A [.I, .J] EQL 0
+        THEN
+          BEGIN
+
+          LOCAL
+            Sum : INITIAL (0);
+
+          INCR I2 FROM -1 TO 1 DO
+
+            INCR J2 FROM -1 TO 1 DO
+              Sum = .Sum + .Copy_frame [.I + .I2, .J + .J2];
+
+          IF .Sum GEQ 4 THEN A [.I, .J] = 1;
+
+          END;
+
+    END;
+
+!
+! Write the image.
+!
+  Status = Rmsutil_d$open_write (%ASCID'ROTATED_GLOBE_DATA');
+
+  IF NOT .Status THEN RETURN .Status;
+
+  INCR I FROM 0 TO Nframes - 1 DO
+    BEGIN
+    Status = WRITE (New_world [.I, 0]);
+
+    IF NOT .Status THEN RETURN .Status;
+
+    END;
+
+  Status = Rmsutil_d$close_write ();
+
+  IF NOT .Status THEN RETURN .Status;
+
+  Ss$_normal
+  END;
+END                                             ! End of module
+
+ELUDOM

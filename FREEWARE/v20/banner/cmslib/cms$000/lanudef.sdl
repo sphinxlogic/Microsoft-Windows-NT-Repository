@@ -1,0 +1,779 @@
+ { Source module:	LANUDEF.SDL
+ {
+ { Version:		X-12
+ {++
+ {  Copyright (c) Digital Equipment Corporation, 1990, 1991
+ {  All Rights Reserved.  Unpublished rights reserved
+ {  under the copyright laws of the United States.
+ {  
+ {  The software contained on this media is proprietary
+ {  to and embodies the confidential technology of 
+ {  Digital Equipment Corporation.  Possession, use,
+ {  duplication or dissemination of the software and
+ {  media is authorized only pursuant to a valid written
+ {  license from Digital Equipment Corporation.
+ {
+ {  RESTRICTED RIGHTS LEGEND   Use, duplication, or 
+ {  disclosure by the U.S. Government is subject to
+ {  restrictions as set forth in Subparagraph (c)(1)(ii)
+ {  of DFARS 252.227-7013, or in FAR 52.227-19, as
+ {  applicable.
+ {++
+ {
+ { FACILITY:	PHV_LAN
+ {
+ {	VAX/VMS Local Area Network Device Drivers (PHV_LAN)
+ {
+ { ABSTRACT:
+ {
+ {	Definitions for users of the LAN device drivers.  This module will
+ {	be built into a library that can be used by clients of the LAN
+ {	drivers.  It contains definitions of the constants that can be used.
+ {
+ { ENVIRONMENT:
+ {
+ {	VAX/VMS Operating System
+ {
+ { AUTHOR:
+ {
+ {	David A. Gagne (26-Dec-1989)
+ {--
+ 
+ { FUTURE MODIFICATIONS:
+ {
+ { - Should we change the headers to be LAN$ instead of NI$?
+ { - WMS Yes we should!!!
+ 
+ { MODIFICATION HISTORY:
+ {
+ { 	REMEMBER TO CHANGE THE LANUDEF_VER CONSTANT
+ {
+ {	X-12	RES0001		Richard E. Stockdale	10-OCT-1991
+ {		01 Add symbol that defines the LAN overhead to
+ {		   the VCRP to be used when determiniing LRPSIZE 
+ {		   (in SYSBOOT).
+ {	X-11	WMS144		Bill Salkewicz		31-JUL-1991
+ {		01 add bit for port status to VCIB so LAN can know when to 
+ {		   report PORT USABLE/UNUSABLE events
+ {	X-10	WMS120		Bill Salkewicz		16-MAY-1991
+ {		01 add packet and header size definitions that will allow 
+ {		   $MEDIUM macro to be used, and therfore LAN can handle some
+ {		   of its initialization independent of medium type
+ {	X-9	WMS088		Bill Salkewicz			19-FEB-1991
+ {		01 Added $PROTODEF module to define FDDI/CSMACD frame/packet
+ {		   headers for users
+ {	X-8	WMS083		Bill Salkewicz		15-FEB-1991
+ {		03 add version identification to this file
+ {		02 User new copyright legal text per corporate legal
+ {		01 add pointer to HWA/PHA in VCIB
+ {	X-7	DAG0131		David A. Gagne		10-Jan-1991
+ {		04 Add a constant for the minimum protocol type value.
+ {		03 Put the FDDI header and data size constants in here.
+ {		02 Remove the RCV header fields that were defined in the
+ {		   VCRP.  We can no longer have pre-set fields.
+ {		WMS048		Bill Salkewicz		08-Jan-1991
+ {		01 Add VCRP$B_LAN_FC field for FDDI to make it user visible
+ {	X-6	DAG0126		David A. Gagne		24-Oct-1990
+ {		01 Add the LAN_FLTR_DAT flag to the transmit VCRP.
+ {	X-5	RES0003		Richard E. Stockdale	24 Aug 1990
+ {		Add more protocol types.
+ {	X-4	DAG0120		David A. Gagne		29-Jun-1990
+ {		04 Add the OOCNT field, DP_VCRP, and DP_DELAY flag to the
+ {		   VCIB.
+ {		03 Add a TQE to the LAN block.
+ {		02 Add the MOPID and MOPNAME fields to the LDC.
+ {		01 Add new LAN events and function codes.
+ {	X-2	LPL0001		Lee Leahy		 4 Jun 1990
+ {		01 Quadword aligned LDC structure.
+ {	X-1	DAG		David A. Gagne		26-Dec-1989
+ {		01 Initial creation.
+ 
+ 
+ MODULE $LANUDEF;
+ /*
+ /* LANUDEF Version Identification
+ /*
+     CONSTANT LANUDEF_VER equals 12 prefix LAN$ tag C;
+ 
+ /* This constant is used (after swapping the protocol type bytes) to validate
+ /* a protocol type.
+ 
+     CONSTANT	PTY_MIN		EQUALS	%X05DD TAG C PREFIX LAN$;
+ 
+ /* Protocol Types
+ 
+     CONSTANT	PTY_DUMP_LOAD	EQUALS	%X0160 TAG C PREFIX NI$;	/* DNA Dump/Load (MOP)
+     CONSTANT	PTY_RMTCN	EQUALS	%X0260 TAG C PREFIX NI$;	/* DNA Remote Console (MOP)
+     CONSTANT	PTY_ROUTE	EQUALS	%X0360 TAG C PREFIX NI$;	/* DNA Routing
+     CONSTANT	PTY_LAT        	EQUALS	%X0460 TAG C PREFIX NI$;	/* Local Area Transport (LAT)
+     CONSTANT	PTY_DIAG	EQUALS	%X0560 TAG C PREFIX NI$;	/* Diagnostics
+     CONSTANT	PTY_CUST	EQUALS	%X0660 TAG C PREFIX NI$;	/* Customer Use
+     CONSTANT	PTY_SCA		EQUALS	%X0760 TAG C PREFIX NI$;	/* System Communication Architecture (SCA)
+     CONSTANT	PTY_LOOPB	EQUALS	%X0090 TAG C PREFIX NI$;	/* Loopback Assist protocol type
+     CONSTANT	PTY_TCPIP	EQUALS	%X0008 TAG C PREFIX NI$;	/* TCP/IP
+     CONSTANT	PTY_ARP		EQUALS	%X0608 TAG C PREFIX NI$;	/* ARP
+     CONSTANT	PTY_BRIDGE	EQUALS	%X3880 TAG C PREFIX NI$;	/* BRIDGE
+     CONSTANT	PTY_ELN		EQUALS	%X3B80 TAG C PREFIX NI$;	/* VAX ELN
+     CONSTANT	PTY_DNAME	EQUALS	%X3C80 TAG C PREFIX NI$;	/* DNA Name Service
+     CONSTANT	PTY_ENCRY	EQUALS	%X3D80 TAG C PREFIX NI$;	/* Encryption
+     CONSTANT	PTY_DTIME	EQUALS	%X3E80 TAG C PREFIX NI$;	/* DNA Time Service
+     CONSTANT	PTY_LTM		EQUALS	%X3F80 TAG C PREFIX NI$;	/* LTM
+     CONSTANT	PTY_BIOS	EQUALS	%X4080 TAG C PREFIX NI$;	/* BIOS
+     CONSTANT	PTY_LAST	EQUALS	%X4180 TAG C PREFIX NI$;	/* Local Area Storage (LAST)
+ 
+ /* DIGITAL multicast address assignments
+ 
+     CONSTANT	MCA_L_MOP	EQUALS	%X010000AB TAG C PREFIX NI$;	/* DNA Dump/Load Assistance (MOP)
+     CONSTANT	MCA_W_MOP	EQUALS	%X0000     TAG C PREFIX NI$;	/* DNA Dump/Load Assistance (MOP)
+     CONSTANT	MCA_L_RMTCN	EQUALS	%X020000AB TAG C PREFIX NI$;	/* DNA Remote Console (MOP)
+     CONSTANT	MCA_W_RMTCN	EQUALS	%X0000     TAG C PREFIX NI$;	/* DNA Remote Console (MOP)
+     CONSTANT	MCA_L_ROUTERS	EQUALS  %X030000AB TAG C PREFIX NI$;	/* DNA Routing Routers
+     CONSTANT	MCA_W_ROUTERS	EQUALS	%X0000     TAG C PREFIX NI$; 	/* DNA Routing Routers
+     CONSTANT	MCA_L_ENDNODE	EQUALS	%X040000AB TAG C PREFIX NI$;	/* DNA Routing End nodes
+     CONSTANT	MCA_W_ENDNODE	EQUALS	%X0000     TAG C PREFIX NI$;	/* DNA Routing End nodes
+     CONSTANT	MCA_L_LAT	EQUALS	%X000300AB TAG C PREFIX NI$;	/* Local Area Transport (LAT)
+     CONSTANT	MCA_W_LAT	EQUALS	%X0000     TAG C PREFIX NI$;	/* Local Area Transport (LAT)
+     CONSTANT	MCA_L_CUST	EQUALS	%X000400AB TAG C PREFIX NI$;	/* Customer Use
+ /*  CONSTANT	MCA_W_CUST	EQUALS  %X0000-%XFFFF TAG C PREFIX NI$; /* Customer Use
+     CONSTANT	MCA_L_SCA	EQUALS	%X010400AB TAG C PREFIX NI$;	/* System Communication Architecture (SCA)
+ /*  CONSTANT	MCA_W_SCA	EQUALS  %X0000-%XFFFF TAG C PREFIX NI$; /* System Communication Architecture (SCA)
+ 
+ /* Cross-company address assignments
+ 
+     CONSTANT	CCA_L_BROADCAST EQUALS	%XFFFFFFFF TAG C PREFIX NI$;	/* Broadcast
+     CONSTANT	CCA_W_BROADCAST	EQUALS	%XFFFF     TAG C PREFIX NI$;	/* Broadcast
+     CONSTANT	CCA_L_LOOPBACKA	EQUALS	%X000000CF TAG C PREFIX NI$;	/* Loopback Assistance
+     CONSTANT	CCA_W_LOOPBACKA EQUALS	%X0000     TAG C PREFIX NI$;	/* Loopback Assistance
+ 
+ /* DNA SNAP SAP assignments
+ 
+     CONSTANT	NULL_SAP	EQUALS	%X00 TAG C PREFIX NI$;		/* The NULL SAP 
+     CONSTANT	LLC_MGT_FNC_SAP	EQUALS  %X02 TAG C PREFIX NI$;		/* LLC SUBLAYER MANAGEMENT FUNCTION SAP
+     CONSTANT	LLC_MGT_SAP	EQUALS  %X03 TAG C PREFIX NI$;		/* LLC SUBLAYER MANAGEMENT SAP
+     CONSTANT	SNAP_SAP	EQUALS	%XAA TAG C PREFIX NI$;		/* The SNAP SAP 
+ 
+ /* DNA DSAP assignments
+ 
+     CONSTANT	GLOBAL_DSAP	EQUALS	%XFF TAG C PREFIX NI$;		/* GLOBAL DSAP 
+ 
+ /* DNA GROUP SAP assignments
+ 
+     CONSTANT	MAX_NO_GSAP	EQUALS	4 TAG C PREFIX NI$;   		/* Maximum number of group SAPs per user
+ 
+ /* LAN frame constants
+ 
+     CONSTANT 	CRC         	EQUALS  4 TAG C PREFIX NI$;		/* Size of Ethernet CRC
+     CONSTANT 	ADDR_SIZE 	EQUALS  6 TAG C PREFIX NI$;		/* Maximum size of NI address
+     CONSTANT	LEN_SIZE	EQUALS  2 TAG C PREFIX NI$;		/* Size of the length field
+ 
+ /* CSMACD frame constants
+ 
+     CONSTANT 	MAX_PKTSIZE	 EQUALS 1500 TAG C PREFIX NI$;	/* Maximum of Ethernet Packet without padding
+     CONSTANT 	MAX_PKTSIZE_PAD	 EQUALS 1498 TAG C PREFIX NI$;	/* Maximum of Ethernet Packet with padding
+     CONSTANT 	MAX_PKTSIZE_CLI	 EQUALS 1497 TAG C PREFIX NI$;	/* Maximum of 802 Packet
+     CONSTANT 	MAX_PKTSIZE_USR	 EQUALS 1496 TAG C PREFIX NI$;	/* Maximum of 802 Packet
+     CONSTANT 	MAX_PKTSIZE_802E EQUALS 1492 TAG C PREFIX NI$;	/* Maximum of 802E Packet
+     CONSTANT 	MAX_PKTSIZE_HWA  EQUALS 1518 TAG C PREFIX NI$;	/* Maximum hardware Packet including header and CRC
+     CONSTANT 	MIN_PKTSIZE 	 EQUALS   46 TAG C PREFIX NI$;	/* Minimum of Ethernet Packet
+ /*
+ /* Frame/packet header sizes for CSMACD
+ /*
+     CONSTANT 	HDRSIZE_ETH	EQUALS 14 TAG C PREFIX NI$;		/* Maximum of Ethernet Packet without padding
+     CONSTANT 	HDRSIZE_PAD	EQUALS 16 TAG C PREFIX NI$;		/* Maximum of Ethernet Packet with padding
+     CONSTANT 	HDRSIZE_CLI	EQUALS 17 TAG C PREFIX NI$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_USR	EQUALS 18 TAG C PREFIX NI$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_802E	EQUALS 22 TAG C PREFIX NI$;		/* Maximum of 802E Packet
+ 
+ 
+ /* LAN Item List definitions
+ 
+     CONSTANT (
+ 	DL_ENTITY,		/* Create Input
+ 	CLIENT,			/* Create Input
+ 	DL_TEMPLATE,		/* Create Input
+ 	LAN_DEVICE,		/* Create Input
+ 	PORT_ENTITY,		/* Create Output
+ 	MINIMUM_BUFFER_SIZE,	/* Enable Input
+ 	PREFERRED_BUFFER_SIZE,	/* Enable Input
+ 	PROTOCOLID,		/* Enable Input
+ 	DECUSERDATA,		/* Enable Input
+ 	PROFILE,		/* Enable Output
+ 	ACTUAL_BUFFER_SIZE,	/* Enable Output
+     ) EQUALS 1 INCREMENT 1 PREFIX DLL$;
+ 
+ /*++
+ /*
+ /* This structure represents a LAN module entity.  There will be one used to
+ /* represent CSMA/CD; even if there are multiple CSMA/CD stations.  There will
+ /* also be one used to represent FDDI.
+ /*
+ /* These are the common fields of the LAN module entity.
+ /*--
+ 
+ read "SHRLIB$:TQEDEF.SDI";
+ 
+ aggregate LANUDEF structure prefix LAN$;
+ 
+   /* This is version 1 of the LAN structure.  Use #1 (no symbol) for the
+   /* version field.
+ 
+   VERSION	longword unsigned;	/* Version of LAN database
+   RESERVED1	longword unsigned;	/* Reserved
+   GET_DEVICE	address;		/* Address of LAN$GET_DEVICE
+   RESERVED2	longword unsigned;	/* Reserved
+   CREATE_PORT	address;		/* Address of LAN$CREATE_PORT
+   DELETE_PORT	address;		/* Address of LAN$DELETE_PORT
+   TQE		byte dimension TQE$K_LENGTH tag T;
+ 					/* TQE for the one second timer
+   CONSTANT FIXED_LENGTH EQUALS .;	/* Length of LAN block
+   END LANUDEF;
+ 
+ END_MODULE $LANUDEF;
+ 
+ module $LDCDEF;
+ /*++
+ /*
+ /* LAN Device Characteristics structure
+ /*
+ /* This data structure is returned on a call to LAN$GET_DEVICE.  It is
+ /* embedded in the LSB.
+ /*
+ /*--
+ 
+ aggregate LDCDEF structure prefix LDC$;
+ 
+     NAME	address;		/* Address of a counted string
+ 					/* containing the device name
+     TYPE	word unsigned;		/* Type of device - same as
+ 					/* VCIB$W_DLL_TYPE
+     RCVSIZE	word unsigned;		/* Number of entries in the receive
+ 					/* ring
+     RATE128	longword unsigned;	/* Kilobits per second with 128 bytes
+ 					/* of user data (on transmit)
+     RATE256	longword unsigned;	/* Kilobits per second with 256 bytes
+ 					/* of user data (on transmit)
+     DEVTYPE	byte unsigned;		/* VMS Device type (from the UCB)
+     MOPID	byte unsigned;		/* MOP ID for this device
+     EXTRA_W	word fill;		/* Preserve alignment
+     MOPNAME	longword unsigned;	/* Counted string (always three
+ 					/* characters) for MOP name
+ 
+ /* Remember to make sure that this structure is an integral number of
+ /* quadwords.  That helps keep the LSB fields aligned.
+ 
+     CONSTANT LENGTH EQUALS .;		/* Length of LDC block
+ 
+ end LDCDEF;
+ 
+ end_module $LDCDEF;
+ 
+ module $LILDEF;
+ /*++
+ /*
+ /* LAN Item List definitions
+ /*
+ /* This data structure should look like a DECnet-VAX item list.  We don't use
+ /* the DECnet-VAX item list symbols because they are not available.
+ /*
+ /*--
+ 
+ aggregate LILDEF structure prefix LIL$;
+ 
+   LIL_UNION union;
+ 
+     /* This structure definition will describe the header of the itemlist.
+ 
+     HEADER_FIELDS STRUCTURE;
+     LISTLEN	longword unsigned;	/* Number of bytes in the list
+     LISTADR	address;		/* Address of the list
+     SIZE	word unsigned;		/* Size of structure
+     TYPE	byte unsigned;		/* Type = DYN$C_NET
+     SUBTYPE	byte unsigned;		/* Subtype = DYN$C_NET_ITEM
+     constant DATA equals . tag T;	/* Start of the itemlist
+     END HEADER_FIELDS;
+ 
+     /* This structure definition will describe an item in the itemlist.  Note
+     /* that the ITEMLEN field includes the size of the ITEMLEN, ITEMTAG, and
+     /* ITEMVAL fields.
+ 
+     LIST_FIELDS STRUCTURE;
+     ITEMLEN	word unsigned;		/* Number of bytes in the item
+     ITEMTAG	word unsigned;		/* Size of structure
+     constant ITEMVAL equals . tag T;	/* Value for this item
+     END LIST_FIELDS;
+ 
+   END LIL_UNION;
+ 
+ end LILDEF;
+ 
+ end_module $LILDEF;
+ 
+ module $VCIBDLLDEF;
+ /*++
+ /*
+ /* Data Link definitions that follow the standard VCIB fields
+ /*
+ /*--
+ 
+ read "SHRLIB$:VCIBDEF.SDI";
+ 
+ aggregate VCIBDLLDEF structure prefix VCIB$;
+ 
+     /* First get to the end of the common VCIB section.  Then we can start
+     /* the overlay.
+ 
+     DLL_FILLER byte dimension VCIB$K_FIXED_LENGTH fill;
+ 
+     /* DLL extensions to the VCIB.  Note that the DLL extension includes
+     /* some generic extensions (DLL) followed by an overlay of the LAN
+     /* and SYN extensions.
+ 
+     DLL_INPUT_LIST	ADDRESS;	/* Address of input  item list
+     DLL_OUTPUT_LIST	ADDRESS;	/* Address of output item list
+     DLL_OVERLAY_1 UNION;
+     DLL_CLIENT_FLAGS	WORD UNSIGNED;	/* Flags specified by client
+     DLL_FLAGS_1 STRUCTURE FILL;
+       DLL_RCV_DCB BITFIELD LENGTH 1 MASK; 	/* 1 = Can pass DCB on RCV
+       DLL_RCV_MAC BITFIELD LENGTH 1 MASK;	/* determines where 
+ 						/* VCRP$A_LAN_R_HEADER points:
+ 						/* 0 = the LHI structure 
+ 						/* 1 = MAC specific frame header
+ 						/*	FDDI:	[FC]
+ 						/*	CSMACD:	[DA]
+ 
+     END DLL_FLAGS_1;
+     END DLL_OVERLAY_1;
+     DLL_OVERLAY_2 UNION;
+     DLL_FLAGS		WORD UNSIGNED;	/* Flags specified by data link
+     DLL_FLAGS_2 STRUCTURE FILL;
+       DLL_XMT_CHAIN  BITFIELD LENGTH 1 MASK; /* 1 = device can chain
+       DLL_XMT_RCVRSB BITFIELD LENGTH 1 MASK; /* 1 = DL can XMT on RCV RSB
+       DLL_PORT_STATUS BITFIELD LENGTH 1 MASK;/* 1 = PORT USABLE was last event
+ 					     /* 0 = PORT UNUSABLE was last 
+ 					     /*     event, OR no USABLE/UNUSABLE
+ 					     /*     event has occured yet
+     END DLL_FLAGS_2;
+     END DLL_OVERLAY_2;
+     DLL_TYPE		WORD UNSIGNED;	/* Type of data link
+     DLL_HDR_SIZE	WORD UNSIGNED;	/* Max data link header in bytes
+     DLL_XMT_SIZE	WORD UNSIGNED;	/* Max transmit in bytes
+     DLL_CHAIN_SIZE	WORD UNSIGNED;	/* Min size of 1st chain in bytes
+ 
+     /* Define the values for the field VCIB$W_DLL_TYPE.
+ 
+     CONSTANT(
+       DLL_CSMACD,			/* CSMACD data link
+       DLL_DDCMP,			/* DDCMP  data link
+       DLL_FDDI,				/* FDDI   data link
+       DLL_HDLC,				/* HDLC   data link
+       	DLL_LAPB			/* LAPB   data link
+     ) EQUALS 1 INCREMENT 1 PREFIX VCIB$;
+ 
+     DLL_VCIB_ADDITIONS UNION;
+ 
+     /* LAN extensions to the VCIB; after the DLL extensions.
+ 
+     LAN_VCIB STRUCTURE;
+     LAN_LPB		ADDRESS;	/* Address of LAN Port Block
+     LAN_UCB		ADDRESS;	/* Address of UCB
+     LAN_BUILD_HDR	ADDRESS;	/* Address of LAN's Build Header
+ 					/* service
+     LAN_TRANSMIT_FRAME	ADDRESS;	/* Address of LAN's Transmit 
+ 					/* Frame service
+     LAN_TRANSMIT_AVAIL	ADDRESS;	/* Address of available Transmits
+     LAN_MAX_RCV		WORD UNSIGNED;	/* Max outstanding receives
+     LAN_OUT_RCV		WORD UNSIGNED;	/* Number of outstanding receives
+     LAN_OVERLAY_1 UNION;
+     LAN_CLIENT_FLAGS	WORD UNSIGNED;	/* Flags specified by client
+     LAN_FLAGS_1 STRUCTURE FILL;
+       LAN_RCV_LIM BITFIELD LENGTH 1 MASK;	/* 1 = DL will limit the #
+ 						/*     of RCV VCRPs
+       LAN_RCV_ICS BITFIELD LENGTH 1 MASK;	/* 1 = DL must init context
+ 						/*     stack in RCV VCRPs
+       LAN_FTC     BITFIELD LENGTH 1 MASK;	/* 1 = Fast Transmit Complete
+       LAN_2ND_DEV BITFIELD LENGTH 1 MASK;	/* 1 = Use 2nd device
+       LAN_SFR     BITFIELD LENGTH 1 MASK;	/* 1 = Skip field restore
+       LAN_SCC     BITFIELD LENGTH 1 MASK;	/* 1 = Skip completion check
+     END LAN_FLAGS_1;
+     END LAN_OVERLAY_1;
+     LAN_OVERLAY_2 UNION;
+     LAN_FLAGS		WORD UNSIGNED;	/* Flags specified by LAN
+     LAN_FLAGS_2 STRUCTURE FILL;
+       LAN_RCV_DCB  BITFIELD LENGTH 1 MASK;	/* 1 = DL supports delivery of
+ 						/*     VCRP/DCB sets
+       LAN_DP_DELAY BITFIELD LENGTH 1 MASK;	/* 1 = Disable Port is being
+ 						/*     delayed
+     END LAN_FLAGS_2;
+     END LAN_OVERLAY_2;
+     LAN_LDC		ADDRESS;	/* Address of the LDC structure
+     LAN_OOCNT		LONGWORD;	/* Number of operations outstanding
+     LAN_DP_VCRP		ADDRESS;	/* Address of the Disable Port VCRP
+ 					/* being disabled.  Only valid if
+ 					/* the DP_DELAY flag is set.
+     LAN_HWA		ADDRESS;		/* pointer to HWA/MLA
+     LAN_PHA		ADDRESS;		/* pointer to PHA
+     LAN_RESERVED1	LONGWORD;	/* For future expansion
+     LAN_RESERVED2	QUADWORD;	/* For future expansion
+     CONSTANT LAN_FIXED_LENGTH EQUALS .;	/* Length of LAN VCIB
+     END LAN_VCIB;
+ 
+     /* SYN extensions to the VCIB; after the DLL extensions.
+ 
+     SYN_VCIB STRUCTURE;
+     SYN_UP_PORT		ADDRESS;	/* Used only by the data link
+     SYN_OVERLAY_1 UNION;
+     SYN_CLIENT_FLAGS	WORD UNSIGNED;	/* Flags specified by client
+     SYN_FLAGS_1 STRUCTURE FILL;
+       SYN_UNSEQ BITFIELD LENGTH 1 MASK;	/* 1 = Client wants unseq port
+     END SYN_FLAGS_1;
+     END SYN_OVERLAY_1;
+     CONSTANT SYN_FIXED_LENGTH EQUALS .;	/* Length of SYN VCIB
+     END SYN_VCIB;
+ 
+     END DLL_VCIB_ADDITIONS;
+ 
+ END VCIBDLLDEF;
+ END_MODULE $VCIBDLLDEF;
+ 
+ module $VCRPLANDEF;
+ /*++
+ /*
+ /* LAN definitions that are embedded in the standard VCRP fields
+ /*
+ /*--
+ 
+ READ "SHRLIB$:VCRPDEF.SDI";
+ 
+ AGGREGATE VCRPLANDEF STRUCTURE PREFIX VCRP$;
+ 
+     /* First we will define all the function codes and all the event codes
+     /* used specifically by the data links.
+ 
+     /* Data Link function codes
+ 
+     CONSTANT FC_DLL_BASE EQUALS %X200 PREFIX VCRP$;
+ 
+     CONSTANT (
+ 	FC_SYN_ENTER_MAINT,
+ 	FC_SYN_EXIT_MAINT,
+ 	FC_X25_RESET,
+ 	FC_X25_ACK_NOCOM,
+ 	FC_LAN_CHANGE_PORT,
+ 	FC_DLL_LAST
+     ) EQUALS VCRP$K_FC_DLL_BASE INCREMENT 1 PREFIX VCRP$;
+ 
+     /* Data Link event codes
+ 
+     CONSTANT EC_DLL_BASE EQUALS %X1200 PREFIX VCRP$;
+ 
+     CONSTANT (
+ 	EC_DLL_PORT_USABLE,
+ 	EC_DLL_PORT_UNUSABLE,
+ 	EC_LAN_NEW_ADDRESS,
+ 	EC_LAN_RCV_CONGESTION,
+ 	EC_LAN_RCV_PDU_LOST,
+ 	EC_SYN_STATION_DELETED,
+ 	EC_X25_INCOMING_RESET,
+ 	EC_X25_INCOMING_NOCOM,
+ 	EC_LAN_RESTART_FAIL,
+ 	EC_LAN_STATION_RENAMED,
+ 	EC_DLL_LAST
+     ) EQUALS VCRP$K_EC_DLL_BASE INCREMENT 1 PREFIX VCRP$;
+ 
+     /* Since we need to overlay many fields, we will do each field in a
+     /* separate overlay.  That way, we can do them in any order.
+ 
+     VCRPLAN_OVERLAY UNION;
+ 
+     /*========================================================================
+     /* Data Request - For receive, LAN needs a field that will point to the
+     /* data link header.
+ 
+     VCRPLAN_DATA_REQUEST STRUCTURE;    
+ 
+       LAN_FILLER1 byte dimension VCRP$K_DATA_INFORMATION_OFFSET fill;
+       LAN_R_HEADER	ADDRESS;	/* Address of receive packet header	
+       LAN_FC		byte unsigned;	/* FC value for FDDI xmit/recv
+ 
+     END VCRPLAN_DATA_REQUEST;
+ 
+     /*========================================================================
+     /* Mgmt Request - LAN needs the P2 buffer fields.
+ 
+     VCRPLAN_MGMT_REQUEST STRUCTURE;    
+ 
+       LAN_FILLER2 byte dimension VCRP$K_MGMT_INFORMATION_OFFSET fill;
+       LAN_P2BUFF_SIZE	LONGWORD UNSIGNED;
+ 					/* LAN P2 buffer size
+       LAN_P2BUFF	ADDRESS;	/* LAN P2 buffer
+ 
+     END VCRPLAN_MGMT_REQUEST;
+ 
+     /*========================================================================
+     /* Scratch area - LAN needs many fields here.
+ 
+     VCRPLAN_SCRATCH STRUCTURE;
+ 
+       LAN_FILLER3 byte dimension VCRP$K_SCRATCH_AREA_OFFSET fill;
+       LAN_T_DEST	QUADWORD UNSIGNED;	/* Destination address
+       CONSTANT LAN_802XMT EQUALS . TAG L;	/* 802.2 XMT parameters
+       LAN_T_CTL		WORD UNSIGNED;		/* 802.2 ctl field
+       LAN_T_CTL_SIZE	BYTE UNSIGNED;		/* 802.2 ctl field value size
+       LAN_T_DSAP	BYTE UNSIGNED;		/* 802.2 XMT dest. sap
+       LAN_T_RESP	BYTE UNSIGNED;		/* 802.2 command/response flag
+ 
+       LAN_FILTER UNION;
+ 	LAN_R_FILTER STRUCTURE BYTE UNSIGNED;	/* Receive filtering mask 
+ 	  LAN_FLTR_MCA     BITFIELD MASK;	/* MCA filtering has been performed
+ 	  LAN_FLTR_CTL     BITFIELD MASK;	/* CTL filtering has been performed
+ 	  LAN_FLTR_SRC     BITFIELD MASK;	/* SRC filtering has been performed
+ 	END LAN_R_FILTER;
+ 	LAN_T_FILTER STRUCTURE BYTE UNSIGNED;	/* Transmit filtering mask 
+ 	  LAN_FLTR_STARTUP BITFIELD MASK;	/* Delete VCRP, complete IRP
+ 	  LAN_FLTR_INTXMIT BITFIELD MASK;	/* Add VCRP to Receive list
+ 	  LAN_FLTR_DAT     BITFIELD MASK;	/* Duplicate Address Test
+ 						/* VCRP for LOOPBACK
+ 	END LAN_T_FILTER;
+       END LAN_FILTER;
+ 
+       LAN_PORT1		BYTE UNSIGNED;		/* Port specific byte
+       LAN_PORT2		BYTE UNSIGNED;		/* Port specific byte
+       LAN_HDR_SIZE	WORD UNSIGNED;		/* Size of receive hdr
+       LAN_R_FMT		BYTE UNSIGNED;		/* Receive packet format
+       LAN_UCB		ADDRESS;		/* Address of UCB
+       LAN_DIAG_FLAGS	BYTE UNSIGNED;		/* Diagnostic flags
+       LAN_FUNCTION	BYTE UNSIGNED;		/* Function for this request
+       LAN_CODE		WORD UNSIGNED;		/* Parameter code
+       LAN_LENERR	WORD UNSIGNED;		/* Diagnostic info.
+       LAN_STATUS	WORD UNSIGNED;		/* LAN status info.
+       LAN_FLAGS STRUCTURE BYTE UNSIGNED;	/* Flags
+ 	LAN_CHAINED	BITFIELD MASK;		/* Transmit is chained
+ 	LAN_SVAPTE	BITFIELD MASK;		/* 2nd entry uses SVAPTE/BOFF
+ 	LAN_1ST_SEG	BITFIELD MASK;		/* 1st entry is being worked
+       END LAN_FLAG;
+ 
+       /* When the CHAINED bit is set, the following fields are used to get to
+       /* the second buffer in the chain.  DCBBCNT has the number of bytes in
+       /* the second entry.  Either DCBSVA or DCBSVAPTE/DCBBOFF are used to
+       /* locate the buffer.  Use DCBSVA if the SVAPTE flag is clear.  Use
+       /* DCBSVAPTE/DCBBOFF if the SVAPTE flag is set.
+ 
+       LAN_DCBBCNT	LONGWORD UNSIGNED;	/* Size of 2nd entry
+       LAN_UNION1 UNION;
+ 	LAN_DCBSVA	LONGWORD UNSIGNED;	/* SVA of 2nd entry
+ 	LAN_DCBSVAPTE	LONGWORD UNSIGNED;	/* SVAPTE of 2nd entry
+       END LAN_UNION1;
+       LAN_DCBBOFF	LONGWORD UNSIGNED;	/* BOFF of 2nd entry
+ 
+       /* If requested, we will save the buffer descriptor fields here on a
+       /* transmit request so that we can restore them when we are finished.
+ 
+       LAN_SBOFF		LONGWORD UNSIGNED;	/* Saved BOFF value
+       LAN_SBCNT		LONGWORD UNSIGNED;	/* Saved BCNT value
+       LAN_STPS		LONGWORD UNSIGNED;	/* Saved TOTAL_PDU_SIZE value
+ 
+     END VCRPLAN_SCRATCH;
+ 
+     /*========================================================================
+     /* Receive PDU area - We will define the fields that describe the
+     /* fields in the received frames.  Note that the DA must be quadword
+     /* aligned for some devices.
+ 
+     VCRPLAN_RCVPDU STRUCTURE;
+ 
+       LAN_FILLER4 byte dimension VCRP$C_DATA fill;
+       /* First we need to align the data field to be quadword aligned.
+       /* In the furture we should do this so that it adjusts itself.
+       /* Right now we are hacking in a longword because we know that's
+       /* what we need.
+       LAN_ALIGN		LONGWORD UNSIGNED;	/* Need quadword alignment
+       /* Now define the generic "beginning of receive data" field
+       CONSTANT LAN_DATA EQUALS . TAG T;
+       /* Now define maximum length needed, allowing for maximum alignment
+       /* in any driver (currently that maximum is 31 bytes for FXDRIVER)
+       CONSTANT LAN_OVERHEAD EQUALS .+31+31 TAG C;
+       /* Now define all the fields in the various headers
+ {DAGDAG - The following fields should be removed
+       LAN_DEST		WORD DIMENSION 3 TAG G;	/* Destination address
+       LAN_SRC		WORD DIMENSION 3 TAG G;	/* Source address
+       CONSTANT LAN_LEN_802 EQUALS . TAG W;	/* 802 length field
+       LAN_PTYPE		WORD UNSIGNED;		/* Protocol type
+       CONSTANT LAN_USER_ETH EQUALS . TAG T;	/* Start of user ETH data
+       CONSTANT LAN_SIZE EQUALS . TAG W;		/* Size of message if padded
+       LAN_DSAP		BYTE UNSIGNED;		/* 802 DSAP field
+       LAN_SSAP		BYTE UNSIGNED;		/* 802 SSAP field
+       CONSTANT LAN_CTL EQUALS . TAG X;		/* 802 CTL field
+       CONSTANT LAN_PID EQUALS .+1 TAG G;	/* 5-byte Protocol Identifier
+       CONSTANT LAN_USER_802E EQUALS .+6 TAG T;	/* Start of user 802E data
+     END VCRPLAN_RCVPDU;
+ 
+     END VCRPLAN_OVERLAY;
+ 
+ end VCRPLANDEF;
+ 
+ end_module $VCRPLANDEF;
+ 
+ 
+ 
+ 
+ module $PROTODEF;
+ /*
+ /*	LAN FRAME/PACKET DEFINITONS
+ /*	FRAME TYPES:
+ /*		FDDI
+ /*		CSMA/CD 
+ /*		    Ethernet
+ /*		    IEEE 802.3
+ /*	PACKET TYPES
+ /*		Mapped Ethernet	(FDDI only)
+ /*		802.2
+ /*		802E
+ /*
+ /*
+ /*	FDDI Frame Header
+ /*
+     AGGREGATE FDDI_HDR STRUCTURE PREFIX FDDI$;	/* FDDI Frame header structure
+ 	FC  BYTE UNSIGNED;			/* Frame Control field
+ 	DA BYTE UNSIGNED DIMENSION 6 TAG G;	/* Destination Address field
+ 	SA BYTE UNSIGNED DIMENSION 6 TAG G;	/* Source Address field
+ 	CONSTANT HDR_LEN EQUALS . TAG C;	/* Size of FDDI Header
+     END FDDI_HDR;
+ /*
+ /* Maximum Frame length for FDDI including all fields from FC through CRC
+ /*
+     CONSTANT MAX_FRM_LEN EQUALS 4495 TAG C PREFIX FDDI$;
+ /*
+ /* Maximum Packet lengths for FDDI users
+ /*
+     CONSTANT 	MAX_PKTSIZE	 EQUALS 4478 TAG C PREFIX FDDI$;	/* Maximum Packet for FDDI (SMT user can send this size)
+     CONSTANT 	MAX_PKTSIZE_ETH	 EQUALS 4470 TAG C PREFIX FDDI$;	/* Maximum of Mapped Ethernet Packet on FDDI
+     CONSTANT 	MAX_PKTSIZE_PAD	 EQUALS 4468 TAG C PREFIX FDDI$;	/* Maximum of Mapped Ethernet Packet with padding on FDDI
+     CONSTANT 	MAX_PKTSIZE_CLI	 EQUALS 4475 TAG C PREFIX FDDI$;	/* Maximum of 802 Packet on FDDI
+     CONSTANT 	MAX_PKTSIZE_USR	 EQUALS 4474 TAG C PREFIX FDDI$;	/* Maximum of 802 Packet on FDDI
+     CONSTANT 	MAX_PKTSIZE_802E EQUALS 4470 TAG C PREFIX FDDI$;	/* Maximum of 802E Packet on FDDI
+     CONSTANT 	MAX_PKTSIZE_HWA  EQUALS 4495 TAG C PREFIX FDDI$;	/* Maximum hardware Packet including header and CRC
+     CONSTANT 	MIN_PKTSIZE 	 EQUALS    0 TAG C PREFIX FDDI$;	/* Minimum Packet (any user)
+ /*
+ /* Frame/packet header sizes for FDDI
+ /*
+     CONSTANT 	HDRSIZE_ETH	EQUALS 21 TAG C PREFIX FDDI$;		/* Maximum of Ethernet Packet without padding
+     CONSTANT 	HDRSIZE_PAD	EQUALS 23 TAG C PREFIX FDDI$;		/* Maximum of Ethernet Packet with padding
+     CONSTANT 	HDRSIZE_CLI	EQUALS 16 TAG C PREFIX FDDI$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_USR	EQUALS 17 TAG C PREFIX FDDI$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_802E	EQUALS 21 TAG C PREFIX FDDI$;		/* Maximum of 802E Packet
+ 
+     CONSTANT MAX802_PKTSIZ EQUALS 4475 TAG C PREFIX FDDI$;
+     CONSTANT MAX802E_PKTSIZ EQUALS 4470 TAG C PREFIX FDDI$;
+     CONSTANT MAXMPETH_PKTSIZ EQUALS 4470 TAG C PREFIX FDDI$;
+     CONSTANT MAXMPETHPAD_PKTSIZ EQUALS 4468 TAG C PREFIX FDDI$;
+ 
+ /*
+ /* Constants for FC definitions
+ /*
+     CONSTANT FC_PPP EQUALS 0  TAG V PREFIX FDDI$;	/* FC PPP field starts at bit 0
+     CONSTANT FC_PPP EQUALS 7  TAG M PREFIX FDDI$;	/* FC PPP field is low order three bits
+     CONSTANT FC_PPP EQUALS 3  TAG S PREFIX FDDI$;	/* FC PPP field is 3 bits wide
+     CONSTANT FC_LLC_MIN EQUALS 80 TAG C PREFIX FDDI$;	/* FC for LLC Users (minimum)
+     CONSTANT FC_LLC_DEF EQUALS 80 TAG C PREFIX FDDI$;	/* FC for LLC Users (default)
+     CONSTANT FC_LLC_MAX EQUALS 87 TAG C PREFIX FDDI$;	/* FC for LLC Users (maximum)
+     CONSTANT FC_SMT_MIN EQUALS 65 TAG C PREFIX FDDI$;	/* FC for LLC Users (minimum)
+     CONSTANT FC_SMT_DEF EQUALS 65 TAG C PREFIX FDDI$;	/* FC for LLC Users (default)
+     CONSTANT FC_SMT_MAX EQUALS 79 TAG C PREFIX FDDI$;	/* FC for LLC Users (maximum)
+ /*
+ /* CSMACD (Ethernet/IEEE 802.3) Frame Header
+ /*
+     AGGREGATE CSMACD_HDR STRUCTURE PREFIX CSMACD$;
+ 	DA BYTE UNSIGNED DIMENSION 6 TAG G;	/* Destination Address field
+ 	SA BYTE UNSIGNED DIMENSION 6 TAG G;	/* Source Address field
+ /* The next field (field3) has different meanings depending on the
+ /* Specific CSMACD frame type (Ethernet vs. IEEE 802.3):
+ 	field3 UNION;
+ 	    field3_eth STRUCTURE;
+ 		PTY WORD UNSIGNED;		/* Ethernet Protocol Type field
+ 	    END field3_eth;
+ 	    field3_802 STRUCTURE;
+ 		LEN_8023 WORD UNSIGNED;		/* IEEE 802.3 Length field
+ 	    END field3_802;
+ 	END field3;
+ 	CONSTANT HDR_LEN EQUALS . TAG C;	/* Size of CSMACD Header
+ 	PAD WORD UNSIGNED;			/* optional Ethenet Length (PAD) field
+ 	CONSTANT PAD_LEN EQUALS . TAG C;	/* Size of CSMACD Header
+     END CSMACD_HDR;
+ /*
+ /* Maximum Frame length for FDDI including all fields from FC through CRC
+ /*
+     CONSTANT MAX_FRM_LEN EQUALS 1518 TAG C PREFIX CSMACD$;
+ /*
+ /* Maximum Packet lengths for CSMACD users
+ /*
+     CONSTANT 	MAX_PKTSIZE	 EQUALS 1500 TAG C PREFIX CSMACD$;	/* Maximum of Ethernet Packet without padding
+     CONSTANT 	MAX_PKTSIZE_ETH	 EQUALS 1500 TAG C PREFIX CSMACD$;	/* Maximum of Ethernet Packet without padding
+     CONSTANT 	MAX_PKTSIZE_PAD	 EQUALS 1498 TAG C PREFIX CSMACD$;	/* Maximum of Ethernet Packet with padding
+     CONSTANT 	MAX_PKTSIZE_CLI	 EQUALS 1497 TAG C PREFIX CSMACD$;	/* Maximum of 802 Packet
+     CONSTANT 	MAX_PKTSIZE_USR	 EQUALS 1496 TAG C PREFIX CSMACD$;	/* Maximum of 802 Packet
+     CONSTANT 	MAX_PKTSIZE_802E EQUALS 1492 TAG C PREFIX CSMACD$;	/* Maximum of 802E Packet
+     CONSTANT 	MAX_PKTSIZE_HWA  EQUALS 1518 TAG C PREFIX CSMACD$;	/* Maximum hardware Packet including header and CRC
+     CONSTANT 	MIN_PKTSIZE 	 EQUALS   46 TAG C PREFIX CSMACD$;	/* Minimum of Ethernet Packet
+ 
+     CONSTANT 	HDRSIZE_ETH	EQUALS 14 TAG C PREFIX CSMACD$;		/* Maximum of Ethernet Packet without padding
+     CONSTANT 	HDRSIZE_PAD	EQUALS 16 TAG C PREFIX CSMACD$;		/* Maximum of Ethernet Packet with padding
+     CONSTANT 	HDRSIZE_CLI	EQUALS 17 TAG C PREFIX CSMACD$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_USR	EQUALS 18 TAG C PREFIX CSMACD$;		/* Maximum of 802 Packet
+     CONSTANT 	HDRSIZE_802E	EQUALS 22 TAG C PREFIX CSMACD$;		/* Maximum of 802E Packet
+ 
+     CONSTANT MAX802_PKTSIZ EQUALS 1497 TAG C PREFIX CSMACD$;
+     CONSTANT MAX802E_PKTSIZ EQUALS 1492 TAG C PREFIX CSMACD$;
+     CONSTANT MAXETH_PKTSIZ EQUALS 1500 TAG C PREFIX CSMACD$;
+     CONSTANT MAXETHPAD_PKTSIZ EQUALS 1498 TAG C PREFIX CSMACD$;
+ 
+ /*
+ /*	Packet Header Definitions
+ /*
+ /*	Packet headers begin at the byte following the FDDI or CSCMACD 
+ /*	frame header. (at offsets FDDI$C_HDR_LEN/CSMACD$C_HDR_LEN)
+ /*
+ /*	Packet types supported:
+ /*		- FDDI mapped ethernet (for FDDI only)
+ /*		- IEEE 802.1 SNAP SAP (802E/802PID)
+ /*		- IEEE 802.2, Class I, including (Type 1 packets only):
+ /*			-- UI
+ /*			-- XID
+ /*			-- TEST
+ /*
+ /*	FDDI Mapped Ethernet packet header
+ /*
+     AGGREGATE MPDETH_HDR STRUCTURE PREFIX MPDETH$;
+ 	SNAP_SAP BYTE UNSIGNED DIMENSION 3 TAG G;/* SNAP-SAP <AA-00-03> hex
+ 	MAP_PID BYTE UNSIGNED DIMENSION 3 TAG G;/* SNAP PID <00-00-00>
+ 	PTY WORD UNSIGNED;			/* Ethernet Protocol Type field
+ 	CONSTANT LEN EQUALS . TAG C;		/* Size of Mapped Ethernet Header without Padding
+ 	PAD WORD UNSIGNED;			/* PAD (length) field (If User enables it)
+ 	CONSTANT PAD_LEN EQUALS . TAG C;	/* Size of Mapped Eth Header with Padding
+     END MPDETH_HDR;
+ /*
+ /*	IEEE Standard 802.2 (LLC), packet header
+ /*
+     AGGREGATE HDR_802 STRUCTURE PREFIX LLC$;
+ 	DSAP  BYTE UNSIGNED;			/* Destination Service Access Point
+ 	SSAP  BYTE UNSIGNED;			/* Source Service Access Point
+ 	CTL1  BYTE UNSIGNED;			/* Control field
+ 	CONSTANT ONEBYTCTL_LEN EQUALS . TAG C;	/* Size of 802.2 Header with 
+ 						/* one byte CTL
+ 	CONSTANT ONEBYT_DATA EQUALS . TAG G; 	/* Start of User Data 
+ 						/* with 1 byte control field
+ 	CTL2  BYTE UNSIGNED;			/* optional second byte of CTL
+ 	CONSTANT TWOBYTCTL_LEN EQUALS . TAG C;	/* Size of 802.2 Header with 
+ 						/* two byte CTL
+ 	CONSTANT TWOBYT_DATA EQUALS . TAG G; 	/* Start of User Data 
+ 						/* with 1 byte control field
+     END HDR_802;
+ /*
+ /*	IEEE 802.1 SNAP SAP packet header (802E/802PID)
+ /*
+     AGGREGATE SNAP_HDR STRUCTURE PREFIX SNAP$;
+ 	SAP BYTE UNSIGNED DIMENSION 3 TAG G;	/* SNAP-SAP <AA-00-03> hex
+ 	PID BYTE UNSIGNED DIMENSION 5 TAG G;	/* Protocol Identifier (PID)
+ 	CONSTANT LEN EQUALS . TAG C;		/* Size of 802 SNAP Header
+     END SNAP_HDR;
+ 
+ end_module $PROTODEF;

@@ -1,0 +1,5420 @@
+ 	.TITLE	LDDRIVER, VAX/VMS Logical Disk driver
+	.IDENT	'V5.1'
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1991, 1992, 1993, 1994 BY				    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 		     							    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+;+++
+;
+; FACILITY:
+;
+;       VAX/VMS Logical Disk driver
+;
+; ABSTRACT:
+;
+;       This device driver behaves identically like a physical diskdrive,
+;	but all I/O goes via a physical disk driver to a file on disk,the
+;	so called LOGICAL DISK.
+;	Another possibility is to replace an existing drive completely with
+;	a logical disk. That makes is possible to trace every I/O for the drive.
+;
+;	Compile/link instructions
+;
+;	$ MACRO LDDRIVER
+;	$ LINK LDDRIVER,SYS$INPUT/OPTIONS
+;	BASE=0
+;
+; AUTHOR:
+;
+;       A. Sweep	16-OCT-1985	Version 01.00
+;
+;	Jur van der Burg	vdburg@utrtsc.uto.dec.com
+;
+; REVISION HISTORY:
+;
+;	Jur van der Burg 25-OCT-1988	Version 01.01
+;	Modified for VMS V5
+;
+;	Jur van der Burg 13-OCT-1992	Version 02.00
+;	Add Host based shadowing support.
+;	Corrected qlen bug (was not decremented on physical device).
+;	Setup as 'not last track device' so that INIT won't get confused.
+;	Add check to avoid usage of one logical disk file more than once.
+;	Add check NOT to return info in sensemode if not connected.
+;	Modify sizeing algorithm to make better use of allocated blocks.
+;	Make disk as big as specified (via P4 at connect time), instead
+;	of blindly using allocated size. If the EOF pointer was not at
+;	the end of the file, the blocks in between would not be backed-up.
+;	Add hack to workaround DUdriver hang problem.
+;
+;	Jur van der Burg 17-FEB-1993	Version 03.00
+;
+;	Added trace capabilities
+;	Added 'replace' function
+;
+;	Jur van der Burg 25-FEB-1993	Version 03.01
+;
+;	Add support for DECram
+;	Expand logging to include IOSB
+;	Check for a disk-device when we replace another device
+;	Correct possible synchronization problem with tracebuffer
+;
+;	Jur van der Burg 14-APR-1993	Version 04.00
+;
+;	Add support for waiting for tracedata to become available
+;	Add lost tracedata detection
+;
+;	Jur van der Burg 8-JUL-1993	Version 04.01
+;
+;	Promote bytecount field in tracerecord to longword.
+;
+;	Jur van der Burg 29-SEP-1993	Version 05.00
+;
+;	Add support for 'watch' commands
+;	Reworked control interface
+;	Corrected quota handling: if process A allocates a tracebuffer
+;	and process B deallocates this, then process B would be credited
+;	for the quota! Tracebuffer quota is now process specific.
+;	Add snapshot support
+;	Add [no]protect options
+;	Removed devicelock stuff to prevent MSCP serving. We do this now
+;	by setting the allocation class to 256 in the DDB.
+;
+;	Jur van der Burg 28-OCT-1994	Version V5.1
+;
+;	Re-worked avoidance of MSCP-serving. This is needed as VMS V6.2
+;	needs an allocation class to be specified when mounting a shadowed
+;	disk. We do it now by setting DEV$V_CDP in UCB$L_DEVCHAR2.
+;	Allow container files and 'replaced' devices to be shared by different
+;	nodes in a cluster by checking the devicename clusterwide.
+;	Corrected bug when a tracebuffer was allocated if an I/O request was
+;	active but not yet completed. This generated an invalid trace entry.
+;	Added capabaility to set the device geometry (number of sectors,
+;	number of tracks, number of cylinders, maximum blocknumber).
+;	Added capability to set the allocation class.
+;
+;---
+;
+MDDRIVER_WORKAROUND=1		; Work around MDdriver bug
+DUDRIVER_WORKAROUND=1		; Work around DUdriver bug
+V6=1				; VMS V6.x support
+
+	.SBTTL	External and local symbol definitions
+
+;+++
+; Libraries and link files
+;---
+	.LIBRARY	'SYS$LIBRARY:LIB.MLB'
+	.LINK		'SYS$SYSTEM:SYS.STB'/SELECTIVE_SEARCH
+
+;+++
+; External symbols
+;---
+	$ACBDEF				; Define ACB offsets
+	$ARBDEF				; Define ARB offsets
+	$CANDEF				; Cancel I/O definitions
+	$CCBDEF				; Channel control block
+	$CRBDEF				; Channel request block
+	$CDDBDEF			; Class Driver Data Block
+	$DCDEF				; Device classes and types
+	$DDBDEF				; Device data block
+	$DDTDEF				; Driver Dispatch Table
+	$DPTDEF				; Driver Prologue Table
+	$DEVDEF				; Device characteristics
+	$DYNDEF				; Dynamic pool block names
+	$FCBDEF				; File control block
+	$FKBDEF				; Fork block
+	$FIDDEF				; File id block
+	$IDBDEF				; Interrupt data block
+	$IHDDEF				; Image header definitions
+	$IOCDEF				; IO coding bit values
+	$IODEF				; I/O function codes
+	$IPLDEF				; Hardware IPL definitions
+	$IRPDEF				; I/O request packet
+	$LCKDEF				; Lock definitions
+	$MSCPDEF			; MSCP definitions
+	$OPCDEF				; Opcom definitions
+	$PCBDEF				; Process control block
+	$PHDDEF				; Process header definitions
+	$PRIDEF				; Priority definitions
+	$PRVDEF				; Privilege definitions
+	$PSLDEF				; Processor status longword
+	$PTEDEF				; Page table entries definitions
+	$RSNDEF				; Process wait states
+	$RVTDEF				; Relative Volume Table
+	$SBKDEF				; Statistics block
+	$SHADDEF			; Shadow block definitions
+	$SPLCODDEF			; Spinlock code definitions
+	$SSDEF				; System status codes
+	$UCBDEF				; Unit control block
+	$VADEF				; Virtual address definitions
+	$VCBDEF				; Volume Control Block
+	$VECDEF				; Interrupt vector block
+	$WCBDEF				; Window Control Block
+
+;+++
+; Local symbols
+;---
+LD_MAX_UNITS	= 1			; Max. nr of units on one controller
+;
+P1	=	0			; First function dependent parameter
+P2	=	4			; Second
+P3	=	8			; Third
+P4	=	12			; Fourth
+P5	=	16			; Fifth
+P6	=	20			; Sixth
+
+;+++
+; Macro definitions
+;---
+;
+; Macro to lock Tracebuffer
+;
+; Input: R5 = UCB
+;
+; Output: R0 contains status for system context
+;
+; All registers will be preserved for process context
+;
+	.MACRO	LOCK_TRACE	ACCESS=READ,CONTEXT=PROCESS
+	.IF IDN	<ACCESS>,<READ>
+	  .IF IDN <CONTEXT>,<PROCESS>
+	    PUSHL R0
+	    MOVAB UCB$L_LD_TRCMUTEX(R5),R0
+	    JSB   G^SCH$LOCKR
+	    MOVL  (SP)+,R0
+	  .IFF
+	    MOVAB UCB$L_LD_TRCMUTEX(R5),R0
+	    JSB   G^SCH$LOCKREXEC
+	  .ENDC
+	.ENDC
+	.IF IDN	<ACCESS>,<WRITE>
+	  .IF IDN <CONTEXT>,<PROCESS>
+	    PUSHL R0
+	    MOVAB UCB$L_LD_TRCMUTEX(R5),R0
+	    JSB   G^SCH$LOCKW
+	    MOVL  (SP)+,R0
+	  .IFF
+	    MOVAB UCB$L_LD_TRCMUTEX(R5),R0
+	    JSB   G^SCH$LOCKWEXEC
+	  .ENDC
+	.ENDC
+	.ENDM
+;
+; Macro to unlock Tracebuffer
+;
+; Input: R5 = UCB
+;
+; All registers will be preserved
+;
+	.MACRO	UNLOCK_TRACE	CONTEXT=PROCESS,NEWDATA=NO,?L10,?L20,?L30,?L40
+	PUSHR	#^M<R0,R1,R2,R3,R4,R5>
+	MOVAB UCB$L_LD_TRCMUTEX(R5),R0
+	.IF IDN <CONTEXT>,<PROCESS>
+	  JSB   G^SCH$UNLOCK
+	.IFF
+	  JSB   G^SCH$UNLOCKEXEC
+	.ENDC
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-
+			SAVIPL=-(SP),-
+			PRESERVE=NO
+	REMQUE	@UCB$L_LD_TRCMUTEXQFL(R5),R3
+					; Get eventual waiting IRP
+	BVS	L10			; Nothing there
+	PUSHL	R5			; Save UCB
+	MOVL	R3,R5			; Save pointer to Fork block
+	JSB	G^EXE$QUEUE_FORK	; Queue forkthread
+	MOVL	(SP)+,R5		; Restore UCB
+L10:
+	.IF IDN <NEWDATA>,<YES>
+L20:	  REMQUE	@UCB$L_LD_TRCWAITQFL(R5),R3
+					; Get IRP waiting for data
+	  BVS	L40			; Nothing there
+	  PUSHL	R5			; Save UCB
+	  BSBW	LD_GETLDIOB		; Get ACB
+	  BLBS	R0,L30			; Check for errors
+	  BUG_CHECK	INCONSTATE,FATAL
+L30:	  MOVL  R2,R5
+	  MOVL	R3,ACB$L_ASTPRM(R5)	; Save IRP address
+	  MOVL	IRP$L_PID(R3),-		; Save PID
+		ACB$L_PID(R5)
+	  MOVB	#<ACB$M_KAST!ACB$M_NODELETE>,-
+		ACB$B_RMOD(R5)		; Special kernel mode ast
+	  MOVAB	LD_TRACE_AST,ACB$L_KAST(R5)
+	  MOVZBL	#PRI$_IOCOM,R2	; Set up priority increment
+	  JSB	G^SCH$QAST		; Queue the AST
+	  MOVL	(SP)+,R5		; Restore UCB
+	  BRB	L20
+L40:
+	.ENDC
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	POPR	#^M<R0,R1,R2,R3,R4,R5>
+	.ENDM
+;
+; Macro to enqueue a lock
+;
+; Input: R5 = UCB
+;
+	.MACRO	ENQ_LOCK	MODE,LKSBL,RESNAME=0,CMPLADR=0,BLKADR=0,EFLAGS=0,ERROR,?L10,?L20
+	.IF IDN <CMPLADR>,<0>
+	$LCK_ENQ	LKMODE=MODE,-
+			LKSB=LKSBL,-
+			RESNAM=RESNAME,-
+			BLK_ADR=BLKADR,-
+			CMPL_ADR=L20,-
+			CTX_PRM=R5,-
+			FLAGS=<<#LCK$M_SYSTEM!-
+				LCK$M_NODLCKWT!-
+				LCK$M_NODLCKBLK!-
+				EFLAGS>>
+	.IFF
+	$LCK_ENQ	LKMODE=MODE,-
+			LKSB=LKSBL,-
+			RESNAM=RESNAME,-
+			BLK_ADR=BLKADR,-
+			CMPL_ADR=CMPLADR,-
+			CTX_PRM=R5,-
+			FLAGS=<<#LCK$M_SYSTEM!-
+				LCK$M_NODLCKWT!-
+				LCK$M_NODLCKBLK!-
+				EFLAGS>>
+	.ENDC
+	CMPW	R0,#SS$_NORMAL			; Queued thread
+	BNEQ	L10
+	RSB
+
+L10:
+	.IF NB <ERROR>
+	BRW	ERROR
+	.IFF
+	.IF IDN <CMPLADR>,<0>
+	.ERROR	; CMPLADR must be specified when ERROR absent
+	.ENDC
+	.ENDC
+L20:
+	.ENDM
+
+;+++
+; Definitions for local structures
+;
+; I/O block
+;---
+	$DEFINI	LDIOB,GLOBAL			; LOGICAL DISK I/O BLOCK
+	$DEF	LDIOB_L_QFL	.BLKL	1	; Forward link
+	$DEF	LDIOB_L_QBL	.BLKL	1	; Backward link
+	$DEF	LDIOB_W_SIZE	.BLKW	1	; Size field
+	$DEF	LDIOB_B_TYPE	.BLKB	1	; Type field
+	$DEF	LDIOB_B_RSVD	.BLKB	1	; Reserved field
+	$DEF	LDIOB_L_IRP	.BLKL	1	; IRP
+	$DEF	LDIOB_L_IOSB	.BLKL	1	; IOSB address
+	$DEF	LDIOB_L_PID	.BLKL	1	; PID
+	$DEF	LDIOB_L_MEDIA	.BLKL	1	; Media address
+	$DEF	LDIOB_L_BCNT	.BLKL	1	; Bytecount
+	$DEF	LDIOB_W_FUNC	.BLKW	1	; Function
+	$DEF	LDIOB_Q_STAT	.BLKQ	1	; IOSB contents
+	$DEF	LDIOB_Q_ST_TIME	.BLKQ	1	; Start time
+	$DEF	LDIOB_Q_EN_TIME	.BLKQ	1	; End time
+LDIOB_K_LENGTH	= .				; Length of LDIOB
+	$DEFEND	LDIOB
+;
+; Trace block
+;
+	$DEFINI	LDTRCENT,GLOBAL			; LOGICAL DISK Trace entry
+	$DEF	LDTRC_L_PID	.BLKL	1	; Pid
+	$DEF	LDTRC_L_ADDR	.BLKL	1	; Logical block number
+	$DEF	LDTRC_L_BCNT	.BLKL	1	; Bytecount
+	$DEF	LDTRC_W_FUNC	.BLKW	1	; Functioncode
+	$DEF	LDTRC_Q_IOSB	.BLKQ	1	; IOSB
+	$DEF	LDTRC_Q_ST_TIME	.BLKQ	1	; Start time
+	$DEF	LDTRC_Q_EN_TIME	.BLKQ	1	; End time
+LDTRCENT_K_LENGTH	= .			; Length of LDTRCENT
+	$DEFEND	LDTRCENT
+;
+; Watch block
+;
+	$DEFINI	LDWATCHENT,GLOBAL		; LOGICAL DISK Watch entry
+	$DEF	LDWATCH_L_FLINK		.BLKL	1	; Forward link
+	$DEF	LDWATCH_L_BLINK		.BLKL	1	; Backward link
+	$DEF	LDWATCH_W_SIZE		.BLKW	1	; Size field
+	$DEF	LDWATCH_B_TYPE		.BLKB	1	; Type field
+	$DEF	LDWATCH_B_SPARE		.BLKB	1	; Spare
+	$DEF	LDWATCH_L_LBN		.BLKL	1	; Logical block number
+	$DEF	LDWATCH_W_FLAGS		.BLKW	1	; Flags
+	$DEF	LDWATCH_W_ACTION	.BLKW	1	; Action to perform
+	$DEF	LDWATCH_W_FUNC		.BLKW	1	; Functioncode
+	$DEF	LDWATCH_W_RETCODE	.BLKW	1	; Return code
+	$DEF	LDWATCH_L_PID		.BLKL	1	; Pid of process owning this block
+	$DEF	LDWATCH_L_SUSPCNT	.BLKL	1	; Count of suspended processes
+	$DEF	LDWATCH_L_SUSPFL	.BLKL	1	; Suspend forward link
+	$DEF	LDWATCH_L_SUSPBL	.BLKL	1	; Suspend backward link
+	$DEF	LDWATCH_L_VBN		.BLKL	1	; Virtual block number
+	$DEF	LDWATCH_L_FCB		.BLKL	1	; FCB of watched file
+	$DEF	LDWATCH_L_UCB		.BLKL	1	; Device where file resides
+	$DEF	LDWATCH_W_FID_NUM	.BLKW	1	; File ID Num
+	$DEF	LDWATCH_W_FID_SEQ	.BLKW	1	; Seq
+	$DEF	LDWATCH_W_FID_RVN	.BLKW	1	; Rvn
+LDWATCHENT_K_LENGTH	= .			; Length of LDWATCHENT
+;
+; Watch block block flags
+;
+	_VIELD	LDWATCH,0,<	-
+		<CHARS,7,M>,-			; Function characteristics
+		<REMOVE_ALL,,M>,-		; Remove all entries
+		>
+;
+; Subfields in CHARS field
+;
+	_VIELD	LDWATCH,0,<	-
+		<NOLBN,,M>,-			; Function without lbn
+		<FILE,,M>,-			; File access
+		>
+	$DEFEND	LDWATCHENT
+;
+; Watchpt parameter block
+;
+	$DEFINI	LDWATCHPT,GLOBAL		; LOGICAL DISK Watch parameter entry
+	$DEF	LDWATCHPT_L_LBN		.BLKL	1	; Logical block number
+	$DEF	LDWATCHPT_W_FLAGS	.BLKW	1	; Flags
+	$DEF	LDWATCHPT_W_ACTION	.BLKW	1	; Action to perform
+	$DEF	LDWATCHPT_W_FUNC	.BLKW	1	; Functioncode
+	$DEF	LDWATCHPT_W_RETCODE	.BLKW	1	; Return code
+	$DEF	LDWATCHPT_L_SBK		.BLKL	1	; Statistics block
+	$DEF	LDWATCHPT_W_FID_NUM	.BLKW	1	; File ID Num
+	$DEF	LDWATCHPT_W_FID_SEQ	.BLKW	1	; Seq
+	$DEF	LDWATCHPT_W_FID_RVN	.BLKW	1	; Rvn
+LDWATCHPT_K_LENGTH	= .			; Length of LDWATCHPT
+;
+; Watch parameter block flags
+;
+	_VIELD	LDWATCHPT,0,<	-
+		<CHARS,7,M>,-			; Function characteristics
+		<REMOVE_ALL,,M>,-		; Remove all entries
+		>
+;
+; Subfields in CHARS field
+;
+	_VIELD	LDWATCHPT,0,<	-
+		<NOLBN,,M>,-			; Function without lbn
+		<FILE,,M>,-			; File access
+		>
+	$DEFEND	LDWATCHPT
+;
+; Suspended process list  
+;
+	$DEFINI	LDSUSPLST,GLOBAL		; LOGICAL DISK suspended process list
+	$DEF	LDSUSPLST_L_PID		.BLKL	1	; Process id
+	$DEF	LDSUSPLST_L_LBN		.BLKL	1	; Logical block number
+	$DEF	LDSUSPLST_W_FLAGS	.BLKW	1	; Flags
+	$DEF	LDSUSPLST_W_ACTION	.BLKW	1	; Action
+	$DEF	LDSUSPLST_W_FUNC	.BLKW	1	; Function
+	$DEF	LDSUSPLST_W_RETCODE	.BLKW	1	; Return code
+LDSUSPLST_K_LENGTH	= .			; Length of LDSUSPLST
+	$DEFEND	LDSUSPLST
+;
+; $SNDOPR parameter list
+;
+	$DEFINI	LDSNDOPRLST,GLOBAL		; $SNDOPR parameter list
+	$DEF	LDSNDOPRLST_L_ASTQFL	.BLKL	1	; AST queue flink
+	$DEF	LDSNDOPRLST_L_ASTQBL	.BLKL	1	; AST queue blink
+	$DEF	LDSNDOPRLST_W_SIZE	.BLKW	1	; Size
+	$DEF	LDSNDOPRLST_B_TYPE	.BLKB	1	; Type
+	$DEF	LDSNDOPRLST_B_RMOD	.BLKB	1	; Ast flags
+	$DEF	LDSNDOPRLST_L_PID	.BLKL	1	; Process id
+	$DEF	LDSNDOPRLST_L_AST	.BLKL	1	; AST address
+	$DEF	LDSNDOPRLST_L_ASTPRM	.BLKL	1	; AST parameter
+	$DEF	LDSNDOPRLST_L_KAST	.BLKL	1	; KAST address
+	$DEF	LDSNDOPRLST_L_LBN	.BLKL	1	; Logical block number
+	$DEF	LDSNDOPRLST_W_FLAGS	.BLKW	1	; Flags
+	$DEF	LDSNDOPRLST_W_ACTION	.BLKW	1	; Action
+	$DEF	LDSNDOPRLST_W_FUNC	.BLKW	1	; Function
+	$DEF	LDSNDOPRLST_W_RETCODE	.BLKW	1	; Return code
+	$DEF	LDSNDOPRLST_W_FID_NUM	.BLKW	1	; File ID Num
+	$DEF	LDSNDOPRLST_W_FID_SEQ	.BLKW	1	; Seq
+	$DEF	LDSNDOPRLST_W_FID_RVN	.BLKW	1	; Rvn
+	$DEF	LDSNDOPRLST_T_DEVNAM	.BLKB	64	; Device name
+LDSNDOPRLST_K_DEVNAM	= 64				; Device name length
+LDSNDOPRLST_K_LENGTH	= .			; Length of LDSNDOPRLST
+	$DEFEND	LDSNDOPRLST
+;
+; LD lockvalueblock definitions
+;
+	$DEFINI	LDLVB,GLOBAL				; LD lockvalue block
+	$DEF	LDLVB_W_CYLINDERS	.BLKW	1	; Cylinders
+	$DEF	LDLVB_B_TRACKS		.BLKB	1	; Tracks
+	$DEF	LDLVB_B_SECTORS		.BLKB	1	; Sectors
+	$DEF	LDLVB_L_MAXBLOCK	.BLKL	1	; Maximum blocknumber
+	$DEF	LDLVB_L_ALLOCLS		.BLKL	1	; Allocation class
+	$DEF	LDLVB_W_UNIT		.BLKW	1	; Unit number
+	$DEF	LDLVB_B_FLAGS		.BLKB	1	; Flags
+ASSUME	. LE 16						; Length must be <= 16
+;
+; Subfields in FLAGS field
+;
+	_VIELD	LDLVB,0,<	-
+		<SHARE,,M>,-			; Shared accessable
+		>
+	$DEFEND	LDLVB
+;
+; Definitions for our functioncodes
+;
+	IO$_LD_CONTROL	=	20		; Main control function
+						; (Physical I/O function)
+	LDIO_CONNECT		=	0	; Connect drive/file
+	LDIO_DISCONNECT		=	1	; Disconnect drive/file
+	LDIO_ENABLE_TRACE	=	2	; Enable trace
+	LDIO_DISABLE_TRACE	=	3	; Disable trace
+	LDIO_GET_TRACE		=	4	; Get tracedata
+	LDIO_RESET_TRACE	= 	5	; Reset tracebuffer
+	LDIO_GET_CONNECTION	=	6	; Get connected file/devicename
+	LDIO_SET_SEED		=	7	; Set unit seed for cloned device
+	LDIO_ENABLE_WATCH	=	8	; Enable watch
+	LDIO_DISABLE_WATCH	=	9	; Disable watch
+	LDIO_GET_WATCH		=	10	; Get watchpoints
+	LDIO_RESUME_WATCH	=	11	; Resume watchpoints
+	LDIO_GET_SUSPEND_LIST	=	12	; Get list of suspended processes
+	LDIO_ENABLE_PROTECT	=	13	; Enable write-protect
+	LDIO_DISABLE_PROTECT	=	14	; Disable write-protect
+	LDIO_SET_ALLOCLASS	=	15	; Set allocation class
+	LDIO_V_FUNC		=	0
+	LDIO_S_FUNC		=	8
+;
+; Function modifiers
+;
+	$DEFINI	LDIO,GLOBAL
+	_VIELD	LDIO,8,<-
+		<REPLACE,,M>,-			; Replace drive
+		<ABORT,,M>,-			; Abort disconnect
+		<INQUIRE,,M>,-			; Get buffer size
+		<NOWAIT,,M>,-			; Don't wait for tracedata
+		<RESET,,M>,-			; Reset after retrieving tracedata
+		<SHARE,,M>,-			; Shared access
+		>
+	$DEFEND	LDIO
+;
+; Watchpoint actions
+;
+	WATCH_ACTION_SUSPEND	=	0	; Suspend thread
+	WATCH_ACTION_CRASH	=	1	; Crash system
+	WATCH_ACTION_ERROR	=	2	; Return error
+	WATCH_ACTION_OPCOM	=	3	; Send message to OPCOM
+	WATCH_ACTION_MAX	=	3	; Maximum action
+;
+
+;+++
+; Definitions that follow the standard UCB fields
+;---
+	$DEFINI UCB,GLOBAL				; Start of UCB definitions
+
+	.=UCB$K_MSCP_DISK_LENGTH		; Position at end of UCB
+
+	$DEF	UCB$L_LD_PDUCB	.BLKL	1	; UCB of Phys. disk
+	$DEF	UCB$L_LD_STLBN			; Starting Log. block nr
+	$DEF	UCB$W_LD_STLBNL	.BLKW	1
+	$DEF	UCB$W_LD_STLBNH	.BLKW	1
+	$DEF	UCB$L_LD_AIOFL	.BLKL	1	; Active I/O list forward link
+	$DEF	UCB$L_LD_AIOBL	.BLKL	1	; Active I/O list backward link
+ASSUME	UCB$L_LD_AIOBL	EQ	UCB$L_LD_AIOFL+4
+	$DEF	UCB$L_LD_FCB	.BLKL	1	; Save for FCB pointer
+	$DEF	UCB$L_LD_ORBSAV	.BLKL	1	; Saved ORB
+	$DEF	UCB$L_LD_SAVEPC	.BLKL	1	; Caller's address
+	$DEF	UCB$L_LD_FR3	.BLKL	1	; Safe place for R3
+	$DEF	UCB$L_LD_FR4	.BLKL	1	; Safe place for R4
+ASSUME	UCB$L_LD_FR4	EQ	UCB$L_LD_FR3+4
+	$DEF	UCB$Q_LD_PD_LKSB	.BLKB	24
+						; Phys. dev. lock status block
+						; + lock value block
+	$DEF	UCB$T_LD_PD_RESNAM	.BLKB	28
+						; Phys. dev. lock resource name
+	$DEF	UCB$Q_LD_FILE_LKSB	.BLKB	8
+						; Lock status block
+	$DEF	UCB$A_LD_FILE_LVB	.BLKB	16
+						; + lock value block
+	$DEF	UCB$T_LD_FILE_RESNAM	.BLKB	40
+						; Resource name 32 bytes + descriptor
+	$DEF	UCB$L_LD_TRCWAITQFL	.BLKL	1
+						; Trace data wait queue forward link
+	$DEF	UCB$L_LD_TRCWAITQBL	.BLKL	1
+						; Trace data wait queue backward link
+	$DEF	UCB$L_LD_TRCMUTEXQFL	.BLKL	1
+						; Trace mutex wait queue forward link
+	$DEF	UCB$L_LD_TRCMUTEXQBL	.BLKL	1
+						; Trace mutex wait queue backward link
+	$DEF	UCB$L_LD_TRCPC	.BLKL	1	; Fork trace PC save
+	$DEF	UCB$L_LD_TRCMUTEX	.BLKL	1
+						; Trace buffer mutex
+	$DEF	UCB$L_LD_TRCBUFOWN	.BLKL	1
+						; Owner of tracebuffer
+	$DEF	UCB$L_LD_TRCBUF	.BLKL	1	; Pointer to tracebuffer
+	$DEF	UCB$L_LD_TRCBUFSIZ	.BLKL	1
+						; Tracebuffer size
+	$DEF	UCB$L_LD_TRCBUFALLOCSIZ	.BLKL	1
+						; Allocated tracebuffer size
+	$DEF	UCB$L_LD_TRCBUFPTR	.BLKL	1
+						; Tracebuffer pointer
+	$DEF	UCB$L_LD_TRCWRAP	.BLKL	1
+						; Flag if buffer wrapped
+	$DEF	UCB$L_LD_TRCLOST	.BLKL	1
+						; Number of lost trace packets
+	$DEF	UCB$L_LD_WATCHQFL	.BLKL	1
+						; Watch queue forward link
+	$DEF	UCB$L_LD_WATCHQBL	.BLKL	1
+						; Watch queue backward link
+	$DEF	UCB$L_LD_WATCHCNT	.BLKL	1
+						; Watch queue entry count
+	$DEF	UCB$L_LD_WATCHPNDQFL	.BLKL	1
+						; Watch pending queue forward link
+	$DEF	UCB$L_LD_WATCHPNDQBL	.BLKL	1
+						; Watch pending queue backward link
+	$DEF	UCB$W_LD_FID_NUM	.BLKW	1	; File ID Num
+	$DEF	UCB$W_LD_FID_SEQ	.BLKW	1	; Seq
+	$DEF	UCB$W_LD_FID_RVN	.BLKW	1	; Rvn
+	$DEF	UCB$L_LD_CPID	.BLKL	1	; Charge PID of cloning process
+	$DEF	UCB$W_LD_CHARGE	.BLKW	1	; Charge amount
+	$DEF	UCB$B_LD_FLAGS	.BLKB	1	; Flags byte
+	$VIELD	UCB,0,<		-
+		<LD_CONSTS,,M>,	-		; Conn./Disconn. status bit
+		<LD_REPLACE,,M>,-		; Replace mode status bit
+		<LD_DECRAM,,M>,-		; Connected to DECRAM disk
+		<LD_PROTECT,,M>,-		; Write protect
+		<LD_SHARE,,M>,-			; Shared accessable
+		<LD_FKBBSY,,M>,-		; Forkblock busy (internal only)
+		>
+;						; Filename string buffer
+	$DEF	UCB$K_LD_UCBLEN			; Length of new UCB
+
+	$DEFEND UCB				; End of UCB definitions
+
+	.SBTTL	Standard tables
+
+;+++
+; Driver prologue table
+;---
+	.IF DF V6
+		DPT_FLAGS=<DPT$M_SMPMOD!DPT$M_SNAPSHOT>	; SMP safe
+						; Driver supports snapshots
+						; if not in a cluster
+	.IFF
+		DPT_FLAGS=<DPT$M_SMPMOD>	; SMP safe
+	.ENDC
+	DPTAB	-				; DPT-creation macro
+		END=LD_END,-			; End of driver label
+		ADAPTER=NULL,-			; Adapter type
+		UCBSIZE=<UCB$K_LD_UCBLEN>,-	; Length of UCB
+		MAXUNITS=LD_MAX_UNITS,-		; Max nr of units
+		UNLOAD=LD_DRV_UNLOAD,-		; Unload routine
+		NAME=LDDRIVER,-			; Driver name
+		FLAGS=DPT_FLAGS			; Default flags
+
+	DPT_STORE INIT				; Start of load
+						; initialization table
+	DPT_STORE DDB,DDB$L_ACPD,L,<^A\F11\>	; Default ACP name
+	DPT_STORE DDB,DDB$L_ACPD+3,B,DDB$K_PACK ; ACP class
+	DPT_STORE UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8; FORK IPL
+	DPT_STORE UCB,UCB$B_DIPL,B,8		; Device IPL
+	DPT_STORE UCB,UCB$L_DEVCHAR,L,<-	; Device characteristics
+		DEV$M_IDV!-			;   input device
+		DEV$M_ODV!-			;   output device
+		DEV$M_FOD!-			;   files oriented
+		DEV$M_DIR!-			;   directory structured
+		DEV$M_AVL!-			;   available
+		DEV$M_SHR!-			;   sharable
+		DEV$M_RND>			;   random access
+	DPT_STORE UCB,UCB$L_DEVCHAR2,L,<-
+		DEV$M_NNM!-			; Prefix name with NODE$
+		DEV$M_NLT!-			; Not-last-track device (no bad block data)
+		DEV$M_CDP!-			; To prevent MSCP serving
+		DEV$M_MSCP>			; Fake to get shadowing to work
+	DPT_STORE UCB,UCB$W_STS,W,UCB$M_TEMPLATE; Template device
+	DPT_STORE UCB,UCB$L_LD_TRCBUF,L,0	; Pointer to tracebuffer
+	DPT_STORE UCB,UCB$B_DEVCLASS,B,DC$_DISK ; Device class
+	DPT_STORE UCB,UCB$B_DEVTYPE,B,DT$_FD1	; Dev. type = foreign disk
+	DPT_STORE UCB,UCB$W_DEVBUFSIZ,W,512	; Default buffer size
+	DPT_STORE UCB,UCB$W_DEVSTS,W,-		; Inhibit logical to
+		<UCB$M_NOCNVRT>			; physical xlation.
+
+	DPT_STORE REINIT			; Start of reload
+						; initialization table
+	DPT_STORE DDB,DDB$L_DDT,D,LD$DDT	; Address of DDT
+	DPT_STORE CRB,-				; Address of controller
+		CRB$L_INTD+VEC$L_INITIAL,-	; initialization routine
+		D,LD_CONTROL_INIT
+	DPT_STORE CRB,-				; Address of device
+		CRB$L_INTD+VEC$L_UNITINIT,-	; unit initialization
+		D,LD_UNIT_INIT			; routine
+
+	DPT_STORE END				; End of initialization
+
+;+++
+; Driver dispatch table
+;---
+	DDTAB	-				; DDT-creation macro
+		DEVNAM=LD,-			; Name of device
+		START=LD_START,-		; Start I/O routine
+		FUNCTB=LD_FUNCTABLE,-		; FDT address
+		CANCEL=LD_CANCEL,-		; Cancel I/O routine
+		UNITINIT=LD_UNIT_INIT,-		; Unit init. routine
+		CLONEDUCB=LD_CLONED_UCB		; Cloned UCB routine
+
+;+++
+; Function decision table
+;---
+LD_FUNCTABLE:					; FDT for driver
+	FUNCTAB	,-				; Valid I/O functions
+		<NOP,-				;   Nop
+		UNLOAD,-			;   Unload
+		SEEK,-				;   Seek
+		DRVCLR,-			;   Drive clear
+		PACKACK,-			;   Pack acknowledge
+		SENSECHAR,-			;   Sense characteristics
+		SETCHAR,-			;   Set   characteristics
+		SENSEMODE,-			;   Sense mode
+		SETMODE,-			;   Set   mode
+		WRITECHECK,-			;   Writecheck
+		READHEAD,-			;   Read  header
+		READLBLK,-			;   Read  logical  block
+		WRITELBLK,-			;   Write logical  block
+		READPBLK,-			;   Read  physical block
+		WRITEPBLK,-			;   Write physical block
+		READVBLK,-			;   Read  virtual  block
+		WRITEVBLK,-			;   Write virtual  block
+		AVAILABLE,-			;   Available
+		ACCESS,-			;   Access
+		ACPCONTROL,-			;   ACP control
+		CREATE,-			;   Create
+		DEACCESS,-			;   Deaccess
+		DELETE,-			;   Delete
+		MODIFY,-			;   Modify
+		MOUNT,-				;   Mount
+		CRESHAD,-			;   Create shadowset virtual unit
+		REMSHAD,-			;   Remove shadowset member
+		DSE,-				;   Data Security Erase
+		LD_CONTROL-			;   LD control functions
+		>
+	FUNCTAB	,-				; Buffered I/O functions
+		<NOP,-				;   Nop
+		UNLOAD,-			;   Unload
+		SEEK,-				;   Seek
+		DRVCLR,-			;   Drive clear
+		PACKACK,-			;   Pack acknowledge
+		SENSECHAR,-			;   Sense characteristics
+		SETCHAR,-			;   Set   characteristics
+		SENSEMODE,-			;   Sense mode
+		SETMODE,-			;   Set   mode
+		AVAILABLE,-			;   Available
+		ACCESS,-			;   Access
+		ACPCONTROL,-			;   ACP control
+		CREATE,-			;   Create
+		DEACCESS,-			;   Deaccess
+		DELETE,-			;   Delete
+		MODIFY,-			;   Modify
+		MOUNT,-				;   Mount
+		DSE,-				;   Data Security Erase
+		LD_CONTROL-			;   LD control functions
+		>
+
+	FUNCTAB	LD_SHAD_WCHECK,<-		; Check write to shadow set mbr
+		WRITELBLK,-			; Write LOGICAL Block
+		WRITEPBLK,-			; Write Physical Block
+		WRITEVBLK>			; Write VIRTUAL Block
+
+	FUNCTAB	+ACP$READBLK,-			; Read functions
+		<READHEAD,-			;   Read header
+		READLBLK,-			;   Read logical  block
+		READPBLK,-			;   Read physical block
+		READVBLK-			;   Read virtual  block
+		>
+	FUNCTAB	+ACP$WRITEBLK,-			; Write functions
+		<WRITECHECK,-			;   Write check
+		WRITELBLK,-			;   Write logical  block
+		WRITEPBLK,-			;   Write physical block
+		WRITEVBLK-			;   Write virtual  block
+		>
+	FUNCTAB	LD_DSE,<-			; DSE function
+		DSE,-				;   Data Secutiry Erase
+		>
+	FUNCTAB	+ACP$ACCESS,-			; Access functions
+		<ACCESS,-			;   Access file/dir
+		CREATE-				;   Create file/dir
+		>
+	FUNCTAB	+ACP$DEACCESS,-			; Deaccess functions
+		<DEACCESS-			;   Deaccess file
+		>
+	FUNCTAB	+ACP$MODIFY,-			; Modify functions
+		<ACPCONTROL,-			;   ACP control
+		DELETE,-			;   Delete file/dir
+		MODIFY-				;   Modify file attributes
+		>
+	FUNCTAB	+ACP$MOUNT,-			; Mount functions
+		<MOUNT-				;   Mount volume
+		>
+	FUNCTAB	+EXE$LCLDSKVALID,-		; Local disk valid functions
+		<UNLOAD,-			;   Unload volume
+		AVAILABLE,-			;   Unit available
+		PACKACK-			;   Pack acknowledge
+		>
+	FUNCTAB	+EXE$ZEROPARM,-			; Zero parameter functions
+		<NOP,-				;   Nop
+		UNLOAD,-			;   Unload
+		DRVCLR,-			;   Drive clear
+		PACKACK,-			;   Pack acknowledge
+		AVAILABLE-			;   Available
+		>
+	FUNCTAB	+EXE$ONEPARM,-			; One parameter functions
+		<SEEK-				;   Seek
+		>
+	FUNCTAB	+EXE$SENSEMODE,-		; Sense functions
+		<SENSECHAR,-			;   Sense characteristics
+		SENSEMODE-			;   Sense mode
+		>
+	FUNCTAB	+EXE$SETCHAR,-			; Set functions
+		<SETCHAR,-			;   Set characteristics
+		SETMODE-			;   Set mode
+		>
+	FUNCTAB	LD_CRESHAD,-			; Create shadowset virtual unit
+		<CRESHAD-
+		>
+	FUNCTAB	LD_REMSHAD,-			; Remove shadowset member
+		<REMSHAD-
+		>
+	FUNCTAB	LD_CONTROL,-			; General LDdriver control
+		<LD_CONTROL-
+		>
+;
+; Local data
+;
+LD_REFCNT:	.LONG		0		; Number of active devices
+
+	.SBTTL	LD_CONTROL, general control and dispatch FDT routine
+;+++
+; LD_CONTROL, general control and dispatch FDT routine
+;
+; Functional description:
+;
+;	This routine is invoked via an IO$_LD_CONTROL function.
+;	We will dispatch to the various other routines according to
+;	the P6 parameter.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P6(AP)	- Address of longword with functioncode and modifiers
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+
+LD_CONTROL:					; General Control FDT routine
+	MOVZWL	P6(AP),R0			; Get parameter
+	MOVL	R0,IRP$L_EXTEND(R3)		; Save function in IRP
+	ASSUME LDIO_S_FUNC EQ 8
+	DISPATCH R0,TYPE=B,<-			; Dispatch according to function
+		<LDIO_CONNECT,		LD_CONNECT>,-
+		<LDIO_DISCONNECT,	LD_DISCONNECT>,-
+		<LDIO_ENABLE_TRACE,	LD_ENABLE_TRACE>,-
+		<LDIO_DISABLE_TRACE,	LD_DISABLE_TRACE>,-
+		<LDIO_GET_TRACE,	LD_GET_TRACE>,-
+		<LDIO_RESET_TRACE,	LD_RESET_TRACE>,-
+		<LDIO_GET_CONNECTION,	LD_GET_CONNECTION>,-
+		<LDIO_SET_SEED,		LD_SET_SEED>,-
+		<LDIO_ENABLE_WATCH,	LD_ENABLE_WATCH>,-
+		<LDIO_DISABLE_WATCH,	LD_DISABLE_WATCH>,-
+		<LDIO_GET_WATCH,	LD_GET_WATCH>,-
+		<LDIO_RESUME_WATCH,	LD_RESUME_WATCH>,-
+		<LDIO_GET_SUSPEND_LIST,	LD_GET_WATCH>,-
+		<LDIO_ENABLE_PROTECT,	LD_ENABLE_PROTECT>,-
+		<LDIO_DISABLE_PROTECT,	LD_DISABLE_PROTECT>,-
+		<LDIO_SET_ALLOCLASS,	LD_SET_ALLOCLASS>>
+
+	MOVZWL	#SS$_ILLIOFUNC,R0		; Set illegal I/O function code
+	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_GET_CONNECTION, Get connection characteristics FDT routine
+;+++
+; LD_GET_CONNECTION, Get connection characteristics FDT routine
+;
+; Functional description:
+;
+;	This routine returns the full filename string to the callers buffer,
+;	specified via the descriptor address in P1.
+;	The IOSB returned, contains;
+;	- Longword 0,	The return status code
+;	  and in word 1,The nr of characters transferred
+;	- Longword 1,	The Connected status flag, where
+;			bit 0 = 1 : Connected, and
+;			        0 : Disconnected
+;			bit 1 = 0 : Normal and
+;			        1 : Replaced
+;			bit 2 = 0 : Normal disk
+;			        1 : DECRAM disk
+;			bit 3 = 0 : Normal access
+;			        1 : Write protected
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P1(AP)	- Address of buffer to receive the devicename string
+;	P2(AP)	- Size of buffer to receive the devicename string
+;	P3(AP)	- Address of buffer to receive file-id of connected file
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_GET_CONNECTION:				; Get Connection FDT routine
+	MOVL	P1(AP),R0			; Address of buffer
+	MOVL	P2(AP),R1			; Get buffer length
+	JSB	G^EXE$READCHK			; Check buffer for write access
+	MOVZWL	#SS$_ACCVIO,R0			; Assume trouble
+	IFNOWRT	#6,@P3(AP),20$			; Check if fid buffer writeable
+	MOVZWL	#SS$_DEVINACT,R0		; Assume already inactive
+	BBC	#UCB$V_LD_CONSTS,-		; Active?
+		UCB$B_LD_FLAGS(R5),20$
+	MOVL	UCB$L_LD_PDUCB(R5),R2		; Get physical device ucb
+	JSB	G^SCH$IOLOCKR			; Lock the IO database
+	PUSHR	#^M<R4,R5>
+	MOVL	R2,R5				; Copy ucb address
+	MOVL	P1(AP),R1			; Address of buffer
+	MOVZWL	P2(AP),R0			; Buffer size
+	MOVZBL	#1,R4				; DVI$_ALLDEVNAM
+	JSB	G^IOC$CVT_DEVNAM		; Get alloclass devicename
+	POPR	#^M<R4,R5>
+	PUSHR	#^M<R0,R1,R3>			; Save across unlock
+	JSB	G^SCH$IOUNLOCK			; Unlock the IO database
+	POPR	#^M<R0,R1,R3>			; Restore IRP and status
+	BLBC	R0,20$				; Trouble
+	MOVL	P3(AP),R2			; Get fid buffer address
+	ASSUME	FID$W_NUM+2 EQ FID$W_SEQ
+	ASSUME	FID$W_SEQ+2 EQ FID$W_RVN
+	ASSUME	UCB$W_LD_FID_NUM+2 EQ UCB$W_LD_FID_SEQ
+	MOVL	UCB$W_LD_FID_NUM(R5),(R2)+	; Insert in buffer
+	MOVW	UCB$W_LD_FID_RVN(R5),(R2)
+	MOVZWL	#SS$_NORMAL,R0
+	INSV	R1,#16,#16,R0			; Place high word in R0
+
+10$:	MOVZBL	UCB$B_LD_FLAGS(R5),R1		; Copy connected status flags
+	JMP	G^EXE$FINISHIO			; Done
+
+20$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_GET_TRACE, Get trace data FDT routine
+;+++
+; LD_GET_TRACE, Get trace data FDT routine
+;
+; Functional description:
+;
+;	This routine retrieves trace data from the trace buffer.
+;	The IOSB returned, contains;
+;	- Longword 0,	The return status code
+;	- Longword 1,	The number of returned trace buffers
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P1(AP)	- address of buffer to receive the trace data
+;	P2(AP)	- size of buffer to receive the trace data
+;
+; Outputs:
+;
+;	R0	- I/O status
+;	R1	- Number of returned bytes
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_GET_TRACE:
+	TSTL	UCB$L_LD_TRCBUF(R5)		; Check for tracebuffer
+	BEQL	10$				; Not set
+	BBC	#LDIO_V_INQUIRE,-		; Return tracebuffer
+		IRP$L_EXTEND(R3),30$
+	MOVL	UCB$L_LD_TRCBUFSIZ(R5),R2	; Get tracebuffer size
+	MOVZWL	#SS$_NORMAL,R0			; Success
+	BRW	50$				; Finish the I/O
+
+10$:	MOVZWL	#SS$_NODATA,R0			; Trace not active
+
+20$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+30$:	MOVZWL	#SS$_IVBUFLEN,R0		; Assume buffer too small
+	MOVL	P2(AP),R1			; Get buffer length
+	CMPL	R1,UCB$L_LD_TRCBUFSIZ(R5)	; Check size
+	BLSS	20$				; Too small
+	MOVL	P1(AP),R0			; Get address of buffer
+	JSB	G^EXE$READCHK			; Check userbuffer accessability
+	MOVL	R0,IRP$L_SVAPTE(R3)		; Save buffer address
+	BSBW	LD_MOVE_TRACE			; Move data to user
+	BLBC	R0,60$				; Stop on overrun error
+						; The count will always be the
+						; number of packets in the buffer
+
+50$:	DIVL3	#LDTRCENT_K_LENGTH,R2,R1	; Convert size to number of entries
+	BNEQ	60$				; Something there
+	BBS	#LDIO_V_NOWAIT,-		; We don't want to wait
+		IRP$L_EXTEND(R3),60$
+	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+60$:	CLRL	IRP$L_SVAPTE(R3)		; No more SVAPTE
+	JMP	G^EXE$FINISHIO			; Done
+
+	.SBTTL	LD_MOVE_TRACE, Move trace data to user
+;+++
+; LD_MOVE_TRACE, move trace data to user
+;
+; Functional description:
+;                                                                
+;	This routine moves the tracedata to the user's buffer.
+;	If the modifier LDIO_RESET was specified for the transfer
+;	then the tracebuffer will be reset afterwards.
+;
+; Inputs:
+;
+;	R3	- address of the IRP (I/O request packet)
+;	R5	- address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	R0	- Status, either SS$_NORMAL or SS$_DATAOVERUN (buffer overflow)
+;	R1	- 0 or on failure number of lost packets
+;	R2	- number of bytes moved
+;
+;	The routine must preserve all registers except R0-R2.
+;
+;--
+LD_MOVE_TRACE:
+	PUSHR	#^M<R9,R10>
+	MOVL	IRP$L_SVAPTE(R3),R0		; Get address
+	MOVL	IRP$L_BCNT(R3),R1		; Get length
+	BBC	#LDIO_V_RESET,-			; Reset requested?
+		IRP$L_EXTEND(R3),40$		; No
+	LOCK_TRACE	ACCESS=WRITE		; Lock the tracebuffer for write
+	BRW	50$
+
+40$:	LOCK_TRACE				; Lock the tracebuffer for read
+
+50$:	CLRL	R10				; Total number of bytes moved
+	MOVL	UCB$L_LD_TRCBUFPTR(R5),R2	; Get tracebuffer pointer
+	MOVL	UCB$L_LD_TRCWRAP(R5),R9		; Did the buffer wrap?
+	BEQL	60$				; No
+	SUBL3	R2,R9,R1			; Bytecount
+	MOVL	R1,R10				; Save count
+	BSBW	MOVE_TRACE			; Move the data (first part)
+
+60$:	MOVL	UCB$L_LD_TRCBUF(R5),R2		; Point to start of buffer
+	SUBL3	R2,UCB$L_LD_TRCBUFPTR(R5),R1
+	ADDL2	R1,R10				; Accumulate count
+	BSBW	MOVE_TRACE			; Move the data (second part)
+	MOVL	UCB$L_LD_TRCLOST(R5),R1		; Get count
+	MOVZWL	#SS$_NORMAL,R0			; Assume no overflow
+	TSTL	R9				; Buffer wrapped?
+	BEQL	70$				; No
+;
+; Calculate number of lost packets. This will be done as follows:
+;
+; Count = (((TRCBUFPTR - TRCBUF) / LDTRCENT_K_LENGTH) +
+;          ((TRCLOST - 1) * ((TRCWRAP - TRCBUF) / LDTRCENT_K_LENGTH)))
+;
+	DECL	R1				; TRCLOST - 1
+	SUBL3	UCB$L_LD_TRCBUF(R5),-		; TRCWRAP - TRCBUF
+		UCB$L_LD_TRCWRAP(R5),R0
+	DIVL2	#LDTRCENT_K_LENGTH,R0		; / LDTRCENT_K_LENGTH
+	MULL2	R1,R0
+	SUBL3	UCB$L_LD_TRCBUF(R5),-		; TRCBUFPTR - TRCBUF
+		UCB$L_LD_TRCBUFPTR(R5),R1
+	DIVL2	#LDTRCENT_K_LENGTH,R1		; / LDTRCENT_K_LENGTH
+	ADDL2	R0,R1				; Result
+	MOVZWL	#SS$_DATAOVERUN,R0		; We were overrun by a truck
+
+70$:	BBC	#LDIO_V_RESET,-			; Reset requested?
+		IRP$L_EXTEND(R3),80$		; No
+	CLRL	UCB$L_LD_TRCWRAP(R5)		; Not yet wrapped
+	CLRL	UCB$L_LD_TRCLOST(R5)		; Nothing lost yet
+	MOVL	R2,UCB$L_LD_TRCBUFPTR(R5)	; Init pointer
+
+80$:	UNLOCK_TRACE				; Unlock trace mutex
+	MOVL	R10,R2				; Return amount moved
+	POPR	#^M<R9,R10>
+	RSB
+;
+MOVE_TRACE:
+	PUSHR	#^M<R1,R2,R3,R4,R5,R6,R7>
+	MOVL	R1,R6				; Length
+	MOVL	R2,R1				; Source
+	MOVL	R0,R3				; Destination
+	DIVL3	#65535,R6,R7			; Number of times we must loop
+	BEQL	20$				; Total count is less than 65535
+
+10$:	MOVC3	#65535,(R1),(R3)		; Move data (max MOVC can handle)
+	SUBL2	#65535,R6			; Accumulate bytes moved
+	SOBGTR	R7,10$				; Until done
+
+20$:	MOVC3	R6,(R1),(R3)			; Move the remainder
+	MOVL	R3,R0				; Return last byte+1
+	POPR	#^M<R1,R2,R3,R4,R5,R6,R7>
+	RSB
+
+	.SBTTL	LD_DISCONNECT, Disconnect FDT routine
+;+++
+; LD_DISCONNECT, Disconnect FDT routine
+;
+; Functional description:
+;
+;	This routine will disconnect the Logical disk from the Phys. Disk.
+;	If LDIO_M_ABORT is specified we simply skip all checks and disconnect
+;       the LD device as it is.
+;
+;	A prereqisite to call these routines, is that the file is opened,
+;	except when we replace a whole drive.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P1(AP)	- Address of the SBK block (Ignored with abort or
+;                 replaced drive)
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DISCONNECT:					; Disconnect FDT routine
+	BBS	#LDIO_V_ABORT,-			; Check if abort is specified
+		IRP$L_EXTEND(R3),10$
+	BBS	#UCB$V_LD_REPLACE,-		; Replaced drive?
+		UCB$B_LD_FLAGS(R5),10$
+	MOVL	P1(AP),R0			; Get the SBK address
+	MOVL	#SBK$K_LENGTH,R1		; Get the SBK length
+	JSB	G^EXE$WRITECHK			; Check if SBK is readable
+	MOVL	SBK$L_FCB(R0),R1		; Get the FCB address
+	BGEQ	30$				; Must be system address
+	CMPB	FCB$B_TYPE(R1),#DYN$C_FCB	; Check if it is a FCB
+	BNEQ	30$				; No, return error
+
+10$:	MOVZWL	#SS$_DEVINACT,R0		; Assume inactive
+	BBC	#UCB$V_LD_CONSTS,-		; Check if in DISCONNECT state
+		UCB$B_LD_FLAGS(R5),40$
+	MOVZWL	#SS$_DEVFOREIGN,R0		; Assume foreign mounted status
+	BBS	#DEV$V_FOR,UCB$L_DEVCHAR(R5),40$; Device foreign mounted?
+	MOVZWL	#SS$_DEVMOUNT,R0		; Assume mounted status
+	BBS	#DEV$V_MNT,UCB$L_DEVCHAR(R5),40$; Device mounted?
+	BBS	#LDIO_V_ABORT,-			; Check if abort is specified
+		IRP$L_EXTEND(R3),20$
+	BBS	#UCB$V_LD_REPLACE,-		; Check if replaced device
+		UCB$B_LD_FLAGS(R5),20$
+
+	MOVZWL	#SS$_BADFILEHDR,R0		; Assume wrong file id
+	ASSUME	FCB$W_FID_NUM+2 EQ FCB$W_FID_SEQ
+	CMPL	FCB$W_FID_NUM(R1),-		; Is it the same file id ?
+		UCB$W_LD_FID_NUM(R5)
+	BNEQ	40$				; No
+	CMPW	FCB$W_FID_RVN(R1),-		; Is it the same file id ?
+		UCB$W_LD_FID_RVN(R5)
+	BNEQ	40$				; Not really...
+
+20$:	MOVZWL	#SS$_DEVASSIGN,R0		; Assume channels assigned
+	CMPW	UCB$W_REFC(R5),#1		; Are we the only one?
+	BNEQ	40$				; No, get out
+	BSBW	LD_DEALLOC_TRCBUF		; Get rid of trace buffer
+	BSBW	LD_DEALLOC_WATCHBUF		; Get rid of watch buffers
+	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+30$:	MOVZWL	#SS$_FORMAT,R0			; FCB invalid
+
+40$:	JMP	G^EXE$ABORTIO			; And abort the I/O
+
+	.SBTTL	LD_CONNECT, Connect FDT routine
+;+++
+; LD_CONNECT, Connect FDT routine
+;
+; Functional description:
+;
+;	This routine will connect a Logical disk to the Physical Disk.
+;
+;	A prereqisite to call these routines, is that the file is opened,
+;	except when we replace a whole drive.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P1(AP)	- Address of the SBK block (Normal connect)
+;	P1(AP)	- Address of phys. disk device name desc. (Replace drive)
+;	P2(AP)	- Size of disk, if 0 allocated size of SBK will be used
+;	P3(AP)	- Number of Tracks
+;	P4(AP)	- Number of Sectors
+;	P5(AP)	- Number of Cylinders
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_CONNECT:					; Connect FDT routine
+	BBC	#UCB$V_LD_CONSTS,-		; Check if disconnected
+		UCB$B_LD_FLAGS(R5),10$
+	MOVZWL	#SS$_DEVACTIVE,R0		; Set Device Active
+	BRW	140$
+
+10$:	BBC	#LDIO_V_SHARE,-			; Shared access requested?
+		IRP$L_EXTEND(R3),20$
+	TSTL	@#CLU$GL_CLUB			; Cluster code loaded?
+	BNEQ	20$				; Yes
+	MOVZWL	#SS$_UNSUPPORTED,R0		; Not supported
+	BRW	140$
+
+20$:	BBS	#LDIO_V_REPLACE,-		; Replace a drive?
+		IRP$L_EXTEND(R3),40$
+	MOVL	P1(AP),R0			; Get the SBK address
+	MOVL	#SBK$K_LENGTH,R1		; Get the SBK length
+	JSB	G^EXE$WRITECHK			; Check if SBK is readable
+	MOVL	SBK$L_FCB(R0),R1		; Get the FCB address
+	BGEQ	30$				; Must be system address
+	CMPB	FCB$B_TYPE(R1),#DYN$C_FCB	; Check if it is a FCB
+	BNEQ	30$				; No, return error
+	TSTW	FCB$W_REFCNT(R1)		; File open?
+	BEQL	30$				; No, error
+	MOVL	R1,UCB$L_LD_FCB(R5)		; Save FCB address for later
+	JSB	G^SCH$IOLOCKR			; Lock the IO database for read
+	MOVL	FCB$L_WLFL(R1),R1		; Get WCB address
+	MOVL	WCB$L_ORGUCB(R1),R1		; Get UCB of physical device
+	MOVL	R1,UCB$L_LD_PDUCB(R5)		; Save it
+	BRB	50$
+
+30$:	MOVZWL	#SS$_FORMAT,R0			; FCB invalid
+	BRW	140$				; And abort the I/O
+
+40$:	MOVL	P1(AP),R1			; Get devicename descriptor address
+	MOVL	4(R1),R0			; Get devicename string address
+	MOVZWL	(R1),R1				; Get devicename string length
+	JSB	G^EXE$WRITECHK			; Check if string is readable
+	PUSHR	#^M<R3,R4,R5,R6,R7,R8>		; Save some registers
+	JSB	G^SCH$IOLOCKR			; Lock the IO database for read
+	MOVL	P1(AP),R1			; Get devicename descr. addr.
+	MOVL	#IOC$M_ANY,R2			; Set the SEARCHALL bit
+	CLRL	R3				; No SB specified (local only)
+	JSB	G^IOC$SEARCH			; Search the IO database
+	POPR	#^M<R3,R4,R5,R6,R7,R8>		; Restore the registers
+	BLBC	R0,90$				; Return on error
+	MOVL	R1,UCB$L_LD_PDUCB(R5)		; Save the UCB of the phys. disk
+
+50$:	MOVZWL	#SS$_IVDEVNAM,R0		; Assume invalid device
+	CMPB	UCB$B_DEVCLASS(R1),#DC$_DISK	; Connect to a disk?
+	BNEQ	90$				; No, not allowed
+;
+; Check for nesting, i.e. placing a logical disk on another logical
+; disk.... That may lead us into deeeeep trouble (= crash) and various
+; other subtile problems.
+;
+; We have still locked the I/O database mutex
+;
+	CLRL	R0				; Assume no shadowed device
+;
+; Check if this is an MSCP device. If not we can't rely on
+; the UCB extensions to be valid.
+;
+	BBC	#DEV$V_MSCP,-			; MSCP device?
+		UCB$L_DEVCHAR2(R1),70$
+;
+; See if this device is a shadow set virtual unit.
+;
+        ASSUME  MSCP$V_SHADOW EQ 15
+	TSTW	UCB$W_MSCPUNIT(R1)		; Shadow set virtual unit?
+	BGEQ	70$				; No
+	MOVL	UCB$L_SHAD(R1),R2		; Phase I or Phase II?
+	BEQL	70$				; Phase I
+	MOVZBL	SHAD$B_MEMBERS(R2),R0		; Check number of members
+	BEQL	80$				; Invalid shadowset
+	MOVAL	SHAD$L_MEMBER_UCB(R2),R2	; Point to array of member UCB's
+
+60$:	MOVL	(R2)+,R1			; Get UCB of member
+
+70$:	CMPL	UCB$L_DDB(R1),UCB$L_DDB(R5)	; Check if same device
+	BEQL	80$				; Same, bad
+	SOBGTR	R0,60$				; Check all members
+	PUSHR	#^M<R1,R3>				; Save across unlock
+	JSB	G^SCH$IOUNLOCK			; Unlock the IO database
+	POPR	#^M<R1,R3>				; Restore IRP
+	BRB	100$				; Passed the test...
+
+80$:	MOVZWL	#SS$_INCSHAMEM,R0		; Not allowed
+
+90$:	PUSHR	#^M<R0,R1,R3>			; Save across unlock
+	JSB	G^SCH$IOUNLOCK			; Unlock the IO database
+	POPR	#^M<R0,R1,R3>			; Restore the return status
+	BRW	140$
+
+100$:	BBC	#LDIO_V_REPLACE,-		; Replace drive?
+		IRP$L_EXTEND(R3),110$
+	MOVL	UCB$L_LD_PDUCB(R5),R2		; Get physical UCB
+	MOVZWL	#SS$_DEVFOREIGN,R0		; Assume foreign mounted status
+	BBS	#DEV$V_FOR,-			; Check if foreign mounted
+		UCB$L_DEVCHAR(R2),140$
+	MOVZWL	#SS$_DEVMOUNT,R0		; Assume mounted status
+	BBS	#DEV$V_MNT,-			; Check if device is mounted
+		UCB$L_DEVCHAR(R2),140$
+	MOVZWL	#SS$_DEVALLOC,R0		; Assume allocated
+	TSTL	UCB$L_LOCKID(R2)		; Any lock for device?
+	BNEQ	140$				; Yes, error exit
+	BRW	130$				; Continue
+
+110$:	MOVL	P1(AP),R9			; Get the SBK address
+	MOVW	SBK$W_STLBNL(R9),-		; Save the starting LBN
+		UCB$W_LD_STLBNL(R5)
+	MOVW	SBK$W_STLBNH(R9),UCB$W_LD_STLBNH(R5)
+ASSUME	UCB$W_LD_STLBNL	EQ	UCB$L_LD_STLBN
+ASSUME	UCB$W_LD_STLBNH	EQ	UCB$L_LD_STLBN+2
+	MOVZWL	#SS$_FILNOTCNTG,R0		; Assume not contiguous
+	TSTL	UCB$L_LD_STLBN(R5)		; Test the starting LBN
+	BEQL	140$				; If 0 then file not contiguous
+	IFRD	#4,P2(AP),120$			; Check if readable
+	MOVZWL	#SS$_ACCVIO,R0			; Access violation
+	BRB	140$				; Abort
+
+120$:	BSBW	LD_SET_GEOMETRY			; Fill in geometry information
+	BLBC	R0,140$				; Quit on error
+	MOVL	P1(AP),R9			; Get the SBK address
+	MOVL	SBK$L_FCB(R9),R9		; Get the FCB address
+
+130$:	BSBW	LD_MAKE_RESNAM			; Create resourcename for lock
+	JMP	G^EXE$QIODRVPKT			; Do the rest in the start I/O
+
+140$:	JMP	G^EXE$ABORTIO			; And abort the I/O
+
+	.SBTTL	LD_SET_GEOMETRY, Setup pseudo device geometry
+;+++
+; LD_SET_GEOMETRY, Setup pseudo device geometry
+;
+; Functional description:
+;
+;	This routine will set the geometry for the pseudo device.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P1(AP)	- Address of the SBK block (Normal connect)
+;	P2(AP)	- Size of disk, if 0 allocated size of SBK will be used
+;	P3(AP)	- Number of Tracks
+;	P4(AP)	- Number of Sectors
+;	P5(AP)	- Number of Cylinders
+;
+; Outputs:
+;
+;	R0	- status
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_SET_GEOMETRY:
+	MOVL	P1(AP),R2			; Get SBK address
+	MOVW	SBK$W_FILESIZH(R2),R0		; Save the allocated filesize
+	ASHL	#16,R0,R0			; in the high word
+	MOVW	SBK$W_FILESIZL(R2),R0		; Save the filesize
+	MOVL	R0,R2				; Also in R2
+	MOVL	P2(AP),R1			; Get the size
+	BNEQ	10$				; Available, check it
+	MOVL	R0,R1				; Use allocated size
+	BRB	20$
+
+10$:	CMPL	R1,R0				; Not too big?
+	BLEQU	20$				; Valid, use it
+	MOVZWL	#SS$_ILLBLKNUM,R0		; Illegal lbn
+	BRW	120$
+;
+; At this point R1 is the maximum logical blocknumber
+;
+20$:	MOVL	P3(AP),R9			; Get number of tracks
+	MOVL	P4(AP),R10			; Get number of sectors
+	MOVL	P5(AP),R11			; Get number of cylinders
+	BISL3	R9,R10,R0			; Check for all zeroes
+	BISL2	R11,R0
+	BEQL	80$				; All zero, use own algorithm
+;
+; At least one of (TRACKS,SECTORS,CYLINDERS) was specified
+; Make sure they are all at least 1 and that they fit in the UCB.
+;
+	TSTL	R9				; Tracks zero?
+	BNEQ	30$				; No
+	INCL	R9				; Make 1
+
+30$:	CMPL	R9,#256				; Within bounds?
+	BGEQU	70$				; No
+	TSTL	R10				; Sectors zero?
+	BNEQ	40$				; No
+	INCL	R10				; Make 1
+
+40$:	CMPL	R10,#256			; Within bounds?
+	BGEQU	70$				; No
+	TSTL	R11				; Cylinders zero?
+	BNEQ	50$				; No
+	INCL	R11				; Make one
+
+50$:	CMPL	R11,#65536			; Within bounds?
+	BGEQU	70$				; No
+	MULL3	R9,R10,R0			; Calculate total size needed
+	MULL2	R11,R0
+	CMPL	R0,R2				; Not past allocated blocks?
+	BGTRU	70$				; Not valid
+	MOVB	R9,UCB$B_TRACKS(R5)		; Setup tracks
+	MOVB	R10,UCB$B_SECTORS(R5)		; Setup sectors
+	MOVW	R11,UCB$W_CYLINDERS(R5)		; Setup cylinders
+	MOVL	P2(AP),R1			; Get the size
+	BNEQ	60$				; Something specified
+	MOVL	R0,R1				; Setup new size as dictated
+						; by T/S/C
+;
+; Final check: see if the maximum block specified either by the user or by
+; the filesize is less or equal to the size specified by the number of
+; tracks/sectors/cylinders.
+;
+60$:	CMPL	R1,R0
+	BLEQU	110$
+
+70$:	MOVZWL	#SS$_BADPARAM,R0		; Bad geometry parameter
+	BRW	120$
+
+80$:	MOVB	#1,UCB$B_TRACKS(R5)		; Setup for 1 track
+	CMPL	R1,#256				; Smaller then 256 blocks ?
+	BGEQ	90$				; No, next check
+	MOVB	R1,UCB$B_SECTORS(R5)		; File size sectors
+	MOVW	#1,UCB$W_CYLINDERS(R5)		; 1 cylinder
+	BRB	110$				; Common code path
+
+90$:	CMPL	R1,#65536			; Smaller then 65536 blocks ?
+	BGEQ	100$				; No, next check
+	MOVB	#2,UCB$B_SECTORS(R5)		; 2 sectors
+	ASHL	#-1,R1,R1			; Divide file size by 2
+	MOVW	R1,UCB$W_CYLINDERS(R5)		; And enter as cylinders
+	ASHL	#1,R1,R1			; Round to a 2 block boundary
+	BRB	110$				; Common code path
+
+100$:	MOVB	#32,UCB$B_SECTORS(R5)		; 32 sectors
+	ASHL	#-5,R1,R1			; Divide file size by 32
+	MOVZWL	#SS$_IVADDR,R0			; Assume invalid media address
+	CMPL	R1,#65536			; Does it fit in 16 bits?
+	BGEQ	120$				; No, abort
+	MOVW	R1,UCB$W_CYLINDERS(R5)		; And enter as cylinders
+	ASHL	#5,R1,R1			; Round to a 32 block boundary
+
+110$:	MOVL	R1,UCB$L_MAXBLOCK(R5)		; Set max. nr of blocks
+	MOVZWL	#SS$_NORMAL,R0			; Success
+
+120$:	RSB
+
+	.SBTTL	LD_SET_SEED, Set seed unit number FDT routine
+;+++
+; LD_SET_SEED, Set seed unit number FDT routine
+;
+; Functional description:
+;
+;	This routine sets the seed number to the specified value
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- seed value
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_SET_SEED:
+	MOVL	P1(AP),R0			; Get value
+	CMPL	R0,#9999			; Limit range	
+	BGTRU	10$
+	MOVL	UCB$L_DDB(R5),R1		; Get address of port DDB
+	MOVL	DDB$L_UCB(R1),R1		; Get address of UNIT 0 UCB
+	MOVW	R0,UCB$W_UNIT_SEED(R1)		; Setup seed
+	MOVL	#SS$_NORMAL,R0			; Success
+	JMP	G^EXE$FINISHIOC			; Finish the I/O
+
+10$:	MOVL	#SS$_BADPARAM,R0		; Trouble
+	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_SET_ALLOCLASS, Set allocation class FDT routine
+;+++
+; LD_SET_ALLOCLASS, Set allocation class FDT routine
+;
+; Functional description:
+;
+;	This routine is the FDT routine to set the allocation class for
+;	the LD devices.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- allocation class value
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_SET_ALLOCLASS:
+	MOVL	P1(AP),R2			; Get value
+	CMPL	R2,#255				; Limit range	
+	BGTRU	10$				; Out of range
+	TSTW	LD_REFCNT			; Already someone connected?
+	BNEQ	20$				; Yes, not allowed
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Synchronize
+			SAVIPL=-(SP),-
+			PRESERVE=NO
+	MOVL	UCB$L_DDB(R5),R1		; Get address of port DDB
+	MOVL	R2,DDB$L_ALLOCLS(R1)		; Setup allocation class in DDB
+	MOVL	UCB$L_CDDB(R5),R1		; Get address CDDB
+	MOVL	R2,CDDB$L_ALLOCLS(R1)		; Setup allocation class in CDDB
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=(SP)+,-		; Return to old ipl
+			PRESERVE=NO
+	MOVL	#SS$_NORMAL,R0			; Success
+	JMP	G^EXE$FINISHIOC			; Finish the I/O
+
+10$:	MOVL	#SS$_BADPARAM,R0		; Trouble
+	BRB	30$
+
+20$:	MOVZWL	#SS$_UNSAFE,R0			; No devices may be connected
+
+30$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_DISABLE_TRACE, Disable tracing FDT routine
+;+++
+; LD_DISABLE_TRACE, Disable tracing FDT routine
+;
+; Functional description:
+;
+;	This routine disables tracing and deallocates the tracebuffer
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DISABLE_TRACE:
+	MOVL	UCB$L_LD_TRCBUF(R5),R0		; Get buffer pointer
+	BNEQ	10$				; Set
+	MOVZWL	#SS$_NODATA,R0			; Trace not set
+	BRW	30$
+
+10$:	LOCK_TRACE	ACCESS=WRITE		; Lock trace mutex
+	CLRL	UCB$L_LD_TRCBUF(R5)		; Zero pointer
+	MOVL	UCB$L_LD_TRCBUFALLOCSIZ(R5),R1	; Get allocated size
+	SUBL2	#12,R0				; Point to real start
+	JSB	G^EXE$DEANONPGDSIZ		; Release memory
+	MOVL	UCB$L_LD_TRCBUFOWN(R5),R2	; Get buffer owner
+	ADDL3	#12,UCB$L_LD_TRCBUFSIZ(R5),R0	; Calculate size we requested
+	CMPL	R2,IRP$L_PID(R3)		; Did we own it ourselves?
+	BNEQ	20$				; Yes
+	JSB	G^EXE$CREDIT_BYTCNT_BYTLM	; Return quota
+	BRB	25$
+
+20$:	PUSHL	R4
+	MOVL	R0,R1				; Amount to return
+	MOVL	R2,R4				; Process to credit
+	BSBW	LD_RETURN_QUOTA			; Credit correct process
+						; Ignore errors (Proc. may have gone away)
+	MOVL	(SP)+,R4
+
+25$:	UNLOCK_TRACE				; Unlock trace mutex
+	MOVZWL	#SS$_NORMAL,R0			; Success
+	JMP	G^EXE$FINISHIOC			; Finish the I/O
+
+30$:	JMP	G^EXE$ABORTIO			; And abort the I/O
+
+	.SBTTL	LD_ENABLE_TRACE, Enable tracing FDT routine
+;+++
+; LD_ENABLE_TRACE, Enable tracing FDT routine
+;
+; Functional description:
+;
+;	This routine allocates a tracebuffer and enables tracing 
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_ENABLE_TRACE:
+	MOVZWL	#SS$_TOOMUCHDATA,R0		; Assume trace already set
+	MOVL	UCB$L_LD_TRCBUF(R5),R2		; Get buffer pointer
+	BNEQ	10$				; Already set
+	MOVZWL	#SS$_BADPARAM,R0		; Assume bad parameter
+	MOVL	P1(AP),R1			; Get size (in entries)
+	BEQL	10$				; Nothing??
+	MULL2	#LDTRCENT_K_LENGTH,R1		; Length of LDTRCENT * #of entries
+	MOVL	R1,UCB$L_LD_TRCBUFSIZ(R5)	; Save used size
+;
+; Add packet overhead (we need a packet of minimal FKB$K_LENGTH bytes to be
+; able to deallocate the packet as a forkblock when the driver is reloaded
+;
+	ADDL2	#12,R1				; Add packet overhead
+	BISL2	#^X80000000,R1			; Avoid check against MAXBUF
+	JSB	G^EXE$DEBIT_BYTCNT_BYTLM_NW	; Check quota
+	BLBS	R0,20$				; Enuf left
+	MOVZWL	#SS$_EXBYTLM,R0			; Out of bytlim quota
+
+10$:	BRW	30$				; Get out
+
+20$:	JSB	G^EXE$ALONONPAGED		; Get memory
+	BLBC	R0,10$				; Error
+	ADDL2	#12,R2				; Leave some room
+;
+	LOCK_TRACE	ACCESS=WRITE		; Lock trace mutex
+	MOVL	IRP$L_PID(R3),-			; Register owner
+		UCB$L_LD_TRCBUFOWN(R5)
+	CLRL	UCB$L_LD_TRCWRAP(R5)		; Not yet wrapped
+	CLRL	UCB$L_LD_TRCLOST(R5)		; Nothing lost yet
+	MOVL	R1,UCB$L_LD_TRCBUFALLOCSIZ(R5)	; Setup buffer size
+	MOVL	R2,UCB$L_LD_TRCBUF(R5)		; Setup buffer
+	MOVL	R2,UCB$L_LD_TRCBUFPTR(R5)	; Init pointer
+	UNLOCK_TRACE				; Unlock trace mutex
+	MOVZWL	#SS$_NORMAL,R0
+	JMP	G^EXE$FINISHIOC			; Finish the I/O
+
+30$:	JMP	G^EXE$ABORTIO			; And abort the I/O
+
+	.SBTTL	LD_RESET_TRACE, Reset tracebuffer FDT routine
+;+++
+; LD_RESET_TRACE, Reset tracebuffer FDT routine
+;
+; Functional description:
+;
+;	This routine resets the tracebuffer pointer
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_RESET_TRACE:
+	MOVZWL	#SS$_NODATA,R0			; Assume not yet set
+	MOVL	UCB$L_LD_TRCBUF(R5),R2		; Get buffer pointer
+	BEQL	10$				; Not there
+	LOCK_TRACE	ACCESS=WRITE		; Lock trace mutex
+	CLRL	UCB$L_LD_TRCWRAP(R5)		; Not yet wrapped
+	CLRL	UCB$L_LD_TRCLOST(R5)		; Nothing lost yet
+	MOVL	R2,UCB$L_LD_TRCBUFPTR(R5)	; Init pointer
+	UNLOCK_TRACE				; Unlock trace mutex
+	MOVZWL	#SS$_NORMAL,R0
+	JMP	G^EXE$FINISHIOC			; Finish the I/O
+
+10$:	JMP	G^EXE$ABORTIO			; And abort the I/O
+
+	.SBTTL	LD_ENABLE_PROTECT, Enable write protect
+;+++
+;  LD_ENABLE_PROTECT, Enable write protect
+;
+; Functional description:
+;
+;	This routine enables write-protection on the logical disk.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_ENABLE_PROTECT:				; Enable protect FDT routine
+	BISL2	#DEV$M_SWL,UCB$L_DEVCHAR(R5)	; General bit
+	BISB2	#UCB$M_LD_PROTECT,-		; Specific bit
+		UCB$B_LD_FLAGS(R5)
+	MOVZWL	#SS$_NORMAL,R0
+	JMP	G^EXE$FINISHIOC
+
+	.SBTTL	LD_DISABLE_PROTECT, Disable write protect
+;+++
+;  LD_DISABLE_PROTECT, Disable write protect
+;
+; Functional description:
+;
+;	This routine disables write-protection on the logical disk.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DISABLE_PROTECT:				; Disable protect FDT routine
+	BICL2	#DEV$M_SWL,UCB$L_DEVCHAR(R5)	; General bit
+	BICB2	#UCB$M_LD_PROTECT,-		; Specific bit
+		UCB$B_LD_FLAGS(R5)
+	MOVZWL	#SS$_NORMAL,R0
+	JMP	G^EXE$FINISHIOC
+
+	.SBTTL	LD_DSE, Data secutiry erase fdt routine
+;+++
+;  LD_DSE, Data secutiry erase fdt routine
+;
+; Functional description:
+;
+; This is the FDT routine for the Data Security Erase operation.
+; The byte count (P2) is stored in IRP$L_BCNT. The starting logical
+; block (P3) is stored in IRP$L_MEDIA. Control is transfered to
+; EXE$QIODRVPKT, thus queueing the I/O request to the driver's start
+; I/O routine.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	AP	- address of the 1st function dependent QIO parameter
+;	P2(AP)	- Byte count
+;	P3(AP)	- Starting logical block
+;
+; Outputs:
+;
+;	IRP$L_BCNT(R3)	- Byte count
+;	IRP$L_MEDIA(R3) - Starting logical block
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DSE:						; Data security erase FDT routine
+	MOVL	P2(AP),IRP$L_BCNT(R3)		; Setup erase byte count
+	MOVL	P3(AP),IRP$L_MEDIA(R3)		; Setup erase starting LBN
+	JMP	G^EXE$QIODRVPKT			; Send request to STARTIO
+
+	.SBTTL	LD_DEALLOC_TRCBUF, Trace buffer release
+;+++
+;  LD_DEALLOC_TRCBUF, Trace buffer release
+;
+; Functional description:
+;
+;	This routine deallocates the tracebuffer if we disconnect
+;	from the physical device (in case of cloned device) or in
+;	case of driver reload.
+;
+;	This routine may be called from any IPL (needed in case we're called
+;	from LD_DRV_UNLOAD which runs at IPL$_POWER).
+;
+; Inputs:
+;
+;	R4	- address of the PCB (process control block)
+;		- 0 if called from LD_DRV_UNLOAD
+;	R5	- address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DEALLOC_TRCBUF:
+	MOVL	UCB$L_LD_TRCBUF(R5),R0		; Get address
+	BNEQ	10$				; Buffer available
+	BRW	60$
+
+10$:	TSTL	R4				; PCB available?
+	BEQL	20$				; No, no need to synchronize
+						; (Called by LD_DRV_UNLOAD)
+	LOCK_TRACE	ACCESS=WRITE		; Lock trace buffer
+	CLRL	UCB$L_LD_TRCBUF(R5)		; Zero pointers
+	MOVL	UCB$L_LD_TRCBUFOWN(R5),R1	; Get owner
+	UNLOCK_TRACE
+	BRB	30$
+
+20$:	CLRL	UCB$L_LD_TRCBUF(R5)		; Zero pointers
+	MOVL	UCB$L_LD_TRCBUFOWN(R5),R1	; Get owner
+
+30$:	MOVQ	R3,-(SP)			; Save R3 + R4
+	MOVL	UCB$L_LD_TRCBUFALLOCSIZ(R5),R3	; Get size
+	SUBL2	#12,R0				; Account for overhead
+	ASSUME	FKB$B_FLCK EQ FKB$B_TYPE+1
+	MOVW	#<DYN$C_FRK!-			; Insert structure type
+		<SPL$C_QUEUEAST@8>>,-		;  and proper spinlock
+		FKB$B_TYPE(R0)			;  for this to be a fork block
+	PUSHL	R5				; Save UCB
+	MOVL	R0,R5				; Copy address
+	PUSHAB	40$				; Set up return address
+	FORK					; Create fork
+	MOVL	R5,R0				; Deallocate the block
+	MOVL	FKB$L_FR3(R5),R1		; Get size
+	JMP	G^EXE$DEANONPGDSIZ		; Get out
+
+40$:	MOVL	(SP)+,R5			; Restore UCB pointer
+	MOVQ	(SP)+,R3			; Restore R3 + R4
+	TSTL	R4				; PCB available?
+	BEQL	60$				; No, no one to credit
+	ADDL3	#12,UCB$L_LD_TRCBUFSIZ(R5),R0	; Calculate size we requested
+	CMPL	PCB$L_PID(R4),R1		; Are we the owner?
+	BNEQ	50$				; No
+	JSB	G^EXE$CREDIT_BYTCNT_BYTLM	; Return quota
+	BRB	60$
+
+50$:	PUSHL	R4
+	MOVL	R1,R4				; Owner pid
+	MOVL	R0,R1				; Amount to return
+	BSBW	LD_RETURN_QUOTA			; Credit user
+	MOVL	(SP)+,R4
+
+60$:	RSB
+
+	.SBTTL	LD_DEALLOC_WATCHBUF, Watch buffer release
+;+++
+;  LD_DEALLOC_WATCHBUF, Watch buffer release
+;
+; Functional description:
+;
+;	This routine deallocates all watchbuffers if we disconnect
+;	from the physical device (in case of cloned device) or in
+;	case of driver reload.
+;
+;	This routine may be called from any IPL (needed in case we're called
+;	from LD_DRV_UNLOAD which runs at IPL$_POWER).
+;
+; Inputs:
+;
+;	R4	- address of the PCB (process control block)
+;		- 0 if called from LD_DRV_UNLOAD
+;	R5	- address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DEALLOC_WATCHBUF:
+	TSTL	R4				; PCB available?
+	BEQL	50$				; No, no need to synchronize
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Raise to Fork level
+			SAVIPL=-(SP)
+
+10$:	REMQUE	@UCB$L_LD_WATCHQFL(R5),R0	; Get entry
+	BVS	40$				; None there
+	MOVL	LDWATCH_L_PID(R0),R1		; Get owner
+	PUSHL	R0				; Save buffer address
+	CMPL	R1,PCB$L_PID(R4)		; Ours?
+	BNEQ	20$				; No
+	MOVL	#LDWATCHENT_K_LENGTH,R0		; Amount to return
+	JSB	G^EXE$CREDIT_BYTCNT_BYTLM	; Return quota
+	BRB	30$
+
+20$:	PUSHL	R4
+	MOVL	R1,R4				; Get pid
+	MOVL	#LDWATCHPT_K_LENGTH,R1		; Amount to return
+	BSBW	LD_RETURN_QUOTA			; Return to correct process
+	MOVL	(SP)+,R4
+
+30$:	MOVL	(SP)+,R0			; Restore bufferpointer
+	JSB	G^COM$DRVDEALMEM		; Dealloc memory
+	BRB	10$
+
+40$:	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=(SP)+,-		; Return to old ipl
+			PRESERVE=NO
+	BRB	60$
+
+50$:	REMQUE	@UCB$L_LD_WATCHQFL(R5),R0	; Get entry
+	BVS	60$				; None there
+	JSB	G^COM$DRVDEALMEM		; Dealloc memory
+	BRB	50$
+
+60$:	RSB
+
+	.SBTTL	LD_ENABLE_WATCH, Enable watchpoints FDT routine
+;+++
+; LD_ENABLE_WATCH, Enable watchpoints FDT routine
+;
+; Functional description:
+;
+;	This is the FDT routine to enable watchpoints
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- Address of watchpt structures
+;	P2(AP)	- Count of watchpt structures
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_ENABLE_WATCH:
+	MOVL	P1(AP),R0			; Get buffer address
+	MULL3	P2(AP),#LDWATCHPT_K_LENGTH,R1	; Get buffer length
+	BEQL	30$				; Nothing there
+	MOVQ	R0,R10				; Save address and size
+	JSB	G^EXE$WRITECHK			; Check buffer for read access
+	MOVL	P2(AP),R2			; Get number of entries
+	MOVL	R2,IRP$L_OBCNT(R3)		; Save it
+;
+; Validate inputbuffer
+;
+10$:	BBC	#LDWATCHPT_V_FILE,-		; Check for virtual file mode
+		LDWATCHPT_W_FLAGS(R0),60$
+	TSTL	LDWATCHPT_L_LBN(R0)		; Zero not allowed for VBN
+	BEQL	40$
+	PUSHR	#^M<R0,R2>
+	MOVL	LDWATCHPT_L_SBK(R0),R0		; Get the SBK address
+	MOVL	#SBK$K_LENGTH,R1		; Get the SBK length
+	JSB	G^EXE$WRITECHK			; Check if SBK is readable
+	MOVL	SBK$L_FCB(R0),R1		; Get the FCB address
+	POPR	#^M<R0,R2>
+	BGEQ	20$				; Must be system address
+	CMPB	FCB$B_TYPE(R1),#DYN$C_FCB	; Check if it is a FCB
+	BNEQ	20$				; No, return error
+	TSTW	FCB$W_REFCNT(R1)		; File open?
+	BEQL	20$				; No, error
+	MOVL	FCB$L_WLFL(R1),R9		; Get any wcb
+	CMPL	R5,WCB$L_ORGUCB(R9)		; File must be on our device
+	BNEQ	50$				; Other device, quit
+	CMPL	LDWATCHPT_L_LBN(R0),-		; Check if not too big
+		FCB$L_FILESIZE(R1)
+	BGTRU	40$				; Too big, quit
+	MOVL	IRP$L_WIND(R3),R1		; Get WCB address
+	BEQL	20$				; Should not happen
+	BBS	#WCB$V_CATHEDRAL,-		; Must have cathedral window
+		WCB$B_ACCESS(R1),70$
+
+20$:	MOVZWL	#SS$_FORMAT,R0			; FCB invalid or not completely mapped
+	BRW	130$
+
+30$:	MOVZWL	#SS$_BADPARAM,R0		; Bad parameter
+	BRW	130$
+
+40$:	MOVZWL	#SS$_ILLBLKNUM,R0		; Illegal lbn
+	BRW	130$
+
+50$:	MOVZWL	#SS$_DEVREQERR,R0		; File not on our device
+	BRW	130$
+
+60$:	BBS	#LDWATCHPT_V_NOLBN,-		; Check for non-transfer function
+		LDWATCHPT_W_FLAGS(R0),70$
+	CMPL	LDWATCHPT_L_LBN(R0),-		; Check if not too big
+		UCB$L_MAXBLOCK(R5)
+	BGTRU	40$				; Too big, quit
+
+70$:	MOVW	LDWATCHPT_W_ACTION(R0),R1	; Get action
+	CMPW	R1,#WATCH_ACTION_MAX		; Legal action ?
+	BGTRU	30$				; No
+	IFPRIV	CMKRNL,80$			; Sufficient to do everything
+	CMPW	R1,#WATCH_ACTION_CRASH		; Crash system?
+	BEQL	120$				; Yes, no priv
+	CMPL	IRP$L_PID(R3),UCB$L_PID(R5)	; Do we own the device?
+	BNEQ	110$				; No, action not allowed
+;
+; We charge seperately for every packet. We need to do this because
+; EXE$DEBIT_BYTCNT_BYTLM_NW rounds the size up to 64 bytes. If we would
+; charge for it in one chunk we would get problems crediting the buffers
+; which we need to do one by one.
+;
+80$:	PUSHL	R0				; Save, destroyed later
+	MOVL	#LDWATCHENT_K_LENGTH,R1		; Bytecount to charge
+	JSB	G^EXE$DEBIT_BYTCNT_BYTLM_NW	; Check quota
+	BLBS	R0,90$				; Enuf left
+	ADDL2	#4,SP				; Adjust stack
+	MOVZWL	#SS$_EXBYTLM,R0			; Out of bytlim quota
+	BRB	130$
+
+90$:	ADDL3	#LDWATCHPT_K_LENGTH,(SP)+,R0	; Point to next input entry
+	DECL	R2				; Next packet
+	BLEQ	100$
+	BRW	10$
+
+100$:	MOVQ	R10,R0				; Get buffer address and bytecount
+	BSBW	LD_GETBUF			; Get buffer
+	BLBC	R0,130$				; Error
+	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+110$:	MOVZWL	#SS$_NOPRIV,R0			; Priv or ownership required
+	BRB	130$
+
+120$:	MOVZWL	#SS$_NOCMKRNL,R0		; CMKRNL priv required
+
+130$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_DISABLE_WATCH, Disable watchpoints FDT routine
+;+++
+; LD_DISABLE_WATCH, Disable watchpoints FDT routine
+;
+; Functional description:
+;
+;	This is the FDT routine to disable watchpoints
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- Address of watchpt structures
+;	P2(AP)	- Count of watchpt structures
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_DISABLE_WATCH:
+	CLRL	IRP$L_OBCNT(R3)			; Zero count
+	MOVL	P2(AP),R1			; Something specified?
+	BEQL	10$				; Remove all
+	MOVL	R1,IRP$L_OBCNT(R3)		; Save it
+	MULL2	#LDWATCHPT_K_LENGTH,R1		; Get buffer length
+	MOVL	P1(AP),R0			; Get buffer address
+	JSB	G^EXE$WRITECHK			; Check buffer for read access
+	BSBW	LD_GETBUF			; Get systembuffer
+	BLBC	R0,20$				; Error
+
+10$:	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+20$:	JMP	G^EXE$ABORTIO			; Abort I/O
+
+	.SBTTL	LD_GET_WATCH, Get watchpoint info FDT routine
+;+++
+; LD_GET_WATCH, Get watchpoint info FDT routine
+;
+; Functional description:
+;
+;	This routine retrieves info about current watchpoints,
+;	as well as the suspended process list.
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- Address of watchpt structure buffer
+;	P2(AP)	- Size in bytes of watchpt buffer
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_GET_WATCH:
+	BBS	#LDIO_V_INQUIRE,-		; Return list size?
+		IRP$L_EXTEND(R3),10$
+	MOVL	P1(AP),R0			; Get buffer address
+	MOVL	P2(AP),R1			; Get buffer length
+	JSB	G^EXE$READCHK			; Check buffer for write access
+	BSBW	LD_GETBUF1			; Get systembuffer
+	BLBC	R0,20$				; Error
+
+10$:	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+20$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_RESUME_WATCH, Resume suspended watchpoint threads FDT routine
+;+++
+; LD_RESUME_WATCH, Resume suspended watchpoint threads FDT routine
+;
+; Functional description:
+;
+;	This routine resumes threads which were suspended when a
+;	'suspend' watchpoint was hit
+;
+; Inputs:
+;
+;	R0-R2	- scratch registers
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;	P1(AP)	- Address of watchpt structures
+;	P2(AP)	- Count of watchpt structures
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;
+;--
+LD_RESUME_WATCH:
+	MOVL	P1(AP),R0			; Get buffer address
+	MOVL	P2(AP),R1			; Get number of entries
+	MOVL	R1,IRP$L_OBCNT(R3)		; Save number of entries
+	BEQL	10$				; Nothing there
+	MULL2	#LDWATCHPT_K_LENGTH,R1		; Get buffer length
+	JSB	G^EXE$WRITECHK			; Check buffer for read access
+	BSBW	LD_GETBUF			; Get systembuffer
+	BLBC	R0,20$				; Error
+
+10$:	JMP	G^EXE$QIODRVPKT			; Finish in start I/O
+
+20$:	JMP	G^EXE$ABORTIO			; Abort the I/O
+
+	.SBTTL	LD_GETBUF + LD_GETBUF1, Get and fill temporary buffer
+;+++
+;  LD_GETBUF, Get and fill temporary buffer
+;  LD_GETBUF1, Get temporary buffer
+;
+; Functional description:
+;
+;	This routine allocates a buffer to use to get/send data to/from
+;	start I/O routines. The userbuffer data will be copied (LD_GETBUF
+;	only).
+;
+; Inputs:
+;
+;	R0	- user buffer address
+;	R1	- user buffer bytecount
+;	R3	- address of the IRP (I/O request packet)
+;	R4	- address of the PCB (process control block)
+;	R5	- address of the UCB (unit control block)
+;	R6	- address of the CCB (channel control block)
+;	R7	- bit number of the I/O function code
+;	R8	- address of the FDT table entry for this routine
+;	R9-R11	- scratch registers
+;
+; Outputs:
+;
+;	R0	- status
+;	R2	- sytem buffer address
+;	IRP$L_SVAPTE	- systembuffer addres
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+
+;---
+	.ENABLE LSB
+LD_GETBUF1:
+	CLRL	-(SP)				; Flag not to fill buffer
+	BRB	10$
+
+LD_GETBUF:
+	MOVZBL	#1,-(SP)			; Flag to fill buffer
+
+10$:	MOVAB	12(R1),R1			; Set size of system buffer
+	PUSHR	#^M<R0,R3>
+	JSB	G^EXE$DEBIT_BYTCNT_ALO		; Allocate a system buffer
+	BLBC	R0,30$				; Any quota errors ?
+	POPR	#^M<R0,R3>
+	MOVL	R2,IRP$L_SVAPTE(R3)		; Save system buffer address
+	MOVW	R1,IRP$W_BOFF(R3)		; Save system buffer length
+	MOVAB	12(R2),(R2)			; Insert address of data area
+	MOVL	R0,4(R2)			; Insert address of user buffer
+	BLBC	(SP),20$			; Branch if no fill
+	PUSHR	#^M<R2,R3,R4,R5>		; Destroyed by MOVC
+	MOVC3	IRP$W_BCNT(R3),(R0),12(R2)	; Copy data from user- to systembuffer
+	POPR	#^M<R2,R3,R4,R5>
+
+20$:	MOVZWL	#SS$_NORMAL,R0			; Okay
+	BRB	40$
+
+30$:	POPR	#^M<R0,R3>			; Error return
+
+40$:	ADDL2	#4,SP				; Adjust stack
+	RSB
+	.DISABLE LSB
+
+	.SBTTL	LD_MAKE_RESNAM, Form private resource name
+;+++
+;  LD_MAKE_RESNAM, Form private resource name
+;
+; Functional description:
+;
+;	Form resourcename for lock to coordinate clusterwide access to
+;	logical disk file or replaced device
+;
+;	For a file this resourcename consists of:
+;
+;		9 bytes: '$LOGDISK_'
+;		1 byte:  1 for private mounted volume,
+;			 2 for system wide
+;		12 bytes: volume lockname
+;		3 bytes: 0
+;		1 word:  FID
+;		1 word:  SEQ
+;		1 word:  RVN
+;
+;	For a device this will be:
+;
+;		9 bytes: '$LOGDISK_'
+;		1 byte: 0
+;		1 byte:  physical devicename length
+;		20 bytes: alloclass devicename
+;
+; Inputs:
+;
+;       R3      IRP address
+;       R4      PCB address
+;       R5      UCB address
+;	R9	FCB address (connect 'file' only)
+;
+; Outputs:None.
+;
+; Implicit outputs: Resource name in UCB is written
+;
+;---
+LD_MAKE_RESNAM:
+	PUSHR	#^M<R0,R1,R2,R3>
+	MOVAB	UCB$T_LD_FILE_RESNAM(R5),R1	; Setup pointer to resource name
+	MOVZBL	#31,(R1)+			; Fill length
+	MOVAB	4(R1),(R1)+			; And address
+	MOVL	#^A/$LOG/,(R1)+			; "$LOGDISK_"
+	MOVL	#^A/DISK/,(R1)+
+	MOVB	#^A/_/,(R1)+
+	BBC	#LDIO_V_REPLACE,-		; Replace drive?
+		IRP$L_EXTEND(R3),10$
+	CLRB	(R1)+				; Filler
+	PUSHL	R4				; Save PCB
+	PUSHL	R1				; Save current pointer
+	CLRB	(R1)+				; Length byte, filled in later
+	JSB	G^SCH$IOLOCKR			; Lock the IO database
+	CLRQ	(R1)				; Clear buffer
+	CLRQ	8(R1)
+	CLRL	16(R1)
+	MOVZBL	#20,R0				; Buffer size
+	MOVZBL	#1,R4				; DVI$_ALLDEVNAM
+	PUSHL	R5				; Save UCB
+	MOVL	UCB$L_LD_PDUCB(R5),R5		; Get the phys. disk UCB
+	JSB	G^IOC$CVT_DEVNAM		; Get alloclass devicename
+	MOVL	(SP)+,R5			; Restore UCB
+	MOVL	(SP)+,R0			; Recover pointer
+	MOVB	R1,(R0)				; Save length
+	MOVL	(SP)+,R4			; Restore PCB
+	JSB	G^SCH$IOUNLOCK			; Unlock the IO database
+	BRW	50$
+
+10$:	MOVB	#1,R2				; Assume private mounted
+	MOVL	UCB$L_LD_PDUCB(R5),R0		; Get physical device UCB
+	TSTL	UCB$L_PID(R0)			; Private mounted?
+	BNEQ	20$				; Yes
+	INCB	R2				; System mounted, make it '2'
+
+20$:	MOVB	R2,(R1)+
+	MOVL	UCB$L_VCB(R0),R2		; Get VCB
+	TSTW	VCB$W_RVN(R2)			; Relative volume number
+	BEQL	30$				; Branch if not a volume set
+	MOVL	VCB$L_RVT(R2),R0		; Fetch RVT address
+	BEQL	30$				; Not there
+	MOVAB	RVT$T_VLSLCKNAM(R0),R2		; Use this as lockname
+	BRB	40$
+
+30$:	MOVAB	VCB$T_VOLCKNAM(R2),R2		; Lock name from here
+
+40$:	MOVL	(R2)+,(R1)+			; Copy 12 bytes lockname
+	MOVL	(R2)+,(R1)+
+	MOVL	(R2)+,(R1)+
+	CLRW	(R1)+				; Followed by 3 bytes 0
+	CLRB	(R1)+
+	MOVW	FCB$W_FID_NUM(R9),(R1)+		; Insert File ID
+	MOVW	FCB$W_FID_SEQ(R9),(R1)+		; SEQ
+	MOVW	FCB$W_FID_RVN(R9),(R1)+		; RVN
+
+50$:	POPR	#^M<R0,R1,R2,R3>
+	RSB					; C'est toute
+
+	.SBTTL	LD_SHAD_WCHECK - Check write to shadow member for privs
+;+++
+;
+; LD_SHAD_RWCHECK - Check read/write to shadow mbr for privilege
+;
+; Functional Description:
+;
+;       Allow only processes with SYS privilege to perform WRITES to
+;       Host Based Shadowing shadow set members.
+;
+; Inputs:
+;
+;       R3      IRP address
+;       R5      UCB address (member)
+;
+; Implicit inputs: None.
+;
+; Outputs:None.
+;
+; Implicit outputs: None.
+;
+; Condition codes:
+;
+;       SS$_ILLIOFUNC   - I/O directed to shadow set member by a process
+;                         that doesn't have sys priv.
+;---
+
+LD_SHAD_WCHECK:
+
+	BBC	#DEV$V_SHD,-			; If this device is not a shadow
+		UCB$L_DEVCHAR2(R5),10$		;  set member, quit
+	MOVL	IRP$L_ARB(R3),R0		; Get ARB address
+	BEQL	20$				; If ARB absent, exit
+	ASSUME	PRV$V_SYSPRV LT 32
+	BBC	#PRV$V_SYSPRV,ARB$Q_PRIV(R0),20$; No SYSPRV, illegal
+10$:	RSB					; Continue FDT processing
+
+20$:	MOVZBL	#SS$_ILLIOFUNC,R0		; Set error status
+	JMP	G^EXE$FINISHIOC			; Complete I/O request
+
+	.SBTTL	LD_CRESHAD - CRESHAD FDT routine
+	.SBTTL	LD_REMSHAD - REMSHAD FDT routine
+;+++
+;
+; LD_CRESHAD - CRESHAD FDT routine
+; LD_REMSHAD - REMSHAD FDT routine
+;
+; Functional Description:
+;
+;       Dispatch CRESHAD and REMSHAD requests to shadowing driver.
+;
+; Inputs:
+;
+;       R3      IRP address
+;       R5      UCB address (member)
+;
+; Implicit inputs: Dispatch vector filled in.
+;
+; Outputs:None.
+;
+; Implicit outputs: None.
+;
+; Condition codes:
+;
+;       SS$_ILLIOFUNC   - Dispatch vector not set up.
+;	SS$_DEVNOTSHR	- Shadowset exists already somewhere in the cluster.
+;
+;
+;	The routine must preserve all registers except R0-R2, and
+;	R9-R11.
+;---
+
+LD_CRESHAD:			; ----> IO$_CRESHAD
+LD_REMSHAD:			; ----> IO$_REMSHAD
+	MOVL	G^EXE$GL_HBS_PTR,R0		; Shadow Dispatcher
+	BGEQ	10$				; Illegal if not filled in
+	JMP	(R0)				; Jump to dispatcher
+
+10$:	MOVZBL	#SS$_ILLIOFUNC,R0		; Set error status
+	JMP	G^EXE$FINISHIOC			; Complete I/O request
+
+	.SBTTL	LD_CONTROL_INIT, Controller initialization routine
+;+++
+; LD_CONTROL_INIT, Readies controller for I/O operations
+;
+; Functional description:
+;
+;       The operating system calls this routine in 3 places:
+;
+;               at system startup
+;               during driver loading and reloading
+;               during recovery from a power failure
+;
+; This routine is a NOP for driver reloading and power failure recovery.
+; For system startup and driver loading it allocates a CDDB.
+;
+;
+; Inputs:
+;
+;       R4      - address of the CSR (controller status register)
+;       R5      - address of the IDB (interrupt data block)
+;       R6      - address of the DDB (device data block)
+;       R8      - address of the CRB (channel request block)
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R3.
+;
+;---
+
+LD_CONTROL_INIT:				; Initialize controller
+	MOVB	#SPL$C_IOLOCK8,-		; Init device spin lock index.
+		CRB$B_FLCK(R8)
+	PUSHQ	R4				; Save CSR & IDB
+	CLRL	R4				; Init errorflag
+	MOVZWL	IDB$W_UNITS(R5),R0		; Get number of units
+	BRB	20$
+;
+; Check for the correct UCB size if we're reloaded. If the size differs,
+; then turn the unit offline to avoid problems.
+;
+10$:	MOVL	IDB$L_UCBLST(R5)[R0],R1		; Get UCB
+	BEQL	20$				; Not present
+	CMPW	UCB$W_SIZE(R1),#UCB$K_LD_UCBLEN	; Expected size?
+	BEQL	20$				; Yes
+;
+; Something's seriously wrong here. The UCB size of the currently loaded
+; driver is not the same as the new driver. We may not continue, but since
+; the controllerinit routine does not return an exit status we cannot
+; signal it to SYSGEN. What we do is set the unit offline here.
+;
+	CLRL	CRB$L_AUXSTRUC(R8)		; Flag error
+	BICW2	#UCB$M_ONLINE,UCB$W_STS(R1)	; Switch unit offline
+	BICW2	#DEV$M_MSCP,-			; Zero this bit. Otherwise
+		UCB$L_DEVCHAR2(R1)		; 'show device' has problems
+						; if the CDDB is 0.
+	MOVZBL	#1,R4				; Flag something's wrong
+
+20$:	SOBGEQ	R0,10$				; Next device
+	TSTL	R4				; Did we have a problem?
+	BNEQ	30$				; Yes, quit
+	TSTL	CRB$L_AUXSTRUC(R8)		; Check if CDDB present
+	BEQL	40$				; Branch if not there
+
+30$:	POPQ	R4				; Restore registers
+	RSB					; Otherwise, return to caller
+;
+; Create fork thread to finish controller init.
+;
+40$:	MOVL	R6,R4				; Restore DDB
+	MOVL	R8,R5				; Fork with CRB
+	PUSHAB	30$				; Fake return address
+	FORK
+;
+; Get pool for CDDB.
+;
+	MOVZWL	#CDDB$K_LENGTH,R1		; Size of CDDB
+	JSB	G^EXE$ALONONPAGED		; Allocate some pool
+	BLBC	R0,50$				; Branch if error
+	PUSHR	#^M<R1,R2,R4,R5>		; Save registers.
+	MOVC5	#0,(SP),#0,R1,(R2)		; Zero entire block.
+	POPR	#^M<R1,R2,R4,R5>		; Restore saved registers.
+;
+; Initialize necessary CDDB fields.
+;
+	MOVW	R1,CDDB$W_SIZE(R2)		; Size
+	ASSUME	CDDB$B_SUBTYPE EQ CDDB$B_TYPE+1
+	MOVW	#<DYN$C_CLASSDRV!-		; Type
+		<DYN$C_CD_CDDB@8>>,-
+		CDDB$B_TYPE(R2)
+	MOVL	R5,CDDB$L_CRB(R2)		; CRB address
+	MOVL	R4,CDDB$L_DDB(R2)		; DDB address
+	MOVL	R2,CRB$L_AUXSTRUC(R5)		; Save CDDB address in CRB.
+	MOVL	DDB$L_UCB(R4),R5		; Get UCB
+	BISW2	#DEV$M_MSCP,-			; Set mscp bit. Now safe
+		UCB$L_DEVCHAR2(R5)		; because we've got a CDDB
+	MOVL	R2,UCB$L_CDDB(R5)		; Also in UCB (If first load)
+	MOVL	G^CLU$GL_ALLOCLS,-		; Allocation class
+		CDDB$L_ALLOCLS(R2)
+	MOVW	CDDB$L_ALLOCLS(R2),-		; Allocation class
+		CDDB$Q_CNTRLID(R2)
+	MOVW	UCB$W_UNIT(R5),-		; Unit number
+		CDDB$Q_CNTRLID+2(R2)
+	MOVL	UCB$L_MEDIA_ID(R5),-		; Media_id
+		CDDB$Q_CNTRLID+4(R2)
+;	MOVL	#MSCP$K_CM_EMULA,-		; Say our 'controller' is an
+;		CDDB$B_CNTRLMDL(R2)		; emulated one. This prevents
+;						; MSCP serving
+	BRB	60$				; fails then second load
+						; needs to store this.
+50$:	MOVL	DDB$L_UCB(R4),R5		; Get UCB
+	BICW2	#DEV$M_MSCP,-			; Zero this bit. Otherwise
+		UCB$L_DEVCHAR2(R5)		; 'show device' has problems
+						; if the CDDB is 0.
+60$:	RSB					; Return
+
+	.SBTTL	LD_CLONED_UCB, Cloned UCB initialization
+;+++
+; LD_CLONED_UCB, Cloned UCB initialization
+;
+; Functional description:
+;
+;	This routine is called by the $ASSIGN System Service to allow the
+;	driver to initialize the cloned UCB.  The driver is called with
+;	process context.
+;
+; Inputs:
+;	R0  = SS$_NORMAL
+;	R2  = address of cloned UCB
+;	R3  = DDT address
+;	R4  = PCB address
+;	R5  = address of the template UCB
+;	IPL = ASTDEL
+;
+; Outputs:
+;
+;	R5  = address of cloned UCB
+;	Destroyed = R5
+;
+;--
+LD_CLONED_UCB:
+	MOVL	R2,R5				; Copy UCB address
+	MOVL	UCB$L_CPID(R5),UCB$L_LD_CPID(R5); Save charge pid
+	CLRL	UCB$L_CPID(R5)			; Zero ID
+	MOVW	UCB$W_CHARGE(R5),-		; Save charged amount
+		UCB$W_LD_CHARGE(R5)
+	CLRW	UCB$W_CHARGE(R5)		; Zero charge
+	BISW2	#UCB$M_NOCNVRT,UCB$W_DEVSTS(R5)	; Inhibit logical to
+						; physical xlation.
+;
+; Fall through to the LD_UNIT_INIT routine to initialize the cloned UCB.
+;
+
+	.SBTTL	LD_UNIT_INIT, Unit initialization routine
+;+++
+; LD_UNIT_INIT, Readies unit for I/O operations
+;
+; Functional description:
+;
+;       The operating system calls this routine after calling the
+;       controller initialization routine:
+;
+;               at system startup
+;               during driver loading
+;               during recovery from a power failure
+;		during initialization of a cloned UCB
+;
+;
+; Inputs:
+;
+;       R3      - address of the CSR (controller status register)
+;       R5      - address of the UCB (unit control block)
+;
+;	IPL = IPL$_ASTDEL (jump/flow into from LD_CLONED_UCB)
+;	    = IPL$_POWER  (powerfail recovery and unit initialization)
+;
+; Outputs:
+;
+;	The routine must preserve all registers except R0-R1.
+;
+;---
+LD_UNIT_INIT:					; Initialize Unit
+	MOVL	UCB$L_CRB(R5),R0		; Get CRB address
+	TSTL	CRB$L_AUXSTRUC(R0)		; Get CDDB address out of the CRB.
+	BNEQ	10$				; Okay
+	BICW2	#UCB$M_ONLINE,UCB$W_STS(R5)	; Mark cloned unit as offline
+
+10$:	BBS	#UCB$V_POWER,UCB$L_STS(R5),20$	; Did power fail ?
+	MOVAL	UCB$L_LD_AIOFL(R5),-		; Initialize the Act. I/O queue
+		UCB$L_LD_AIOFL(R5)
+	MOVAL	UCB$L_LD_AIOFL(R5),-
+		UCB$L_LD_AIOBL(R5)
+	MOVAL	UCB$L_LD_TRCMUTEXQFL(R5),-	; Initialize trace mutex wait q.
+		UCB$L_LD_TRCMUTEXQFL(R5)
+	MOVAL	UCB$L_LD_TRCMUTEXQFL(R5),-
+		UCB$L_LD_TRCMUTEXQBL(R5)
+	MOVAL	UCB$L_LD_TRCWAITQFL(R5),-	; Initialize trace data wait q.
+		UCB$L_LD_TRCWAITQFL(R5)
+	MOVAL	UCB$L_LD_TRCWAITQFL(R5),-
+		UCB$L_LD_TRCWAITQBL(R5)
+	MOVAL	UCB$L_LD_WATCHQFL(R5),-		; Initialize watch queue
+		UCB$L_LD_WATCHQFL(R5)
+	MOVAL	UCB$L_LD_WATCHQFL(R5),-
+		UCB$L_LD_WATCHQBL(R5)
+	MOVAL	UCB$L_LD_WATCHPNDQFL(R5),-	; Initialize watch pending queue
+		UCB$L_LD_WATCHPNDQFL(R5)
+	MOVAL	UCB$L_LD_WATCHPNDQFL(R5),-
+		UCB$L_LD_WATCHPNDQBL(R5)
+	CLRL	UCB$L_LD_WATCHCNT(R5)		; No entries yet
+	MOVZWL	#^XFFFF,UCB$L_LD_TRCMUTEX(R5)	; Init trace mutex
+	CLRB	UCB$B_LD_FLAGS(R5)		; Clear flags
+;
+; Setup UCB CDDB field.
+;
+20$:	MOVZWL	#SS$_NORMAL,R0			; This will be returned to our
+						; caller (may be $ASSIGN)
+	FORK					; Fork to allow controller init
+						; routine to complete first
+	MOVL	UCB$L_CRB(R5),R0		; Get CRB address
+	MOVL	CRB$L_AUXSTRUC(R0),-		; Get CDDB address out of the CRB.
+		UCB$L_CDDB(R5)
+	BEQL	40$				; Did not get one
+	MOVL	R5,UCB$L_DP_ALTUCB(R5)		; Point to ourself because CDP bit
+						; is set (to prevent MSCP serving)
+	TSTW	UCB$W_UNIT(R5)			; Is this unit 0?
+	BNEQ	30$			   	; BR if it is
+	BICW2	#UCB$M_ONLINE,UCB$W_STS(R5)	; Mark unit 0 as offline
+	CLRW	UCB$W_UNIT_SEED(R5)		; Start with fresh unit
+	BRB	40$
+;
+; Setup MSCP stuff since some drivers need it (STdriver)
+;
+30$:	MOVW	UCB$W_UNIT(R5),-		; MSCP unit number
+		UCB$W_MSCPUNIT(R5)
+	BISW2	#UCB$M_ONLINE,UCB$W_STS(R5)	; Switch unit online
+
+40$:	RSB
+
+	.SBTTL	LD_DRV_UNLOAD, driver unloading routine
+;+++
+; LD_DRV_UNLOAD, Driver unloading routine
+;
+; Functional description:
+;
+;	The operating system calls this routine after a SYSGEN
+;	RELOAD command, IPL wil be IPL$_POWER.
+;
+;	An eventually allocated trace- or watchpoint buffer will be
+;	returned to pool.
+;
+; Inputs:
+;
+;	R6	- Address of DDB
+;	R10	- Address of DPT
+;
+; Outputs:
+;
+;
+; Due to a bug in SYSGEN we will NOT get the DDB address in R6, but zero.
+; Byebye VAX!! (This has been fixed in V6.0).
+; Because of this we will find the DDB ourselves.
+;
+; This routine may use all registers.
+;---
+
+LD_DRV_UNLOAD:					; Unload driver
+	BSBW	FIND_DDB			; Get the DDB
+	MOVL	DDB$L_UCB(R6),R5		; Get first UCB address
+	MOVL	UCB$L_CRB(R5),R7		; Get CRB address
+	CLRL	R4				; No PCB
+
+10$:	BSBW	LD_DEALLOC_TRCBUF		; Get rid of trace buffer
+	BSBW	LD_DEALLOC_WATCHBUF		; Get rid of watch buffers
+	MOVL	UCB$L_LINK(R5),R5		; Try next unit
+	BNEQ	10$				; It's there
+	MOVZWL	#SS$_NORMAL,R0
+	RSB
+;
+FIND_DDB:
+;
+; Not many checks needed as SYSGEN already verified our existance...
+;
+	MOVAB	DPT$T_NAME(R10),R9		; Get addr of driver name
+	MOVZBL	(R9)+,R8			; Get size of driver name
+	MOVAL	G^IOC$GL_DEVLIST,R6		; Get address of device listhead
+
+10$:	MOVL	DDB$L_LINK(R6),R6		; Get addr of next ddb
+	MOVAB	DDB$T_DRVNAME(R6),R1		; Get addr of driver name
+	MOVZBL	(R1)+,R0			; Get size of driver name
+	CMPC5	R0,(R1),#0,R8,(R9)		; Driver names match?
+	BNEQ	10$				; Br if not
+	RSB					; Return with DDB address in R6
+
+	.SBTTL	LD_START, Start I/O routine
+;+++
+; LD_START - Start a transmit or receive operation
+;
+; Functional description:
+;
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       R0      - 1st longword of I/O status: contains status code and
+;                 number of bytes transferred
+;       R1      - 2nd longword of I/O status: device-dependent
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+;---
+
+LD_START:					; Process an I/O packet
+;
+; We will clear the BSY flag here so that if we are stalled in LD_TRACE
+; other threads may start already, and won't be queued to our UCB. Since
+; we don't go through normal I/O completion (REQCOM) these I/O's will be
+; hanging there for the rest of the system's life. LD_TRACE takes care of
+; multiple threads.
+;
+	BICW2	#UCB$M_BSY,UCB$W_STS(R5)	; Clear the busy flag
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,-
+		IRP$W_FUNC(R3),R4		; Extract the function code
+	ASSUME	IRP$S_FCODE LE 7		; Allow byte mode dispatch
+;
+; Functions allowed with inactive device
+;
+	CMPB	R4,#IO$_LD_CONTROL		; Private control function?
+	BNEQ	10$				; No
+	BRW	LD_START_CONTROL		; Handle our own function codes
+
+10$:	BSBW	LD_CHECK_WATCH			; Check for watchpoint
+	BLBS	IRP$L_EXTEND(R3),15$		; Action done by CHECK_WATCH
+	BBS	#UCB$V_LD_CONSTS,-		; Device in DISCONNECT state ?
+		UCB$B_LD_FLAGS(R5),20$
+	MOVZWL	#SS$_DEVINACT,R0		; Set status to dev. inactive
+
+15$:	BRW	LD_DONE				; Complete the I/O
+
+20$:	MOVL	UCB$L_LD_PDUCB(R5),R0		; Get UCB of phys. disk
+	BBC	#UCB$V_ONLINE,UCB$W_STS(R0),25$	; Unit offline?
+	BBS	#IRP$V_PHYSIO,IRP$W_STS(R3),30$	; If set, phys. I/O function
+	BBS	#UCB$V_VALID,UCB$W_STS(R5),30$	; If volume valid ?
+	MOVZWL	#SS$_VOLINV,R0			; Set status to volume invalid
+	BRW	LD_DONE				; And complete the I/O
+;
+; Someone pulled the device underneath us (it went offline).
+; This may happen if we replaced a raid virutal unit with an LD
+; device. Subsequent unbinding of the raid array may take place
+; without us knowing about it. Return SS$_DRVERR to the user
+; (SS$_DEVOFFLINE would kick in mount verification, which i don't
+; want since this is a fatal error.
+;
+25$:	MOVZWL	#SS$_DRVERR,R0			; Return drive error status
+	BRW	LD_DONE				; And complete the I/O
+
+	ASSUME	IRP$S_FCODE LE 7		; Allow byte mode dispatch
+30$:	DISPATCH R4,TYPE=B,<-			; Dispatch according to function
+		<IO$_NOP,	LD_NOP>,-	; ^X00
+		<IO$_UNLOAD,	LD_UNLOAD>,-	; ^X01
+		<IO$_SEEK,	LD_SEEK>,-	; ^X02
+		<IO$_DRVCLR,	LD_DRVCLR>,-	; ^X04
+		<IO$_PACKACK,	LD_PACKACK>,-	; ^X08
+		<IO$_WRITECHECK,LD_TRANSFER_W>,-; ^X0A
+		<IO$_WRITEPBLK,	LD_TRANSFER_W>,-; ^X0B
+		<IO$_READPBLK,	LD_TRANSFER>,-	; ^X0C
+		<IO$_AVAILABLE,	LD_AVAILABLE>,-	; ^X11
+		<IO$_DSE,	LD_TRANSFER_W>>	; ^X15
+
+	MOVZWL	#SS$_ILLIOFUNC,R0		; Set illegal I/O function code
+	BRB	LD_DONE				; And complete the I/O
+
+LD_PACKACK:
+	BISW2	#UCB$M_VALID,UCB$W_STS(R5)	; Set volume valid bit
+	BRB	LD_NORMAL			; And complete the I/O
+
+LD_AVAILABLE:
+LD_UNLOAD:
+	BICW2	#UCB$M_VALID,UCB$W_STS(R5)	; Clear the volume valid bit
+						; Fall through into LD_NORMAL
+LD_DRVCLR:
+LD_SEEK:
+LD_NOP:
+LD_NORMAL:
+	MOVZWL	#SS$_NORMAL,R0			; Set status to success
+	CLRL	R2				; Dummy LBN
+	BBS	#UCB$V_LD_REPLACE,-		; More to do for replaced drive
+		UCB$B_LD_FLAGS(R5),LD_OTHER
+
+LD_DONE:					; Driver processing is finished.
+	CLRL	R1				; Clear second status longword
+	BSBW	LD_SAVE_TRACE			; Save trace data
+	BSBW	LD_RESUME_WATCH_THREAD		; Resume eventual suspended watch thread
+	REQCOM					; Complete I/O.
+
+;+++
+; The  IRP is now setup to be transferred to the physical disk.   The phys.
+; disk UCB is taken and it's FLCK is compared to our FLCK.  If our  FLCK is
+; lower, we raise IPL to synchronize.  We queue  the IRP to the  Phys. disk
+; driver, and simply return.
+; The phys. disk driver will call I/O completion to get rid of the IRP etc.
+; Because we do not know if the Phys. disk requires the Block nr in phys. ,
+; or Logical format, we first convert it to  Logical, because that  is what
+; we need, add the Starting LBN of the LD File, and go through  the conver-
+; sion process again, like in the FDT rtn's.
+;---
+
+LD_TRANSFER_W:
+	BBC	#DEV$V_SWL,UCB$L_DEVCHAR(R5),-	; Write protect?
+		LD_TRANSFER
+	MOVZWL	#SS$_WRITLCK,R0			; Yes, return write-lock status
+	BRW	LD_DONE
+
+LD_TRANSFER:
+	MOVL	IRP$L_MEDIA(R3),R2		; Save for later
+	BBC	#IRP$V_PHYSIO,IRP$W_STS(R3),20$	; Is it a phys. I/O ?
+	BBS	#IRP$V_SHDIO,IRP$W_STS2(R3),10$	; Is it shadowing I/O ?
+	BSBW	LD_CNVRTOLOG			; Convert to a log. I/O
+	BRB	20$
+;
+; Check if connected to DECRAM disk. The MDdriver assumes that if an IRP
+; comes along with the PHYSIO bit set it has to convert IRP$L_MEDIA from
+; T/S/C format to LBN. This is normally true, except when it is shadowing
+; I/O. If that's the case we will clear the PHYSIO bit so that DECRAM won't
+; attempt to convert IRP$L_MEDIA.
+;
+10$:	BBC	#UCB$V_LD_DECRAM,-
+		UCB$B_LD_FLAGS(R5),20$
+	BICW2	#IRP$M_PHYSIO,IRP$W_STS(R3)	; Zero PHYSIO bit
+
+20$:	CMPL	IRP$L_MEDIA(R3),-		; Does it fit on our disk ?
+		UCB$L_MAXBLOCK(R5)
+	BLEQ	30$				; Yep, skip
+	MOVZWL	#SS$_ILLBLKNUM,R0		; Set return status
+	BRW	LD_DONE				; And complete the I/O
+
+30$:	ADDL3	UCB$L_LD_STLBN(R5),-		; Add starting LBN of LD file
+		IRP$L_MEDIA(R3),R0
+	PUSHR	#^M<R2,R5>			; Save our UCB address
+	MOVL	UCB$L_LD_PDUCB(R5),R5		; Get UCB of phys. disk
+	JSB	G^IOC$CVTLOGPHY			; Convert LBN to Phys. blk. nr
+	POPR	#^M<R2,R5>			; Restore our UCB address
+
+LD_OTHER:
+	MOVL	R2,R1				; Save LBN
+	BSBW	LD_GETLDIOB			; Allocate I/O data block
+	BLBC	R0,LD_DONE			; Exit on error
+	MOVL	IRP$L_PID(R3),LDIOB_L_PID(R2)	; Copy PID from IRP
+	MOVL	IRP$L_IOSB(R3),LDIOB_L_IOSB(R2)	; Copy IOSB
+	CLRQ	LDIOB_Q_ST_TIME(R2)		; Zero start time
+	TSTL	UCB$L_LD_TRCBUF(R5)		; Trace active?
+	BEQL	10$				; No, save overhead
+	MOVL	R1,LDIOB_L_MEDIA(R2)		; Copy Media address
+	MOVL	IRP$L_BCNT(R3),LDIOB_L_BCNT(R2)	; Copy Bytecount
+	MOVW	IRP$W_FUNC(R3),LDIOB_W_FUNC(R2)	; Copy Functioncode
+	READ_SYSTIME	LDIOB_Q_ST_TIME(R2)	; Start time
+
+10$:	MOVAL	LD_COMPLETE,IRP$L_PID(R3)	; Setup I/O completion rtn
+	MOVL	R3,LDIOB_L_IRP(R2)		; Copy IRP address in LDIOB
+	INSQUE	LDIOB_L_QFL(R2),-		; Insert at end of queue
+		@UCB$L_LD_AIOBL(R5)
+	MOVL	UCB$L_LD_PDUCB(R5),R1		; Get UCB phys. disk
+;
+; The following exists to workaround a SHdriver problem. This driver needs
+; the UCB field in the IRP to be pointing to the Virtual unit UCB. If
+; that's not the case, we will crash. This may happen if the logical disk
+; file is on a Phase II shadowset.
+; We save the LD UCB in the IOSB field, this is not used before post-processing.
+; In the I/O completion we will restore the IOSB from the LDIOB.
+;
+	MOVL	R5,IRP$L_IOSB(R3)		; Save UCB in a safe place
+	MOVL	R1,IRP$L_UCB(R3)		; Setup physical device UCB
+	MOVZBL	UCB$B_FLCK(R5),R2		; Get our forklock index
+	CMPB	UCB$B_FLCK(R5),UCB$B_FLCK(R1)	; Compare (negative index)
+	BLSS	30$				; Ok, ours is larger or equal
+	MOVZBL	UCB$B_FLCK(R1),R2		; Get the lowest of the 2
+30$:	FORKLOCK	LOCK=R2,-		; Synchronize
+			SAVIPL=-(SP),-
+			PRESERVE=NO
+	PUSHL	R2				; Save lock
+	PUSHL	R5				; Save our UCB address
+	MOVL	R1,R5				; Setup Phys. disk UCB address
+	INCW	UCB$W_QLEN(R5)			; Bump device queue length
+	BBSS	#UCB$V_BSY,UCB$W_STS(R5),40$	; Check if device is busy
+	JSB	G^IOC$INITIATE			; Initiate the I/O function
+	BRB	50$				; Common code flow
+
+40$:	MOVAL	UCB$L_IOQFL(R5),R2		; Get addr. of I/O queue listhd
+	JSB	G^EXE$INSERTIRP			; Insert IRP in device queue
+50$:	MOVL	(SP)+,R5			; Restore our UCB
+	MOVL	(SP)+,R2			; Restore lock
+	FORKUNLOCK	LOCK=R2,-		; Release lock
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	RSB					; And simply return
+
+;+++
+; Convert a physical block into a logical block.
+; Modify IRP$L_MEDIA into LBN instead of TRK/CYL/SEC.
+; LBN = (CYL * (TRACKS PER CYL) + TRACK) * (SECTORS PER TRACK) + SECTOR
+;---
+
+LD_CNVRTOLOG:
+	PUSHR	#^M<R2,R4>
+	MOVZBL	UCB$B_TRACKS(R5),R4		; Get T/C
+	MOVZWL	IRP$L_MEDIA+2(R3),R0		; Get C
+	MULL2	R0,R4				; R4=C*(T/C)
+	MOVZBL	IRP$L_MEDIA+1(R3),R2		; Get T
+	ADDL	R4,R2				; R2=C*(T/C)+T
+	MOVZBL	UCB$B_SECTORS(R5),R4		; Get S/T
+	MULL2	R4,R2				; R2=(C*(T/C)+T)*(S/T)
+	MOVZBL	IRP$L_MEDIA(R3),R4		; Get S
+	ADDL2	R4,R2				; R2=(C*(T/C)+T)*(S/T)+S
+	MOVL	R2,IRP$L_MEDIA(R3)		; Put LBN into IRP
+	POPR	#^M<R2,R4>
+	RSB					; Return to caller
+
+	.SBTTL	LD_START_CONTROL, Start LD control routine
+;+++
+;  LD_START_CONTROL, Start LD control routine
+;
+; Functional description:
+;
+;	This is the completion of the control processing. This has to be
+;	in system context since we may need to fork when we use the
+;	forklevel interface to the lockmanager.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+;---
+LD_START_CONTROL:
+	ASSUME LDIO_S_FUNC EQ 8
+	DISPATCH IRP$L_EXTEND(R3),TYPE=B,<-		; Dispatch according to function
+		<LDIO_GET_TRACE,	LD_START_TRACE>,-
+		<LDIO_ENABLE_WATCH,	LD_START_ENABLE_WATCH>,-
+		<LDIO_DISABLE_WATCH,	LD_START_DISABLE_WATCH>,-
+		<LDIO_GET_WATCH,	LD_START_GET_WATCH>,-
+		<LDIO_RESUME_WATCH,	LD_START_RESUME_WATCH>,-
+		<LDIO_GET_SUSPEND_LIST,	LD_START_GET_SUSPEND_LIST>,-
+		<LDIO_CONNECT,		LD_START_CONNECT>,-
+		<LDIO_DISCONNECT,	LD_START_DISCONNECT>>
+	MOVZWL	#SS$_ILLIOFUNC,R0			; Set illegal I/O function code
+	CLRL	R1
+	REQCOM
+
+	.SBTTL	LD_START_CONNECT, LD Start connnect routine
+;+++
+;  LD_START_CONNECT, LD Start connnect routine
+;
+; Functional description:
+;
+;	This is the completion of the connect processing. This has to be
+;	in system context since we may need to fork when we use the
+;	forklevel interface to the lockmanager.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       R0      - 1st longword of I/O status: contains status code and
+;                 number of bytes transferred
+;       R1      - 0
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+;---
+LD_START_CONNECT:
+	BBC	#LDIO_V_SHARE,-			; Shared access?
+		IRP$L_EXTEND(R3),20$
+	MOVL	UCB$L_LD_PDUCB(R5),R1		; Get the phys. disk UCB
+	BBS	#DEV$V_CLU,-			; Cluster wide visible ?
+		UCB$L_DEVCHAR2(R1),20$
+	MOVZWL	#SS$_ACCONFLICT,R0		; Not cluster-wide visible
+
+10$:	BRW	130$
+
+20$:	BSBW	LD_ENQ_LD_LOCK			; Get lock of container file or device
+	BLBC	R0,10$				; It's not allowed
+	BBC	#LDIO_V_REPLACE,-		; Replace drive?
+		IRP$L_EXTEND(R3),30$
+	BRW	40$				; Skip file manipulation
+
+30$:	MOVL	UCB$L_LD_FCB(R5),R2		; Recover FCB address
+;
+; The following should really be done under the F11B$s lock...
+;
+	INCW	FCB$W_REFCNT(R2)		; Increment the reference count
+	INCW	FCB$W_ACNT(R2)			; Increment the access count
+;
+	MOVL	UCB$L_LD_PDUCB(R5),R1		; Get the phys. disk UCB
+	MOVL	UCB$L_VCB(R1),R0		; Get it's VCB
+	ADAWI	#1,VCB$W_TRANS(R0)		; Bump the transaction count
+	ASSUME	FCB$W_FID_NUM+2 EQ FCB$W_FID_SEQ
+	MOVL	FCB$W_FID_NUM(R2),-		; Save FID for crosscheck
+		UCB$W_LD_FID_NUM(R5)
+	MOVW	FCB$W_FID_RVN(R2),-
+		UCB$W_LD_FID_RVN(R5)
+	BRW	100$
+;
+; Replace drive processing
+;
+; Take out devicelock for physical device to protect against access from
+; another cluster member. If it fails then the device is in use, if we get
+; the lock then dequeue it if cluster access was specified.
+;
+40$:	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save R3 + R4
+	MOVAB	UCB$T_LD_PD_RESNAM+4(R5),R1	; Setup pointer to resource name
+	MOVAB	4(R1),(R1)+			; And address
+	MOVL	#^A/SYS$/,(R1)+			; "SYS$"
+	MOVZBL	#16,R0				; Buffer size
+	MOVZBL	#1,R4				; DVI$_ALLDEVNAM
+	PUSHL	R5				; Save UCB
+	MOVL	UCB$L_LD_PDUCB(R5),R5		; Get the phys. disk UCB
+	JSB	G^IOC$CVT_DEVNAM		; Get alloclass devicename
+	MOVL	(SP)+,R5			; Restore UCB
+	ADDL3	#4,R1,-				; Save length
+		UCB$T_LD_PD_RESNAM(R5)
+	ENQ_LOCK	MODE=#LCK$K_EXMODE,-
+			LKSBL=UCB$Q_LD_PD_LKSB(R5),-
+			RESNAME=UCB$T_LD_PD_RESNAM(R5),-
+			CMPLADR=60$,-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_NOQUEUE>
+	CMPW	R0,#SS$_NOTQUEUED		; Any one else interested?
+	BNEQ	50$				; No
+	MOVZWL	#SS$_DEVALLOC,R0		; In use
+;
+; Failed due to arbitration via device lock.
+; Make sure that we get rid of the $LOGDISK lock.
+;
+50$:	MOVL	R0,R4				; Save status
+	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save R3 + R4
+	$LCK_DEQ	LKID=UCB$Q_LD_FILE_LKSB+4(R5)
+						; Get rid of lock
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore R3 + R4
+	MOVL	R0,R1				; Return eventual error in R1
+	MOVL	R4,R0				; Restore status
+	BRW	140$				; Return error
+;
+; Completion of ENQ ends up here
+;
+60$:	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore registers
+	MOVZWL	UCB$Q_LD_PD_LKSB(R5),R0		; Check completion status
+	BLBC	R0,50$				; Something's wrong
+	BBS	#LDIO_V_SHARE,-			; Shared access wanted?
+		IRP$L_EXTEND(R3),70$
+	MOVL	UCB$L_LD_PDUCB(R5),R1		; Get the phys. disk UCB
+	MOVL	UCB$Q_LD_PD_LKSB+4(R5),-	; Save lockid
+		UCB$L_LOCKID(R1)
+	BRB	90$
+
+70$:	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save R3 + R4
+	$LCK_DEQ	UCB$Q_LD_PD_LKSB+4(R5)	; Get rid of devicelock
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore R3 + R4
+	BLBC	R0,50$				; Error
+	MOVL	UCB$L_LD_PDUCB(R5),R1		; Get the phys. disk UCB
+
+90$:	MOVL	UCB$L_ORB(R5),-			; Save ORB
+		UCB$L_LD_ORBSAV(R5)
+	MOVL	UCB$L_ORB(R1),-			; Get protection from physical device
+		UCB$L_ORB(R5)
+	MOVB	UCB$B_DEVTYPE(R1),-		; Copy device type
+		UCB$B_DEVTYPE(R5)
+ASSUME	UCB$B_TRACKS EQ UCB$B_SECTORS+1
+ASSUME	UCB$W_CYLINDERS EQ UCB$B_TRACKS+1
+	MOVL	UCB$B_SECTORS(R1),-		; Copy sectors, tracks and cylinders
+		UCB$B_SECTORS(R5)
+	MOVL	UCB$L_MAXBLOCK(R1),-		; Copy maximum block
+		UCB$L_MAXBLOCK(R5)
+	CLRL	UCB$L_LD_STLBN(R5)		; No offset for read
+	EXTV	#DEV$V_SWL,#1,-			; Extract write-lock bit
+		UCB$L_DEVCHAR(R1),R0
+	INSV	R0,#DEV$V_SWL,#1,-		; Insert (for CD-ROM)
+		UCB$L_DEVCHAR(R5)
+	INCW	UCB$W_REFC(R1)			; Mark our interest
+	BICL2	#DEV$M_AVL,-			; Make unavailable for others
+		UCB$L_DEVCHAR(R1)
+	BISB2	#UCB$M_LD_REPLACE,-		; Set special connect
+		UCB$B_LD_FLAGS(R5)
+	BISL2	#<DEV$M_IDV!DEV$M_ODV!DEV$M_RND>,-
+		UCB$L_DEVCHAR(R5)		; Set characteristics again
+						; Needed after replace of CDrom
+;
+; Common exit
+;
+100$:	MOVL	UCB$L_MAXBCNT(R1),-		; Copy maximum bytecount
+		UCB$L_MAXBCNT(R5)
+	CMPB	UCB$B_DEVTYPE(R1),-		; Check if we connected to
+		#DT$_RAM_DISK			;  a DECRAM disk
+	BNEQ	110$				; No
+	BISB2	#UCB$M_LD_DECRAM,-		; Flag DECRAM in use
+		UCB$B_LD_FLAGS(R5)
+
+110$:	BICL2	#UCB$M_DELETEUCB,UCB$L_STS(R5)	; Make UCB non-deletable
+	BBC	#LDIO_V_SHARE,-			; Shared accessable?
+		IRP$L_EXTEND(R3),120$
+	BISL2	#DEV$M_CLU,UCB$L_DEVCHAR2(R5)	; Make cluster wide visible
+	BISB2	#UCB$M_LD_SHARE,-		; Set status
+		UCB$B_LD_FLAGS(R5)
+
+120$:	ADAWI	#1,LD_REFCNT			; Count number of 'connects'
+	BISL2	#DPT$M_NOUNLOAD,-		; Prevent reloading of driver
+		DPT$TAB+DPT$L_FLAGS
+	BISB2	#UCB$M_LD_CONSTS,-		; Set status to connected
+		UCB$B_LD_FLAGS(R5)
+	MOVZWL	#SS$_NORMAL,R0			; Set status to success
+
+130$:	CLRL	R1
+
+140$:	BSBW	LD_SAVE_TRACE			; Save trace data
+	REQCOM					; Complete the I/O
+
+	.SBTTL	LD_START_DISCONNECT, LD Start disconnnect routine
+;+++
+;  LD_START_DISCONNECT, LD Start disconnnect routine
+;
+; Functional description:
+;
+;	This is the completion of the disconnect processing. This has to be
+;	in system context since we may need to fork when we use the
+;	forklevel interface to the lockmanager.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       R0      - 1st longword of I/O status: contains status code and
+;                 number of bytes transferred
+;       R1      - 0
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+;---
+LD_START_DISCONNECT:
+	BBS	#UCB$V_LD_REPLACE,-		; Check if replaced device
+		UCB$B_LD_FLAGS(R5),20$
+	BBS	#LDIO_V_ABORT,-			; Check if abort is specified
+		IRP$L_EXTEND(R3),10$
+	MOVL	UCB$L_LD_FCB(R5),R2		; Copy FCB address
+	DECW	FCB$W_REFCNT(R2)		; Decr. the reference count
+	DECW	FCB$W_ACNT(R2)			; Decr. the access count
+
+10$:	MOVL	UCB$L_LD_PDUCB(R5),R0		; Get the physical disk UCB
+	MOVL	UCB$L_VCB(R0),R0		; Get it's VCB
+	ADAWI	#-1,VCB$W_TRANS(R0)		; Decrement the transaction count
+	BRW	40$
+;
+; Replaced drive processing
+;
+20$:	BBS	#UCB$V_LD_SHARE,-		; If no shared access specified
+		UCB$B_LD_FLAGS(R5),30$		; then no lock to dequeue
+	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save R3 + R4
+	MOVL	UCB$L_LD_PDUCB(R5),R0		; Get the physical disk UCB
+	$LCK_DEQ	LKID=UCB$L_LOCKID(R0)	; Get rid of devicelock
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore R3 + R4
+	BLBS	R0,30$				; Success
+	BBS	#LDIO_V_ABORT,-			; Check if abort is specified
+		IRP$L_EXTEND(R3),30$
+	BRW	60$				; Unexpected error
+
+30$:	MOVL	UCB$L_LD_PDUCB(R5),R0		; Get the physical disk UCB
+	CLRL	UCB$L_LOCKID(R0)		; Zero ID
+	DECW	UCB$W_REFC(R0)			; We're not interested anymore
+	BISL2	#DEV$M_AVL,UCB$L_DEVCHAR(R0)	; Make available again
+	MOVL	UCB$L_LD_ORBSAV(R5),-		; Restore ORB
+		UCB$L_ORB(R5)
+;
+; Common path
+;
+40$:	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save R3 + R4
+	$LCK_DEQ	LKID=UCB$Q_LD_FILE_LKSB+4(R5)
+						; Get rid of lock
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore R3 + R4
+	BLBS	R0,45$				; Success
+	BBC	#LDIO_V_ABORT,-			; Continue if abort is specified
+		IRP$L_EXTEND(R3),60$
+
+45$:	BISL2	#UCB$M_DELETEUCB,UCB$L_STS(R5)	; Make UCB deletable
+	MOVB	#DT$_FD1,-			; Dev. type = foreign disk
+		UCB$B_DEVTYPE(R5)
+	CLRL	UCB$L_MAXBLOCK(R5)		; Zero device specific info
+ASSUME	UCB$B_TRACKS EQ UCB$B_SECTORS+1
+ASSUME	UCB$W_CYLINDERS EQ UCB$B_TRACKS+1
+	CLRL	UCB$B_SECTORS(R5)
+	BICL2	#DEV$M_SWL,-			; Restore writelock
+		UCB$L_DEVCHAR(R5)
+	BICB2	#<UCB$M_LD_CONSTS!-		; Set status to disconnected
+		  UCB$M_LD_REPLACE!-
+		  UCB$M_LD_PROTECT!-
+		  UCB$M_LD_SHARE!-
+		  UCB$M_LD_DECRAM>,-
+		UCB$B_LD_FLAGS(R5)
+	ADAWI	#-1,LD_REFCNT			; Count down #of 'connects'
+	BNEQ	50$				; Some left
+	BICL2	#DPT$M_NOUNLOAD,-		; Allow reloading of driver
+		DPT$TAB+DPT$L_FLAGS
+50$:	MOVZWL	#SS$_NORMAL,R0			; Set status to success
+
+60$:	CLRL	R1
+	BSBW	LD_SAVE_TRACE			; Save trace data
+	REQCOM
+
+	.SBTTL	LD_ENQ_LD_LOCK, Enqueue file- or device lock for LD device
+;+++
+; LD_ENQ_LD_LOCK, Enqueue file- or device lock for LD device
+;
+; Functional description:
+;
+;       This routine will enqueue the file lock of the specified file and
+;	device. It will check if the file is used on another node anywhere
+;	in the cluster. If true then it's only allowed if we ordered shared
+;	access and if the remote devicename and geometry matches ours so
+;	that XQP locking will work.
+;
+;	The locking protocol is as follows:
+;
+;	First we will enqueue an EX-mode lock on our resource. If it is granted
+;	immediately (SS$_SYNCH returned) then it means that we are the first
+;	one ever getting this lock. We will then fill the value block and
+;	convert the lock down to CR (specifying a blocking ast routine), and
+;	exit with success.
+;
+;	If we don't get it immediately then it means that another thread owns
+;	the lock. In that case we implicitely triggered the blocking ast
+;	routine by enqueueing the EX lock. This blocking ast routine will then
+;	convert the lock back to NL, and it will immediately try to convert
+;	it back to CR. After we get the lock, we will check the value block
+;	and then either dequeue it or convert it back to CR. After that action
+;	the blocking ast routine will convert the lock back to CR.
+;
+;	If we encounter an invalid lock value block during this process we will
+;	just rewrite it with the same contents. It's not documented, but we can
+;	rely on the value being equal to what it was before it became invalid.
+;	(courtesy of Sandy Snaman, it may be documented in the future).
+;
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; 	IOLOCK8 (=SCS) forklock held
+;
+; Outputs:
+;
+;	R0	- status
+;		SS$_NORMAL	-	Success
+;		SS$_FILALRACC	-	File in use in an incompatible way
+;		other		-	Returned by lockmanager
+;
+;	Only R3-R5 are preserved as we may fork.
+;
+;---
+LD_ENQ_LD_LOCK:
+	MOVL	(SP)+,UCB$L_LD_SAVEPC(R5)	; Save caller's address
+						; because we may fork
+	MOVQ	R3,UCB$L_LD_FR3(R5)		; Save registers
+	ENQ_LOCK	MODE=#LCK$K_EXMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			RESNAME=UCB$T_LD_FILE_RESNAM(R5),-
+			CMPLADR=50$,-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_SYNCSTS>
+	CMPW	R0,#SS$_SYNCH			; Are we the only one?
+	BNEQ	40$
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore registers
+;
+; We are the first one queueing a lock for this resource. Setup the
+; lock value block, convert the lock back to CR and exit with success.
+;
+	MOVAB	UCB$A_LD_FILE_LVB(R5),R1	; Setup pointer to lock value block
+	MOVL	UCB$L_DDB(R5),R2		; Get DDB
+	MOVL	DDB$L_ALLOCLS(R2),-		; Setup allocation class
+		LDLVB_L_ALLOCLS(R1)
+	MOVW	UCB$W_UNIT(R5),-		; Unit number
+		LDLVB_W_UNIT(R1)
+	MOVW	UCB$W_CYLINDERS(R5),-		; Cylinders
+		LDLVB_W_CYLINDERS(R1)
+	MOVB	UCB$B_TRACKS(R5),-		; Tracks
+		LDLVB_B_TRACKS(R1)
+	MOVB	UCB$B_SECTORS(R5),-		; Sectors
+		LDLVB_B_SECTORS(R1)
+	MOVL	UCB$L_MAXBLOCK(R5),-		; Maximum blocknumber
+		LDLVB_L_MAXBLOCK(R1)
+	CLRB	LDLVB_B_FLAGS(R1)		; Init flags
+	BBC	#LDIO_V_SHARE,-			; Shared access?
+		IRP$L_EXTEND(R3),20$
+	BISB	#LDLVB_M_SHARE,-
+		LDLVB_B_FLAGS(R1)		; Set flags
+
+20$:	ENQ_LOCK	MODE=#LCK$K_CRMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			BLKADR=LD_ENQ_FILE_BLKRTN,-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_CONVERT>,-
+			ERROR=90$
+;
+; Lock is converted to CR.
+;
+30$:	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore registers
+	MOVZWL	UCB$Q_LD_FILE_LKSB(R5),R0	; Get completion status
+
+40$:	BRW	90$				; Exit with completion status
+;
+; Lock is granted as EX.
+;
+50$:	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore registers
+	MOVZWL	UCB$Q_LD_FILE_LKSB(R5),R0	; Get completion status
+;
+; Check for an invalid value block. If that's the case then we can rely on the
+; fact that the contents of the valueblock are the same as they were before.
+; (courtesy of Sandy Snaman). By either DEQing or converting to CR we will
+; revalidate it.
+;
+	CMPL	R0,#SS$_VALNOTVALID		; Value block invalid?
+	BEQL	60$				; Yes, deal with it later
+	BLBC	R0,90$				; Something's wrong
+;
+; We now have the lock in EX mode. Check the lock value block to see
+; if we match.
+;
+60$:	MOVAB	UCB$A_LD_FILE_LVB(R5),R1	; Setup pointer to lock value block
+	BBC	#LDLVB_V_SHARE,-		; Check for shared access
+		LDLVB_B_FLAGS(R1),80$
+	BBC	#LDIO_V_SHARE,-			; Shared access requested?
+		IRP$L_EXTEND(R3),80$
+	MOVL	UCB$L_DDB(R5),R2		; Get DDB
+	CMPL	DDB$L_ALLOCLS(R2),-		; Check allocation class
+		LDLVB_L_ALLOCLS(R1)
+	BNEQ	80$				; No match
+	CMPW	UCB$W_UNIT(R5),-		; Unit number
+		LDLVB_W_UNIT(R1)
+	BNEQ	80$				; No match
+	CMPW	UCB$W_CYLINDERS(R5),-		; Cylinders
+		LDLVB_W_CYLINDERS(R1)
+	BNEQ	80$				; No match
+	CMPB	UCB$B_TRACKS(R5),-		; Tracks
+		LDLVB_B_TRACKS(R1)
+	BNEQ	80$				; No match
+	CMPB	UCB$B_SECTORS(R5),-		; Sectors
+		LDLVB_B_SECTORS(R1)
+	BNEQ	80$				; No match
+	CMPL	UCB$L_MAXBLOCK(R5),-		; Maximum blocknumber
+		LDLVB_L_MAXBLOCK(R1)
+	BNEQ	80$				; No match
+	BRW	20$				; Convert down to CR and exit
+;
+; Dequeue the lock since we're not allowed to use the file or device.
+; Specify the lock valueblock so that in case it was not valid dequeue
+; will rewrite it.
+;
+80$:	$LCK_DEQ	LKID=UCB$Q_LD_FILE_LKSB+4(R5),-
+			VALBLK=UCB$A_LD_FILE_LVB(R5)
+						; Get rid of file lock
+	MOVQ	UCB$L_LD_FR3(R5),R3		; Restore registers
+	BLBC	R0,90$				; Error
+	MOVZWL	#SS$_FILALRACC,R0		; Assume file in use
+	BBC	#LDIO_V_REPLACE,-		; Replace drive?
+		IRP$L_EXTEND(R3),90$
+	MOVZWL	#SS$_DEVALLOC,R0		; Device In use
+
+90$:	JMP	@UCB$L_LD_SAVEPC(R5)		; Resume thread
+
+	.SBTTL	LD_ENQ_FILE_BLKRTN, Enqueue file lock blocking ast routine
+;+++
+; LD_ENQ_FILE_BLKRTN, Enqueue file lock blocking ast routine
+;
+; Functional description:
+;
+;       This routine will be called by the lockmanager when someone else
+;	tries to enqueue an incompatible lock on the FILE resource name.
+;
+;	We will convert the lock back to NL, and then we immediately try
+;	to convert it back to CR. If this second conversion is successfull
+;	we will just exit.
+;
+;	If the second conversion reveals a 'value block invalid' error we
+;	must revalidate the lock. We do this by converting the lock back
+;	to NL, up to EX, back to NL and then back to CR. This looks
+;	over-complicated but this is needed because more than one thread
+;	may be active at the same time, and we must make sure that we won't
+;	block other threads which in the conversion process. The second
+;	conversion to NL is needed because we are not allowed to convert a
+;	lock from EX to CR while specifying QUECVT.
+;
+; Inputs:
+;
+;       R5      - address of the UCB (unit control block)
+;
+; 	IOLOCK8 (=SCS) forklock held
+;
+; Outputs:
+;
+;	Only R3-R5 are preserved as we may fork.
+;
+;---
+LD_ENQ_FILE_BLKRTN:
+	ENQ_LOCK	MODE=#LCK$K_NLMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			EFLAGS=<LCK$M_CONVERT>,-
+			ERROR=60$
+	BLBC	UCB$Q_LD_FILE_LKSB(R5),20$	; Check completion status
+;
+; Lock is converted to NL, convert back to CR.
+;
+10$:	ENQ_LOCK	MODE=#LCK$K_CRMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			BLKADR=LD_ENQ_FILE_BLKRTN,-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_CONVERT>,-
+			ERROR=60$
+;
+; Lock is converted to CR.
+;
+	MOVZWL	UCB$Q_LD_FILE_LKSB(R5),R0	; Get final status
+	CMPL	R0,#SS$_VALNOTVALID		; Value block invalid?
+	BEQL	40$				; Yes, deal with it later
+	BLBS	R0,30$				; No error, exit
+
+20$:	BRW	60$				; Bugcheck on all other errors
+
+30$:	RSB
+;
+; We have an invalid lock value block. Convert the lock to NL, then to EX,
+; then to NL to rewrite the lockvalue block, and finally to CR.
+;
+40$:	ENQ_LOCK	MODE=#LCK$K_NLMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			EFLAGS=<LCK$M_CONVERT>,-
+			ERROR=60$
+	BLBC	UCB$Q_LD_FILE_LKSB(R5),20$	; Get status
+;
+; Lock is converted to NL, convert back to EX.
+;
+	ENQ_LOCK	MODE=#LCK$K_EXMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_CONVERT>,-
+			ERROR=60$
+	MOVZWL	UCB$Q_LD_FILE_LKSB(R5),R0	; Get status
+	CMPL	R0,#SS$_VALNOTVALID		; Value block invalid?
+	BEQL	50$				; Acceptable
+	BLBC	R0,60$				; Check completion status
+;
+; Lock is converted to EX, convert back to NL to rewrite the value block.
+;
+50$:	ENQ_LOCK	MODE=#LCK$K_NLMODE,-
+			LKSBL=UCB$Q_LD_FILE_LKSB(R5),-
+			EFLAGS=<LCK$M_VALBLK!-
+				LCK$M_CONVERT>,-
+			ERROR=60$
+	BLBC	UCB$Q_LD_FILE_LKSB(R5),60$	; Quit on error
+	BRW	10$				; Ok, convert back to CR and exit
+;
+; Bugcheck since there's nobody to return this error to....
+;
+60$:	BUG_CHECK	INCONSTATE,FATAL	; Unexpected error from lockmanager
+
+	.SBTTL	LD_START_TRACE, Start I/O trace routine
+;+++
+; LD_START_TRACE, Start I/O trace routine
+;
+; Functional description:
+;
+;	This is the completion of the retrieve tracedata processing. This has to be
+;	in system context since we need to fork when we find that there is no
+;	tracedata available.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;---
+LD_START_TRACE:
+	INSQUE	(R3),@UCB$L_LD_TRCWAITQBL(R5)	; Save wait IRP in queue
+;
+; Return to caller. Since we don't want the I/O to complete now (there's
+; no trace data when we get here) we return to our caller instead of
+; going through REQCOM. When LD_TRACE writes new data into the buffer
+; it will queue an AST to the process, and the process will resume at
+; LD_TRACE_AST which will copy the new data to the user and complete
+; the I/O.
+;
+	RSB					; Return to caller
+
+	.SBTTL	LD_TRACE_AST, Display data AST completion routine
+;+++
+;  LD_TRACE_AST, Display data AST completion routine
+;
+; Functional description:
+;
+;	This is the final completion of the display processing.
+;	This routine is called as an AST routine in the context of the
+;	process issueing the I/O. We will move the newly available trace
+;	data to the user's buffer, and complete the I/O.
+;
+; Inputs:
+;
+;	R4	- address of the PCB (process control block)
+;       R5      - address of the ACB
+;
+;       The routine must preserve all registers except R0-R5.
+;---
+LD_TRACE_AST:
+	MOVL	ACB$L_ASTPRM(R5),R3		; Restore IRP
+	MOVL	R5,R0				; Address of ACB
+	JSB	G^EXE$DEANONPAGED		; Get rid of ACB
+	MOVL	IRP$L_UCB(R3),R5		; Restore UCB
+	BSBW	LD_MOVE_TRACE			; Move data to user
+	BLBC	R0,10$				; Missed count in R1 on error
+	DIVL3	#LDTRCENT_K_LENGTH,R2,R1	; Convert size to #of entries
+
+10$:	CLRL	IRP$L_SVAPTE(R3)		; No more SVAPTE
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Raise to Fork level
+			SAVIPL=-(SP)
+	MOVL	R3,UCB$L_IRP(R5)		; Restore IRP
+	JSB	G^IOC$REQCOM			; Complete the I/O request
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=(SP)+,-		; Remain ast IPL$_ASTDEL
+			PRESERVE=NO
+	RSB
+
+	.SBTTL	LD_START_ENABLE_WATCH, Start I/O enable watch processing
+;+++
+;  LD_START_ENABLE_WATCH, Start I/O enable watch processing
+;
+; Functional description:
+;
+;	This is the completion of the enable watchpoint processing.
+;	Buffers will be allocated, and if any buffer which was specified
+;	by the user already exists we will return the charge for this
+;	buffer to the user by ast.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;	IRP$L_OBCNT	- number of entries in userbuffer
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;---
+LD_START_ENABLE_WATCH:
+	MOVL	IRP$L_SVAPTE(R3),R2		; Get systembuffer address
+	MOVL	(R2),R2				; Get userbuffer address
+	MOVL	IRP$L_OBCNT(R3),R4		; Get count
+
+10$:	MOVAL	UCB$L_LD_WATCHQFL(R5),R1	; Get queue listhead
+	BSBW	LD_FIND_WATCH_ENTRY_ENA		; Find matching entry
+	BLBS	R0,30$				; Not found
+	CMPW	LDWATCH_W_ACTION(R1),-		; Suspend?
+		#WATCH_ACTION_SUSPEND
+	BNEQ	20$				; No
+	BSBW	LD_DRAIN_WATCH_THREAD		; Get rid of watchpoints
+
+20$:	BSBW	LD_COPY_WATCH			; Found exact match, copy new
+						; parameters except pid
+	MOVL	#LDWATCHENT_K_LENGTH,R1		; Number of bytes already there
+	PUSHR	#^M<R2,R4>
+	MOVL	IRP$L_PID(R3),R4		; Process to credit
+	BSBW	LD_RETURN_QUOTA			; Give quota back to user
+	POPR	#^M<R2,R4>
+ 	BRW	40$
+
+30$:	PUSHL	R2				; New entry, alloc buffer
+	PUSHL	R1
+	MOVZWL	#LDWATCHENT_K_LENGTH,R1		; This size
+	JSB	G^EXE$ALONONPAGED		; Get buffer
+	BLBC	R0,50$				; Out of resources
+	MOVB	#DYN$C_BUFIO,LDWATCH_B_TYPE(R2)	; Fill type
+	CLRW	LDWATCH_W_FLAGS(R2)		; Zero flags
+	MOVW	R1,LDWATCH_W_SIZE(R2)		; And size
+	MOVAL	LDWATCH_L_SUSPFL(R2),-		; Init suspend queue
+		LDWATCH_L_SUSPFL(R2)
+	MOVAL	LDWATCH_L_SUSPFL(R2),-
+		LDWATCH_L_SUSPBL(R2)
+	CLRL	LDWATCH_L_SUSPCNT(R2)		; Nothing suspended yet
+	MOVL	R2,R1				; New buffer address
+	MOVL	4(SP),R2			; Get entry address
+	BSBW	LD_COPY_WATCH_NEW		; Copy parameters
+	MOVL	R1,R2				; Restore buffer addres
+	MOVL	(SP)+,R1			; Restore listhead
+	INSQUE	(R2),LDWATCH_L_FLINK(R1)	; Insert new packet
+	INCL	UCB$L_LD_WATCHCNT(R5)		; Count packet
+	MOVL	(SP)+,R2
+
+40$:	ADDL2	#LDWATCHPT_K_LENGTH,R2		; Point to next input entry
+	SOBGTR	R4,45$				; For all buffers
+	MOVZWL	#SS$_NORMAL,R0			; Success
+	BRB	60$
+
+45$:	BRW	10$				; Branch assist
+
+50$:	ADDL2	#8,SP				; Adjust for error return
+
+60$:	MOVL	UCB$L_LD_WATCHCNT(R5),R1	; Return current count
+	REQCOM
+
+	.SBTTL	LD_START_DISABLE_WATCH, Start I/O disable watch processing
+;+++
+;  LD_START_DISABLE_WATCH, Start I/O disable watch processing
+;
+; Functional description:
+;
+;	This is the completion of the disable watchpoint processing.
+;	If a watchpoint was found with suspended threads queued to it
+;	then these threads will be released.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;	IRP$L_OBCNT	- number of entries in userbuffer
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;---
+LD_START_DISABLE_WATCH:
+	MOVZWL	#SS$_DATALOST,R0		; Assume nothing to do
+	MOVL	UCB$L_LD_WATCHCNT(R5),R4	; Get packet count
+	BNEQ	10$				; Something to do
+	BRW	100$
+
+10$:	PUSHL	R6				; May not be destroyed
+	CLRL	R6				; Nothing removed yet
+	MOVL	IRP$L_SVAPTE(R3),R2		; Get systembuffer address
+	BEQL	20$				; Not there, remove all
+	MOVL	(R2),R2				; Get userbuffer address
+	MOVL	IRP$L_OBCNT(R3),R4		; Get wanted count
+
+20$:	MOVAL	UCB$L_LD_WATCHQFL(R5),R1	; Get queue listhead
+	TSTL	R2				; Get rid of alll entries?
+	BEQL	30$				; Yes
+	BSBW	LD_FIND_WATCH_ENTRY_DIS		; Find matching entry
+	BLBS	R0,70$				; No exact match
+	BRB	40$				; Got it, remove
+
+30$:	MOVL	(R1),R1				; Point to next entry
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R0	; End of list
+	CMPL	R0,R1				; At the end?
+	BEQL	60$				; Yes
+
+40$:	REMQUE	LDWATCH_L_FLINK(R1),R0		; Exact match, remove
+	DECL	UCB$L_LD_WATCHCNT(R5)		; Count packet
+	INCL	R6				; Flag we've removed something
+	MOVL	R0,R1				; Use correct input
+	BSBW	LD_DRAIN_WATCH_THREAD		; Get rid of watchpoints
+	PUSHR	#^M<R2,R4>			; Destroyed by deallocate
+	BBC	#LDWATCH_V_FILE,-		; Check for virtual file mode
+		LDWATCH_W_FLAGS(R0),50$
+	MOVL	LDWATCH_L_FCB(R0),R2		; Get FCB pointer
+	DECW	FCB$W_REFCNT(R2)		; Decr. reference count
+	DECW	FCB$W_ACNT(R2)			; Decr. access count
+	MOVL	UCB$L_VCB(R5),R2		; Get it's VCB
+	ADAWI	#-1,VCB$W_TRANS(R2)		; Bump the transaction count
+
+50$:	MOVL	LDWATCH_L_PID(R0),R4		; Process to credit
+	JSB	G^EXE$DEANONPAGED		; Return buffer to pool
+	MOVL	#LDWATCHENT_K_LENGTH,R1		; Amount to return
+	BSBW	LD_RETURN_QUOTA			; Give quota back to user
+	POPR	#^M<R2,R4>
+	BRB	20$
+
+60$:	TSTL	R2				; Next input entry
+	BEQL	80$				; All entries
+
+70$:	ADDL2	#LDWATCHPT_K_LENGTH,R2		; Point to next input entry
+
+80$:	SOBGTR	R4,20$				; Check all packets
+	MOVZWL	#SS$_NORMAL,R0			; Assume success
+	TSTL	R6				; Anything removed?
+	BNEQ	90$				; Yes
+	MOVZWL	#SS$_DATACHECK,R0		; Entry not found
+
+90$:	MOVL	(SP)+,R6			; Restore this baby
+
+100$:	MOVL	UCB$L_LD_WATCHCNT(R5),R1	; Return current count
+	REQCOM
+
+	.SBTTL	LD_COPY_WATCH, Copy watchpoint info into existing block
+	.SBTTL	LD_COPY_WATCH_NEW, Copy watchpoint info into new block
+;+++
+;  LD_COPY_WATCH, Copy watchpoint info into existing block
+;  LD_COPY_WATCH_NEW, Copy watchpoint info into new block
+;
+; Functional description:
+;
+;	This routine copies the data from the user's parameter block
+;	into a watchpoint block
+;
+; Inputs:
+;
+;       R1      - address of the driver allocated watchblock
+;       R2      - address of the users watchpt block
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       None.
+;
+;---
+LD_COPY_WATCH_NEW:
+	MOVL	IRP$L_PID(R3),-			; Move pid
+		LDWATCH_L_PID(R1)
+	BBC	#LDWATCHPT_V_FILE,-		; Check for virtual file mode
+		LDWATCHPT_W_FLAGS(R2),30$
+	PUSHR	#^M<R3,R4,R5,R6>
+	MOVL	LDWATCHPT_L_SBK(R2),R4
+	MOVL	SBK$L_FCB(R4),R4		; Get FCB address
+	MOVL	R4,LDWATCH_L_FCB(R1)
+	INCW	FCB$W_REFCNT(R4)		; Incr. reference count
+	INCW	FCB$W_ACNT(R4)			; Incr. access count
+	MOVL	UCB$L_VCB(R5),R5		; Get it's VCB
+	ADAWI	#1,VCB$W_TRANS(R5)		; Bump the transaction count
+	MOVL	IRP$L_WIND(R3),R5		; Get WCB address
+	MOVL	WCB$L_ORGUCB(R5),-
+		LDWATCH_L_UCB(R1)
+	ASSUME	FCB$W_FID_NUM+2 EQ FCB$W_FID_SEQ
+	MOVL	FCB$W_FID_NUM(R4),-		; Save FID
+		LDWATCH_W_FID_NUM(R1)
+	MOVW	FCB$W_FID_RVN(R4),-
+		LDWATCH_W_FID_RVN(R1)
+	MOVL	LDWATCHPT_L_LBN(R2),-		; Move logical blocknumber
+		LDWATCH_L_VBN(R1)		; to virtual block for file
+	MOVL	LDWATCHPT_L_LBN(R2),R6		; Get virtual blocknumber
+	MOVZWL	WCB$W_NMAP(R5),R3		; Number of mapping pointers
+	.IF DF V6
+	MOVAL	WCB$L_P1_COUNT(R5),R5		; Address of first mapping pointer
+
+10$:	MOVL	(R5)+,R4			; Count
+	.IFF
+	MOVAW	WCB$W_P1_COUNT(R5),R5		; Address of first mapping pointer
+
+10$:	MOVZWL	(R5)+,R4			; Count
+	.ENDC
+	CMPL	R6,R4				; Within this segment?
+	BLEQ	20$				; Yes
+	SUBL2	R4,R6				; Account for size of this segment
+	TSTL	(R5)+				; Skip lbn
+	SOBGTR	R3,10$				; Next segment
+;
+; We should never come here. The VBN was checked in the FDT routine
+; to be within the limits of the file.
+;
+	BUG_CHECK	INCONSTATE,FATAL
+
+20$:	DECL	R6				; Adjust for VBN = 1
+	ADDL3	R6,(R5),LDWATCH_L_LBN(R1)	; Save converted LBN
+	POPR	#^M<R3,R4,R5,R6>
+	BRB	LD_COPY_WATCH
+
+30$:	MOVL	LDWATCHPT_L_LBN(R2),-		; Move logical blocknumber
+		LDWATCH_L_LBN(R1)
+
+;
+; Fall into LD_COPY_WATCH
+;
+LD_COPY_WATCH:
+	MOVW	LDWATCHPT_W_FLAGS(R2),-		; Options
+		LDWATCH_W_FLAGS(R1)
+	MOVW	LDWATCHPT_W_ACTION(R2),-	; What to do
+		LDWATCH_W_ACTION(R1)
+	MOVW	LDWATCHPT_W_FUNC(R2),-		; On what function
+		LDWATCH_W_FUNC(R1)
+	MOVW	LDWATCHPT_W_RETCODE(R2),-	; What to return
+		LDWATCH_W_RETCODE(R1)
+	RSB
+
+	.SBTTL	LD_FIND_WATCH_ENTRY_ENA, Locate a watchpoint entry for enable
+;+++
+;  LD_FIND_WATCH_ENTRY_ENA, Locate a watchpoint entry for enable
+;
+; Functional description:
+;
+;	This routine locates a watchpoint entry. Entries are
+;	inserted in ascending order, so when we are past one
+;	entry we don't need to look any further. A special case
+;	is signalled if the NOLBN flag is set. This is the case
+;	for a non-transfer function. We can have more of these
+;	for different functions.
+;
+; Inputs:
+;
+;       R1      - address of ucb watchqueue entry listhead
+;       R2      - address of the users watchpt block
+;
+; Outputs:
+;
+;	R0	- 0 if found an exact match
+;		  1 if not found
+;	R1	- if R0 = 0 entry address
+;		  if R0 = 1 address if insertion
+;
+;---
+LD_FIND_WATCH_ENTRY_ENA:
+	MOVL	R1,R0				; Save for later
+
+10$:	MOVL	(R1),R1				; Next entry
+	CMPL	R1,R0				; End of queue ?
+	BEQL	60$				; Yes
+	BBS	#LDWATCH_V_NOLBN,-		; Non-transfer function?
+		LDWATCH_W_FLAGS(R1),40$
+	CMPW	LDWATCHPT_W_FLAGS(R2),-		; Same flags?
+		LDWATCH_W_FLAGS(R1)
+	BNEQ	10$				; No
+	BBC	#LDWATCH_V_FILE,-		; File watchpoint?
+		LDWATCH_W_FLAGS(R1),20$
+	CMPL	LDWATCHPT_L_LBN(R2),-		; Check VBN for matching block
+		LDWATCH_L_VBN(R1)
+	BRB	30$
+
+20$:	CMPL	LDWATCHPT_L_LBN(R2),-		; Matching block?
+		LDWATCH_L_LBN(R1)
+
+30$:	BEQL	40$				; Yes
+	BGTRU	10$				; Not a higher number yet
+	BRB	50$				; No match
+
+40$:	CMPW	LDWATCHPT_W_FUNC(R2),-		; Matching function?
+		LDWATCH_W_FUNC(R1)
+	BNEQ	10$				; No
+	CMPW	LDWATCHPT_W_ACTION(R2),-	; Matching action?
+		LDWATCH_W_ACTION(R1)
+	BEQL	80$				; Yes
+;
+; Here everything matches except action
+; Determine if action may be added
+;
+	CMPW	LDWATCHPT_W_ACTION(R2),-	; Adding OPCOM action?
+		#WATCH_ACTION_OPCOM
+	BEQL	50$				; Yes
+;
+; Add some action other than OPCOM. Make sure we don't overwrite
+; a current OPCOM action.
+;
+	CMPW	LDWATCH_W_ACTION(R1),-		; Current packet OPCOM action?
+		#WATCH_ACTION_OPCOM
+	BNEQ	80$				; No, modify action of current packet
+;
+; We must check the next packet for a match.
+;
+	BRW	10$
+;
+; Make sure that a packet with an action for OPCOM is in front of
+; other actions for the same lbn and function in the queue. This makes
+; sure that later on in LD_CHECK_WATCH we will always issue an opcom
+; message before we do any other specified action. To insert an entry
+; before the current location we have to provide the address of the
+; predecessor.
+;
+50$:	MOVL	LDWATCH_L_BLINK(R1),R1		; Pick up address
+	BRB	70$				; of previous entry
+;
+; Nothing found in the queue. Insert new entry after the last one
+;
+60$:	MOVL	LDWATCH_L_BLINK(R0),R1		; Pick up address
+						; of last entry
+70$:	MOVZBL	#1,R0				; Not found
+	BRB	90$
+
+80$:	CLRL	R0				; Exact match
+
+90$:	RSB
+
+	.SBTTL	LD_FIND_WATCH_ENTRY_DIS, Locate a watchpoint entry for disable
+;+++
+;  LD_FIND_WATCH_ENTRY_DIS, Locate a watchpoint entry for disable
+;
+; Functional description:
+;
+;	This routine locates a watchpoint entry. Entries are
+;	inserted in ascending order, so when we are past one
+;	entry we don't need to look any further. A special case
+;	is signalled if the NOLBN flag is set. This is the case
+;	for a non-transfer function. We can have more of these
+;	for different functions.
+;
+; Inputs:
+;
+;       R1      - address of ucb watchqueue entry listhead
+;       R2      - address of the users watchpt block
+;
+; Outputs:
+;
+;	R0	- 0 if found an exact match
+;		  1 if not found
+;	R1	- if R0 = 0 entry address
+;		  if R0 = 1 last entry address
+;
+;---
+LD_FIND_WATCH_ENTRY_DIS:
+	PUSHL	R3
+	MOVL	R1,R0				; Save for later
+
+10$:	MOVL	(R1),R1				; Next entry
+	CMPL	R1,R0				; End of queue ?
+	BEQL	40$				; Yes
+	EXTZV	#LDWATCHPT_V_CHARS,-		; Extract characteristics bits
+		#LDWATCHPT_S_CHARS,-
+		LDWATCHPT_W_FLAGS(R2),R3
+	CMPZV	#LDWATCH_V_CHARS,-		; Check against current packet
+		#LDWATCH_S_CHARS,-
+		LDWATCH_W_FLAGS(R1),R3
+	BNEQ	10$				; No match
+	BBS	#LDWATCH_V_NOLBN,-		; Non-transfer function?
+		LDWATCH_W_FLAGS(R1),60$
+	BBC	#LDWATCH_V_FILE,-		; File watchpoint?
+		LDWATCH_W_FLAGS(R1),20$
+	CMPL	LDWATCHPT_L_LBN(R2),-		; Check VBN for matching block
+		LDWATCH_L_VBN(R1)
+	BRB	30$
+
+20$:	CMPL	LDWATCHPT_L_LBN(R2),-		; Matching block?
+		LDWATCH_L_LBN(R1)
+
+30$:	BEQL	50$				; Yes
+	BGTRU	10$				; Not a higher number yet
+
+40$:	MOVZBL	#1,R0				; Not found
+	BRB	80$
+
+50$:	BBS	#LDWATCHPT_V_REMOVE_ALL,-	; Remove all?
+		LDWATCHPT_W_FLAGS(R2),70$
+
+60$:	CMPW	LDWATCHPT_W_FUNC(R2),-		; Matching function?
+		LDWATCH_W_FUNC(R1)
+	BNEQ	10$				; No
+	CMPW	LDWATCHPT_W_ACTION(R2),-	; Matching action?
+		LDWATCH_W_ACTION(R1)
+	BNEQ	10$				; No
+
+70$:	CLRL	R0				; Exact match
+
+80$:	MOVL	(SP)+,R3			; Restore register
+	RSB
+
+	.SBTTL	LD_START_GET_WATCH, Start I/O get watch info processing
+;+++
+;  LD_START_GET_WATCH, Start I/O get watch info processing
+;
+; Functional description:
+;
+;	This is the completion of the get watchpoint processing.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+LD_START_GET_WATCH:
+	MOVZWL	#SS$_DATALOST,R0		; Assume nothing to do
+	MOVL	UCB$L_LD_WATCHCNT(R5),R1	; Get packet count
+	BNEQ	10$				; Something to do
+	BRW	50$
+
+10$:	BBS	#LDIO_V_INQUIRE,-		; Return list size?
+		IRP$L_EXTEND(R3),40$
+	MOVZWL	#SS$_IVBUFLEN,R0		; Assume buffer too small
+	MULL3	R1,#LDWATCHPT_K_LENGTH,R2	; Get size needed
+	CMPL	IRP$L_BCNT(R3),R2		; Enough space?
+	BLSSU	60$				; No
+	MOVL	IRP$L_SVAPTE(R3),R4		; Get systembuffer address
+	MOVL	(R4),R4				; Get userbuffer address
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R0	; Get watchqueue listhead
+	MOVL	R0,R2				; Remember start
+
+20$:	MOVL	(R0),R0				; Get next entry
+	CMPL	R0,R2				; At the end?
+	BEQL	40$				; Yes
+	CLRL	LDWATCHPT_L_SBK(R4)		; Not returned
+	MOVL	LDWATCH_L_LBN(R0),-		; Move logical blocknumber
+		LDWATCHPT_L_LBN(R4)		
+	ASSUME LDWATCH_W_ACTION EQ LDWATCH_W_FLAGS+2
+	MOVL	LDWATCH_W_FLAGS(R0),-		; Flags and action
+		LDWATCHPT_W_FLAGS(R4)
+	ASSUME LDWATCH_W_RETCODE EQ LDWATCH_W_FUNC+2
+	MOVL	LDWATCH_W_FUNC(R0),-		; Function and returncode
+		LDWATCHPT_W_FUNC(R4)
+	BBC	#LDWATCH_V_FILE,-		; Check for virtual file mode
+		LDWATCH_W_FLAGS(R0),30$
+	ASSUME	LDWATCH_W_FID_NUM+2 EQ LDWATCH_W_FID_SEQ
+	MOVL	LDWATCH_W_FID_NUM(R0),-		; Save FID
+		LDWATCHPT_W_FID_NUM(R4)
+	MOVW	LDWATCH_W_FID_RVN(R0),-
+		LDWATCHPT_W_FID_RVN(R4)
+	MOVL	LDWATCH_L_VBN(R0),-		; Move virtual blocknumber
+		LDWATCHPT_L_LBN(R4)		
+
+30$:	ADDL2	#LDWATCHPT_K_LENGTH,R4		; Next entry
+	BRB	20$
+
+40$:	MOVZWL	#SS$_NORMAL,R0			; Return with count in R1
+
+50$:	BBS	#LDIO_V_INQUIRE,-		; Return list size only?
+		IRP$L_EXTEND(R3),60$
+	MULL3	#LDWATCHPT_K_LENGTH,R1,R2	; Total count
+	MOVL	R2,IRP$L_BCNT(R3)		; Save for postprocessing
+	INSV	R2,#16,#16,R0			; Merge bytecount
+
+60$:	REQCOM
+
+	.SBTTL	LD_START_GET_SUSPEND_LIST, Start I/O get suspend list processing
+;+++
+;  LD_START_GET_SUSPEND_LIST, Start I/O get suspend list processing
+;
+; Functional description:
+;
+;	This is the completion of the get suspend list processing.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+LD_START_GET_SUSPEND_LIST:
+	MOVZWL	#SS$_DATALOST,R0		; Assume nothing to do
+	MOVL	UCB$L_LD_WATCHCNT(R5),R1	; Get packet count
+	BNEQ	10$				; Something to do
+	BRW	100$				; Branch assist
+
+10$:	CLRL	R1				; No entries yet
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R0	; Get watchqueue listhead
+	MOVL	R0,R2				; Remember start
+
+20$:	MOVL	(R0),R0				; Get next entry
+	CMPL	R0,R2				; At the end?
+	BEQL	30$				; Yes
+	ADDL2	LDWATCH_L_SUSPCNT(R0),R1	; Count number of entries
+	BRB	20$
+
+30$:	BBS	#LDIO_V_INQUIRE,-		; Return list size?
+		IRP$L_EXTEND(R3),90$
+	MOVZWL	#SS$_IVBUFLEN,R0		; Assume buffer too small
+	MULL3	R1,#LDSUSPLST_K_LENGTH,R2	; Get size needed
+	CMPL	IRP$L_BCNT(R3),R2		; Enough space?
+	BLSSU	110$				; No
+	MOVL	IRP$L_SVAPTE(R3),R4		; Get systembuffer address
+	MOVL	(R4),R4				; Get userbuffer address
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R0	; Get watchqueue listhead
+	MOVL	R0,R2				; Remember start
+
+40$:	MOVL	(R0),R0				; Get next entry
+	CMPL	R0,R2				; At the end?
+	BEQL	90$				; Yes
+	TSTL	LDWATCH_L_SUSPCNT(R0)		; Get count of this lbn
+	BEQL	40$				; None here
+	PUSHR	#^M<R1,R2>
+	MOVAL	LDWATCH_L_SUSPFL(R0),R1		; Point to suspend queue
+	MOVL	R1,R2				; Remember end
+
+50$:	MOVL	IRP$L_IOQFL(R1),R1		; Get next entry
+	CMPL	R1,R2				; At the end?
+	BEQL	80$				; Yes
+	PUSHL	R0
+	MOVL	IRP$L_PID(R1),R0		; Get PID
+	JSB	G^EXE$IPID_TO_EPID		; Make external PID
+	MOVL	R0,LDSUSPLST_L_PID(R4)		; Move PID
+	MOVL	(SP)+,R0
+	BBS	#LDWATCH_V_FILE,-		; Check for virtual file mode
+		LDWATCH_W_FLAGS(R0),60$
+	MOVL	LDWATCH_L_LBN(R0),-		; Move LBN
+		LDSUSPLST_L_LBN(R4)
+	BRB	70$
+
+60$:	MOVL	LDWATCH_L_VBN(R0),-		; Move VBN
+		LDSUSPLST_L_LBN(R4)
+
+	ASSUME LDSUSPLST_W_ACTION EQ LDSUSPLST_W_FLAGS+2
+70$:	MOVL	LDWATCH_W_FLAGS(R0),-		; Move flags and action
+		LDSUSPLST_W_FLAGS(R4)
+	ASSUME LDSUSPLST_W_RETCODE EQ LDSUSPLST_W_FUNC+2
+	MOVL	LDWATCH_W_FUNC(R0),-		; Move function and retcode
+		LDSUSPLST_W_FUNC(R4)
+	ADDL2	#LDSUSPLST_K_LENGTH,R4		; Next entry
+	BRB	50$
+
+80$:	POPR	#^M<R1,R2>
+	BRB	40$
+
+90$:	MOVZWL	#SS$_NORMAL,R0
+
+100$:	BBS	#LDIO_V_INQUIRE,-		; Return list size only?
+		IRP$L_EXTEND(R3),110$
+	MULL3	#LDSUSPLST_K_LENGTH,R1,R2	; Total count
+	MOVL	R2,IRP$L_BCNT(R3)		; Save for postprocessing
+	INSV	R2,#16,#16,R0			; Merge bytecount
+
+110$:	REQCOM
+
+	.SBTTL	LD_START_RESUME_WATCH, Start I/O resume watch processing
+;+++
+;  LD_START_RESUME_WATCH, Start I/O resume watch processing
+;
+; Functional description:
+;
+;	This is the completion of the resume watchpoint processing.
+;	Any previously suspended thread which is specified will be restarted.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;	IRP$L_OBCNT	- number of entries in userbuffer
+;
+; Outputs:
+;
+;       None.
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+LD_START_RESUME_WATCH:
+	MOVZWL	#SS$_DATALOST,R0		; Assume nothing to do
+	TSTL	UCB$L_LD_WATCHCNT(R5)		; Check packet count
+	BEQL	70$				; Nothing to do
+	PUSHL	R6				; May not be destroyed
+	CLRL	R6				; Nothing resumed yet
+	MOVL	IRP$L_SVAPTE(R3),R2		; Get systembuffer address
+	BEQL	10$				; Nothing there
+	MOVL	(R2),R2				; Get userbuffer address
+
+10$:	MOVL	IRP$L_OBCNT(R3),R4		; Get wanted count
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R1	; Point to listhead
+ 	MOVL	R1,R0				; Save start for later
+
+20$:	MOVL	LDWATCH_L_FLINK(R1),R1		; Next entry
+	CMPL	R1,R0				; End of queue?
+	BEQL	40$				; Yes
+	TSTL	R2				; All of them?
+	BEQL	30$				; Yes
+	CMPW	LDWATCH_W_FUNC(R1),-		; Right function?
+		LDWATCHPT_W_FUNC(R2)
+	BNEQ	20$				; No
+	BBS	#LDWATCH_V_FILE,-		; Check for virtual file mode
+		LDWATCH_W_FLAGS(R1),25$
+	CMPL	LDWATCH_L_LBN(R1),-		; Right lbn?
+		LDWATCHPT_L_LBN(R2)
+	BNEQ	20$				; No
+	BRB	30$
+
+25$:	CMPL	LDWATCH_L_VBN(R1),-		; Right vbn?
+		LDWATCHPT_L_LBN(R2)
+	BNEQ	20$				; No
+
+30$:	CMPW	LDWATCH_W_ACTION(R1),-		; Right action?
+		#WATCH_ACTION_SUSPEND
+	BNEQ	20$				; No
+	BSBW	LD_DRAIN_WATCH_THREAD		; Get rid of watchpoints
+	INCL	R6				; We resumed something
+	BRB	20$				; Next packet
+
+40$:	TSTL	R2				; Everything done?
+	BEQL	50$				; Yes
+	ADDL2	#LDWATCHPT_K_LENGTH,R2		; Next entry of input
+	SOBGTR	R4,20$				; Count down
+
+50$:	MOVZBL	#SS$_NORMAL,R0			; Assume success
+	TSTL	R6				; Done something?
+	BNEQ	60$				; Yes
+	MOVZWL	#SS$_DATACHECK,R0		; Nothing done
+
+60$:	MOVL	(SP)+,R6			; Recover this one
+
+70$:	CLRL	R1
+	REQCOM
+
+	.SBTTL	LD_DRAIN_WATCH_THREAD, drain suspended watch queue
+;+++
+;  LD_DRAIN_WATCH_THREAD, drain suspended watch queue
+;
+; Functional description:
+;
+;	This routine resumes all pending watchpoint threads.
+;
+; Inputs:
+;
+;       R1      - address of LDWATCH block
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	None.
+;
+;---
+LD_DRAIN_WATCH_THREAD:
+	TSTL	LDWATCH_L_SUSPCNT(R1)		; Get count of suspended threads
+	BEQL	40$				; Nothing
+	PUSHR	#^M<R3,R4>			; Save registers
+
+10$:	REMQUE	@LDWATCH_L_SUSPFL(R1),R3	; Remove entry
+	BBSS	#UCB$V_LD_FKBBSY,-		; Forkblock busy?
+		UCB$B_LD_FLAGS(R5),20$
+	MOVQ	IRP$L_FR3(R3),-			; Get IRP and function
+		UCB$L_FR3(R5)
+	MOVL	IRP$L_FPC(R3),-			; Restore Fork trace PC
+		UCB$L_FPC(R5)
+	JSB	G^EXE$QUEUE_FORK		; Queue forkthread
+	BRB	30$
+
+20$:	INSQUE	(R3),@UCB$L_LD_WATCHPNDQBL(R5)	; Insert in watchpending queue
+
+30$:	DECL	LDWATCH_L_SUSPCNT(R1)		; Count packet
+	BNEQ	10$				; More to do
+	POPR	#^M<R3,R4>
+
+40$:	RSB
+
+	.SBTTL	LD_RESUME_WATCH_THREAD, resume eventual suspended watch thread
+;+++
+;  LD_RESUME_WATCH_THREAD, resume eventual suspended watch thread
+;
+; Functional description:
+;
+;	This routine resumes one pending watchpoint thread.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	None.
+;
+;---
+LD_RESUME_WATCH_THREAD:
+	PUSHR	#^M<R3,R4>
+	REMQUE	@UCB$L_LD_WATCHPNDQFL(R5),R3	; Remove from watchpending queue
+	BVS	10$				; Nothing there
+	MOVQ	IRP$L_FR3(R3),-			; Get IRP and function
+		UCB$L_FR3(R5)
+	MOVL	IRP$L_FPC(R3),-			; Restore Fork trace PC
+		UCB$L_FPC(R5)
+	JSB	G^EXE$QUEUE_FORK		; Queue forkthread
+	BRB	20$
+
+10$:	BICB2	#UCB$M_LD_FKBBSY,-		; Reset Forkblock busy flag
+		UCB$B_LD_FLAGS(R5)
+
+20$:	POPR	#^M<R3,R4>
+	RSB
+
+	.SBTTL	LD_CHECK_WATCH, Check for a watchpoint
+;+++
+;  LD_CHECK_WATCH, Check for a watchpoint
+;
+; Functional description:
+;
+;	This routine will check if a watchpoint is set for the current I/O
+;	request. If true, the action we will do depends on the specified
+;	function for the watchpoint.
+;
+;	We currently have 4 options:
+;
+;	1.  WATCH_ACTION_SUSPEND: 	Suspend a thread
+;	2.  WATCH_ACTION_CRASH:		Crash the system
+;	3.  WATCH_ACTION_ERROR:		Return an error
+;	4.  WATCH_ACTION_OPCOM:		Send a message to OPCOM
+;
+; #1 will suspend the current thread. We do this by popping our caller's
+; PC into a forkblock and returning to our caller's caller. Later on we can
+; resume this thread by queueing the forkblock to the forkdispatcher.
+;
+; #2 will crash the system if we find a matching watchpoint.
+;
+; #3 will return a user-specified error for the current thread.
+;
+; #4 will send an errormessage about the process accessing the watchpoint
+;    to OPCOM
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	R0	- status
+;	IRP$L_EXTEND	- if 0 no action done, continue as usual
+;			- if 1, R0 contains the error to return
+;
+;       If a thread is suspended we return to our caller's caller
+;       without R0 set as that's not needed then.
+;
+;       The routine must preserve all registers except R0-R2..
+;
+;---
+LD_CHECK_WATCH:
+	CLRL	IRP$L_EXTEND(R3)		; Clear our flag
+	TSTL	UCB$L_LD_WATCHCNT(R5)		; Any watchpoint set?
+	BNEQ	10$				; Yes
+5$:	BRW	120$				; Branch assist
+
+10$:	MOVAL	UCB$L_LD_WATCHQFL(R5),R1	; Get queue listhead
+	MOVL	R1,R0				; Remember the end
+
+20$:	MOVL	LDWATCH_L_FLINK(R1),R1		; Next entry
+	CMPL	R1,R0				; End of queue ?
+	BEQL	5$				; Yes
+	CMPW	IRP$W_FUNC(R3),-		; Match of functioncode
+		LDWATCH_W_FUNC(R1)		; including modifiers?
+	BNEQ	20$				; No
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,-	; Extract the function code
+		IRP$W_FUNC(R3),R2
+	CMPL	R2,#IO$_READPBLK		; Is this a read?
+	BEQL	30$				; Yes, check lbn
+	CMPL	R2,#IO$_WRITEPBLK		; or a write?
+	BEQL	30$				; Yes, check lbn
+	CMPL	R2,#IO$_WRITECHECK		; Writecheck?
+	BEQL	30$				; Yes, check lbn
+	CMPL	R2,#IO$_DSE			; Erase?
+	BNEQ	50$				; No
+
+30$:	CMPL	IRP$L_MEDIA(R3),-		; Matching block?
+		LDWATCH_L_LBN(R1)
+	BGTRU	20$				; No, requested block above wpt
+	ASHL	#-9,IRP$L_BCNT(R3),R2		; Convert bytes to blocks
+	BITL	#^X1FF,IRP$L_BCNT(R3)		; Multiple of 512 bytes?
+	BNEQ	40$				; No
+	DECL	R2				; Adjust
+
+40$:	ADDL2	IRP$L_MEDIA(R3),R2		; Calculate last block
+	CMPL	R2,LDWATCH_L_LBN(R1)		; Matching block?
+	BLSSU	20$				; No
+;
+; We've got a match. Now check what to do with it.                        
+;
+50$:	DISPATCH LDWATCH_W_ACTION(R1),TYPE=W,<-	; Dispatch according to function
+		<WATCH_ACTION_ERROR,	60$>,-
+		<WATCH_ACTION_CRASH,	70$>,-
+		<WATCH_ACTION_SUSPEND,	80$>,-
+		<WATCH_ACTION_OPCOM,	90$>>
+	BUG_CHECK	INCONSTATE,FATAL	; We should never come here
+
+60$:	MOVZWL	LDWATCH_W_RETCODE(R1),R0	; Pick up errorcode
+	BRB	110$
+
+70$:	BUG_CHECK	RSVD_LP,FATAL		; Byebye, that's what's been asked for
+
+80$:	MOVL	(SP)+,IRP$L_FPC(R3)		; Save caller's PC in forkblock
+	MOVQ	R3,IRP$L_FR3(R3)		; Save registers
+	INSQUE	(R3),@LDWATCH_L_SUSPBL(R1)	; Insert in suspend queue
+	INCL	LDWATCH_L_SUSPCNT(R1)		; Count packet and return to caller's caller
+	BRB	120$				; Return to caller's caller
+
+90$:	PUSHL	R0				; Save end of chain
+	BSBW	LD_SEND_OPCOM			; Queue message to OPCOM
+	BLBC	R0,100$				; Trouble
+	MOVL	(SP)+,R0
+	BRW	20$				; Check next packet
+
+100$:	ADDL2	#4,SP				; Restore SP
+
+110$:	INCL	IRP$L_EXTEND(R3)		; Flag action needed
+
+120$:	RSB
+
+	.SBTTL	LD_SEND_OPCOM, Send a message about a touched watchpoint to OPCOM
+;+++
+;  LD_SEND_OPCOM, Send a message about a touched watchpoint to OPCOM
+;
+; Functional description:
+;
+;	This routine allocates and fills a buffer with watchpoint info
+;	and queues this buffer to LD_OPCOM_AST as an exec-mode AST
+;	routine in the context of the issueing process. The AST routine
+;	will then invoke the system-service $SNDOPR to process the request.
+;	We use an EXEC-mode AST because $SNDOPR is an execmode system service,
+;	which cannot be called from kernel mode. We don't want to use a
+;	usermode AST because we then need to modify the pageprotection
+;	of the ACB to allow user-read access. If there is no issueing process
+;	(a mount-verification thread for example) then we queue the AST to
+;	the OPCOM.
+;
+; Inputs:
+;
+;       R1      - LDWATCH structure address
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+; Outputs:
+;
+;	R0	- Status
+;
+;       The routine must preserve all registers except R0 and R2
+;
+;---
+LD_SEND_OPCOM:
+	PUSHR	#^M<R1,R4>
+	MOVL	IRP$L_PID(R3),R4		; I/O from a process?
+	BGTR	20$				; Yes (no mount-verification thread)
+;
+; This thread has no PID but a system-space address (mount-verification for example).
+; We must queue an AST to a process, but we don't know which. We can't use the
+; SWAPPER for this purpose because it never leaves kernel-mode, so an exec-mode
+; ast would not get delivered. We can queue the ast to OPCOM. If it's not there,
+; then there's no need to process the opcom request anyway.
+;
+	BSBW	LD_FIND_OPCOM			; Check if OPCOM is running
+	BLBS	R0,20$				; Yes
+	MOVZWL	#SS$_NORMAL,R0			; No need to bother this thread, dismiss
+
+10$:	BRW	60$				; Exit
+
+20$:	MOVZWL	#LDSNDOPRLST_K_LENGTH,R1	; This size
+	JSB	G^EXE$ALONONPAGED		; Get buffer
+	BLBC	R0,10$				; Quit
+	MOVW	R1,LDSNDOPRLST_W_SIZE(R2)	; Save size
+	MOVL	(SP),R1
+	MOVB	#DYN$C_ACB,-			; Used as an ACB
+		LDSNDOPRLST_B_TYPE(R2)
+	CLRL	LDSNDOPRLST_L_KAST(R2)		; Assume normal process
+	CMPL	R4,IRP$L_PID(R3)		; Just a normal process?
+	BEQL	30$				; Yes
+	INCL	LDSNDOPRLST_L_KAST(R2)		; Special process
+
+30$:	MOVL	R4,LDSNDOPRLST_L_PID(R2)	; Issueing process or OPCOM
+	MOVB	#<ACB$M_NODELETE!PSL$C_EXEC>,-	; Exec mode, astroutine will
+		LDSNDOPRLST_B_RMOD(R2)		;  deallocate this buffer
+	MOVAB	LD_OPCOM_AST,-			; Routine to execute
+		LDSNDOPRLST_L_AST(R2)
+	MOVL	R2,LDSNDOPRLST_L_ASTPRM(R2)	; Setup our block as parameter
+	BBS	#LDWATCH_V_FILE,-		; Check for virtual file mode
+		LDWATCH_W_FLAGS(R1),40$
+	MOVL	LDWATCH_L_LBN(R1),-		; Move lbn
+		LDSNDOPRLST_L_LBN(R2)
+	BRB	50$
+
+40$:	MOVL	LDWATCH_L_VBN(R1),-		; Move vbn for filemode
+		LDSNDOPRLST_L_LBN(R2)
+
+50$:
+	ASSUME LDSNDOPRLST_W_ACTION EQ LDSNDOPRLST_W_FLAGS+2
+	MOVL	LDWATCH_W_FLAGS(R1),-		; Move flags and action
+		LDSNDOPRLST_W_FLAGS(R2)
+	ASSUME LDSNDOPRLST_W_RETCODE EQ LDSNDOPRLST_W_FUNC+2
+	MOVL	LDWATCH_W_FUNC(R1),-		; Move function and retcode
+		LDSNDOPRLST_W_FUNC(R2)
+	ASSUME LDSNDOPRLST_W_FID_NUM+2 EQ LDSNDOPRLST_W_FID_SEQ
+	MOVL	LDWATCH_W_FID_NUM(R1),-		; Save FID
+		LDSNDOPRLST_W_FID_NUM(R2)
+	MOVW	LDWATCH_W_FID_RVN(R1),-
+		LDSNDOPRLST_W_FID_RVN(R2)
+	PUSHR	#^M<R1,R2,R3,R4,R5>
+	MOVZWL	#LDSNDOPRLST_K_DEVNAM-1,R0	; Buffersize
+	MOVAB	LDSNDOPRLST_T_DEVNAM+1(R2),R1	; Buffer for devicename
+	MOVL	#-2,R4				; DVI$_DISPLAY_DEVNAM
+	JSB	G^IOC$CVT_DEVNAM		; Get devicename in readable form
+	MOVB	R1,LDSNDOPRLST_T_DEVNAM(R2)	; Save returned length
+	MOVL	R2,R5				; ACB in R5
+	MOVZBL	#PRI$_IOCOM,R2			; Set up priority increment
+	JSB	G^SCH$QAST			; Queue the AST
+	POPR	#^M<R1,R2,R3,R4,R5>
+	BLBS	R0,60$				; All ok
+;
+; We can still get a NONEXPR error back, despite the check at the start of
+; this routine for the presence of our process or OPCOM. If OPCOM went away
+; we may get the error. This could normally only happen on SMP systems.
+;
+	CMPL	R0,#SS$_NONEXPR			; Not found?
+	BNEQ	70$				; No, something else is wrong
+	MOVZWL	#SS$_NORMAL,R0			; Pretend nothing's wrong
+
+60$:	POPR	#^M<R1,R4>
+	RSB
+
+70$:	BUG_CHECK	INCONSTATE,FATAL	; We want to know about this
+
+	.SBTTL	LD_FIND_OPCOM, Find the pid of the OPCOM process
+;+++
+;  LD_FIND_OPCOM, Find the pid of the OPCOM process
+;
+; Functional description:
+;
+;	This routine locates the internal pid of the OPCOM process.
+;
+; Inputs:
+;
+;       None
+;
+; Outputs:
+;
+;	R0	- Status
+;	R4	- Internal pid of opcom
+;
+;       The routine must preserve all registers except R0 and R4
+;
+;---
+LD_FIND_OPCOM:
+	PUSHR	#^M<R1,R2,R3,R5>
+	LOCK	LOCKNAME=SCHED,-	; Lock sched database
+		SAVIPL=-(SP),-		; Save current ipl
+		PRESERVE=NO		; R0 may be destroyed
+	MOVL	G^SCH$GL_PCBVEC,R0	; Point to process vector
+	CLRL	R1			; Setup index
+
+10$:	MOVL	(R0)[R1],R2		; Get a PCB entry
+	CMPL	R2,G^SCH$AR_NULLPCB	; NULL entry?
+	BEQL	20$			; Yes, get next
+	CMPL	PCB$L_UIC(R2),-		; UIC match ([1,4])?
+		#^X00010004
+	BNEQ	20$			; No
+	MOVZBL	PCB$T_LNAME(R2),R3	; Get bytecount of process name
+	INCL	R3			; Check count as well
+	PUSHR	#^M<R0,R1,R2>
+	CMPC3	R3,PCB$T_LNAME(R2),-	; Check for OPCOM
+		OPCOM_NAME
+	POPR	#^M<R0,R1,R2>
+	BNEQ	20$			; No match
+	MOVL	PCB$L_PID(R2),R4	; Get internal pid
+	MOVZWL	#SS$_NORMAL,R0		; Success!
+	BRB	30$
+
+20$:	AOBLEQ	G^SCH$GL_MAXPIX,R1,10$	; Next entry
+	MOVZWL	#SS$_NONEXPR,R0		; Not found
+
+30$:	UNLOCK	LOCKNAME=SCHED,-	; Unlock sched database
+		NEWIPL=(SP)+,-		; Restore previous ipl
+		CONDITION=RESTORE	; Restore access count on lock
+	POPR	#^M<R1,R2,R3,R5>
+	RSB
+;
+OPCOM_NAME:	.ASCIC	/OPCOM/
+
+	.SBTTL	LD_RETURN_QUOTA, Return quota of charged buffer to user
+;+++
+;  LD_RETURN_QUOTA, Return quota of charged buffer to user
+;
+; Functional description:
+;
+;	This routine returns the quota of a buffer we charged for
+;	back to a user. Since we may be in system context we will
+;	queue an ast to the user to return the quota.
+;
+; Inputs:
+;
+;       R1      - number of bytes to return to BYTCNT and BYTLM
+;	R4	- pid of process to credit
+;
+; Outputs:
+;
+;	R0	- status
+;
+;       The routine must preserve all registers except R0-R2 and R4.
+;
+;---
+LD_RETURN_QUOTA:
+	PUSHR	#^M<R3,R5>
+	BSBW	LD_GETLDIOB			; Get ACB
+	BLBC	R0,10$				; Check for errors
+	MOVL	R2,R5				; Get ACB address
+	MOVL	R1,ACB$L_ASTPRM(R5)		; Save bytecount to return
+	MOVL	R4,ACB$L_PID(R5)		; Save PID
+	MOVB	#<ACB$M_KAST!ACB$M_NODELETE>,-	; Special kernel mode ast	
+		ACB$B_RMOD(R5)
+	MOVAB	LD_QUOTA_AST,-			; Routine to execute
+		ACB$L_KAST(R5)
+	MOVZBL	#PRI$_IOCOM,R2			; Set up priority increment
+	JSB	G^SCH$QAST			; Queue the AST
+
+10$:	POPR	#^M<R3,R5>			; Restore registers
+	RSB
+
+	.SBTTL	LD_QUOTA_AST, Return quota action routine
+;+++
+;  LD_QUOTA_AST, Return quota action routine
+;
+; Functional description:
+;
+;	This routine is called as an AST routine in the context of the
+;	process issueing the I/O. We will return the previously taken
+;	bytecount quota to the user.
+;
+; Inputs:
+;
+;	R4	- address of the PCB (process control block)
+;       R5      - address of the ACB
+;	ACB$L_ASTPRM(R5) - Number of bytes to return
+;
+;       The routine must preserve all registers except R0-R5.
+;
+LD_QUOTA_AST:
+	MOVL	ACB$L_ASTPRM(R5),R3		; Get bytecount to return
+	MOVL	R5,R0				; Address of ACB
+	JSB	G^EXE$DEANONPAGED		; Get rid of ACB
+	MOVL	R3,R0
+	JSB	G^EXE$CREDIT_BYTCNT_BYTLM	; Return quota
+	MOVZWL	#SS$_NORMAL,R0
+	RSB
+
+	.SBTTL	LD_COMPLETE, I/O completion routine
+;+++
+; LD_COMPLETE, I/O Completion routine.
+;
+;	This routine locates the IRP whose address is into R5  in the
+;	LDIO list, removes the entry from the queue, restores the PID
+;	and inserts the IRP back in the I/O completion queue.
+;
+; Inputs:
+;
+;	R5	- IRP
+;	R1	- Address of LD_COMPLETE rtn
+;	IPL	- IPL$_IOPOST
+;
+;	This routine may use R0 to R5.
+;
+;---
+LD_COMPLETE:
+	MOVL	R5,R3
+	MOVL	IRP$L_IOSB(R3),R5		; Get saved UCB address
+	MOVL	R5,IRP$L_UCB(R3)		; Restore UCB address
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Raise to Fork level
+			PRESERVE=NO
+	MOVAL	UCB$L_LD_AIOFL(R5),R0		; Get address Act. I/O F.L
+	MOVL	R0,R2				; Copy it to R2
+10$:	MOVL	LDIOB_L_QFL(R2),R1		; Get the first entry
+	CMPL	R1,R0				; Back at start ?
+	BNEQ	20$				; No, continue
+	BUG_CHECK	INCONSTATE,FATAL	; Inconsistent Active I/O list
+
+20$:	CMPL	LDIOB_L_IRP(R1),R3		; Is this correct LDIOB ?
+	BEQL	30$				; Yes, finish up
+	MOVL	R1,R2				; Copy for next block
+	BRB	10$				; Loop untill found
+
+30$:	MOVL	UCB$L_LD_PDUCB(R5),R4		; Get the physical disk UCB
+	FORKLOCK	LOCK=UCB$B_FLCK(R4),-	; Raise to Fork level
+			SAVIPL=-(SP),-		; (Physical device)
+			PRESERVE=NO
+	DECW	UCB$W_QLEN(R4)			; Decrease queue length
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R4),-	; Release lock
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	REMQUE	@LDIOB_L_QFL(R2),R4		; Remove LDIOB from queue
+	MOVL	LDIOB_L_IOSB(R4),IRP$L_IOSB(R3)	; Restore IOSB address
+	MOVL	LDIOB_L_PID(R4),IRP$L_PID(R3)	; Copy PID across
+	PUSHAB	50$				; Return in case of fork
+	BSBW	LD_SAVE_TRACE_ALT		; Save trace data
+	$INSQTI	IRP$L_IOQFL(R3),G^IOC$GQ_POSTIQ	; Insert IRP back in post queue
+	SOFTINT	#IPL$_IOPOST			; Initiate software interrupt
+	BSBW	POST_PACKACK			; Post packack processing
+	INCL	UCB$L_OPCNT(R5)			; Count I/O (Logical device)
+	.IF DF MDDRIVER_WORKAROUND
+;
+; Work around MDdriver bug. If an erase function is given to DECRAM, then the
+; iosb does not contain the bytecount but zero. In a certain configuration
+; (DSA1: -> LDA1: -> MDA1:) this will lead to a loop since the XQP attempts
+; to erase a number of blocks, and it looks in the returned bytecount to see
+; how much is left to do.
+;
+	BBC	#UCB$V_LD_DECRAM,-		; Connected to DECRAM disk?
+		UCB$B_LD_FLAGS(R5),35$
+	CMPZV	#IRP$V_FCODE,#IRP$S_FCODE,-	; Check the function code
+		IRP$W_FUNC(R3),#IO$_DSE		; Erase?
+	BNEQ	35$				; No
+	MOVL	IRP$L_BCNT(R3),IRP$L_IOST1+2(R3); Return correct bytecount
+35$:
+	.ENDC
+	.IF DF DUDRIVER_WORKAROUND
+;
+; Hack around DUdriver bug. The DUdriver may stall an I/O request by queueing
+; an IRP to the physical device UCB when UCB$L_RWAITCNT is not zero. This may
+; happen when a connection runs out of credits. When the credits are returned,
+; the DUdriver never looks at the UCB$L_IOQFL queue with pending packets,
+; which causes everything to wait for this packet. Triggering mount
+; verification for the device will solve it, because in mv's return path a
+; check is made for a non empty i/o queue. We work around it by checking
+; for stalled I/O's in our return path. This is not guaranteed to work
+; 100% of the time, but since i made this modification i could not get things
+; to go wrong.
+;
+	PUSHL	R5				; Save logical UCB
+	MOVL	UCB$L_LD_PDUCB(R5),R5		; Get the physical disk UCB
+	BBS	#DEV$V_SCSI,UCB$L_DEVCHAR2(R5),40$ ; Leave SCSI devices alone
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Raise to Fork level
+			SAVIPL=-(SP),-		; (Physical device)
+			PRESERVE=NO
+	JSB	G^SCS$UNSTALLUCB		; Check for queued i/o's
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+40$:	MOVL	(SP)+,R5
+	.ENDC
+;
+	RSB					; Return to IOPOST rtn
+;
+; We will return here either after we successfully processed all
+; data, or after a fork of LD_TRACE. In either case, release our
+; forklock. If we are resumed after a fork, the forkdispatcher
+; will call us again with the forklock held.
+;
+50$:	BSBW	LD_RESUME_WATCH_THREAD		; Resume eventual suspended watch thread
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=#IPL$_IOPOST,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	RSB					; Either 
+;
+POST_PACKACK:
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,	-
+		IRP$W_FUNC(R3),R1		; Extract the function code
+	CMPW	R1,#IO$_PACKACK			; Packack?
+	BNEQ	10$				; No
+	BBC	#UCB$V_LD_REPLACE,-		; Check if replaced device
+		UCB$B_LD_FLAGS(R5),10$
+;
+; Setup device characteristics in case they were not available at
+; drive connect time.
+;
+	MOVL	UCB$L_LD_PDUCB(R5),R4		; Get the physical disk UCB
+	MOVB	UCB$B_DEVTYPE(R4),-		; Copy device type
+		UCB$B_DEVTYPE(R5)
+ASSUME	UCB$B_TRACKS EQ UCB$B_SECTORS+1
+ASSUME	UCB$W_CYLINDERS EQ UCB$B_TRACKS+1
+	MOVL	UCB$B_SECTORS(R4),-		; Copy sectors, tracks
+		UCB$B_SECTORS(R5)		; and cylinders
+	MOVL	UCB$L_MAXBLOCK(R4),-		; Copy maximum block
+		UCB$L_MAXBLOCK(R5)
+10$:	RSB
+
+	.SBTTL	LD_CANCEL, Generic Cancel I/O routine
+;+++
+;  LD_CANCEL, Generic Cancel I/O routine
+;
+; Functional description:
+;
+;	This routine cancels all outstanding I/O for the specified
+;	channel and PID. We also check if the IRP is in the trace
+;	wait queue and remove that if true. We also check if there
+;	was a watchpoint suspended and process that too.
+;
+; Inputs:
+;
+;	R2	- Channel index number
+;	R3	- IRP from UCB$L_IRP
+;	R4	- PCB
+;	R5	- UCB
+;	R8	- Cancel reason code, one of :
+;			CAN$C_CANCEL	If called through $CANCEL
+;					system service.
+;			CAN$C_DASSGN	If called through $DASSGN
+;					or $DALLOC system service.
+;
+; Outputs:
+;
+;	The routine must preserve all registers exept R0-R3
+;
+;---
+LD_CANCEL:
+	CMPL	R8,#CAN$C_DASSGN		; Called through $DASSGN ?
+	BEQL	10$				; Yes, no active I/O
+	BSBW	LD_CANCEL_IO			; Cancel this request
+
+10$:	BSBW	LD_CANCEL_TRACE			; Cancel pending trace thread
+	BSBW	LD_CANCEL_WATCH			; Cancel suspended watchpoint
+	BBC	#UCB$V_DELETEUCB,-		; Only if we're going away
+		UCB$L_STS(R5),20$
+	BICL2	#DEV$M_CLU,UCB$L_DEVCHAR2(R5)	; Reset cluster wide visible
+	MOVL	UCB$L_LD_CPID(R5),UCB$L_CPID(R5); Restore charge pid
+	MOVW	UCB$W_LD_CHARGE(R5),-		; Restore charged amount
+		UCB$W_CHARGE(R5)
+
+20$:	RSB					; Return
+
+	.SBTTL	LD_CANCEL_IO, Cancel I/O routine
+;+++
+;  LD_CANCEL_IO, Cancels I/O operations in progress
+;
+; Functional description:
+;
+;	This routine cancels all outstanding I/O for the specified
+;	channel and PID. We search the active IO list for LDIOB's
+;	containing that specific PID. If found, the channel number
+;	in the IRP is checked against the cancel channel number.
+;	If a match is found the IRP is traced to the physical disk
+;	driver where it is either removed from the IO wait queue
+;	and put into the post-processing queue, or the physical
+;	disk it's cancel IO routine is called, with the correct
+;	registers.
+;
+; Inputs:
+;
+;	R2	- Channel index number
+;	R3	- IRP from UCB$L_IRP
+;	R4	- PCB
+;	R5	- UCB
+;	R8	- Cancel reason code
+;
+; Outputs:
+;
+;	The routine must preserve all registers exept R0-R3
+;	The routine may set the UCB CANCEL bit in UCB$W_STS
+;
+;---
+LD_CANCEL_IO:
+	MOVAL	UCB$L_LD_AIOFL(R5),R0		; Get addr. active IO list
+	MOVL	R0,R1				; Copy it to R1
+
+10$:	MOVL	LDIOB_L_QFL(R1),R1		; Get an entry
+	CMPL	R1,R0				; Back at start ?
+	BEQL	30$				; Yes, whole list done
+	PUSHL	R0				; Save R0
+	CMPL	LDIOB_L_PID(R1),IRP$L_PID(R3)	; Is this the right process ?
+	BNEQ	20$				; No
+	MOVL	LDIOB_L_IRP(R1),R0		; Get IRP address
+	CMPW	IRP$W_CHAN(R0),R2		; Is this the right channel ?
+	BEQL	40$				; Yes
+
+20$:	MOVL	(SP)+,R0			; Copy for next block
+	BRB	10$				; Loop through list
+
+30$:	RSB
+
+40$:	PUSHR	#^M<R1,R2,R3,R5>		; Save some registers we need
+	MOVL	UCB$L_LD_PDUCB(R5),R3		; Get the phys.disk UCB
+	MOVZBL	UCB$B_FLCK(R5),R1		; Get our FLCK
+	CMPB	UCB$B_FLCK(R5),UCB$B_FLCK(R3)	; Compare Forklock index
+	BLSS	50$				; Ok, ours is larger or equal
+	MOVZBL	UCB$B_FLCK(R3),R1		; Get the lowest of the 2
+
+50$:	MOVL	R3,R5				; Change to Phys.disk UCB
+	FORKLOCK	LOCK=R1,-		; Synchronize
+			SAVIPL=-(SP)
+	MOVAL	UCB$L_IOQFL(R5),R3		; Get addr. of wait queue list
+	MOVL	R3,R1				; Copy it into R1
+
+60$:	MOVL	IRP$L_IOQFL(R1),R1		; Get next packet in the queue
+	CMPL	R1,R3				; End of queue ?
+	BEQL	80$				; Not found, call CANCELIO
+	CMPL	R1,R0				; Is this the one ?
+	BNEQ	60$				; No, search the rest
+	REMQUE	IRP$L_IOQFL(R1),R3		; Remove it from the queue
+	BBC	#IRP$V_BUFIO,IRP$W_STS(R3),70$	; Direct or buffered IO ?
+	BICW2	#IRP$M_FUNC,IRP$W_STS(R3)	; Clear buffered read
+
+70$:	MOVZWL	#SS$_CANCEL,IRP$L_IOST1(R3)	; Set return status
+	$INSQTI	IRP$L_IOQFL(R3),G^IOC$GQ_POSTIQ	; Insert IRP in post queue
+	SOFTINT	#IPL$_IOPOST			; Initiate software interrupt
+	BRB	90$
+
+80$:	MOVL	UCB$L_DDT(R5),R0		; Get address of DDT
+	MOVL	UCB$L_IRP(R5),R3		; Get current IO packet address
+	JSB	@DDT$L_CANCEL(R0)		; Call cancel IO rtn
+
+90$:	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-	; Release lock
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	POPR	#^M<R1,R2,R3,R5>		; Restore saved registers
+	BRW	20$				; Continue search
+
+	.SBTTL	LD_CANCEL_TRACE, Cancel trace I/O routine
+;+++
+;  LD_CANCEL_TRACE, Cancel trace I/O routine
+;
+; Functional description:
+;
+;	This routine checks if there's an IRP in the trace wait queue and
+;	transfer that to the post-processing if true. We can't use the input
+;	IRP since it may currently not be valid (it comes from UCB$L_IRP),
+;	so we check against the PID from the PCB.
+;
+; Inputs:
+;
+;	R2	- Channel index number
+;	R3	- IRP from UCB$L_IRP
+;	R4	- PCB
+;	R5	- UCB
+;	R8	- Cancel reason code
+;
+; Outputs:
+;
+;	The routine must preserve all registers exept R0-R3
+;
+;---
+LD_CANCEL_TRACE:
+	MOVAL	UCB$L_LD_TRCWAITQFL(R5),R0	; Get addr. of waiting trace irp
+	MOVL	R0,R1				; Copy it to R1
+
+10$:	MOVL	IRP$L_IOQFL(R1),R1		; Get an entry
+	CMPL	R1,R0				; Back at start ?
+	BEQL	20$				; Yes, whole list done
+	CMPL	IRP$L_PID(R1),PCB$L_PID(R4)	; Is this the right process ?
+	BNEQ	10$				; No
+	CMPW	IRP$W_CHAN(R1),R2		; Is this the right channel ?
+	BNEQ	10$				; No
+	CLRL	IRP$L_SVAPTE(R1)		; No more SVAPTE
+	REMQUE	IRP$L_IOQFL(R1),R1		; Remove it
+	MOVZWL	#SS$_CANCEL,IRP$L_IOST1(R1)	; Set return status
+	$INSQTI	IRP$L_IOQFL(R1),G^IOC$GQ_POSTIQ	; Insert IRP in post queue
+	SOFTINT	#IPL$_IOPOST			; Initiate software interrupt
+
+20$:	RSB
+
+	.SBTTL	LD_CANCEL_WATCH, Cancel watch I/O routine
+;+++
+;  LD_CANCEL_WATCH, Cancel watch I/O routine
+;
+; Functional description:
+;
+;	This routine will check if there's a suspended watchpoint
+;	pending for the I/O. If true we will remove it. We can't
+;	use the input IRP since it may currently not be valid (it
+;	comes from UCB$L_IRP), so we check against the PID from
+;	the PCB.
+;
+; Inputs:
+;
+;	R2	- Channel index number
+;	R3	- IRP from UCB$L_IRP
+;	R4	- PCB
+;	R5	- UCB
+;	R8	- Cancel reason code
+;
+; Outputs:
+;
+;	The routine must preserve all registers exept R0-R3
+;
+;---
+LD_CANCEL_WATCH:
+	TSTL	UCB$L_LD_WATCHCNT(R5)		; Any watchpoint active?
+	BEQL	40$				; No
+	MOVAL	UCB$L_LD_WATCHQFL(R5),R0	; Get addr. of watchpoint entry
+	MOVL	R0,R1				; Save for later
+
+10$:	MOVL	LDWATCH_L_FLINK(R1),R1		; Get an entry
+	CMPL	R1,R0				; Back at start ?
+	BEQL	40$				; Yes, whole list done
+	TSTL	LDWATCH_L_SUSPCNT(R1)		; Anything in suspend queue?
+	BEQL	10$				; No
+	PUSHR	#^M<R0,R1>
+	MOVAL	LDWATCH_L_SUSPFL(R1),R0		; Point to suspend listhead
+	MOVL	R0,R1				; Save for later
+
+20$:	MOVL	IRP$L_IOQFL(R1),R1		; Get waiting irp
+	CMPL	R1,R0				; Back at start?
+	BEQL	30$				; Yes
+	CMPL	IRP$L_PID(R1),PCB$L_PID(R4)	; Is this the right process ?
+	BNEQ	20$				; No
+	CMPW	IRP$W_CHAN(R1),R2		; Is this the right channel ?
+	BNEQ	20$				; No
+	REMQUE	IRP$L_IOQFL(R1),R1		; Remove it
+	MOVZWL	#SS$_CANCEL,IRP$L_IOST1(R1)	; Set return status
+	$INSQTI	IRP$L_IOQFL(R1),G^IOC$GQ_POSTIQ	; Insert IRP in post queue
+	SOFTINT	#IPL$_IOPOST			; Initiate software interrupt
+	POPR	#^M<R0,R1>
+	DECL	LDWATCH_L_SUSPCNT(R1)		; Count the one we removed
+	BRW	10$
+
+30$:	POPR	#^M<R0,R1>			; Restore, continue scan
+	BRW	10$
+
+40$:	RSB
+
+	.SBTTL	LD_GETLDIOB, Allocate I/O data block
+;+++
+; LD_GETLDIOB, Allocate I/O data block
+;
+; Functional description:
+;
+; This routine allocates and initializes an I/O datablock which is used
+; for I/O requests as well as trace information.
+;
+; Inputs:
+;
+;	None.
+;
+; Output:
+;
+;       R0	- Status
+;       R2      - LDIOB address
+;
+;       The routine must preserve all registers except R0 and R2.
+;
+;---
+;
+LD_GETLDIOB:
+	PUSHL	R1				; Save this guy
+	MOVZWL	#LDIOB_K_LENGTH,R1		; Set length of block to alloc.
+	JSB	G^EXE$ALONONPAGED		; Allocate pool
+	BLBC	R0,10$				; Exit on error
+	MOVW	R1,LDIOB_W_SIZE(R2)		; Setup size field
+	MOVB	#DYN$C_BUFIO,LDIOB_B_TYPE(R2)	; Setup type field
+	CLRB	LDIOB_B_RSVD(R2)		; Clear reserved field
+
+10$:	MOVL	(SP)+,R1			; Restore R1
+	RSB
+
+	.SBTTL	LD_SAVE_TRACE, Save trace I/O data
+	.SBTTL	LD_SAVE_TRACEALT, Save trace I/O data, alternate entrypoint
+;+++
+; LD_SAVE_TRACE - Save trace I/O data
+; LD_SAVE_TRACE_ALT - Save trace I/O data, alternate entrypoint
+;
+; Functional description:
+;
+; This routine is called just before going to REQCOM to save the eventual
+; trace data.
+;
+; Inputs for LD_SAVE_TRACE:
+;
+;       R0/R1   - Return status
+;       R3      - address of the IRP (I/O request packet)
+;       R5      - address of the UCB (unit control block)
+;
+;       This routine must preserve all registers except R2 and R4.
+;
+; Inputs for LD_SAVE_TRACE_ALT:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R4      - address of LDIOB
+;       R5      - address of the UCB (unit control block)
+;
+;       This routine must preserve all registers except R0-R2 and R4.
+;
+;---
+LD_SAVE_TRACE:
+	MOVL	R3,UCB$L_IRP(R5)		; Restore IRP
+	TSTL	UCB$L_LD_TRCBUF(R5)		; Start of buffer
+	BNEQ	5$				; Got one
+	BRW	30$
+
+5$:	PUSHL	R5
+	MOVQ	R0,R4				; Save status
+	BSBW	LD_GETLDIOB			; Allocate pool to hold
+						; temporary tracedata
+	BLBC	R0,20$				; Exit on error
+	MOVQ	R4,LDIOB_Q_STAT(R2)		; IOSB
+	MOVL	R2,R4
+	MOVL	(SP)+,R5
+	MOVL	IRP$L_MEDIA(R3),-
+		LDIOB_L_MEDIA(R4)		; LBN
+	MOVL	IRP$L_BCNT(R3),-
+		LDIOB_L_BCNT(R4)		; Bytecount
+	MOVW	IRP$W_FUNC(R3),-
+		LDIOB_W_FUNC(R4)		; Functioncode
+	CLRL	LDIOB_L_PID(R4)			; Assume no pid
+	BBS	#IRP$V_MVIRP,IRP$W_STS(R3),10$	; Mount verify IRP?
+	BBS	#IRP$V_SHDIO,IRP$W_STS2(R3),10$	; Is it shadowing I/O ?
+	MOVL	IRP$L_PID(R3),R0		; Get IPID
+	JSB	G^EXE$IPID_TO_EPID		; Make external PID
+	MOVL	R0,LDIOB_L_PID(R4)		; EPID
+
+10$:	READ_SYSTIME	LDIOB_Q_EN_TIME(R4)	; End time
+	MOVQ	LDIOB_Q_EN_TIME(R4),-
+		LDIOB_Q_ST_TIME(R4)		; Start time (Same as end time
+						; for synchronous functions)
+	BRW	LD_TRACE
+
+20$:	MOVL	(SP)+,R5
+30$:	RSB
+
+LD_SAVE_TRACE_ALT:
+	MOVL	R3,UCB$L_IRP(R5)		; Restore IRP
+	TSTL	UCB$L_LD_TRCBUF(R5)		; Start of buffer
+	BEQL	20$				; Not there, quit
+;
+; See if the 'start_time' is filled-in. If not it means that the
+; tracebuffer was allocated when an I/O request has been started but
+; not completed yet. Forget this entry if true.
+;
+	MOVQ	LDIOB_Q_ST_TIME(R4),R0		; Test for a start time
+	BEQL	20$				; Not set
+	MOVQ	IRP$L_IOST1(R3),-		; IOSB contents
+		LDIOB_Q_STAT(R4)
+	MOVL	LDIOB_L_PID(R4),R0		; Get IPID
+	CLRL	LDIOB_L_PID(R4)			; Assume no pid
+	BBS	#IRP$V_MVIRP,IRP$W_STS(R3),10$	; Mount verify IRP?
+	BBS	#IRP$V_SHDIO,IRP$W_STS2(R3),10$	; Is it shadowing I/O ?
+	JSB	G^EXE$IPID_TO_EPID		; Make external PID
+	MOVL	R0,LDIOB_L_PID(R4)		; EPID
+
+10$:	READ_SYSTIME	LDIOB_Q_EN_TIME(R4)	; End time
+	BRW	LD_TRACE
+
+20$:	MOVL	R4,R0				; Point to LDIOB
+	JSB	G^EXE$DEANONPAGED		; Get rid of buffer
+	RSB
+
+	.SBTTL	LD_TRACE, Trace I/O IRP data
+;+++
+; LD_TRACE - Trace I/O IRP data
+;
+; Functional description:
+;
+; This routine is called by the start I/O routine to log information
+; about the I/O request in a tracebuffer.
+;
+; The synchronisation of this buffer and the associated pointers is done
+; by means of a mutex in the UCB. This is done to avoid having to synchronize
+; access to the UCB with a Forklock at IPL 8. If we should do it that way,
+; we would have to lock the pages of the userbuffer which would receive the
+; data in memory. Since this buffer may be several Megabytes in size, this
+; would need a very big WSQUOTA, or splitting the buffer in pieces. It would
+; also mean that when we get the data out of the buffer we would be at IPL 8
+; for an extended time which would block several other things. By using a
+; mutex we can remain at IPL 2 in the FDT routine when we get the data from
+; the buffer, thus allowing pagefaults. We only must be careful when we want
+; to write new data into the buffer, and we find the mutex locked. In that
+; case we will queue the current IRP to the mutex wait queue in the UCB. The
+; thread which locked the Mutex has to check the queue on exit, and resume
+; any thread which was blocked.
+;
+; Inputs:
+;
+;       R3      - address of the IRP (I/O request packet)
+;       R4      - address of LDIOB
+;       R5      - address of the UCB (unit control block)
+;
+; The LDIOB in R4 will be deallocated when we're finished.
+;
+; The routine must preserve all registers except R0-R2 and R4.
+;---
+LD_TRACE:
+	MOVL	(SP)+,UCB$L_LD_TRCPC(R5)	; Save Fork trace PC
+
+20$:	LOCK_TRACE	ACCESS=WRITE,-		; Lock the mutex
+			CONTEXT=SYSTEM
+	BLBS	R0,40$				; Got it
+	MOVAB	IRP$L_FQFL(R3),R3		; Point to FKB within IRP
+	MOVAB	30$,FKB$L_FPC(R3)		; Save return addres
+	MOVB	#DYN$C_FRK,FKB$B_TYPE(R3)	; Insert structure type
+	MOVL	R4,FKB$L_FR4(R3)		; Preserve R4
+	MOVB	UCB$B_FLCK(R5),FKB$B_FLCK(R3)	; Set proper spinlock
+	FORKLOCK	LOCK=UCB$B_FLCK(R5),-	; Make sure synch is okay
+			SAVIPL=-(SP),-
+			PRESERVE=NO
+	INSQUE	(R3),@UCB$L_LD_TRCMUTEXQBL(R5)	; Save IRP in queue
+	FORKUNLOCK	LOCK=UCB$B_FLCK(R5),-
+			NEWIPL=(SP)+,-
+			PRESERVE=NO,-
+			CONDITION=RESTORE
+	RSB					; Return to caller's caller
+;
+; Fork thread, called with R5 = forkblock (is our FKB in IRP),
+; R3 and R4 restored from forkblock
+;
+30$:	SUBL3	#IRP$L_FQFL,R5,R3		; Restore IRP pointer
+	MOVL	IRP$L_UCB(R3),R5		; Restore UCB
+	BRB	20$				; And try again
+
+40$:	PUSHL	UCB$L_LD_TRCPC(R5)		; Restore Fork trace PC
+	PUSHL	R4				; Save R4
+	MOVL	UCB$L_LD_TRCBUF(R5),R4		; Start of buffer
+	MOVL	UCB$L_LD_TRCBUFPTR(R5),R1	; Get current pointer
+	ADDL3	#LDTRCENT_K_LENGTH,R1,R0	; Point to next free place
+	ADDL3	UCB$L_LD_TRCBUFSIZ(R5),R4,R2	; Calculate end of buffer
+	CMPL	R0,R2				; Past the end?
+	BLEQU	60$				; No
+	MOVL	R1,UCB$L_LD_TRCWRAP(R5)		; Flag buffer wraparound
+	INCL	UCB$L_LD_TRCLOST(R5)		; Count lost data
+	MOVL	R4,R1				; Reset ptr to start of buffer
+
+60$:	MOVL	#LDTRCENT_K_LENGTH,R0		; Length of LDTRCENT
+	MOVL	(SP),R4				; Source info from LDIOB
+	MOVAB	LDIOB_L_PID(R4),R4		; Point to trace data
+
+70$:	PUSHL	R3				; Save IRP
+	PUSHL	R5				; Save UCB
+	MOVC3	R0,(R4),(R1)			; Transfer data to tracebuffer
+	MOVL	(SP)+,R5			; Restore UCB
+	MOVL	R3,UCB$L_LD_TRCBUFPTR(R5)	; Save new bufferpointer
+	MOVQ	(SP)+,R3			; Restore R3 and R4
+	UNLOCK_TRACE	CONTEXT=SYSTEM,-	; Unlock the trace mutex
+			NEWDATA=YES		; Check if new data available
+	MOVQ	LDIOB_Q_STAT(R4),-(SP)		; Save I/O status
+	MOVL	R4,R0				; Point to LDIOB
+	JSB	G^EXE$DEANONPAGED		; Get rid of buffer
+	MOVQ	(SP)+,R0			; Restore status
+	RSB
+
+	.SBTTL	LD_OPCOM_AST, AST routine to send a message to OPCOM
+;+++
+;  LD_OPCOM_AST, AST routine to send a message to OPCOM
+;
+; Functional description:
+;
+;	We will run here in exec mode. Sine this part of the driver is located
+;	in non-paged-pool and the pageprotection is ERKW we may not write to
+;	any local variables. Hence we do all the work on the exec-stack.
+;	We are called in in the context of the process issueing the I/O request
+;	to send a message to OPCOM. If the I/O request came from a system-thread
+;	(Mount-verification for example) then the current process will be the
+;	OPCOM.
+;
+;	Layout of the stack we use for scratch storage:
+;
+;	0(SP)	-	FAO control string length
+;	4(SP)	-	FAO control string address
+;	8(SP)	-	FAO return length
+;	12(SP)	-	SNDOPR buffer length
+;	16(SP)	-	SNDOPR buffer address
+;	20(SP)	-	FAO output buffer length
+;	24(SP)	-	FAO output buffer address
+;	28(SP)	-	PID
+;	32(SP)	-	Imagename
+;	36(SP)	-	Devicename
+;	40(SP)	-	Function
+;	44(SP)	-	LBN
+;	48(SP)	-	FID_NUM
+;	52(SP)	-	FID_SEQ
+;	56(SP)	-	FID_RVN
+;	60(SP)	-	SNDOPR message header
+;	64(SP)	-	SNDOPR filler
+;	68(SP)	-	FAO output buffer
+;
+; Inputs:
+;
+;       4(AP)	- address of ACB which contains our parameters (LDSNDOPRLST)
+;
+; The routine must preserve all registers except R0-R1
+;---
+	.ENTRY	LD_OPCOM_AST,^M<R2,R3,R4,R5>
+;
+	SUBL2	#324,SP				; Allocate scratch space
+	MOVL	4(AP),R2			; Point to argument block
+	BBC	#LDWATCH_V_FILE,-		; File watchpoint?
+		LDSNDOPRLST_W_FLAGS(R2),10$
+	MOVL	#FAOLEN2,(SP)			; FAO string length
+	MOVAB	FAOSTR2,4(SP)			; FAO conversion format (VBN)
+	MOVZWL	LDSNDOPRLST_W_FID_NUM(R2),48(SP); File id number
+	MOVZWL	LDSNDOPRLST_W_FID_SEQ(R2),52(SP); File id sequence
+	MOVZWL	LDSNDOPRLST_W_FID_RVN(R2),56(SP); File id relative volume
+	BRB	20$
+
+10$:	MOVL	#FAOLEN1,(SP)			; FAO string length
+	MOVAB	FAOSTR1,4(SP)			; FAO conversion format (LBN)
+
+20$:	MOVAB	60(SP),16(SP)			; SNDOPR messagebuffer address
+	MOVZWL	LDSNDOPRLST_W_FUNC(R2),40(SP)	; Function
+	MOVL	LDSNDOPRLST_L_LBN(R2),44(SP)	; Logical block number
+	MOVAB	LDSNDOPRLST_T_DEVNAM(R2),36(SP)	; Device name
+	MOVAB	NONESTR,32(SP)			; Assume no imagename
+	CLRL	28(SP)				; Assume no process id
+	MOVL	LDSNDOPRLST_L_PID(R2),R0	; Internal process id
+	TSTL	LDSNDOPRLST_L_KAST(R2)		; Special process?
+	BNEQ	30$				; Yes
+	JSB	G^EXE$IPID_TO_EPID		; Make external PID
+	MOVL	R0,28(SP)			; Process id
+	MOVAL	G^IAC$GL_IMAGE_LIST,R0		; Get adress of image list
+	CMPL	(R0),R0				; Something there?
+	BEQL	10$				; No
+	MOVL	(R0),R0				; Get adress of first ICB
+	MOVAB	20(R0),32(SP)			; Point to image name
+
+30$:	MOVL	#<OPC$_RQ_RQST+<OPC$M_NM_DISKS@8>>,-
+		60(SP)				; OPCOM flags
+	CLRL	64(SP)				; Terminator
+	MOVAB	68(SP),24(SP)			; FAO output buffer address
+	MOVZWL	#256,20(SP)			; FAO output buffer length
+	PUSHAL	28(SP)				; Parameter list
+	PUSHAQ	24(SP)				; Output buffer
+	PUSHAW	16(SP)				; FAO return length
+	PUSHAQ	12(SP)				; FAO control string descriptor
+	CALLS	#4,G^SYS$FAOL			; Format the buffer
+	BLBC	R0,40$				; Trouble
+	MOVZWL	8(SP),R0			; Length of converted string
+	ADDL3	#8,R0,12(SP)			; OPCOM message header length + overhead
+	MOVAB	12(SP),R0			; Address of message descriptor
+	$SNDOPR_S	(R0)			; Send message to OPCOM
+	BLBS	R0,50$				; Okay
+	CMPL	R0,#SS$_MBFULL			; OPCOM mailbox full?
+	BEQL	50$				; Yes, message lost
+
+40$:	BUG_CHECK	INCONSTATE		; Issue a non-fatal bugcheck
+;
+; Now get back into kernel mode to deallocate our parameter buffer.
+; We are allowed to go into kernelmode since we're now running
+; in exec mode
+;
+50$:	$CMKRNL_S	ROUTIN=LD_OPCOM_DEALLOC,-
+			ARGLST=4(AP)		; ACB to deallocate
+	RET
+;
+FAOSTR1:	.ASCII	\***** LDdriver detected LBN watchpoint access *****!/\
+		.ASCII	\PID:      !XL!/\
+		.ASCII	\Image:    !AC!/\
+		.ASCII	\Device:   !AC!/\
+		.ASCII	\Function: !XW!/\
+		.ASCII	\LBN:      !UL\
+FAOLEN1=.-FAOSTR1
+;
+FAOSTR2:	.ASCII	\***** LDdriver detected VBN watchpoint access *****!/\
+		.ASCII	\PID:      !XL!/\
+		.ASCII	\Image:    !AC!/\
+		.ASCII	\Device:   !AC!/\
+		.ASCII	\Function: !XW!/\
+		.ASCII	\VBN:      !UL!/\
+		.ASCII	\File id:  (!UW,!UW,!UW)\
+FAOLEN2=.-FAOSTR2
+;
+NONESTR:	.ASCIC	/None/
+
+	.SBTTL	LD_OPCOM_DEALLOC, dealloc opcom parameter buffer
+;+++
+;  LD_OPCOM_DEALLOC, dealloc opcom parameter buffer
+;
+; Functional description:
+;
+;	We will return the parameter buffer from LD_OPCOM_AST
+;	to pool.
+;
+; Inputs:
+;
+;	(AP)	- address of ACB
+;
+; The routine must preserve all registers except R0-R1
+;---
+	.ENTRY	LD_OPCOM_DEALLOC,^M<>
+;
+	MOVL	(AP),R0				; Get old parameterbuffer pointer
+	JSB	G^EXE$DEANONPAGED		; Return to pool
+	RET
+
+	.SBTTL	LD_END, End of driver
+
+;+++
+; Label that marks the end of the driver
+;---
+
+LD_END:						; Last location in driver
+	.END

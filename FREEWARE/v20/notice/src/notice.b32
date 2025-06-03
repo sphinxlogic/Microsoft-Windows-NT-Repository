@@ -1,0 +1,1154 @@
+%TITLE	'NOTICE'
+MODULE NOTICE (
+%IF %VARIANT EQLU 0
+%THEN
+	MAIN = notice_main,
+%FI
+	IDENT = 'V2.0') =
+BEGIN
+!++
+!
+!  Facility:	NOTICE
+!
+!  Author:	Hunter Goatley
+!		Copyright © 1992--1994, MadGoat Software.  All rights reserved.
+!
+!  Date:	February 13, 1992
+!
+!  Abstract:
+!
+!	This program displays notices when a user logs in.  It scans
+!	a text library looking for topics added after a user's last
+!	interactive login date and displays a notice about each one.
+!
+!	When invoked with a subject, it displays the text for that
+!	subject.
+!
+!  Modified by:
+!
+!	V2.0		Hunter Goatley		16-AUG-1995 12:37
+!		Added /TEXT qualifier to display the text of each
+!		new notice when /NEW is given.  Also included updated
+!		MADGOAT_OUTPUT.B32, which handles line-wrapping and paging.
+!
+!	V1.10		Hunter Goatley		 3-AUG-1994 05:55
+!		Use LIB$GET_COMMAND instead of LIB$GET_INPUT when
+!		handling /PAUSE.  Needed to work from LOGIN.COM (duh).
+!
+!	V1.9		Hunter Goatley		14-APR-1994 07:35
+!		Added support for /OUTPUT=filename and /PAUSE.
+!
+!	01-008		Hunter Goatley		22-JUL-1993 21:52
+!		For SYLOGIN variant, added informational message about
+!		new notices for first login instead of dumping lots
+!		of notice info to the screen.  "$" notices are still
+!		displayed.
+!
+!	01-007		Hunter Goatley		28-JAN-1993 07:39
+!		Modified so that, if compiled with /VARIANT=1,
+!		NOTICE_MAIN can be called from a program to list
+!		all new notices.  If a SYLOGIN.EXE is used, calling
+!		NOTICE_MAIN eliminates the extra overhead of activating
+!		another image.
+!
+!	01-006		Hunter Goatley		 9-JAN-1993 23:53
+!		Removed /LIST, added /NEW.  Functionality was switched
+!		to match (no qualifiers = list all topics, /NEW = list
+!		all new notices since last login).
+!
+!	01-005		Hunter Goatley		 8-DEC-1992 11:33
+!		Modified to keep track of NOTICEs read, if NOTICE_ACC
+!		file can be opened.
+!
+!	01-004		Hunter Goatley		 6-MAY-1992 08:09
+!		Fixed stupid omission of BEGIN-END when checking new
+!		notices that caused headers to be printed when they
+!		weren't supposed to be.  Also added a couple of
+!		NOTICE error messages.
+!
+!	01-003		Hunter Goatley		23-APR-1992 09:12
+!		Modified so that the "$" in permanent notices is not
+!		displayed.  Essentially, the "$" is only visible to
+!		someone using the DCL command LIBRARY/LIST.
+!
+!		Also reworked the format of the new notices so that it
+!		looks more like NOTICE/LIST output (except that SMG is
+!		not used for the output to avoid clearing the screen).
+!
+!	01-002		Hunter Goatley		13-MAR-1992 09:06
+!		Moved output routines to external module.  Cleaned up
+!		code some.
+!
+!	01-001		Hunter Goatley		10-MAR-1992 15:54
+!		Added routine put_output, support for sorting notices
+!		based on insertion time, and the /LIST qualifier.
+!
+!	01-000		Hunter Goatley		13-FEB-1992 10:39
+!		Original version.
+!
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+REQUIRE 'HGMACROS.REQ';
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+    FORWARD ROUTINE
+	notice_main,				!Main entry point
+	display_new_notices,			!Display any new notices
+	display_topics,				!Display a topic header
+	sort_notices,				!Sort notices by date
+	alloc_node,				!Support routines for
+	compare_node,				!... LIB$INSERT_TREE and
+%IF %VARIANT EQLU 0 %THEN
+	display_all_notices,			!Display any new notices
+%FI
+	write_accounting,			!Log notice lookups
+	display_notice_text,			!Display text for a notice
+	print_node,				!... LIB$TRAVERSE_TREE
+	print_node_text
+	;
+
+    EXTERNAL ROUTINE
+%IF %VARIANT EQLU 0 %THEN
+	madgoat_put_output,			!Write line to SYS$OUTPUT
+	madgoat_open_output,			!Open /OUTPUT file
+	madgoat_rms_output,			!Write line to /OUTPUT file
+%FI
+	CLI$DCL_PARSE,				!Parse a DCL command line
+	CLI$GET_VALUE,				!Get value from command line
+	CLI$PRESENT,				!Check presence on command line
+	LIB$GET_FOREIGN,			!Get foreign command line
+	LIB$GET_COMMAND,				!Read from SYS$INPUT
+	LIB$GET_VM,				!Allocate virtual memory
+	LIB$INSERT_TREE,			!Insert into the b-tree
+	LIB$PUT_OUTPUT,				!Write to SYS$OUTPUT
+	LIB$SUB_TIMES,				!Subtract two times
+	LIB$TRAVERSE_TREE,			!Traverse a b-tree
+	LBR$CLOSE,				!Close a library
+	LBR$FIND,				!Find a library module
+	LBR$GET_INDEX,				!Lookup keys in index
+	LBR$GET_RECORD,				!Get record from library
+	LBR$INI_CONTROL,			!Initialize library control
+	LBR$LOOKUP_KEY,				!Look up key in library
+	LBR$OPEN,				!Open a library
+	LBR$SET_MODULE,				!Set a module
+	LBR$SET_MOVE,				!Set move mode
+	STR$CONCAT,				!Concatenate
+	STR$FREE1_DX
+	;
+
+    EXTERNAL
+%IF %VARIANT EQLU 0
+%THEN
+	notice_tables,				!The CDU command table
+%FI
+	notice$_nosuchtopic,			!<no such topic in library>
+	notice$_lbrfnf,				!<NOTICE library file not found>
+%IF %VARIANT NEQU 0
+%THEN
+	notice$_newnotice,
+%FI
+	CLI$_PRESENT,				!Status indicating present
+	LBR$_KEYNOTFND;				!Library key not found
+
+    MACRO					!Error macro---return on error
+	errret (val)	=
+	IF NOT(.val) THEN RETURN (.val)%;
+
+    LITERAL
+	txt$c_bufsiz	= 256,
+	node$c_length	= 12,			!length of the b-tree stuff
+	node$s_abstim	= 8,			!length of a username
+	node$s_data	= 80,			!length of the rest
+	node$c_totlength= node$c_length+	!the total length of a node
+			  node$s_abstim+	!...
+			  node$s_data+2;	!...
+
+    MACRO
+	node$q_abstim	= node$c_length, 0, 0, 0%,
+	node$w_datalen	= node$c_length+node$s_abstim,0,16,0%,
+	node$t_data	= node$c_length+node$s_abstim+2,0,0,0%;
+
+
+    OWN
+	header_buff	: $BBLOCK[txt$c_bufsiz],	!Module headers buffer
+	module_header	: $staticdesc(txt$c_bufsiz,	!Descriptor for
+				      header_buff),	!... header_buff
+	line_buff	: $BBLOCK[txt$c_bufsiz],	!Buffer for records
+	line		: $staticdesc(txt$c_bufsiz,	!Descriptor for module
+				      line_buff),	!... records
+	fao_buff	: $BBLOCK[txt$c_bufsiz],	!$FAO output buffer
+	fao_out		: $staticdesc(txt$c_bufsiz,	!Descriptor for $FAO
+				      fao_buff),	!... output buffer
+	lastlogin_i	: VECTOR[2,LONG],		!Last interactive login
+	notice_count	: LONG,				!Count of new notices
+	noshow_notice_count	: LONG,			!Count of unseen new
+	treehead	: LONG,				!Pointer to head of tree
+	lib_index_ptr	: UNSIGNED LONG,		!Library context index
+	outrtn;						!Output routine
+
+    BIND
+	library_file	= %ASCID'NOTICE_LIBRARY',
+	null_line	= %ASCID'',
+	dollar_sign_d	= %ASCID'$',
+	libindex	= UPLIT(1);
+!
+!  Header output stuff
+!
+    BIND
+	header1_bell	= %ASCID %STRING(%CHAR(7),
+				'NOTICE topics.  Type "NOTICE ',
+				'topic-name" for more information.'),
+	header1		= %ASCID %STRING('NOTICE topics.  Type "NOTICE ',
+				'topic-name" for more information.'),
+	header2		= %ASCID'Topic      Date         Description',
+	header_lines	= %ASCID'---------  -----------  -----------',
+	show_text_line	= %ASCID %STRING('New NOTICEs added since last login;',
+				' type NOTICE for a list of all notices.'),
+	press_return	= %ASCID'Press RETURN to continue....',
+	separator_line	= %ASCID %EXACTSTRING(40,%C'-');
+
+!
+!  CLI stuff
+!
+    BIND
+	show_text_d	= %ASCID'TEXT',
+	output_d	= %ASCID'OUTPUT',
+	pause_d		= %ASCID'PAUSE',
+	new_qualifier	= %ASCID'NEW',
+	module_name	= %ASCID'MODULE',
+	verb		= %ASCID'NOTICE ',
+	pause_prompt	= %ASCID'Press RETURN to continue login....';
+
+
+%SBTTL	'NOTICE_MAIN'
+%IF %VARIANT NEQU 0
+%THEN
+GLOBAL ROUTINE notice_main (pause, show_text) =
+%ELSE
+GLOBAL ROUTINE notice_main =
+%FI
+BEGIN
+!++
+!
+!  Routine:	NOTICE_MAIN
+!
+!  Abstract:
+!
+!	This is the main routine for NOTICE.  It uses LIB$GET_FOREIGN to
+!	get the foreign command line and then calls CLI$DCL_PARSE to parse
+!	the line.
+!
+!--
+    OWN
+	outfile		: $dyndesc,
+	topic		: $dyndesc,			!Descriptor for topic
+	cmd_line	: $dyndesc;			!The command line
+
+    REGISTER
+	status		: UNSIGNED LONG;		!Routine status
+%IF %VARIANT NEQU 0
+%THEN
+    BUILTIN
+	ACTUALCOUNT;
+%FI
+
+%IF %VARIANT EQLU 0
+%THEN
+    status = LIB$GET_FOREIGN (topic);			!Get foreign command
+    errret(status);					!... line
+
+    STR$CONCAT (cmd_line, verb, topic);			!Make one command line
+    status = CLI$DCL_PARSE (cmd_line, notice_tables);	!Parse the command line
+    errret(status);
+%FI
+    !
+    !  Before calling the appropriate routine, go ahead and open the library.
+    !  The index pointer will be passed to the other routines.
+    !
+
+    !
+    !  Initialize the library routines
+    !
+    status = LBR$INI_CONTROL (lib_index_ptr,		!Context pointer
+			    UPLIT(LBR$C_READ),		!Read-only access
+			    UPLIT(LBR$C_TYP_TXT));	!Type is text library
+    errret(status);
+
+    !
+    !  Open the NOTICE library
+    !
+    status = LBR$OPEN (lib_index_ptr, library_file);
+    IF NOT(.status)
+    THEN
+	IF (.status EQLU RMS$_FNF)
+	THEN
+	    RETURN (notice$_lbrfnf)
+	ELSE
+	    RETURN (.status);
+
+%IF %VARIANT NEQU 0
+%THEN
+    outrtn = LIB$PUT_OUTPUT;
+    status = display_new_notices (lib_index_ptr, 0, .show_text);
+    IF (.notice_count GTRU 0) AND (ACTUALCOUNT() GTRU 0) AND (.pause)
+    THEN
+	BEGIN
+	LIB$GET_COMMAND (topic, pause_prompt);
+	END;
+%ELSE
+    IF (CLI$PRESENT(output_d))
+    THEN
+	BEGIN
+	CLI$GET_VALUE (output_d, outfile);		!Get the filename
+	status = madgoat_open_output (outfile);		!Open it!
+	IF NOT(.status)
+	THEN
+	    RETURN (.status);
+	outrtn = madgoat_rms_output;			!Use RMS for output
+	END
+    ELSE
+	outrtn = madgoat_put_output;
+
+    IF (CLI$PRESENT(new_qualifier) EQLU CLI$_PRESENT)	!If /NEW was specified,
+    THEN						!... then list the
+	BEGIN						!... new ones
+	IF (.outrtn EQLA madgoat_put_output)		!If /NEW is given and
+	THEN						!... /OUTPUT isn't,
+	    outrtn = LIB$PUT_OUTPUT;			!... use LIB$PUT_OUTPUT
+	status = display_new_notices (lib_index_ptr,0,
+		(CLI$PRESENT(show_text_d) AND 1));
+	IF (.notice_count GTRU 0) AND (.outrtn EQLA LIB$PUT_OUTPUT)
+		AND (CLI$PRESENT (pause_d))
+	THEN
+	    LIB$GET_COMMAND (topic, pause_prompt);
+	END
+    ELSE
+	BEGIN
+	IF (CLI$PRESENT(module_name))			!If a module name was
+	THEN						!... given, get it
+	    status = CLI$GET_VALUE(module_name, topic)	!...
+	ELSE						!Otherwise, initialize
+	    topic[DSC$W_LENGTH] = 0;			!... descriptor with 0
+
+	!
+	!  If a topic-name was given and it includes no wildcard characters,
+	!  then display that topic text.  If it's missing or includes
+	!  wildcards, then list all topics matching the specified text.
+	!
+	IF (.topic[DSC$W_LENGTH] NEQU 0) AND		!If a topic
+		CH$FAIL(CH$FIND_CH(.topic[DSC$W_LENGTH], .topic[DSC$A_POINTER],
+			%C'*')) AND
+		CH$FAIL(CH$FIND_CH(.topic[DSC$W_LENGTH], .topic[DSC$A_POINTER],
+			%C'%'))
+	THEN
+	    status = display_notice_text (lib_index_ptr, topic)
+	ELSE
+	    status = display_all_notices (lib_index_ptr,
+			(IF .topic[DSC$W_LENGTH] EQLU 0
+			 THEN
+			    %ASCID'*'
+			 ELSE
+			    topic));
+	END;
+%FI
+
+    IF (.status EQLU LBR$_KEYNOTFND)
+    THEN
+	status = notice$_nosuchtopic;
+
+    LBR$CLOSE (lib_index_ptr);			!Close the library
+
+    RETURN (.status);				!Return the status
+
+END;						!End of routine
+
+
+%SBTTL	'DISPLAY_NEW_NOTICES'
+ROUTINE display_new_notices (index_a, time_a, show_text) =
+BEGIN
+!+
+!
+!  Routine:	DISPLAY_NEW_NOTICES
+!
+!  Functional Description:
+!
+!	This routine is called to display new notices that were added to
+!	the text library since the last time the user logged in.
+!
+!	This routine simply gets the last login time and calls LBR$GET_INDEX
+!	to search through the modules.
+!
+!  Environment:
+!
+!	User mode.
+!
+!  Formal parameters:
+!
+!	index_a		- Address of library index pointer
+!	time_a		- Address of quadword holding time to use for compares
+!
+!  Implicit inputs:
+!
+!	lastlogin_i, notice_count, header1_bell, header2, header_lines,
+!	null_line, treehead
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	lib_index_ptr	= .index_a : UNSIGNED LONG,
+	time		= .time_a  : VECTOR[2,LONG];
+
+    LOCAL
+	jpi_itmlst	: $ITMLST_DECL(ITEMS=1),
+	jpi_iosb	: VECTOR[2,LONG];
+
+
+    REGISTER
+	status		: UNSIGNED LONG;
+
+    IF (time EQLU 0)
+    THEN
+	BEGIN
+	$ITMLST_INIT (ITMLST = jpi_itmlst,		!Initialize the $GETJPI
+		(ITMCOD = JPI$_LAST_LOGIN_I,		!... item list
+		BUFSIZ = 8,
+		BUFADR = lastlogin_i));
+
+	status = $GETJPIW (ITMLST = jpi_itmlst,	!Get the last interactive login
+			   IOSB   = jpi_iosb);	!... time for this process
+	errret(status);				!Return on error
+	END
+    ELSE
+	BEGIN
+	lastlogin_i[0] = .time[0];
+	lastlogin_i[1] = .time[1];
+	END;
+
+    notice_count = noshow_notice_count = 0;	!Initialize notice count
+
+    status = LBR$GET_INDEX (lib_index_ptr,	!Call LBR$GET_INDEX to look
+			    libindex,		!... through *all* of the
+			    display_topics);	!... key names
+
+    IF (.notice_count NEQU 0)			!If there's anything to
+    THEN					!... display, do it using
+	BEGIN
+	IF (.show_text)
+	THEN
+	    BEGIN
+	    (.OUTRTN) (null_line);
+	    (.outrtn) (show_text_line);
+	    (.OUTRTN) (null_line);
+	    END
+	ELSE
+	    BEGIN
+	    (.OUTRTN) (null_line);
+	    (.OUTRTN) (header1_bell);
+	    (.OUTRTN) (null_line);
+	    (.OUTRTN) (header2);
+	    (.OUTRTN) (header_lines);
+	    END;
+
+	status = LIB$TRAVERSE_TREE (treehead,	!And traverse the tree....
+			(IF (.show_text)
+			 THEN
+			     print_node_text
+			 ELSE
+			     print_node), 0);
+
+	(.OUTRTN) (null_line);			!... one more blank line
+%IF %VARIANT EQLU 0 %THEN
+	END;
+%ELSE
+	END
+    ELSE
+	IF (.noshow_notice_count NEQU 0)
+	THEN
+	    SIGNAL(NOTICE$_NEWNOTICE);
+%FI
+    RETURN (SS$_NORMAL);			!Return status to our caller
+
+END;
+
+
+%IF %VARIANT EQLU 0 %THEN
+%SBTTL	'DISPLAY_ALL_NOTICES'
+ROUTINE display_all_notices (index_a, module_a) =
+BEGIN
+!+
+!
+!  Routine:	DISPLAY_ALL_NOTICES
+!
+!  Functional Description:
+!
+!	This routine is called to list all notices that match an optional
+!	wildcard specification.
+!
+!	This routine calls LBR$GET_INDEX to search through the modules.
+!
+!  Environment:
+!
+!	User mode.
+!
+!  Formal parameters:
+!
+!	index_a		- Address of library index pointer
+!	module_a	- Address of descriptor pointing to the module name
+!
+!  Implicit inputs:
+!
+!	lastlogin_i, header1, header2, header_lines, null_line, treehead
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	lib_index_ptr	= .index_a	: UNSIGNED LONG,
+	module_name	= .module_a	: $BBLOCK;
+
+    LOCAL
+	temp_desc	: $dyndesc;
+
+    REGISTER
+	status2,
+	status;
+
+    status = LBR$GET_INDEX (lib_index_ptr,	!Call LBR$GET_INDEX to look
+			    libindex,		!... through the key names
+			    sort_notices,	!...
+			    module_name);	!...
+
+    !
+    !  Now add a dollar sign to the beginning to look for any modules
+    !  that are always displayed.
+    !
+    STR$CONCAT (temp_desc, dollar_sign_d, module_name);
+    status2 = LBR$GET_INDEX (lib_index_ptr,	!Call LBR$GET_INDEX to look
+			     libindex,		!... through the key names
+			     sort_notices,	!...
+			     temp_desc);	!...
+
+    IF (.status OR .status2)			!If there were any matches
+    THEN					!... with the module name,
+	BEGIN					!... then print out all the
+	(.outrtn) (header1);			!... headers for the list
+	(.outrtn) (null_line);			!...
+	(.outrtn) (header2);			!...
+	(.outrtn) (header_lines);		!...
+						!And traverse the tree....
+	status = LIB$TRAVERSE_TREE (treehead, print_node, 0);
+	END;
+
+    IF (.status)				!If something was printed,
+    THEN					!... go ahead and print
+	(.outrtn) (null_line);			!... one more blank line
+
+    RETURN (.status);				!Return status to our caller
+
+END;
+%FI
+
+%SBTTL	'DISPLAY_TOPICS'
+ROUTINE display_topics (key_name_a, rfa_a) =
+BEGIN
+!+
+!
+!  Routine:	DISPLAY_TOPICS
+!
+!  Functional Description:
+!
+!	This routine is called by LBR$GET_INDEX to display the first line
+!	and module name for a given module.  This routine compares the
+!	module's insertion date with the login time and only displays those
+!	modules that have been added since the user's last interactive login.
+!
+!  Environment:
+!
+!	User mode.
+!
+!  Formal parameters:
+!
+!	key_name_a	- Address of descriptor for the module's key
+!	rfa_a		- Address of the record's RFA
+!
+!  Implicit inputs:
+!
+!	lastlogin_i, notice_count, module_header, header_buff, line, fao_out,
+!	null_line
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	key_name	= .key_name_a	: $BBLOCK,
+	rfa		= .rfa_a	: VECTOR[2,LONG];
+
+    OWN
+	temp		: VECTOR[2,LONG];
+
+    LOCAL
+	always_display	: INITIAL(false);
+
+    REGISTER
+	status		: UNSIGNED LONG;
+
+    EXTERNAL
+	LIB$_NEGTIM	: ADDRESSING_MODE(ABSOLUTE);
+
+    !
+    !  Check the key name to see if this topic should always be displayed.
+    !
+    IF (CH$RCHAR(.key_name[DSC$A_POINTER]) NEQU %C'$')
+    THEN
+	BEGIN
+	status = LBR$SET_MODULE (lib_index_ptr, rfa, module_header,
+				 module_header);
+%IF %VARIANT NEQU 0
+%THEN
+	IF (.status) AND (.lastlogin_i[0] EQLU 0) AND (.lastlogin_i[1] EQLU 0)
+	THEN
+	    BEGIN
+	    noshow_notice_count = .noshow_notice_count + 1;	!Bump count
+	    RETURN (.status)
+	    END;
+%FI
+	IF NOT(.status) OR
+	   (LIB$SUB_TIMES(header_buff[MHD$L_DATIM], lastlogin_i, temp) EQLU
+		LIB$_NEGTIM)
+	THEN
+	    RETURN (.status);
+	END;
+
+    !
+    !  Here, either the module should always be displayed or the insertion
+    !  date is more recent than the user's last login.  We need to look up
+    !  the first line and display that on the screen.
+    !
+    notice_count = .notice_count + 1;
+    RETURN (sort_notices(key_name, rfa));
+
+END;
+
+
+%SBTTL	'DISPLAY_NOTICE_TEXT'
+ROUTINE display_notice_text (index_a, topic_a) =
+BEGIN
+!+
+!
+!  Routine:	DISPLAY_NOTICE_TEXT
+!
+!  Functional Description:
+!
+!	This routine is called to display the text of a particular notice.
+!
+!  Environment:
+!
+!	User mode.
+!
+!  Formal parameters:
+!
+!	index_a		- Address of library index pointer
+!	topic_a		- Address of string descriptor for the topic name
+!
+!  Implicit inputs:
+!
+!	fao_out, line, module_header, header_buff, null_line
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	lib_index_ptr	= .index_a	: UNSIGNED LONG,
+	topic		= .topic_a	: $BBLOCK;
+
+    OWN
+	rfa		: VECTOR[2,LONG];	!Module's Record file address
+
+    REGISTER
+	status		: UNSIGNED LONG;
+
+    write_accounting (topic);
+    !
+    !  Reset descriptor lengths for buffers
+    !
+    module_header[DSC$W_LENGTH] = fao_out[DSC$W_LENGTH] = txt$c_bufsiz;
+
+    !
+    !  Now lookup the module using the key, setting the rfa for that module.
+    !
+    status = LBR$LOOKUP_KEY (lib_index_ptr, topic, rfa);	!Lookup the module
+    IF (.status EQLU LBR$_KEYNOTFND)			!If the key was not
+    THEN						!... found, slap a
+	BEGIN						!... "$" at the front
+	LOCAL						!... and look again
+	    temp_desc : $dyndesc;
+	STR$CONCAT (temp_desc, dollar_sign_d, topic);
+	status = LBR$LOOKUP_KEY (lib_index_ptr, temp_desc, rfa);
+	END;
+
+    errret(status);
+
+    !
+    !  Get the module header so we can display the date.
+    !
+    status = LBR$SET_MODULE (lib_index_ptr, rfa, module_header, module_header);
+    errret(status);
+
+    !
+    !  Format the header and print it out.
+    !
+    $FAO (%ASCID'Notice !AS, dated !%D', fao_out, fao_out, topic,
+		 header_buff[MHD$L_DATIM]);
+    (.outrtn) (fao_out);
+    (.outrtn) (null_line);
+
+    !
+    !  Call LBR$GET_RECORD and display each record until EOF is returned.
+    !
+    WHILE (BEGIN				!Loop while more records....
+	   line[DSC$W_LENGTH] = txt$c_bufsiz;	!Reset descriptor length
+	   status = LBR$GET_RECORD (lib_index_ptr, line, line)	!Get record
+	   END)
+    DO						!While there are more records,
+	(.outrtn) (line);			!... write them to SYS$OUTPUT
+
+    (.outrtn) (null_line);			!Print blank line
+    RETURN ((IF (.status EQLU RMS$_EOF)		!If error was EOF, then return
+	     THEN				!.... normal success status
+		SS$_NORMAL			!....
+	     ELSE				!Otherwise, return whatever
+		.status));			!.... the status is
+
+END;
+
+
+%SBTTL	'SORT_NOTICES'
+ROUTINE sort_notices (key_name_a, rfa_a) =
+BEGIN
+!+
+!
+!  Routine:	SORT_NOTICES
+!
+!  Functional Description:
+!
+!	This routine is called by LBR$GET_INDEX for each module that is found.
+!	It then calls LIB$INSERT_TREE to insert the module info into a b-tree.
+!
+!  Formal parameters:
+!
+!	key_name_a	= Address of descriptor for the key name
+!	rfa_a		= Address of RFA for the module
+!
+!  Implicit Inputs:
+!
+!	treehead
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Allocates memory via LIB$GET_VM.
+!
+!-
+    BIND
+	key_name	= .key_name_a	: $BBLOCK,
+	rfa		= .rfa_a	: VECTOR[2,LONG];
+
+    BIND
+	fao_data	= %ASCID'!10AD !11%D  !55AS';
+
+    LOCAL
+	always_display	: INITIAL (false),
+	temp_node	: LONG;
+
+    REGISTER
+	status	: UNSIGNED LONG;
+
+    status = LBR$SET_MODULE (lib_index_ptr, rfa, module_header, module_header);
+
+    !
+    !  Here, we have the module header.  Format the topic name and the date.
+    !
+
+    status = LBR$FIND (lib_index_ptr, rfa);	!Find the right module
+    errret(status);				!Return any error
+
+    line[DSC$W_LENGTH] = txt$c_bufsiz;		!Reset descriptor length
+    status = LBR$GET_RECORD (lib_index_ptr, line, line);	!Get the first line
+    errret(status);				!Return any error
+
+    IF CH$RCHAR(.key_name[DSC$A_POINTER]) EQLU %C'$'
+    THEN
+        always_display = true;
+
+    fao_out[DSC$W_LENGTH] = txt$c_bufsiz;
+    status = $FAO (fao_data, fao_out, fao_out,
+		(IF .always_display			!Skip over the dollar
+		 THEN					!... sign if it's
+		    .key_name[DSC$W_LENGTH] - 1		!... there
+		 ELSE
+		    .key_name[DSC$W_LENGTH]),
+		(IF .always_display
+		 THEN
+		    .key_name[DSC$A_POINTER] + 1
+		 ELSE
+		      .key_name[DSC$A_POINTER]),
+		 header_buff[MHD$L_DATIM], line);
+    errret(status);				!Return any error
+
+    RETURN (LIB$INSERT_TREE (			!Insert this line into the
+			treehead,		!...tree, to be sorted by
+			header_buff[MHD$L_DATIM],	!...insertion date
+			%REF(0),		!...don't allow duplicates
+			compare_node,		!...the comparison routine
+			alloc_node,		!...the VM allocation routine
+			temp_node,		!...the node allocated
+			fao_out));		!...
+
+END;						!End of alloc_node
+
+
+%SBTTL	'ALLOC_NODE'
+ROUTINE alloc_node (key_a, retdesc_a, data_a) =
+BEGIN
+!+
+!
+!  Routine:	ALLOC_NODE
+!
+!  Functional Description:
+!
+!	This routine is called by LIB$INSERT_TREE to allocate memory for
+!	the node; the username is used as the key for sorting the tree.
+!
+!  Formal parameters:
+!
+!	key_a		= Address of descriptor for the key
+!	retdesc_a	= Address of longword to receive address of memory
+!	data_a		= Address of descriptor for user data
+!
+!  Implicit Inputs:
+!
+!	sysuaf_fab, sysuaf_rab, sysuaf_buffer
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!  Side effects:
+!
+!	Allocates memory via LIB$GET_VM.
+!
+!-
+    REGISTER
+	status	: UNSIGNED LONG;
+
+    BIND
+	key	= .key_a	: VECTOR[2,LONG],
+	retdesc = .retdesc_a	: LONG,
+	data	= .data_a	: $BBLOCK;
+
+    OWN
+	noderef	: REF $BBLOCK;	!points to the node allocated
+
+    status = LIB$GET_VM (			!allocate some memory
+	%REF(NODE$C_TOTLENGTH), 		!...the length
+	noderef);				!...where to put the address
+    IF (.status)				!successful allocation?
+    THEN					!Yes,
+	BEGIN
+	LOCAL ptr : REF VECTOR[2,LONG];
+	ptr = noderef[node$q_abstim];		!Get pointer
+	ptr[0] = .key[0];
+	ptr[1] = .key[1];
+
+	noderef[node$w_datalen] = 		!Copy the length of the user
+		.data[DSC$W_LENGTH];		!...data
+	CH$MOVE (				!Copy the user data
+		.data[DSC$W_LENGTH], 		!...
+		.data[DSC$A_POINTER],		!...
+		noderef[node$t_data]);		!...
+	retdesc = .noderef;			!Return address of the node
+	END;
+
+    RETURN (.status);				!Return the final status
+
+END;						!End of alloc_node
+
+
+%SBTTL	'COMPARE_NODE'
+ROUTINE compare_node (key_a, node_a, data_a) =
+BEGIN
+!+
+!
+!  Routine:	COMPARE_NODE
+!
+!  Functional Description:
+!
+!	This routine is called by LIB$INSERT_TREE to compare two nodes.
+!
+!  Formal parameters:
+!
+!	key_a		= Address of quadword time value
+!	node_a		= Address of node to compare
+!	data_a		= Address of descriptor for user data
+!
+!  Implicit Inputs:
+!
+!	sysuaf_fab, sysuaf_rab, sysuaf_buffer
+!
+!  Returns:
+!
+!	R0	- -1	- First is less than second
+!		   0	- Two are equal
+!		   1	- First is greater than second
+!
+!-
+    BIND
+	key	= .key_a	: VECTOR[2,LONG],
+	node	= .node_a	: $BBLOCK,
+	data	= .data_a	: $BBLOCK;
+
+    LOCAL
+	work	: VECTOR[2,LONG];
+
+    EXTERNAL
+	LIB$_NEGTIM	: ADDRESSING_MODE(ABSOLUTE);
+
+    IF (LIB$SUB_TIMES (key, node[node$q_abstim], work) EQLU LIB$_NEGTIM)
+    THEN
+	RETURN 1
+    ELSE
+	!
+	!  If the two times are equal, LIB$SUB_TIMES returns .1 instead of
+	!  0., because a 0 time is invalid in VMS.  .1 is represented as
+	!  -1 in both longwords.
+	!
+	IF (.work[0] EQLU -1) AND (.work[1] EQLU -1)	!Were they equal?
+	THEN						!If so, return 0
+	    RETURN 0
+	ELSE
+	    RETURN -1;
+
+END;						!End of compare_node
+
+
+%SBTTL	'PRINT_NODE'
+ROUTINE print_node (node_a, data_a) =
+BEGIN
+!+
+!
+!  Routine:	PRINT_NODE
+!
+!  Functional Description:
+!
+!	This routine is called by LIB$TRAVERSE_TREE to write node information
+!	to the output file.  It is called once for each node in the tree.
+!
+!	The output routine used is (.OUTRTN).
+!
+!  Inputs:
+!
+!	node_a		= Address of longword containing the node address
+!	data_a		= Address of descriptor for user data
+!
+!  Implicit Inputs:
+!
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	node	= .node_a	: $BBLOCK,
+	data	= .data_a	: $BBLOCK;
+
+    LOCAL
+	ptr		: REF $BBLOCK,
+	work_desc	: $staticdesc(0,0);
+
+    ptr = work_desc[DSC$A_POINTER] = node[node$t_data];
+
+    ptr = .ptr + .node[node$w_datalen];		!Point to last byte
+    WHILE (CH$RCHAR(.ptr) EQLU %C' ') DO	!Trim any blanks off end by
+	ptr = .ptr - 1;				!... decrementing the pointer
+
+    work_desc[DSC$W_LENGTH] = CH$DIFF(.ptr, .work_desc[DSC$A_POINTER]);
+
+    RETURN ((.OUTRTN)(work_desc));
+
+END;						!end of print_node
+
+
+%SBTTL	'PRINT_NODE_TEXT'
+ROUTINE print_node_text (node_a, data_a) =
+BEGIN
+!+
+!
+!  Routine:	PRINT_NODE_TEXT
+!
+!  Functional Description:
+!
+!	This routine is called by LIB$TRAVERSE_TREE to write node information
+!	to the output file.  It is called once for each node in the tree.
+!
+!	The output routine used is (.OUTRTN).
+!
+!  Inputs:
+!
+!	node_a		= Address of longword containing the node address
+!	data_a		= Address of descriptor for user data
+!
+!  Implicit Inputs:
+!
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	node	= .node_a	: $BBLOCK,
+	data	= .data_a	: $BBLOCK;
+
+    LOCAL
+	junk		: $BBLOCK [DSC$K_S_BLN],
+	ptr		: REF $BBLOCK,
+	work_desc	: $staticdesc(0,0);
+
+    $INIT_DYNDESC (junk);
+
+    ptr = work_desc[DSC$A_POINTER] = node[node$t_data];
+
+    !
+    !  Find the key by searching for the first blank.
+    !
+    WHILE (CH$RCHAR(.ptr) NEQU %C' ') DO
+	ptr = .ptr + 1;
+
+    work_desc [DSC$W_LENGTH] = .ptr - .work_desc [DSC$A_POINTER];
+
+    (.outrtn)(separator_line);
+    display_notice_text (lib_index_ptr, work_desc);
+
+    LIB$GET_COMMAND (junk, press_return);
+    (.outrtn)(null_line);
+
+    STR$FREE1_DX (junk);
+    RETURN (SS$_NORMAL);
+
+END;						!end of print_node
+
+
+%SBTTL	'WRITE_ACCOUNTING'
+ROUTINE write_accounting (notice_a) =
+BEGIN
+!+
+!
+!  Routine:	WRITE_ACCOUNTING
+!
+!  Functional Description:
+!
+!	This routine is called by DISPLAY_NOTICE_TEXT to write a record
+!	to a NOTICE accounting file (just to see who's reading what).
+!
+!  Inputs:
+!
+!	node_a		= Address of longword containing the node address
+!	data_a		= Address of descriptor for user data
+!
+!  Implicit Inputs:
+!
+!
+!  Returns:
+!
+!	R0	- Status
+!
+!-
+    BIND
+	notice = .notice_a	: $BBLOCK;
+
+    LOCAL
+	output_fab : $FAB (			!FAB for output file
+		FNM = 'NOTICE_ACC',		!Filename
+		DNM = 'SYS$MANAGER:.LOG',	!Default name
+		FAC = PUT,			!Access is put
+		SHR = (PUT,GET),		!Allow other access
+		FOP = (SQO),			!File operations - sequential
+		RFM = VAR,			!Variable length records
+		MRS = 512,			!Maximum record size
+		RAT = CR,			!Carriage return format
+		ORG = SEQ			!File organization - sequential
+		),
+	output_rab : $RAB (			!RAB for output file
+		FAB = output_fab,		!The related FAB
+		RAC = SEQ,			!Record access is sequential
+		ROP = EOF
+		),
+	fao_buff	: $BBLOCK[256],
+	fao_out		: $staticdesc(256,fao_buff),
+	username	: $BBLOCK[12],
+	jpi_itmlst	: $ITMLST_DECL (ITEMS = 1),
+	status;
+
+    status = $OPEN (FAB = output_fab);		!Try to open the log file
+    IF NOT(.status)				!If we can't do it, just
+    THEN					!... return NORMAL
+	RETURN SS$_NORMAL;
+
+    status = $CONNECT (RAB = output_rab);
+    IF NOT(.status)
+    THEN
+	RETURN SS$_NORMAL;
+
+    $ITMLST_INIT (ITMLST = jpi_itmlst,		!Initialize item list to
+	(BUFSIZ = %ALLOCATION(username),	!... get the username for
+	 ITMCOD = JPI$_USERNAME,		!... this process
+	 BUFADR = username));
+
+    $GETJPIW (ITMLST = jpi_itmlst);		!Get the username
+
+    $FAO (%ASCID'!%D  !AD  !AS', fao_out, fao_out, 0, %ALLOCATION(username),
+			username, notice);	!Format the log entry
+
+    output_rab[RAB$W_RSZ] = .fao_out[DSC$W_LENGTH];
+    output_rab[RAB$L_RBF] = .fao_out[DSC$A_POINTER];
+    $PUT (RAB = output_rab);			!Write the entry to the log
+
+    $CLOSE (FAB = output_fab);			!Close up shop
+
+    RETURN SS$_NORMAL;				!And always return success
+
+END;
+
+
+END						!End of module BEGIN
+ELUDOM						!End of module

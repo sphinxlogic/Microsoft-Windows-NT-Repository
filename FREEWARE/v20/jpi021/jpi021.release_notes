@@ -1,0 +1,489 @@
+********* JPI V2.1-3 ************ Release Notes ******************************
+*   April 1995  *
+*  Rodney Jack  *
+*****************
+    *******************************************************************
+    *	Digital does not warrant that the System Management Example   *
+    *	provided herein will meet customers' requirements, operate    *
+    *	without interruption or be error free.                        *
+    *******************************************************************
+
+    CAUTION    CAUTION    CAUTION    CAUTION    CAUTION    CAUTION    CAUTION  
+  ****************************************************************************
+  ***  This utility uses the DCLTABLES CLI for a command named JPI. JPI is ***
+  ***  NOT a DEC registered command and therefore may, in the future,      ***
+  ***  conflict with a DEC registered DCL command.                         ***
+  ****************************************************************************
+
+  JPI is an OpenVMS wide-area network tool which is used to create a one
+  line per process static information display for all processes matching
+  specified selection criteria, displaying the output according to display
+  criteria. JPI utilizes the $process_scan and $getjpi OpenVMS System
+  Services to accomplish the scanning. Scanning can be targeted to a local
+  node, a remote node, a local OpenVMS Cluster or a remote OpenVMS cluster
+  or any combination of these. JPI V2.1 will execute on OpenVMS VAX V5.3
+  and later and OpenVMS AXP V6.1 and later.
+
+  The following is a sample display output:
+
+  $ JPI/USER=SYSTEM
+
+                    Job/Process Information from VAX/VMS T6.1-5Z0
+             From node MYNODE (VAXstation 3100/GPX) at 22-MAR-1994 15:42:41.73
+
+PID      Term   Username      Process Name  Image Name  PriB Work State M Node
+--------------------------------------------------------------------------------
+00000085         SYSTEM...... IPCACP....... IPCACP......  8  2052 HIB   O MYNODE
+00000086         SYSTEM...... ERRFMT....... ERRFMT......  7   516 HIB   O MYNODE
+00000087         SYSTEM...... OPCOM........ OPCOM.......  6   516 HIB   O MYNODE
+00000089         SYSTEM...... JOB_CONTROL.. JBC$JOB_CONT  8  1028 HIB   O MYNODE
+0000008A         SYSTEM...... QUEUE_MANAGER QMAN$QUEUE_M  8  1482 HIB   O MYNODE
+0000008B         SYSTEM...... SECURITY_SERV SECURITY_SER  8  1628 HIB   O MYNODE
+0000008C         SYSTEM...... TP_SERVER.... TPSERV......  8  2052 HIB   O MYNODE
+00000090         SYSTEM...... REMACP....... REMACP......  8   516 HIB   O MYNODE
+00000092         SYSTEM...... DQS$NOTIFIER. DQS$NOTIFIER  4   516 LEF   O MYNODE
+00000094         SYSTEM...... SYMBIONT_2... DQS$SMB.....  4  1032 HIB   O MYNODE
+00000095         SYSTEM...... SYMBIONT_3... DQS$SMB.....  4  1032 HIB   O MYNODE
+00000096         SYSTEM...... LATACP....... LATACP...... 12   666 HIB   O MYNODE
+00000098         SYSTEM...... SYMBIONT_5... DCPS$SMB....  4  1032 HIB   O MYNODE
+00000099         SYSTEM...... SYMBIONT_6... DCPS$SMB....  4  1032 HIB   O MYNODE
+0000009F         SYSTEM...... DNS$ADVER.... DNS$ADVER...  4   516 HIB   O MYNODE
+000000A2         SYSTEM...... NSCHED....... NSCHED......  6  1716 LEF   O MYNODE
+000000A5         SYSTEM...... SCHED_REMOTE. SCHED_REMOTE  3   812 LEF   O MYNODE
+000000A9         SYSTEM...... SYMBIONT_7... VTXWPSSMB...  4   516 HIB   O MYNODE
+000000AA         SYSTEM...... VTXSRV....... VTXSRV......  6  1112 HIB   O MYNODE
+000000AB         SYSTEM...... VTX$WBSRV.... VTX$WBSRV...  6  1112 HIB   O MYNODE
+000001AC         SYSTEM...... SYMBIONT_8... DCPS$SMB....  4  2682 HIB   O MYNODE
+000001CF         SYSTEM...... SYMBIONT_9... PRTSMB......  4  1032 HIB   O MYNODE
+
+Total of 22 Processes using 24598 pages (12 mb) of physical memory
+ 
+  Please see the DCL help on JPI for information on qualifiers allowed on
+  the JPI command line.
+
+  Current Restrictions
+
+  There are a number of constraints and restrictions imposed with this
+  version of JPI by the OpenVMS operating system implementation of the
+  $getjpi system service. JPI has been coded to handle or work-around
+  these restraints. 
+
+  Restrictions when using the USERNAME qualifier.
+
+  The current implementation of the $PROCESS_SCAN system service on
+  OpenVMS VAX systems prohibits an exact match on JPI /USERNAME
+  qualifier keywords. Although this restriction applies only to
+  OpenVMS VAX systems, because a JPI call might be made in a
+  dual-architecture environment, the restriction applies to all JPI
+  requests using the /USERNAME qualifier, regardless of the OpenVMS
+  architecture. 
+
+  On OpenVMS VAX systems, an exact match on /USERNAME using the
+  $PROCESS_SCAN system service is not possible. For example,
+  although processes might currently be executing under the SYSTEM
+  username, if you specify to the $PROCESS_SCAN system service (the
+  F$CONTEXT lexical function) that you want a search context
+  established for USERNAME=SYSTEM, the context actually returns null,
+  indicating no matches. 
+
+  To correct this problem, the JPI application has been coded to
+  append a wildcard asterisk (*) to each /USERNAME keyword that you
+  supply. In this way, $PROCESS_SCAN establishes a search context
+  that includes processes with the specified user name or names. This
+  change applies to both OpenVMS VAX and AXP systems. 
+
+  Because of the addition of the asterisk, however, JPI selects ALL
+  processes with a prefix match on the specified user name. For
+  example, if you specify JPI/USERNAME=SYS, JPI displays all processes
+  with user names beginning with SYS (which, besides SYSTEM, might
+  include SYS0, SYS1, and so on). 
+
+
+  Notes on using the IMAGENAME qualifier.
+
+  Since the $process_scan system service does not support the IMAGE
+  item class, this feature is implemented as a back-end scan within
+  the JPI application. That is, when you specify image name(s)
+  keywords with the /IMAGE qualifier, ALL processes which match any
+  and all additional qualifiers are subsequently scanned for a match
+  on imagename. Depending on how many other search qualifiers are
+  present, this IMAGENAME search can add significant amounts of time
+  to the overall search. It is therefore strongly suggested that you
+  narrow the search by using as many other selection qualifiers as
+  possible when the /IMAGENAME qualifier is used.
+
+  Example: If you want to see which processes on the cluster are
+           currently running the VMSHELP image under the SYSTEM
+           account, issuing command 1 below will GREATLY reduce the
+           search time over command 2 below.
+
+           1. $ JPI/USERNAME=SYSTEM/IMAGE=VMSHELP/CLUSTER
+
+           2. $ JPI/IMAGE=VMSHELP/CLUSTER
+
+  Notes on Cluster Usage via the /RCLUSTER or the /CLUSTER qualifiers.
+
+  It may be necessary to increase your account BYTLM quota to an
+  artificially high value for a cluster-wide process scan to succeed.
+  This seems to be a problem only on OpenVMS AXP and later releases of
+  OpenVMS AXP may alleviate this necessity. This problem is exhibited
+  only when a cluster-wide search is requested to an OpenVMS AXP
+  cluster node. In a dual architecture cluster, you can circumvent
+  this problem by issuing the JPI call from one of the OpenVMS VAX
+  nodes within the local cluster or to one of the OpenVMS VAX nodes on
+  the remote cluster.
+
+  Notes on executing JPI scans on remote nodes and/or remote clusters.
+
+  Beginning with version 2.0, JPI supports the ability to request
+  process scans on nodes which are connected with DECNET to the node
+  from which the JPI calls are being initiated. The remote node(s)
+  must also have JPI V2.0 or higher installed and they must have a
+  properly define DECNET JPI object (this is done as a option when JPI
+  in installed). If remote calls fail, you may want to check the
+  following:
+
+  1. Is JPI V2.0 or higher installed onto the remote node?
+  2. Is the JPI DECNET object installed on the remote node?
+  3. If you're not specifying access control information with the
+     /RNODENAME or /RCLUSTERNAME qualifier, check to see that one or
+     both of the following is true:
+
+     a) Default access control information for the JPI object on the
+        remote node is valid.
+
+        When the JPI object is created by the JPI installation, the
+        JPI it is created WITHOUT any default userid/password
+        information. Therefore the DECNET Executor defaults will
+        apply. If DECNET Executor values for nonprivileged user id and
+        nonprivileged user password don't exist or are not valid, in
+        the absence of any supplied access control information or
+        proxy access, the remote login will fail and the following
+        error message will be issued by JPI.
+
+        JPI-E-NONETLNK Error connecting to NETWORK object at node XXXXXX
+
+        If this is the case, see your system manager for assistance with
+        defining default access information for the JPI object on the
+        remote node/cluster.
+
+     b) PROXY information for the issuing node::username exists on the
+        remote node.
+
+  Please remember that a remote JPI call will have access only to
+  processes on the remote node or cluster for which the target
+  username has access. For example, if the JPI object on the remote
+  node/cluster is defined to use the DECNET account by default and you
+  DO NOT specify access control information with the /RNODENAME or
+  /RCLUSTERNAME qualifier, then the remote process scan will only
+  'see' processes to which the user DECNET has read access on the
+  remote node or cluster.
+
+
+
+V2.1-3 Changes:
+
+        1. Documentation Fixes:
+
+           a) Modified HELP JPI/SUMMARY
+              changed /SUMMARY (default) to /NOSUMMARY (default)
+              instead of /SUMMARY (default)
+
+           b) Modified HELP JPI USAGE_NOTES RESTRICTIONS
+              Removed blank line in text
+
+           c) Modified HELP JPI/CLUSTER
+              Removed /NOCLUSTER (default), as this qualifier is
+              non-negatable.
+V2.1-2 Changes:
+
+        1. Bug fixes:
+
+           a) Change /sort=priority to /sort=basepriority in order to
+              accurately reflect the CLD. Specifying /sort=basepriority
+              would not product the expected sort by base-priority.
+
+           b) This bug fix applies to stand-alone systems only which have
+              a nodename of less than six characters.
+              Specifying ANY qualifiers on the JPI command-line would cause
+              JPI to exit without producing any output.
+              The output would be unaffected if there were NO qualifiers
+              present on the command-line.
+
+
+V2.1-1 Changes:
+
+        1. Bug fixes:
+
+           a) System software version field length increased from 6 to 10
+              characters on the display header line 1.
+
+           b) Updates process priv masks to match those available in
+              OpenVMS V6.1
+
+           c) /BASEPRIORITY values for MINIMUM and MAXIMUM are now limited to
+              values between and including 0 thru 63. In addition, MIN/MAX
+              combinations are now checked for validity. That is MIN must be
+              less than or equal to MAX, MAX must be greater than or equal
+              to MIN. Failure of either will produce a fatal error and program
+              abort.
+
+           d) Compare /priv values against process CURRENT privileges instead
+              of DEFAULT privileges.
+
+           e) Remove privilege keywords from the CLD thus allowing for
+              concatenation of specified privileges. See the DCL HELP on 
+              JPI /PRIV for more information on this feature.
+
+           f) AXP ONLY.
+              Because of a 'problem' with the $process-scan code on OpenVMS
+              VAX, inserted code that appends the "*" character to the
+              username keyword(s) so that $getjpi will actually match on
+              username(s). Without this 'code' the command JPI/USERNAME=FOO
+              would return a no-match even when processes were running
+              under username FOO. Unfortunately this 'patch', disables the
+              ability to match on non unique usernames. For examples, if a
+              node has processes executing using usernames of FOO and
+              FOOBAR, the command JPI/USER=FOO will return processes using
+              username FOO and FOOBAR.
+
+           g) Create the /DECNET object without default nonprivileged user
+              account information.
+
+V2.1 Changes:
+
+        This kit will now install onto OpenVMS VAX 5.3 or higher and
+        OpenVMS AXP V6.1 or higher.
+
+        1. Modified COBOL code to conform to DEC COBOL standards so that
+           JPI will compile properly on both AXP and VMS.
+        2. Modified the installation procedure KITINSTAL.COM file to look
+           at the Hardware platform and use the appropriate object modules
+           for either a VAX or AXP platform.
+        3. Modified the JPI_IVP.com to check for and use a logical name
+           for DCLTABLES.
+        4. JPI Header display Hardware platform correctly as either ALPHA or
+           VAX.
+V2.0-2 Changes:
+
+        1. The DECNET object JPI now uses a fictitious username. This may
+           be changed of course by a suitably privileged user. This is a
+           'security' feature and prevents a remote JPI from executing on
+           this node by using the DEFAULT DECNET access control information
+           on this node.
+
+           Example:     NCP>show obj jpi char
+
+           Object Volatile Characteristics as of 16-FEB-1994 17:27:29
+
+           Object = JPI
+
+           Number                   = 0
+           File id                  = SYS$SYSTEM:JPI.EXE
+           User id                  = JPI$USER
+           Password                 = DUMMYPASSWORD
+
+        2. JPI.COB was slightly modified so that it'l compile and execute
+           properly using DEC COBOL V1.1 on OpenVMS AXP V6.1
+
+V2.0-1 Changes:
+
+        1. If the /selection switch is chosen and password information is
+           also provided within a /rcluster and/or a /rnodename switch, then
+           the literal word "password" is substituted for the actual
+           password on the displayed selection line.
+        2. Bug fix. If /noterm was specified with a /rcluster and/or a
+           /rnodename, then an arithmetic trap was occurring.
+
+V2.0   Changes:
+
+        1. JPI is now capable of extracting information from remote nodes
+           and remote clusters. This feature is available only on nodes
+           which are running JPI V2.0 or greater and which have the JPI
+           DECNET object properly defined. Remote node information is
+           selected using the /RNODENAME qualifier. Remote cluster
+           information is selected by specifying the /RCLUSTER qualifier.
+           The syntax for each of these qualifiers is identical to that as
+           specified with the /NODENAME qualifier. In addition, you may
+           specify access control information in the standard DECNET syntax
+           for each of the remote nodes or cluster your specify.
+
+           Example:     /rnode=(MYNODE"system password",OURVAX::")
+
+           All file specification information is optional with the exception
+           of the nodename.
+
+V1.4   Changes:
+        1. Nodename values can now be logical names. Only first level logical
+           name translation is performed. That is a specified value cannot
+           translate to a logical which in turn translates to another logical.
+
+	2. The number of nodename values specified has been increased from
+           ten to fifty. Each explicit nodename value and every translated
+           logical value count against the limit of fifty. 
+
+           Example: define ci bhak,deland,ipl31
+
+           Specifying jpi/node=(ci,ipcde*)
+           Actually uses up four of the possible fifty nodename values. Three
+           for the translated values from the logical "CI" and one for the
+           wildcarded explicit value of "pcde*".
+
+V1.3-5 Changes:
+
+	1. Three additional selection qualifiers have been added. The are
+	   a) /terminal
+           b) /jobtype
+           c) /hw_name
+
+	2. If the /image qualifier is used, an implied /swap is issued to
+           JPI in order to ensure that all process imagenames are available
+           for review. This implied /swap can be overridden with an explicate
+           /noswap qualifier.
+
+        3. Two new sort keys have been added:
+           a) TERMINAL
+           b) JOBTYPE
+
+  Note: In order to access process information for processes within
+        your group your calling process must possess the GROUP system
+        privilege. To view processes outside your group your process
+        must possess the WORLD system privilege. Only processes for
+        which you have appropriate privileges will be displayed.
+
+	Selection Criteria may include any combination of the following:
+
+	1. BASEPRIORITY
+           Process Base Priority, Specify a minimum and/or a maximum).
+           The default is BASEPRIORITY=(MINIMUM=0,MAXIMUM=63)
+
+	   (ie. JPI/BASEPRIORITY=(MINIMUM=4,MAXIMUM=10)
+
+	2. IMAGENAME
+           Wildcards Allowed, up to ten separated by commas and within
+           parentheses. The default is IMAGENAME=ALL which will include
+           processes with no imagename associated.
+
+	   (ie JPI/IMAGENAME=(*DEC*,OPCOM,%%PAD)
+
+	   NOTE:  Since the $process_scan system service does not
+                  support an imagename selection, this selection is
+                  performed after the $getjpi system service is
+                  called. This means that this is a costly (in terms
+                  of performance) input selection criteria and the
+                  user will notice a degradation in display responses
+                  when this selection qualifier is chosen.
+
+
+	3. MODE
+           Process mode, Specify any combination of the 4 process modes
+           INTERACTIVE,BATCH,NETWORK or OTHER, the default is to select by
+           all modes.
+
+	   (ie. JPI/MODE=(INTERACTIVE,BATCH)
+
+	4. NODENAME
+           Wildcards Allowed, up to ten separated by commas and within
+           parenthesis. The default is to select by the current node.
+
+	   (ie JPI/NODENAME=DSWK% )
+	   (ie JPI/CLUSTER )
+
+	5. PRIVILEGE
+           Specify the list of current process privileges. This is not the
+           process DEFAULT privileges or AUTHORIZED privileges but the
+           actual CURRENT privileges which the process holds at the time
+           the scan is performed. No wildcards allowed. Privileges can not
+           be negated. Specify up to 10 privileges and separate them with
+           commas within parenthesis. Privileges may be concatenated with
+           the plus (+) character. Concatenated privileges are treated as
+           one privilege for the 10 privilege limit. If privileges are
+           concatenated, the process must own all of the concatenated
+           privileges for a match to occur.
+
+	   (ie JPI/PRIVILEGE=(READALL+SYSNAM,BYPASS,ALTPRI+MOUNT)
+
+	   In the above example, the process will match the selection
+           criteria if any of the following conditions are true:
+
+		a) It has READALL and SYSNAM privileges
+		b) It has BYPASS privilege
+		c) It has ALTPRI and MOUNT privileges
+
+	6. PROCESS
+           Process Name, Wildcards Allowed, up to ten separated by commas
+           and within parentheses. The default is to select by all process
+           names.
+
+	   (ie JPI/PROCESS=(SYSTEM,FOO*,AU%%T_CONTROL )
+
+	7. USERNAME
+           Wildcards Allowed, up to ten separated by commas and within
+           parenthesis. The default is to select by all usernames.
+
+	   (ie JPI/USERNAME=(SYSTEM,AUDIT*,MC* )
+
+
+	8. JOBTYPE
+           Job type keywords only allowed here. Separate multiple keywords
+           with commas and enclose the list within parenthesis. The
+           allowable keywords are: LOCAL, DIALUP, REMOTE, BATCH, DETACHED
+           and NETWORK. This qualifier is currently not compatible with the
+           /MODE qualifier. When /jobtype is specified, then the display
+           will include the process jobtype in the same column where the
+           process mode would normally be displayed.
+
+	   (ie JPI/JOBTYPE=(NETWORK,DIALUP)
+
+           This example will select processes which possess either the LOCAL
+           or DIALUP jobtype attribute.
+
+        9. TERMINAL
+           Wildcards allowed. Up to ten arguments. This qualifier will
+           identify processes which have the specified terminal name
+           associated with them.
+
+           ie. JPI/TERMINAL=(RTA*,FTA*) ! Sel terminals with leading RTA or FTA
+           ie. JPI/NOTERMINAL           ! Select only blank terminals
+           ie. JPI/TERMINAL=ANY         ! Select any non blank terminal
+
+           Specifying /noterm will cause only those process which have no
+           associated terminal to be selected.
+
+           Specify /term=any if you wish to specify processes which have any
+           terminal associated with them. This 'any' value will deselect
+           processes which have no terminal association.
+
+       10. HW_NAME
+           Wildcards allowed. Up to ten arguments. Specify the cpu name(s)
+           for which processes are to scanned for selection. If you use
+           spaces, tabs or the "/" character, then enclose the entire
+           argument in double-quotation marks. The search is case
+           insensitive.
+
+           (ie. JPI/HW_NAME=("VAX 6*",VLC) 
+
+	Display Criteria is currently limited to the mentioned fields sorted
+	in any combination of field order, either in ascending or descending
+	order.
+
+	(ie. JPI/SORT=(WSSIZE=DESCENDING,PROCESS)
+
+	See the supplied help file for more detailed information on the
+	input and output qualifiers available.
+
+  	This utility was written using COBOL simply because this was the 
+  	developers language of choice and not necessarily the most efficient
+  	coding mechanism.
+
+	Files modified or created by the supplied installation kit are as
+  	follows:
+
+  	SYS$LIBRARY:DCLTABLES.EXE     		updated
+  	SYS$SYSTEM:JPI.EXE			created
+  	SYS$HELP:HELPLIB.HLB   	       		updated
+  	JPI.COB					created (optionally)
+	SYS$MANAGER:JPI012.RELEASE_NOTES	created
+
+
+  	Enjoy!

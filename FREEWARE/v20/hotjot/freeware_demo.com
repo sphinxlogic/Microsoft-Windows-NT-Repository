@@ -1,0 +1,14 @@
+$ A = F$ENV("procedure")
+$ XDEV = F$PARSE(A,,,"DEVICE")
+$ XDIR = F$PARSE(A,,,"DIRECTORY")
+$ ARCH = F$GETSYI("ARCH_TYPE")
+$ COPY 'XDEV''XDIR'.HOTJOT SYS$LOGIN:
+$ WRITE SYS$OUTPUT "Copied file .HOTJOT to SYS$LOGIN."
+$ WRITE SYS$OUTPUT "You may wish to delete this file."
+$ IF ARCH .EQ. 1 
+$ THEN 
+$   RUN HOTJOT.EXE_VAX
+$ ELSE
+$   RUN HOTJOT.EXE_AXP
+$ ENDIF
+$ EXIT

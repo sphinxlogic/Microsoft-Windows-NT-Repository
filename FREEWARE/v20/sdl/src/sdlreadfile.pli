@@ -1,0 +1,595 @@
+/*****************************************************************************
+ *									     *
+ *  Copyright (c) 1988-1992						     *
+ *  by Digital Equipment Corporation, Maynard, Mass.			     *
+ * 									     *
+ *  This software is furnished under a license and may be used and  copied   *
+ *  only  in  accordance  with  the  terms  of  such  license and with the   *
+ *  inclusion of the above copyright notice.  This software or  any  other   *
+ *  copies  thereof may not be provided or otherwise made available to any   *
+ *  other person.  No title to and ownership of  the  software  is  hereby   *
+ *  transferred.							     *
+ * 									     *
+ *  The information in this software is subject to change  without  notice   *
+ *  and  should  not  be  construed  as  a commitment by Digital Equipment   *
+ *  Corporation.							     *
+ * 									     *
+ *  Digital assumes no responsibility for the use or  reliability  of  its   *
+ *  software on equipment which is not supplied by Digital.		     *
+ *									     *
+ *****************************************************************************/
+/**
+*
+* FACILITY:	 SDL 
+*
+* ABSTRACT:	 Routine to read an sdl intermediate file for inclusion of
+*		 definitions in the current compilation
+*
+* ENVIRONMENT:	 VAX/VMS
+*
+* AUTHOR:	 
+*		Jeff Goodenough
+*
+* CREATION DATE: 
+*		28 February 1988
+*
+**/
+
+/*
+* MODIFIED BY:
+*
+*			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+   28-Feb-1988	|  jg	| X3.2-0  Original, based mainly on SDLINTREE
+________________|_______|______________________________________________________
+     4-May-92	|  jak	| EV1-8	Changed description comments to indicate obsolete.
+		|	|	Also fixed bug: old OUTTRE was not writing out 
+		|	|	value of nod$t_maskstr field, so recreate it here 
+		|	|	as was done in sdlaction.
+________________|_______|______________________________________________________
+    15-Jul-92	|  jak	| EV1-16 Bug fix: reference to "p->" for mask strings in 
+		|	|	GET_NEXT_NODE should read "node->".
+________________|_______|______________________________________________________
+     4-Sep-92	|  jak	| EV1-18 Bug fix: reference to "p->" for mask strings in 
+		|	|	GET_NEXT_NODE should read "node->". (missed one!)
+________________|_______|______________________________________________________
+    18-Dec-92	|  jak	| EV1-20 Removed symbol table arguments and used externals.
+		|	|	Changed calls to enter_symbol.
+________________|_______|______________________________________________________
+**/
+%replace MODULE_IDENT by 'EV1-20';
+
+
+/**
+* FUNCTIONAL DESCRIPTION: READ_FILE
+*
+*	This is the obsolete routine to read intermediate files. This is 
+*	functionally frozen (except for bug fixes).  It is called only to 
+*	read old (file format 0) intermediate files.  Current file format is 
+*	supported by the new INTREE routine.
+*
+*	This routine, called from SDLACTION, opens an intermediate tree file
+*	that was produced by the OUTTRE routine with the SDL/PARSE=filespec
+*	command.  The routine reads this intermediate form of SDL source code
+*	and extracts sufficient information to define constants, aggregate
+*	names, and user-defined types for the current compilation.  Constants
+*	are just entered into const_sym.  Aggregate names and user-defined
+*	type names are entered into aggr_sym and user_sym respectively, and
+*	also included in the output tree as item nodes with the DECLARED
+*	attribute.
+*
+* FORMAL PARAMETERS:
+*
+*	current_node	- pointer to current node in output tree
+*	file_spec	- file specification string
+*
+* IMPLICIT INPUTS:
+*
+*	none
+*
+* IMPLICIT OUTPUTS:
+*
+*	output tree modified
+*	symbol tables modified
+*
+* ROUTINE VALUE:
+*	status		- returns true if an error occurred
+*
+* COMPLETION CODES:
+*
+*	none
+*
+* SIDE EFFECTS:
+*
+*	none
+*
+**/
+read_file: 
+    procedure(current_node, file_spec) returns(bit(3)) options( ident(MODULE_IDENT));
+
+/* INCLUDED FILES */
+%include 'sdl$library:sdlnodef.in'; 
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdloldnodmsk.in';
+%include 'sdl$library:sdlsymtab.in';
+%include pli_file_display;
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlmsgdef.in';
+
+/* CONSTANTS*/
+%replace true by '1'b;
+%replace false by '0'b;
+
+/* FORMAL PARAMETERS */
+dcl current_node ptr;
+dcl file_spec char(128) var;
+
+/* EXTERNAL PROCEDURES */
+
+dcl insque entry (ptr value,ptr value) ;
+
+/* LOCALS*/
+					
+dcl default_ext char(4) init ('.sdi');
+dcl sdi_filein file input sequential;
+dcl status_code bit(3);
+dcl eof bit(1) init (false);	/* flag to be set when the end of
+					   the tree file is encountered */
+						
+dcl (node) pointer init (null());	/* node being processed */
+dcl i fixed bin (31);
+dcl fptr pointer init (null());
+dcl discard_int fixed bin (31);
+dcl discard_string ptr;
+dcl based_string char(1024) var based ;
+dcl node_index fixed bin (31) init (2);	/* index to node_address array       */
+dcl node_count fixed bin (31) init (0);	/* node count stored in intermediate */
+					/* file.			     */
+dcl nod_buf char(510) based ;		/* node buffer from the tree file    */
+					/* (records are 510 bytes)	     */
+dcl (buf_ptr,mptr) pointer;		/* buffer and mask pointers	     */
+dcl loc_counter fixed bin (31) init (0); /* a location counter for the node  */
+					 /* buffer (nod_buf)		     */
+dcl cptr pointer init (null());		/* based pointer for the char4 and   */
+					/* int_byte array.		     */
+dcl charstring char(1024) init ('');	/* string used to store result in    */
+					/* get_char routine */
+dcl int fixed bin(31) based (cptr);	/* fixed binary (31) map for the     */
+					/* longword			     */
+dcl char4(1:4) char(1) based (cptr); 	/* character map of the longword     */
+dcl int4(1:4) fixed bin (7) based (cptr); /* structure to map integer to     */
+					  /* character bytes in get_char     */
+					  /* routine.			     */
+dcl byte_count fixed bin (7) init (0);	/* count of number of bytes in	     */
+					/* buffer for get_char and get_int   */
+dcl string_size fixed bin(31) init (0);	/* size of the string to be	     */
+					/* returned from get_char	     */
+dcl nodes fixed bin (31) init (0);
+dcl unresolved ptr init (null());	/* ptr to node with unresolved	     */
+					/* user-type			     */
+dcl node_string (nod$k_nodesize)  fixed bin(7) based;
+dcl parent ptr;
+
+
+/*** main ***/
+	
+    on endfile (sdi_filein) begin;
+	eof = true;	
+    end;
+
+    on undefinedfile (sdi_filein) begin;
+	call errmsg (sdl$_shr_data, sdl$_infilopn,,(file_spec));
+	status_code = true;
+	goto exit;
+    end;
+
+/*  Open the intermediate file */
+    status_code = false;
+    open file (sdi_filein) title (file_spec) 
+	env(default_file_name(default_ext));
+
+/* Read in the node count which is the contained in the first record
+   of the tree file */
+    read file (sdi_filein) into (nodes);
+    node_count = nodes - 1;	/* allow for count starting at 2 */
+    mptr = null();		/* initialize the mask pointer */
+    call get_tree (nodes);
+
+exit:
+    return (status_code); 
+
+get_tree: proc (vdim);
+
+    dcl vdim fixed bin (31) ;		/* variable dimension for 
+					   node_address array */
+    dcl node_address(1:vdim) pointer;	/* array of pointers 
+					   containing node addresses */
+    dcl array_index fixed bin (31) init (0); /* index to node_address array */
+
+    node_address = null();		/* initialize node address array */
+
+
+/* Get the node buffer */
+    allocate nod_buf set (buf_ptr);
+    allocate nod$_node set (node);		/* allocate first node */
+    allocate msk$r_struc set (mptr);		/* allocate a mask structure*/
+    allocate int set (cptr);
+    allocate based_string set (discard_string);	/* allocate space for strings */
+						/* (these are thrown away)    */
+
+    read file (sdi_filein) into (buf_ptr->nod_buf)  ;
+
+    discard_int = get_int(1);		/* absorb extra byte in buffer */
+		
+/* Get the root node */
+    call get_next_node();
+    if node->nod$b_type = nod$k_rootnode then
+	call process_list();
+    else
+	/* If this is not a root node, we don't have a valid
+	 * SDI file - indicate an error.
+	 */
+	status_code = true;
+
+/* Finished processing - close the input file and free all volatile memory. */
+
+    close file (sdi_filein);
+    free buf_ptr->nod_buf;
+    free node->nod$_node;
+    free mptr->msk$r_struc;
+    free cptr->int;
+    free discard_string->based_string;
+    return;
+
+
+process_list: proc;
+
+    parent = current_node->nod$a_parent;
+
+    do while (node_count > 0);
+	
+	call get_next_node();
+
+	select (node->nod$b_type);
+
+	    /*
+	     * A head node is only processed if there is an unresolved
+	     * pointer.  We are then expecting a head/object node pair
+	     * which must be linked into the output tree with the unresolved
+	     * node as parent, and typeinfo2 in the previously unresolved
+	     * node pointing to the head node.
+	     */
+	    when (nod$k_headnode)
+		if unresolved ^= null() then do;
+		    current_node = node;
+		    parent = unresolved;
+		    unresolved->nod$a_typeinfo2 = node;
+		    node->nod$a_flink = node;
+		    node->nod$a_blink = node;
+		    call attach_node(false);
+		    end;
+
+	    /*
+	     * Constant nodes (except string constants) are entered in
+	     * const_sym only, for use in the current compilation.
+	     */
+	    when (nod$k_constnode)
+		if node->nod$w_datatype ^= typ$k_char then 
+		    i = enter_symbol(const_sym, node->nod$t_name, node->nod$l_typeinfo);
+
+	    /* Item nodes are interesting. */
+
+	    when (nod$k_itemnode)
+		select;
+
+		/*
+		 * Aggregates are entered in aggr_sym, and 
+		 * entered in the output tree as declared items.
+		 */
+
+		when any (node->nod$w_datatype = typ$k_structure,
+			  node->nod$w_datatype = typ$k_union) do;
+		    i = enter_symbol(aggr_sym, node->nod$t_name, node->nod$l_fldsiz);
+		    aggr_sym.link(i) = node;
+		    node->nod$v_declared = true;
+		    call attach_node(true);
+		    end;
+
+		/*
+		 * Item nodes with the typedef attribute  are entered in
+		 * user_sym and entered in the output tree as declared items.
+		 */
+		when (node->nod$v_typedef) do;
+		    i = enter_symbol(user_sym, node->nod$t_name, node->nod$l_fldsiz);
+		    user_sym.link(i) = node;
+		    node->nod$v_declared = true;
+		    call attach_node(true);
+		    end;
+
+		otherwise;
+
+		end;	/* item node select */
+
+	    /*
+	     * Object nodes with the typedef attribute are entered in
+	     * user_sym and entered in the output tree as declared items.
+	     * However, if this is the object node of a head/object node
+	     * pair satisfying an unresolved reference, the type is left
+	     * as an object node.
+	     */
+	    when (nod$k_objnode)
+		if node->nod$v_typedef then do;
+		    i = enter_symbol(user_sym, node->nod$t_name, node->nod$l_fldsiz);
+		    user_sym.link(i) = node;
+		    if unresolved = null() then do;
+			node->nod$b_type = nod$k_itemnode;
+			node->nod$v_declared = true;
+			end;
+		    call attach_node(true);
+
+		    /*
+		     * If there is an unresolved pointer, this is the object
+		     * node that satisfies it.  Reset the unresolved state.
+		     */
+		    if unresolved ^= null() then do;
+			current_node = unresolved;
+			unresolved = null();
+			parent = current_node->nod$a_parent;
+			end;
+		    end;
+
+	    otherwise;
+
+	    end;    /* node type select */
+
+	end;	/* while */
+
+    return;
+
+    end process_list;
+
+
+
+attach_node: proc (insert);
+
+/* This procedure attaches the current node to the output tree, and
+ * allocates a fresh one.
+ *
+ * The insert parameter is required for head nodes, which must not be
+ * inserted directly into the output tree, as they are referenced through
+ * typeinfo2.
+ */
+    dcl insert bit;
+
+    if insert then
+	call insque (node, current_node);
+    node->nod$a_parent = parent;
+    current_node = node;
+    allocate nod$_node set (node);
+    return;
+    end attach_node;
+
+
+get_next_node: proc;
+
+/* This procedure gets the next node from the input file and expands it */
+
+    /* Clear the node in case we are re-using the same one */
+    node->node_string = 0;
+
+    /* Reinitialize the mask fields. */
+    if mptr ^= null() then
+	mptr->mask$w_fields = 0;
+
+    mptr->mask$w_fields = get_int(2);		
+
+    /* Get the TYPE of node. */
+    node->nod$b_type = get_int(1);
+
+    /*
+     * Save the current node address in the array.  This is required for
+     * resolution of user-defined types.
+     */
+    if node->nod$b_type ^= nod$k_endnode then do;
+	node_address (node_index) = node;
+	node_index = node_index + 1 ;
+	node_count = node_count - 1;
+	end;
+
+    /* Now go through the flag and fill in the fields of the node. */
+
+    if mptr->msk$v_hidim then do;			
+	node->nod$l_hidim = get_int(4) ;		/* NOD$L_HIDIM */
+	node->nod$l_lodim = get_int(4) ;		/* NOD$L_LODIM */
+	end;
+
+    if mptr->msk$v_initial then				/* NOD$L_INITIAL */
+	node->nod$l_initial = get_int(4) ;
+
+    if mptr->msk$v_offset & (node->nod$b_type ^= nod$k_entrynode) then
+	node->nod$l_offset = get_int (4) ;		/* NOD$L_OFFSET */
+
+    if mptr->msk$v_fldsiz then
+	node->nod$l_fldsiz = get_int (4);		/* NOD$L_FLDSIZ */
+
+    if mptr->msk$v_datatype then
+	node->nod$w_datatype = get_int (2) ;	 	/* NOD$W_DATATYPE */
+		
+    if mptr->msk$v_flags then
+	node->nod$l_fixflags = get_int (4) ;		/* NOD$L_FIXFLAGS */
+
+    if mptr->msk$v_typeinfo then
+	node->nod$l_typeinfo = get_int (4) ;		/* NOD$L_TYPEINFO */
+
+    if mptr->msk$v_typeinfo2 then do;			/* NOD$L_TYPEINFO2 */
+
+	/*
+	 * If typeinfo2 needs to contain a pointer to an aggregate
+	 * declaration, or to the defining node for a user type,
+	 * we know that the next 4 bytes are the linear
+	 * order number corresponding to the address of the item node
+	 * representing the aggregate; therefore, use that number to
+	 * look up the address in the node_address array and assign
+	 * to nod$a_typeinfo2.
+	 *
+	 * If the address entry is still null, mark the node as unresolved
+	 */
+	if (node->nod$b_type = nod$k_objnode &	  /* could be a pointer to an aggregate */
+	    (node->nod$w_datatype = typ$k_structure |
+	    node->nod$w_datatype = typ$k_union)) |	  /* or */
+	    node->nod$w_datatype = typ$k_user |	  /* could be a user type */
+	    (node->nod$b_type = nod$k_parmnode &	  /* could be a parameter of the type of a previously defined aggregate; */
+	    (node->nod$w_datatype = typ$k_structure |
+	    node->nod$w_datatype = typ$k_union))	  /* the typeinfo2 field should point BACK to the aggregate */
+	then do;
+	    array_index = get_int (4);
+	    if node_address(array_index) = null() then		/* unresolved */
+		unresolved = node;
+	    else
+		node->nod$a_typeinfo2 = node_address(array_index);
+	    end;
+	else
+	    if ((node->nod$b_type = nod$k_constnode &	/* constant string node PG */
+		node->nod$w_datatype = typ$k_char) |	/* or */
+		node->nod$b_type = nod$k_litnode)	/* literal string */
+	    then do;
+		string_size = get_int(2);
+		discard_string->based_string = get_char(string_size);
+		end;
+	    else
+		discard_int = get_int (4);
+
+	end;
+
+    if mptr->msk$v_name then do; 			/* NOD$T_NAME */
+	string_size = get_int(2);
+	node->nod$t_name = get_char (string_size);
+	end;
+
+    if mptr->msk$v_prefix then do;	 		/* NOD$T_PREFIX */
+	string_size = get_int(2);
+	node->nod$t_prefix = get_char (string_size);
+	end;
+
+    if mptr->msk$v_marker then do;	 		/* NOD$T_MARKER */
+	string_size = get_int(2);
+	node->nod$t_marker = get_char (string_size);
+	end;
+
+    if mptr->msk$v_tag then do		 		/* NOD$T_TAG */
+	string_size = get_int(2);
+	node->nod$t_tag = get_char (string_size);
+	end;
+
+    if mptr->msk$v_naked then do;	 		/* NOD$T_NAKED */
+	string_size = get_int(2);
+	node->nod$t_naked = get_char(string_size);
+	end;
+
+    if mptr->msk$v_comment then do;			/* NOD$T_COMMENT */
+	string_size = get_int(2);
+	discard_string->based_string = get_char(string_size);
+	end;
+
+    if mptr->msk$v_typename then do;			/* NOD$T_TYPENAME */
+	string_size = get_int(2);		
+	node->nod$t_typename = get_char(string_size);
+	end;
+
+    if mptr->msk$v_offset & (node->nod$b_type =
+	    nod$k_entrynode) then do;			/* NOD$T_RETURN_NAME */
+	string_size = get_int(2);
+	node->nod$t_return_name = get_char(string_size);
+	end;
+	
+    if node->nod$v_mask then				/* NOD$T_MASKSTR */
+	node->nod$t_maskstr = hexstr(node->nod$l_typeinfo);
+	
+end get_next_node;
+
+hexstr: proc (val) returns(char(8) var);
+
+	dcl val		    fixed bin(31);
+        dcl k               fixed bin(31);
+        dcl (str,tmp)	    char(8) var;
+
+	if val = 0 then 
+	    return('0');
+
+	str = '';
+	k = val;
+        do while( k ^= 0 );
+	    tmp = str;
+            str = substr('0123456789ABCDEF',mod(k,16)+1,1) || tmp;
+	    if k >= 0 then 
+		k = divide(k,16,31);
+	    else 
+		do; /* take out sign bit, divide by 16, put sign bit back */
+		k = k + 2147483647; /* 0x80000000 - 1 */
+		k = divide(k+1,16,31) + 134217728; /* + 0x08000000 */
+		end;
+        end;
+	return(str);
+
+end hexstr;
+
+get_char: proc (size) returns (char(*)) ;
+	dcl size fixed bin (31);		/* size in bytes */
+	
+	byte_count = 0;
+	charstring = ' ';
+
+	do while (byte_count < size);
+		byte_count = byte_count + 1;	/* increment the index to the
+						   char_byte array */
+		substr(charstring, byte_count, 1) = 
+			substr(buf_ptr->nod_buf, loc_counter, 1) ; 
+						/* increment the counter in the
+						   output buffer.	*/
+		if (loc_counter = 510 )		/* if the buffer is full */
+		then do ;
+			buf_ptr->nod_buf = ' ';	/* init the buffer*/
+			loc_counter = 1 ;
+			read file (sdi_filein) into
+				(buf_ptr->nod_buf);
+		end;
+		loc_counter = loc_counter + 1;
+	end;
+
+return (substr(charstring,1,size));
+end get_char;
+
+get_int: proc(size) returns (fixed bin(31)) ;
+	dcl size fixed bin (31);		/* size in bytes */
+
+	byte_count = 0;
+
+	if cptr ^= null then
+		cptr->int = 0;
+
+
+	do while (byte_count < size );
+		byte_count = byte_count + 1;	/* increment the index to the
+						   char4 array */
+		cptr->char4(byte_count) =
+		substr(buf_ptr->nod_buf, loc_counter, 1);  
+						/* increment the counter in the
+						   output buffer.	*/
+		if (loc_counter = 510 )		/* if the buffer is full */
+		then do ;
+			buf_ptr->nod_buf = ' ';	/* init the buffer*/
+			loc_counter = 1 ;
+			read file (sdi_filein) into
+				(buf_ptr->nod_buf);
+		end;
+		loc_counter = loc_counter + 1;
+	end;
+
+return (cptr->int);
+end get_int;
+
+end get_tree;
+
+end read_file;

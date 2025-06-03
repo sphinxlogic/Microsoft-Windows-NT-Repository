@@ -1,0 +1,1655 @@
+MODULE bat (MAIN = do_batch,
+		IDENT = 'V1.9') =
+!
+!  Copyright © 1991, 1994, MadGoat Software.  All Rights Reserved.
+!
+!++
+!
+!  Facility:	BAT
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	February 6, 1990
+!
+!  Functional Description:
+!
+!	This program will submit a series of commands as a batch job without
+!	requiring that the user creates a command procedure.
+!
+!	Commands to be executed in batch can be specified on the command line,
+!	separated by "|".  If commands are not given on the command line,
+!	the user will be prompted for commands until a null line or ^Z is
+!	entered.
+!
+!	Future development:
+!
+!		1.  Create macro to compare strings
+!		2.  Add support for /CHARACTERISTICS?
+!
+!	To build:
+!
+!		$ BLISS BAT,HG$GET_INPUT
+!		$ MESSAGE BAT_MSG
+!		$ SET COMMAND/OBJECT BAT_CLD
+!		$ LINK BAT,HG$GET_INPUT,BAT_MSG,BAT_CLD
+!
+!	Usage:
+!
+!		$ BAT :== $dev:[dir]BAT.EXE
+!		$ BAT SHOW USER|SHOW SYSTEM|SHOW TIME
+!		Job BATCHTMP ... started on ...
+!		$ BAT
+!		_Command: SHOW USER
+!		_Command: SHOW SYSTEM
+!		_Command: SHOW TIME
+!		_Command:
+!		Job BATCHTMP ... started on ...
+!		$
+!
+!  Modified by:
+!
+!	V1.9		Hunter Goatley		 9-AUG-1994 15:21
+!		Fix bug that caused a priority of 0 to be given.
+!
+!	01-008		Hunter Goatley		15-JUL-1992 11:55
+!		Modified to allow you to specify SYS$DISK:[] for the
+!		log file name.  Also modified to use job name (via
+!		/NAME) as the name of the temporary file instead of
+!		BATCHTMP_xxxxxxxx.COM.  If no name is given, that
+!		name is still used.  This modification means that
+!		the /NAME *must* be a valid file spec.
+!
+!	01-007		Hunter Goatley		29-FEB-1992 20:45
+!		Fixed accvio with /HOLD (missing ".").  Added SET PREFIX
+!		command to .COM file.
+!
+!	01-006		Hunter Goatley		12-NOV-1991 11:33
+!		Fixed bug that caused log file to be printed automatically.
+!		Never noticed before because I don't have SYS$PRINT defined.
+!
+!	01-005		Hunter Goatley		20-JUN-1991 21:02
+!		Modified to allow user to enter multiple commands separated
+!		by "|" while prompted for input (not just on foreign command
+!		line).  Also added support for /RESTART, /LOG_FILE, /PRINTER,
+!		and /NONOTIFY.
+!
+!	01-004		Hunter Goatley		 7-JUN-1991 15:17
+!		Rewrote .CLD stuff so that $SNDJBC is used to queue the
+!		batch job instead of using LIB$DO_COMMAND("SUBMIT....").
+!		Also added .MSG file.
+!
+!	01-003		Hunter Goatley		20-MAY-1991 10:35
+!		Added .CLD file so some of the SUBMIT qualifiers could
+!		easily be specified on the command line (/QUEUE=, etc.).
+!
+!	01-002		Hunter Goatley		 8-MAR-1990 11:03
+!		Added different prompt when reading DECK lines from SYS$INPUT.
+!
+!	01-001		Hunter Goatley		 8-FEB-1990 00:36
+!		Added support for DECK and EOD.
+!
+!	01-000		Hunter Goatley		 6-FEB-1990 10:31
+!		Original version.
+!
+!--
+
+BEGIN
+
+LIBRARY 'SYS$LIBRARY:STARLET';			!Pull stuff from STARLET
+
+MACRO increment(variable) =			!Increment a variable
+	(variable = .variable + 1)%;		!Simply add one to it
+
+MACRO errchk(variable) =			!Signal any errors
+	IF NOT (.variable) THEN SIGNAL (.variable)%;
+
+MACRO reterrchk(variable) =			!Return any errors
+	IF NOT (.variable) THEN RETURN (.variable)%;
+
+LITERAL
+	true = 1,
+	false = 0;
+
+SWITCHES ADDRESSING_MODE (EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+FORWARD ROUTINE
+   ctrlc_trap,					!^C AST routine
+   do_batch,					!Main entry point
+   establish_ctrlc_handler,			!Establish the ^C handler
+   get_cli_number,				!Get number from CLI
+   get_cli_after_time,				!Get date/time from CLI
+   get_cli_cputime,				!Get date/time from CLI
+   handle_foreign,				!Parse commands on command line
+   process_qualifiers,				!Parse command line qualifiers
+   read_from_sysinput,				!Read commands from SYS$INPUT
+   submit_batch_job,				!Submit .COM to batch queue
+   write_outfile;				!Write string to output file
+
+EXTERNAL ROUTINE
+   HG$GET_INPUT,				!Read from SYS$INPUT with recall
+   CLI$DCL_PARSE,				!Parse a DCL command
+   CLI$DISPATCH,				!Dispatch to proper routine
+   CLI$GET_VALUE,				!Get value from command line
+   CLI$PRESENT,					!Check if qualifier present
+   LIB$CVT_FROM_INTERNAL_TIME,
+   LIB$DELETE_FILE,				!Delete a file
+   LIB$DO_COMMAND,				!Execute a DCL command
+   LIB$GET_FOREIGN,				!Get line from foreign command
+   LIB$PUT_OUTPUT,				!Write to SYS$OUTPUT
+   OTS$CVT_TU_L,				!Convert text string to integer
+   STR$CONCAT,					!Concatenate two strings
+   STR$COPY_DX,					!Copy string by descriptor
+   STR$COPY_R,					!Copy string by reference
+   STR$LEFT,					!Copy left side of string
+   STR$TRIM,					!Trim trailing blanks
+   SYS$SETDDIR;					!Set default directory (get)
+
+EXTERNAL					!External condition codes
+	CLI$_PRESENT,				!...
+	CLI$_ABSENT,				!...
+	CLI$_NEGATED,				!...
+	BAT_ABORT,				!Aborted via ^Y
+	BAT_NOCMDS,				!No commands entered
+	BAT_INVQUAVAL;				!Invalid qualifier value
+
+MACRO					!Static and dynamic descriptor macros
+	$DYNDESC =			!Dynamic descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = 0,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_D,
+			 [DSC$A_POINTER]= 0)
+	%,
+	$STATICDESC (len, addr) =	!Static descriptor declaration
+		$BBLOCK[DSC$C_S_BLN]
+		PRESET	([DSC$W_LENGTH] = len,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$A_POINTER]= addr)
+	%;
+
+
+GLOBAL
+	ctrlc		: LONG,			!^C flag - set on ^Y or ^C
+	jpi_pid		: LONG;			!PID of running process
+
+GLOBAL
+	job_name	: $dyndesc,
+	job_queue	: $dyndesc,
+	job_user	: $dyndesc,
+	job_printer	: $dyndesc,
+	job_log_file	: $dyndesc,
+	job_prefix	: $dyndesc,
+	job_after_date	: VECTOR[2,LONG],	!/AFTER=date
+	job_cputime	: LONG,			!/CPUTIME=cpu-time
+	job_priority	: LONG,			!/PRIORITY=priority
+	job_wsdefault	: LONG,			!/WSDEF=
+	job_wsextent	: LONG,			!/WSEXTENT=
+	job_wsquota	: LONG,			!/WSQUOTA=
+	job_keep	: BYTE,			!/KEEP
+	job_use_cputime	: BYTE,			!/CPUTIME was given
+	job_use_priority: BYTE,			!/PRIORITY was given
+	job_notify	: BYTE,			!/NOTIFY was given
+	job_restart	: BYTE,			!/RESTART was given
+	job_no_log	: BYTE,			!/NOLOG was given
+	job_no_print	: BYTE,			!/NOPRINT was given
+	job_hold	: BYTE;			!/HOLD
+
+BIND
+	cli_after	= %ASCID'AFTER',
+	cli_cmds	= %ASCID'CMDS',
+	cli_cputime	= %ASCID'CPUTIME',
+	cli_hold	= %ASCID'HOLD',
+	cli_keep	= %ASCID'KEEP',
+	cli_log_file	= %ASCID'LOG_FILE',
+	cli_name	= %ASCID'NAME',
+	cli_notify	= %ASCID'NOTIFY',
+	cli_prefix	= %ASCID'PREFIX',
+	cli_printer	= %ASCID'PRINTER',
+	cli_priority	= %ASCID'PRIORITY',
+	cli_queue	= %ASCID'QUEUE',
+	cli_restart	= %ASCID'RESTART',
+	cli_user	= %ASCID'USER',
+	cli_wsdefault	= %ASCID'WSDEFAULT',
+	cli_wsextent	= %ASCID'WSEXTENT',
+	cli_wsquota	= %ASCID'WSQUOTA';
+
+
+ROUTINE do_batch =
+   BEGIN
+
+   OWN						!Define local variables (stack)
+	output_fab : $FAB (			!FAB for output file
+		FAC = PUT,			!Access is put
+		FOP = (SQO,MXV),		!File operations - sequential
+		RFM = VAR,			!Variable length records
+		MRS = 512,			!Maximum record size
+		RAT = CR,			!Carriage return format
+		ORG = SEQ			!File organization - sequential
+		),
+	output_rab : $RAB (			!RAB for output file
+		FAB = output_fab,		!The related FAB
+		RAC = SEQ			!Record access is sequential
+		),
+	command_desc	: $dyndesc,
+	bat_command_desc: $dyndesc,
+	number_of_cmds	: LONG INITIAL(0),		!Number of commands entered
+	work_dyn_desc	: $dyndesc,
+	filespec_buffer : BLOCK[256,BYTE],		!Buffer for filename
+	filespec_desc	: $staticdesc(256,filespec_buffer),
+	work_buffer	: BLOCK[256,BYTE],		!Buffer for filename
+	work_desc	: $staticdesc(256,work_buffer),
+	defdir_buffer	: BLOCK[256,BYTE],		!Buffer for filename
+	defdir_desc	: $staticdesc(256,defdir_buffer),
+	sysdisk		: $BBLOCK[LNM$C_NAMLENGTH],	!Buffer for SYS$DISK
+	sysdisk_len	: LONG,				!Length of SYS$DISK str
+	trnlnm_itmlst	: $BBLOCK[16]			!$TRNLNM item list
+		INITIAL (WORD(LNM$C_NAMLENGTH, LNM$_STRING),
+			sysdisk, sysdisk_len, 0),
+	username	: $BBLOCK[12],
+	username_len	: LONG,
+	jpi_list	: BLOCK[28,BYTE]		!$GETJPIW Item list
+		INITIAL (WORD(4, JPI$_PID),
+			jpi_pid, 0,
+			WORD(12, JPI$_USERNAME),
+			username, username_len, 0);
+
+
+REGISTER
+	status		: LONG;				!Status variable
+
+
+!+++++++++++++++++
+! Code starts here
+!+++++++++++++++++
+
+   !
+   !  Get the PID for this process and use it to create the filename for the
+   !  temporary batch command procedure.
+   !
+   status = $GETJPIW (itmlst = jpi_list);		!Get PID
+   errchk(status);					!Signal any error
+
+   !
+   !  Go process all of the qualifiers on the command line.
+   !
+   status = process_qualifiers (command_desc);
+   IF NOT (.status)
+   THEN
+	RETURN (.status OR STS$M_INHIB_MSG);
+
+   IF NOT (status = establish_ctrlc_handler())		!Establish ^C handler
+   THEN
+	SIGNAL (.status);				!Signal the error
+
+   !
+   !  Create the batch file name.  The PID of the process is used to help
+   !  make the name more unique.
+   !
+   IF (.job_name[DSC$W_LENGTH] NEQU 0)
+   THEN
+	BEGIN
+	LOCAL	tmp_ptr	: REF $BBLOCK INITIAL (.filespec_desc[DSC$A_POINTER]);
+	CH$MOVE(.job_name[DSC$W_LENGTH], .job_name[DSC$A_POINTER], .tmp_ptr);
+	tmp_ptr = CH$PLUS (.tmp_ptr, .job_name[DSC$W_LENGTH]);
+	CH$MOVE(4, UPLIT(%ASCII'.COM'), .tmp_ptr);
+	filespec_desc[DSC$W_LENGTH] = .job_name[DSC$W_LENGTH] + 4;
+	END
+   ELSE
+	status = $FAO ($DESCRIPTOR ('BATCHTMP_!XL.COM'),filespec_desc,
+			filespec_desc,.jpi_pid);
+   errchk(status);					!Signal any error
+
+   output_fab[FAB$B_FNS] = .filespec_desc[DSC$W_LENGTH];	!Store filename
+   output_fab[FAB$L_FNA] = .filespec_desc[DSC$A_POINTER];	!.. stuff in FAB
+
+   !
+   !  Now create the file and connect the RAB.
+   !
+   IF NOT (status = $CREATE (FAB = output_fab))	!Create the file
+   THEN
+	SIGNAL (.output_fab[FAB$L_STS], .output_fab[FAB$L_STV]);
+   IF NOT (status = $CONNECT (RAB = output_rab))	!Connect the RAB
+   THEN
+	SIGNAL (.output_rab[RAB$L_STS], .output_rab[RAB$L_STV]);
+
+   status = $FAO ($DESCRIPTOR ('$!!  Created by !AD'),
+		work_desc, work_desc, .username_len, username, 0);
+   errchk(status);					!Signal any error
+
+   status = write_outfile (output_rab, work_desc);
+   work_desc[DSC$W_LENGTH] = 256;
+   status = $FAO ($DESCRIPTOR ('$!!  !%D'),
+		work_desc, work_desc, 0);
+   errchk(status);					!Signal any error
+
+   status = write_outfile (output_rab, work_desc);
+!   status = write_outfile (output_rab, $DESCRIPTOR('$! Created by BAT'));
+   status = write_outfile (output_rab, $DESCRIPTOR('$ SET NOON'));
+   status = write_outfile (output_rab, $DESCRIPTOR('$ SET VERIFY'));
+   status = write_outfile (output_rab, $DESCRIPTOR('$ SET OUTPUT_RATE=00:00:05'));
+   IF (.job_prefix[DSC$W_LENGTH] NEQU 0)
+   THEN
+      BEGIN
+      status = STR$CONCAT (job_prefix, $DESCRIPTOR('$ SET PREFIX "'),
+			   job_prefix, $DESCRIPTOR('"'));
+      status = write_outfile (output_rab, job_prefix);
+      END;
+
+   !
+   !  Get the current default device specification
+   !
+   status = $TRNLNM (TABNAM = $DESCRIPTOR('LNM$PROCESS_TABLE'),
+		     LOGNAM = $DESCRIPTOR('SYS$DISK'),
+		     ITMLST = trnlnm_itmlst);
+   errchk(status);					!Signal any error
+
+   !
+   !  Get the current default directory specification
+   !
+   status = SYS$SETDDIR (0, defdir_desc, defdir_desc);	!Get default directory
+   errchk(status);					!Signal any error
+   !
+   !  Now put the default device and directory together
+   !
+   status = STR$COPY_R (work_dyn_desc, sysdisk_len, sysdisk);
+   status = STR$CONCAT (work_dyn_desc, $DESCRIPTOR('$ SET DEFAULT '), work_dyn_desc);
+   status = STR$CONCAT (work_dyn_desc, work_dyn_desc, defdir_desc);
+   status = write_outfile (output_rab, work_dyn_desc);
+
+   !
+   !  If commands were entered on the command line, go handle them.
+   !  Otherwise, read commands from the user (SYS$INPUT).
+   !
+   IF (.command_desc[DSC$W_LENGTH] EQLU 0)		!On command line?
+   THEN
+	status = read_from_sysinput (output_rab, number_of_cmds)
+   ELSE
+      BEGIN
+	increment(number_of_cmds);			!Have at least 1 command
+	status = handle_foreign (command_desc, output_rab);
+      END;
+
+   errchk(status);					!Signal any error
+
+   status = write_outfile (output_rab, $DESCRIPTOR('$ EXIT'));
+
+   IF NOT (status = $CLOSE (FAB = output_fab))		!Close the file
+   THEN
+	SIGNAL (.output_fab[FAB$L_STS], 0, .output_fab[FAB$L_STV]);
+
+   !
+   !  If ^C or ^Y was entered, or if no commands were entered, delete the file
+   !  we created.
+   !
+   !  If all is well, go ahead and submit the job to the default batch queue.
+   !
+   IF (.ctrlc EQLU 1) OR (.number_of_cmds EQLU 0)	!Was ^C or ^Y entered?
+   THEN						!Yes - delete the temporary file
+	BEGIN
+	!
+	!  If user entered ^C, say so.  Otherwise, say "No commands"
+	!
+	IF .ctrlc
+	THEN
+	   SIGNAL (BAT_ABORT)
+	ELSE
+	   SIGNAL (BAT_NOCMDS);
+	!
+	!  Since there were no commands, delete our temporary file.
+	!
+	status = LIB$DELETE_FILE (filespec_desc);
+	END
+   ELSE					!No - submit the job to batch
+	status = submit_batch_job (filespec_desc);
+
+   RETURN (.status);				!Return final status
+   END;						!Should never get here
+
+
+ROUTINE read_from_sysinput (output_rab, number_of_cmds) =
+!++
+!
+!  Routine:	READ_FROM_SYSINPUT
+!
+!  Functional description:
+!
+!	This routine reads commands from SYS$INPUT and writes them to the
+!	batch file.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of the output RAB
+!
+!  Outputs:
+!
+!	8(AP)	- Number of commands entered
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+  BEGIN
+
+  EXTERNAL ROUTINE
+	hg$get_input,				!Read from SYS$INPUT w/ recall
+	lib$put_output,				!Write to SYS$OUTPUT
+	str$concat;
+
+  MAP
+	output_rab : REF $BBLOCK,		!References a $BBLOCK
+	number_of_cmds : REF VECTOR [,BYTE];	!References a longword
+
+  LOCAL
+	command_desc	: $dyndesc,		!Dynamic string descriptor
+	prompt_addr	: LONG,			!Address of current prompt
+	within_deck	: BYTE INITIAL(false);	!Flag indicating inside $DECK
+
+REGISTER
+	status		: LONG;				!Status variable
+
+   prompt_addr = $DESCRIPTOR('_Command: ');	!Prompt is "_Command: "
+   !
+   !  Read a command from SYS$INPUT
+   !
+   status = HG$GET_INPUT (command_desc, .prompt_addr,			!
+				command_desc[DSC$W_LENGTH]);
+
+   !
+   !  Keep looping until ^Z, ^C, or a blank line is entered.
+   !
+   !  If a deck is active, then let user enter blank lines.
+   !
+   WHILE (.status NEQ RMS$_EOF)				!User did not enter ^Z
+     AND (.within_deck OR				!Blank when not in deck
+	 ((NOT .within_deck) AND (.command_desc[DSC$W_LENGTH] NEQ 0)))
+     AND (NOT ctrlc)					!User did not enter ^C
+     DO
+	BEGIN
+	!
+	!  If the string contains a "|", then call handle_foreign to split
+	!  the line into multiple commands.  Fails if user entered | in
+	!  a quoted string, but that's probably pretty rare.
+	!
+	IF NOT(CH$FAIL(CH$FIND_CH (.command_desc[DSC$W_LENGTH],
+			.command_desc[DSC$A_POINTER], %C'|')))
+	THEN
+	  status = handle_foreign (command_desc, .output_rab)
+	ELSE BEGIN
+	!
+	!  If we are in a deck, check each line for "EOD".
+	!  When found, clear within_deck flag.
+	!
+	IF .within_deck
+	THEN
+	   BEGIN
+	     IF (.command_desc[DSC$W_LENGTH] EQLU 3) AND
+		(CH$RCHAR(.command_desc[DSC$A_POINTER]  ) AND %X'DF') EQLU 'E' AND
+		(CH$RCHAR(.command_desc[DSC$A_POINTER]+1) AND %X'DF') EQLU 'O' AND
+		(CH$RCHAR(.command_desc[DSC$A_POINTER]+2) AND %X'DF') EQLU 'D' THEN
+		      BEGIN						!
+			within_deck = false;
+			prompt_addr = $DESCRIPTOR('_Command: ');	!
+		      END;						!
+	   END;
+	   !
+	   !  Prepend a "$ " to the command entered unless within a deck.
+	   !
+	   IF NOT (.within_deck)
+	   THEN
+		BEGIN
+		  !
+		  !  If we are not in a deck, check each line for "DECK".
+		  !  If given, set within_deck to true.
+		  !
+		  IF (.command_desc[DSC$W_LENGTH] EQLU  4) AND
+		     (CH$RCHAR(.command_desc[DSC$A_POINTER]  ) AND %X'DF') EQLU 'D' AND
+		     (CH$RCHAR(.command_desc[DSC$A_POINTER]+1) AND %X'DF') EQLU 'E' AND
+		     (CH$RCHAR(.command_desc[DSC$A_POINTER]+2) AND %X'DF') EQLU 'C' AND
+		     (CH$RCHAR(.command_desc[DSC$A_POINTER]+3) AND %X'DF') EQLU 'K' THEN
+		      BEGIN						!
+			within_deck = true;
+			prompt_addr = $DESCRIPTOR('_Data: ');		!
+		      END;						!
+		   IF NOT (status = STR$CONCAT(command_desc,$DESCRIPTOR('$ '),
+							command_desc))
+		   THEN
+			SIGNAL (.status);
+		END;
+
+	   status = write_outfile (.output_rab, command_desc);
+
+!	   status = lib$put_output(command_desc);		!Write it to TT:
+	END;
+	   increment(.number_of_cmds);		!Bump counter
+	   status = HG$GET_INPUT (command_desc, .prompt_addr,		!
+			command_desc[DSC$W_LENGTH]);
+	END;
+
+  return ss$_normal;				!Return success
+  END;
+
+
+ROUTINE handle_foreign (command_desc, outrab) =
+!++
+!
+!  Routine:	HANDLE_FOREIGN
+!
+!  Functional description:
+!
+!	This routine parses commands separated by a vertical bar ("|") and
+!	writes them to the output file.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of descriptor that holds the command line to parse
+!	8(AP)	- Address of RAB for output file
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+  BEGIN
+
+  MAP
+	outrab : REF $BBLOCK,			!References a $BBLOCK
+	command_desc : REF $BBLOCK;		!Same
+  LOCAL
+	cmd_buff	: $BBLOCK[256],			!Buffer for commands
+	cmd_desc	: $staticdesc(256,cmd_buff),
+	buff_ptr	: LONG,			!Pointer into cmd_buff
+	beginning	: LONG,			!Pointer to beginning of command
+	ending		: LONG,			!Pointer to ending of command
+	within_deck	: BYTE INITIAL(false),	!Flag indicating inside $DECK
+	command_len	: LONG,			!Length of the command line
+	cmd_len		: WORD;			!Length of each command
+
+REGISTER
+	status		: LONG;				!Status variable
+
+  !
+  !  First move "$ " to the command buffer and save the new buffer address.
+  !
+  buff_ptr = CH$MOVE (2, UPLIT('$ '), cmd_buff);
+
+  outrab[RAB$L_RBF] = cmd_buff;				!Set address in RAB
+  command_len = .command_desc[DSC$W_LENGTH];		!Start with line length
+  beginning = .command_desc[DSC$A_POINTER];		!Point to the beginning
+  !
+  !  Loop while command_len is still positive (until all of command_desc has
+  !  been parsed).
+  !
+  WHILE (.command_len GTR 0) DO
+     BEGIN
+	!
+	!  Look for the separator character "|".  If not found, make
+	!  ending point to the end of the string.
+	!
+	ending = CH$FIND_CH (.command_len, .beginning, %C'|');
+	IF (CH$FAIL (.ending))				!If not found
+	THEN
+	    ending = .command_desc[DSC$W_LENGTH] + .command_desc[DSC$A_POINTER];
+
+	cmd_len = .ending - .beginning;			!Get the length
+
+	!
+	!  If we are within a deck, check each line to see if EOD was entered.
+	!  If it is, clear within_deck and reset the RBF in the RAB.
+	!
+	IF .within_deck
+	THEN
+	   BEGIN
+	     IF (.cmd_len EQLU 3) AND
+		(CH$RCHAR(.beginning  ) AND %X'DF') EQLU 'E' AND
+		(CH$RCHAR(.beginning+1) AND %X'DF') EQLU 'O' AND
+		(CH$RCHAR(.beginning+2) AND %X'DF') EQLU 'D' THEN
+		BEGIN
+			within_deck = false;
+			outrab[RAB$L_RBF] = cmd_buff;		!Reset RBF
+		END;
+	   END;
+	!
+	!  Copy the string to our record buffer
+	!
+	IF NOT (.within_deck)			!Not in deck
+	THEN					!Then move string behind "$ "
+	  BEGIN
+		status = CH$MOVE (.cmd_len, .beginning, .buff_ptr);
+		outrab[RAB$W_RSZ] = .cmd_len + 2;		!Set length in RAB
+	  END
+	ELSE					!Otherwise, just write string
+	  BEGIN					!... out to file
+		outrab[RAB$L_RBF] = .beginning;
+		outrab[RAB$W_RSZ] = .cmd_len;
+	  END;
+
+	IF NOT (status = $PUT (RAB=.outrab))		!Write it out to file
+	THEN
+	     SIGNAL(.outrab[RAB$L_STS], .outrab[RAB$L_STV]);
+
+	!
+	!  If not within a deck, check each line to see if "DECK" is given.
+	!  Set within_deck flag if it is so DECK lines don't get "$ ".
+	!
+	IF NOT (.within_deck)
+	THEN
+	   BEGIN
+	     IF (.cmd_len EQLU  4) AND
+		(CH$RCHAR(.beginning  ) AND %X'DF') EQLU 'D' AND
+		(CH$RCHAR(.beginning+1) AND %X'DF') EQLU 'E' AND
+		(CH$RCHAR(.beginning+2) AND %X'DF') EQLU 'C' AND
+		(CH$RCHAR(.beginning+3) AND %X'DF') EQLU 'K' THEN
+			within_deck = true;
+	   END;
+
+	beginning = .ending + 1;			!Skip over "|"
+	command_len = .command_len - .cmd_len - 1;	!Length - "|"
+     END;
+
+  return ss$_normal;					!Return success
+
+  END;
+
+
+ROUTINE write_outfile (the_rab, the_string) =
+!++
+!
+!  Routine:	WRITE_OUTFILE
+!
+!  Functional description:
+!
+!	This routine writes an ASCID string to the output file.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of the output RAB
+!	8(AP)	- The string to write out
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+  BEGIN
+
+  MAP	the_rab : REF $BBLOCK,			!The RAB for the output file
+	the_string : REF $BBLOCK;		!The string to write out
+
+  the_rab[RAB$W_RSZ] = .the_string[DSC$W_LENGTH];	!Store the string size
+  the_rab[RAB$L_RBF] = .the_string[DSC$A_POINTER];	!Store the address
+  IF NOT ($PUT (RAB = .the_rab))			!Write it out to the
+  THEN							!... file
+	SIGNAL (.the_rab[RAB$L_STS], .the_rab[RAB$L_STV]);
+
+  RETURN SS$_NORMAL;			!Return success
+  END;
+
+
+ROUTINE establish_ctrlc_handler =
+!++
+!
+!  Routine:	ESTABLISH_CTRLC_HANDLER
+!
+!  Functional description:
+!
+!	This routine is called to set a terminal outband AST for ^Y and ^C.
+!
+!  Inputs:
+!
+!	None.
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	Status from $ASSIGN, $QIOW
+!
+!--
+  BEGIN
+
+  LOCAL
+	ctrl_mask : VECTOR [2, LONG] PRESET		!Quadword outband mask
+		([0] = 0, [1] = %B'00000010000000000000000000001000'),
+        !			         Y                     C
+	devclass : LONG,				!The device class
+	getdvi_itmlst : $BBLOCK[16]			!$GETDVI item list
+		INITIAL (WORD(4,DVI$_DEVCLASS),		!Get device class
+			devclass,0,0),			!...
+	ttchars	: VECTOR [3, LONG],			!Terminal characteristic
+	ttchan : WORD;					!Channel for terminal
+
+REGISTER
+	status		: LONG;				!Status variable
+
+  ctrlc = false;					!Initialize the ^C flag
+
+  !
+  !  Make sure SYS$INPUT is a terminal before setting a ^C handler.
+  !
+  status = $GETDVI (DEVNAM=$DESCRIPTOR('SYS$INPUT'),	!Get the device class
+		    ITMLST=getdvi_itmlst);		!... for SYS$INPUT
+  IF NOT (.status) THEN RETURN .status;			!Return errors
+
+  IF (.devclass NEQ DC$_TERM)				!If SYS$INPUT is not
+  THEN							!... a terminal, pretend
+	RETURN SS$_NORMAL;				!... like it worked
+
+  status = $ASSIGN (CHAN=ttchan,			!Assign a channel to
+		    DEVNAM=%ASCID'SYS$INPUT');		!... SYS$INPUT
+  IF NOT (.status) THEN RETURN .status;			!Return errors
+
+
+  status = $QIOW (CHAN=.ttchan,		!Set the out-of-band AST request
+		  FUNC=IO$_SETMODE OR IO$M_OUTBAND OR IO$M_TT_ABORT,
+		  P1 = ctrlc_trap, P2 = ctrl_mask);
+
+  RETURN .status;
+
+  END;
+
+
+ROUTINE ctrlc_trap =
+!++
+!
+!  Routine:	CTRLC_TRAP
+!
+!  Functional description:
+!
+!	This AST is called when the user enters ^C or ^Y.  It simply sets
+!	the global variable CTRLC.
+!
+!  Inputs:
+!
+!	None.
+!
+!  Outputs:
+!
+!	CTRLC
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!--
+  BEGIN
+
+     ctrlc = true;			!Set the global ^C flag
+     RETURN SS$_NORMAL;			!Return success
+  END;
+
+
+ROUTINE process_qualifiers (command_desc) =
+!++
+!
+!  Routine:	PROCESS_QUALIFIERS
+!
+!  Functional description:
+!
+!	This routine parses the command line to determine if any BAT-specific
+!	qualifiers were specified (/QUEUE, etc.).
+!
+!  Inputs:
+!
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+  BEGIN
+
+  EXTERNAL
+	bat_cld;
+
+  MAP
+	command_desc : REF $BBLOCK;		!References a $BBLOCK
+
+  LOCAL
+	ess		: $BBLOCK[256],		!Output buffer for $PARSE
+	log_nam		: $NAM (ESA = ess,	!NAM block for $PARSE
+				ESS = NAM$C_MAXRSS),
+	log_fab 	: $FAB (NAM = log_nam),	!FAB for $PARSE
+	uai_itmlst	: $ITMLST_DECL (ITEMS=1),	!$GETUAI item list
+	qui_itmlst	: $ITMLST_DECL (ITEMS=2),	!$GETQUI item list
+	iosb		: $BBLOCK[8],		!I/O status block
+	temp_uic	: $BBLOCK[4],		!UIC of /USER name
+	temp_status;
+
+  REGISTER
+	status		: LONG;				!Status variable
+
+  status = LIB$GET_FOREIGN (.command_desc);	!Get the command line
+  reterrchk(status);
+
+  !
+  ! Make a command line for CLI$DCL_PARSE by appending the command line to
+  ! a SUBMIT command
+  !
+  status = STR$CONCAT (.command_desc, $DESCRIPTOR('SUBMIT '), .command_desc);
+
+  status = CLI$DCL_PARSE (.command_desc, bat_cld);	!Parse the cmd
+  reterrchk(status);
+
+  !
+  !  Check for /NAME=job-name
+  !
+  status = CLI$PRESENT(cli_name);		!Was /NAME specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was, then get the
+  THEN
+     BEGIN					!... value
+     status = CLI$GET_VALUE(cli_name, job_name);
+     IF (.status)				!If successful, make sure the
+     THEN
+	BEGIN					!... job name is valid
+	log_fab[FAB$B_FNS] = .job_name[DSC$W_LENGTH];
+	log_fab[FAB$L_FNA] = .job_name[DSC$A_POINTER];
+	status = $PARSE (FAB = log_fab);	!Parse the file name
+	IF NOT(.status) 			!If not valid or too long
+	THEN BEGIN				!If not valid, then signal
+	    temp_status = BAT_INVQUAVAL;	!... an error
+	    SIGNAL (.temp_status, 2, job_name, cli_name, .status);
+	    RETURN .temp_status;		!And return it to the caller
+	    END;				!...
+     	END;					!...
+     END
+  ELSE						!If no job name was given,
+     BEGIN					!... fabricate one using the
+     LOCAL					!... PID of this process
+	tmpspec		: $BBLOCK[32],		!Use temp buffers for static...
+	tmpspec_desc	: $staticdesc(80,tmpspec);
+     status = $FAO($DESCRIPTOR('BATCHTMP_!XL'),tmpspec_desc,tmpspec_desc,
+			.jpi_pid);
+     status = STR$COPY_DX (job_name, tmpspec_desc);
+     END;
+
+  !
+  !  Check for /LOG=file-name
+  !
+  job_no_log = FALSE;				!Assume /LOG
+  status = CLI$PRESENT(cli_log_file);		!Was /LOG specified?
+  IF (.status EQLU CLI$_PRESENT)		!If it was, then get the
+  THEN						!... value
+     BEGIN
+     status = CLI$GET_VALUE(cli_log_file, job_log_file);
+     IF (.status)				!If we got it OK, then
+     THEN					!... parse the log file
+	BEGIN					!... name using the given
+	LOCAL					!... name, the job name, and
+		tmp_log_file	: $dyndesc;	!... is "SYS$LOGIN:.LOG"
+	log_fab[FAB$B_FNS] = .job_log_file[DSC$W_LENGTH];
+	log_fab[FAB$L_FNA] = .job_log_file[DSC$A_POINTER];
+	status = STR$CONCAT (tmp_log_file, $DESCRIPTOR('SYS$LOGIN:'),
+				job_name, $DESCRIPTOR('.LOG'));
+	log_fab[FAB$B_DNS] = .tmp_log_file[DSC$W_LENGTH];
+	log_fab[FAB$L_DNA] = .tmp_log_file[DSC$A_POINTER];
+	status = $PARSE(FAB = log_fab);		!Ask RMS to parse it
+	IF NOT(.status)				!If it's not OK, signal
+	THEN					!... the error
+	   BEGIN
+	   temp_status = BAT_INVQUAVAL;		!... an error
+	   SIGNAL (.temp_status, 2, job_log_file, cli_log_file, .status);
+	   RETURN .temp_status;			!And return it to the caller
+	   END
+	ELSE					!Here, the name parsed, so
+	   BEGIN				!... copy result to job_log_file
+	   LOCAL namlength : INITIAL (.log_nam[NAM$B_ESL]);
+	   STR$COPY_R (job_log_file, namlength, ess);
+	   END;
+	END;
+     END
+  ELSE
+    IF (.status EQLU CLI$_NEGATED)		!If /NOLOG was specified
+    THEN
+	job_no_log = TRUE;			!Set NO_LOG flag to true
+
+  !
+  !  Check for /HOLD
+  !
+  job_hold = FALSE;
+  status = CLI$PRESENT(cli_hold);		!Was /HOLD specified?
+  IF (.status EQLU CLI$_PRESENT)		!If it was....
+  THEN
+     job_hold = TRUE;
+
+  !
+  !  Check for /RESTART
+  !
+  job_restart = FALSE;				!Assume /NORESTART
+  status = CLI$PRESENT(cli_restart);		!Was /RESTART specified?
+  IF (.status EQLU CLI$_PRESENT)		!If it was....
+  THEN
+     job_restart = TRUE;
+
+  !
+  !  Check for /NOTIFY
+  !
+  job_notify = TRUE;				!Assume /NOTIFY
+  status = CLI$PRESENT(cli_notify);		!Was /NONOTIFY specified?
+  IF (.status EQLU CLI$_NEGATED)		!If it was....
+  THEN
+     job_notify = FALSE;
+
+  !
+  !  Check for /KEEP
+  !
+  status = CLI$PRESENT(cli_keep);		!Was /KEEP specified?
+  IF (.status EQLU CLI$_PRESENT)		!If it was....
+  THEN
+     job_keep = TRUE;
+
+  !
+  !  Check for /WSQUOTA and get value
+  !
+  job_wsquota = 0;
+  status =  get_cli_number(cli_wsquota, job_wsquota, 0);
+  reterrchk(status);
+
+  !
+  !  Check for /WSDEFAULT and get value
+  !
+  job_wsdefault = 0;
+  status =  get_cli_number(cli_wsdefault, job_wsdefault, 0);
+  reterrchk(status);
+
+  !
+  !  Check for /WSEXTENT and get value
+  !
+  job_wsextent = 0;
+  status =  get_cli_number(cli_wsextent, job_wsextent, 0);
+  reterrchk(status);
+
+  !
+  !  Check for /PRIORITY and get value
+  !
+  job_priority = -1;
+  job_use_priority = FALSE;
+  status =  get_cli_number(cli_priority, job_priority, 255);
+  reterrchk(status);
+  IF (.job_priority NEQ -1)
+  THEN
+      job_use_priority = TRUE;
+
+  !
+  !  Check for /AFTER and get time
+  !
+  status =  get_cli_after_time(cli_after, job_after_date);
+  reterrchk(status);
+
+  !
+  !  See if user entered /CPUTIME.  If no value was entered, then we don't
+  !  want to use the JBC$_CPU_DEFAULT item, so set the flag job_use_cputime.
+  !
+  job_use_cputime = FALSE;
+  status =  get_cli_cputime(cli_cputime, job_cputime);
+  IF (.status NEQU 0)
+  THEN BEGIN
+     IF (.status)
+     THEN
+	job_use_cputime = TRUE
+     ELSE
+	RETURN(.status);
+  END;
+
+  !
+  !  Check for /QUEUE=queue-name
+  !
+  status = CLI$PRESENT(cli_queue);		!Was /QUEUE specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was, then get the
+  THEN BEGIN					!... specified queue name
+     status = CLI$GET_VALUE(cli_queue, job_queue);
+     IF (.status)				!If successful, verify the
+     THEN BEGIN					!... batch queue
+	!
+	!  A queue name has been specified.  Use $GETQUI to make sure the
+	!  queue exists and that it is a batch queue.
+	!
+	$ITMLST_INIT (ITMLST=qui_itmlst,	!Initialize the item list for
+	    (ITMCOD=QUI$_SEARCH_NAME,		!...  $GETQUI
+	     BUFSIZ=.job_queue[DSC$W_LENGTH],	!...  Pass in the queue name
+	     BUFADR=.job_queue[DSC$A_POINTER]),	!...
+	    (ITMCOD=QUI$_QUEUE_FLAGS,		!...  Get the queue flags
+	     BUFSIZ=4,				!...  to determine if it's a
+	     BUFADR=temp_uic)			!...  batch queue
+	    );					!...
+	status = $GETQUIW(				!Call system service
+			FUNC=QUI$_DISPLAY_QUEUE,	!Get queue information
+			IOSB=iosb,			!... I/O status block
+			ITMLST=qui_itmlst);		!... item list
+	IF NOT(.iosb)					!If error in IOSB,
+	THEN						!... use it as status
+	   status = .iosb[0,0,32,0];			!...
+	IF (.status) AND				!If success, but not
+	   NOT(.temp_uic[QUI$V_QUEUE_BATCH])		!... a batch queue,
+	THEN						!... change the status
+	   status = JBC$_NOSUCHQUE;			!... to "No such queue"
+	IF NOT(.status)					!If an error occurred,
+	THEN BEGIN					!... SIGNAL it
+	    SIGNAL (BAT_INVQUAVAL, 2, job_queue, cli_queue, .status);
+	    RETURN .status;				!And return to caller
+	END;						!...
+     END;						!...
+  END;							!...
+
+  !
+  !  Check for /PRINTER=queue-name
+  !
+  job_no_print = TRUE;				!Assume /NOPRINTER
+  status = CLI$PRESENT(cli_printer);		!Was /PRINTER specified?
+  IF (.status EQLU CLI$_PRESENT)		!If it was, then get the
+  THEN BEGIN					!... specified queue name
+     status = CLI$GET_VALUE(cli_printer, job_printer);
+     IF (.status)				!If successful, verify the
+     THEN BEGIN					!... batch queue
+	job_no_print = FALSE;			!Signal /PRINT
+	!
+	!  A queue name has been specified.  Use $GETQUI to make sure the
+	!  queue exists and that it is a batch queue.
+	!
+	$ITMLST_INIT (ITMLST=qui_itmlst,	!Initialize the item list for
+	    (ITMCOD=QUI$_SEARCH_NAME,		!...  $GETQUI
+	     BUFSIZ=.job_printer[DSC$W_LENGTH],	!...  Pass in the queue name
+	     BUFADR=.job_printer[DSC$A_POINTER]),	!...
+	    (ITMCOD=QUI$_QUEUE_FLAGS,		!...  Get the queue flags
+	     BUFSIZ=4,				!...  to determine if it's a
+	     BUFADR=temp_uic)			!...  batch queue
+	    );					!...
+	status = $GETQUIW(				!Call system service
+			FUNC=QUI$_DISPLAY_QUEUE,	!Get queue information
+			IOSB=iosb,			!... I/O status block
+			ITMLST=qui_itmlst);		!... item list
+	IF NOT(.iosb)					!If error in IOSB,
+	THEN						!... use it as status
+	   status = .iosb[0,0,32,0];			!...
+	IF (.status) AND				!If success, but not
+	   (.temp_uic[QUI$V_QUEUE_BATCH])		!... a printer queue,
+	THEN						!... change the status
+	   status = JBC$_NOSUCHQUE;			!... to "No such queue"
+	IF NOT(.status)					!If an error occurred,
+	THEN BEGIN					!... SIGNAL it
+	    SIGNAL (BAT_INVQUAVAL, 2, job_printer, cli_printer, .status);
+	    RETURN .status;				!And return to caller
+	END;						!...
+     END;						!...
+  END;							!...
+
+  !
+  !  Check for /USER=username
+  !
+  status = CLI$PRESENT(cli_user);		!Was /USER specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was, then get the
+  THEN BEGIN					!... specified username
+     status = CLI$GET_VALUE(cli_user, job_user);
+     IF (.status)				!If successful, verify that
+     THEN BEGIN					!... the username is valid
+	$ITMLST_INIT (ITMLST=uai_itmlst,	!Initialize $GETQUI item list
+	    (ITMCOD=UAI$_UIC, BUFSIZ=4, BUFADR=temp_uic)
+	    );					!...
+	IF (.job_user[DSC$W_LENGTH] GTRU 12)	!If the length > 12
+	THEN 					!... not valid, so return
+	    status = RMS$_RNF			!... "Record not found"
+	ELSE					!Else get authorization info
+	    status = $GETUAI(USRNAM=job_user, ITMLST=uai_itmlst);
+	IF NOT(.status)				!If the username is invalid,
+	THEN BEGIN				!...  signal the error
+	    SIGNAL (BAT_INVQUAVAL, 2, job_user, cli_user, .status);
+	    RETURN .status;			!And return it to the caller
+	END;					!...
+     END;					!...
+  END;						!...
+
+  !
+  !  Check for /PREFIX
+  !
+  IF (CLI$PRESENT(cli_prefix))
+  THEN
+     status = CLI$GET_VALUE(cli_prefix, job_prefix);
+
+  !
+  !  At this point, all of the qualifiers have been parsed.  The rest of
+  !  the command line, if present, consists of DCL commands that are to
+  !  be executed in the batch job.
+  !
+  status = CLI$PRESENT(cli_cmds);		!Get rest of line
+  IF (.status)  !EQLU CLI$_PRESENT)		!If there's anything to get,
+  THEN						!...  ask the CLI for it
+     status = CLI$GET_VALUE(cli_cmds, .command_desc)
+  ELSE						!If nothing is there, init desc
+     status = STR$COPY_DX (.command_desc, $DESCRIPTOR(''));
+
+  IF (.status EQLU CLI$_ABSENT) OR		!Change ABSENT or PRESENT
+     (.status EQLU CLI$_PRESENT)		!... status to success
+  THEN						!... to prevent signalling
+	status = SS$_NORMAL;			!... a CLI error
+
+  RETURN .status;				!Return the final status
+
+  END;
+
+ROUTINE get_cli_number (cli_qual_name, cli_value, cli_maxval) =
+!++
+!
+!  Routine:	GET_CLI_NUMBER
+!
+!  Functional description:
+!
+!	This routine retrieves a specified numeric value for a qualifier.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of a string descriptor for the qualifier name
+!	8(AP)	- Address of a longword to receive the numeric value
+!
+!  Outputs:
+!
+!	8(AP)	- Address of a longword to receive the numeric value
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+BEGIN
+
+MAP
+	cli_qual_name	: REF $BBLOCK,			!Qualifier name
+	cli_value	: LONG,				!Qualifier value
+	cli_maxval	: LONG;				!Maximum value allowed
+
+LOCAL
+	wstemp		: $BBLOCK [DSC$C_S_BLN];	!Input string descriptor
+
+REGISTER
+	status		: LONG;				!Status variable
+
+  $INIT_DYNDESC(wstemp);			!Initialize dynamic descriptor
+
+  status = CLI$PRESENT(.cli_qual_name);		!Was qualifier specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was....
+  THEN BEGIN					!... then get the value
+     status = CLI$GET_VALUE(.cli_qual_name, wstemp);
+     IF (.status)				!If successful, convert it to
+     THEN					!... binary
+	status = OTS$CVT_TU_L(wstemp,.cli_value);
+	IF NOT(.status) OR			!If there was a conversion
+	   ((.cli_maxval GTRU 0) AND		!... error, or the value is
+	    (.(.cli_value) GTRU .cli_maxval))	!... greater than the max,
+	THEN BEGIN				!... signal an error
+	    status = BAT_INVQUAVAL;		!...
+	    SIGNAL (.status, 2, wstemp, .cli_qual_name);
+	END;
+    END
+  ELSE
+      status = SS$_NORMAL;
+
+  RETURN .status;				!Return to caller
+END;
+
+ROUTINE get_cli_after_time (cli_qual_name, cli_value) =
+!++
+!
+!  Routine:	GET_CLI_AFTER_TIME
+!
+!  Functional description:
+!
+!	This routine checks to see if the user specified /AFTER and converts
+!	the specified time to system format.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of a string descriptor for the qualifier name
+!	8(AP)	- Address of a quadword to receive the binary time
+!
+!  Outputs:
+!
+!	8(AP)	- Address of a quadword to receive the binary time
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+BEGIN
+
+MAP
+	cli_qual_name	: REF $BBLOCK,			!Qualifier name
+	cli_value	: REF $BBLOCK;			!Qualifier value
+
+LOCAL
+	wstemp		: $BBLOCK [DSC$C_S_BLN];	!Input string descriptor
+
+REGISTER
+	status		: LONG;				!Status variable
+
+  $INIT_DYNDESC(wstemp);			!Initialize dynamic descriptor
+
+  status = CLI$PRESENT(.cli_qual_name);		!Was qualifier specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was....
+  THEN BEGIN					!... then get the value
+     status = CLI$GET_VALUE(.cli_qual_name, wstemp);
+     IF (.status)				!If successful, try to convert
+     THEN BEGIN					!... the string to binary time
+	status = $BINTIM(TIMBUF=wstemp, TIMADR=.cli_value);
+	IF NOT(.status)				!If an error occurred, signal
+	THEN					!...  it.
+	    SIGNAL (BAT_INVQUAVAL, 2, wstemp, .cli_qual_name, .status);
+     END;
+  END
+  ELSE BEGIN
+	status = SS$_NORMAL;
+	cli_value[0,0,32,0] = 0;
+	cli_value[4,0,32,0] = 0;
+  END;
+
+  RETURN .status;
+
+END;
+
+ROUTINE get_cli_cputime (cli_qual_name, cli_value) =
+!++
+!
+!  Routine:	GET_CLI_CPUTIME
+!
+!  Functional description:
+!
+!	This routine checks to see if the user specified /CPUTIME and converts
+!	the specified value to a longword containing the number of
+!	10-milliseconds ticks for the specified delta time.
+!
+!	The user can enter a delta time, INFINITE, NONE, or 0.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of a string descriptor for the qualifier name
+!	8(AP)	- Address of a longword to receive the CPU-time amount
+!
+!  Outputs:
+!
+!	8(AP)	- Address of a longword to receive the CPU-time amount
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+BEGIN
+
+MAP
+	cli_qual_name	: REF $BBLOCK,			!Qualifier name
+	cli_value	: REF $BBLOCK;			!Qualifier value
+
+OWN
+	infinite	: VECTOR[CH$ALLOCATION(8)]	!Storage for the
+			  INITIAL(%ASCII'INFINITE'),	!... constants
+	none		: VECTOR[CH$ALLOCATION(4)]	!...
+			  INITIAL(%ASCII'NONE');	!...
+
+LOCAL
+	wstemp		: $BBLOCK [DSC$C_S_BLN],	!Input string descriptor
+	slen		: LONG,				!Input string length
+	saddr		: LONG,				!Input strin address
+	tmpdate		: VECTOR[2,LONG],		!Temporary work quadword
+	tmpval		: LONG;				!Temporary work longword
+
+REGISTER
+	status		: LONG;				!Status variable
+
+  $INIT_DYNDESC(wstemp);			!Initialize dynamic descriptor
+
+  status = CLI$PRESENT(.cli_qual_name);		!Was qualifier specified?
+  IF (.status) !EQLU CLI$_PRESENT)		!If it was....
+  THEN BEGIN					!... Then get the value
+     status = CLI$GET_VALUE(.cli_qual_name, wstemp);
+     IF (.status)				!If we got the value,
+     THEN BEGIN					!...  then get the length/addr
+	slen = .wstemp[DSC$W_LENGTH];		!...  Get the string's length
+	saddr = .wstemp[DSC$A_POINTER];		!...  Get the address
+	IF (.slen GTRU 4)			!If the string is more than
+	THEN					!...  four characters, then
+	   slen = 4;				!...  change the length to 4
+	!
+	!  Now see if the string matches "INFI" for INFINITE.
+	!
+	status = CH$EQL(.slen, infinite, .slen, .saddr, %C' ');
+	IF NOT(.status)
+	THEN BEGIN
+	     !
+	     !  See if it matches "NONE"
+	     !
+	     status = CH$EQL(.slen, none, .slen, .saddr, %C' ');
+	     IF NOT(.status)
+	     THEN BEGIN
+		!
+		!  Was it "0"?
+		!
+		IF (.slen EQLU 1) AND		!If the length is 1 and
+		   (CH$RCHAR(.saddr) EQLU '0')	!... the character is 0
+		THEN				!...
+		   status = 1			!Value was 0; indicate INFINITE
+		ELSE				!Value was not zero, so we
+		   status = 0;			!... need to convert time
+	     END;				!...
+	END;
+
+	IF (.status)				!Is it INFINITE?
+	THEN					!Yes---
+	     .cli_value = 0			!Set value to 0
+	ELSE BEGIN
+	  !
+	  !  Convert the value to binary time format.  If it's a valid delta
+	  !  time, then everything's OK.
+	  !
+	  status = $BINTIM(TIMBUF=wstemp, TIMADR=tmpdate);  !Convert to binary
+	  IF NOT(.status)			!Not a valid time?
+	  THEN					!... Then signal the error
+	    SIGNAL (BAT_INVQUAVAL, 2, wstemp, .cli_qual_name, .status)
+	  ELSE BEGIN
+	   !
+	   !  We had a valid delta time and we need to convert it to the number
+	   !  of 10 milli-second ticks.  If the user specified an absolute
+	   !  time, LIB$CVT... will return an error, which we'll signal.
+	   !
+	   status = LIB$CVT_FROM_INTERNAL_TIME(UPLIT(LIB$K_DELTA_SECONDS),
+			tmpval, tmpdate);
+	   IF NOT(.status) OR			!Did LIB$CVT... return error?
+	      (.tmpval GTRU 497*60*60)		!Or is the number > 497 days?
+	   THEN BEGIN				!In either case, signal an
+	      status = SS$_IVTIME;		!... error
+	      SIGNAL (BAT_INVQUAVAL, 2, wstemp, .cli_qual_name, .status);
+	   END
+	   ELSE
+	      .cli_value = .tmpval*100;		!Multiply by 100 to get ticks
+	  END;					!Note that the status still
+	END;					!... indicates success
+     END;
+  END
+  ELSE BEGIN
+	status = 0;				!Set 0 status
+	.cli_value = 0;				!And clear the value
+  END;
+
+  RETURN .status;				!Return status flag to caller
+
+END;
+
+ROUTINE submit_batch_job (filename) =
+!++
+!
+!  Routine:	SUBMIT_BATCH_JOB
+!
+!  Functional description:
+!
+!	This routine calls $SNDJBCW to submit the created .COM file to
+!	a batch queue.
+!
+!  Inputs:
+!
+!	4(AP)	- Address of a string descriptor for the filename to submit.
+!
+!  Outputs:
+!
+!	None.
+!
+!  Returns:
+!
+!	SS$_NORMAL
+!	Errors are signalled.
+!
+!--
+  BEGIN
+
+  MAP
+	filename	: REF $BBLOCK;		!References a descriptor
+
+  LOCAL
+	jbc_itmlst	: $ITMLST_DECL (ITEMS=24),	!$SNDJBC item list
+	itmlst_ptr	: REF $BBLOCK,			!Pointer into item list
+	iosb		: $BBLOCK[8],		!I/O status block
+	x		: LONG,			!Loop counter
+	job_status_buff	: BLOCK[256,BYTE],	!Buffer for job status string
+	job_status	: $staticdesc(255,job_status_buff),
+	entry_number	: LONG;			!Entry number of batch job
+
+REGISTER
+	status		: LONG;				!Status variable
+
+!
+!  The default queue name is handled in the CLD file.
+!
+!  IF (.job_queue[DSC$W_LENGTH] EQLU 0)
+!  THEN
+!	status = STR$COPY_DX(job_queue, $DESCRIPTOR('SYS$BATCH'));
+!
+  itmlst_ptr = jbc_itmlst;
+  itmlst_ptr[ITM$W_BUFSIZ] = .job_queue[DSC$W_LENGTH];
+  itmlst_ptr[ITM$W_ITMCOD] = SJC$_QUEUE;
+  itmlst_ptr[ITM$L_BUFADR] = .job_queue[DSC$A_POINTER];
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = .filename[DSC$W_LENGTH];
+  itmlst_ptr[ITM$W_ITMCOD] = SJC$_FILE_SPECIFICATION;
+  itmlst_ptr[ITM$L_BUFADR] = .filename[DSC$A_POINTER];
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = .job_status[DSC$W_LENGTH];
+  itmlst_ptr[ITM$W_ITMCOD] = SJC$_JOB_STATUS_OUTPUT;
+  itmlst_ptr[ITM$L_BUFADR] = .job_status[DSC$A_POINTER];
+  itmlst_ptr[ITM$L_RETLEN] = x;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = 0;
+  itmlst_ptr[ITM$W_ITMCOD] = (IF (.job_no_print)
+			      THEN
+				SJC$_NO_LOG_SPOOL
+			      ELSE
+				SJC$_LOG_SPOOL);
+  itmlst_ptr[ITM$L_BUFADR] = 0;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  IF (.job_after_date[0] NEQU 0)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = 8;
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_AFTER_TIME;
+     itmlst_ptr[ITM$L_BUFADR] = job_after_date;
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF (.job_use_cputime)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = 4;
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_CPU_LIMIT;
+     itmlst_ptr[ITM$L_BUFADR] = job_cputime;
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF (.job_use_priority)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = 4;
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_PRIORITY;
+     itmlst_ptr[ITM$L_BUFADR] = job_priority;
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF (.job_name[DSC$W_LENGTH] NEQU 0)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = .job_name[DSC$W_LENGTH];
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_JOB_NAME;
+     itmlst_ptr[ITM$L_BUFADR] = .job_name[DSC$A_POINTER];
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF (.job_printer[DSC$W_LENGTH] NEQU 0)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = .job_printer[DSC$W_LENGTH];
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_LOG_QUEUE;
+     itmlst_ptr[ITM$L_BUFADR] = .job_printer[DSC$A_POINTER];
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF (.job_user[DSC$W_LENGTH] NEQU 0)
+  THEN BEGIN
+     itmlst_ptr[ITM$W_BUFSIZ] = .job_user[DSC$W_LENGTH];
+     itmlst_ptr[ITM$W_ITMCOD] = SJC$_USERNAME;
+     itmlst_ptr[ITM$L_BUFADR] = .job_user[DSC$A_POINTER];
+     itmlst_ptr[ITM$L_RETLEN] = 0;
+     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+  END;
+
+  IF NOT(.job_no_log)					!If /NOLOG not given
+  THEN							!... then keep the
+     BEGIN						!... log file and name
+	itmlst_ptr[ITM$W_BUFSIZ] = 0;			!... it if given
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_NO_LOG_DELETE;
+	itmlst_ptr[ITM$L_BUFADR] = 0;
+	itmlst_ptr[ITM$L_RETLEN] = 0;
+	itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+        IF (.job_log_file[DSC$W_LENGTH] NEQU 0)
+        THEN
+	   BEGIN
+	     itmlst_ptr[ITM$W_BUFSIZ] = .job_log_file[DSC$W_LENGTH];
+	     itmlst_ptr[ITM$W_ITMCOD] = SJC$_LOG_SPECIFICATION;
+	     itmlst_ptr[ITM$L_BUFADR] = .job_log_file[DSC$A_POINTER];
+	     itmlst_ptr[ITM$L_RETLEN] = 0;
+	     itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+	   END;
+     END
+  ELSE							!Else, /NOLOG was given
+     BEGIN						!... so don't keep one
+	itmlst_ptr[ITM$W_BUFSIZ] = 0;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_NO_LOG_SPECIFICATION;
+	itmlst_ptr[ITM$L_BUFADR] = 0;
+	itmlst_ptr[ITM$L_RETLEN] = 0;
+	itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+     END;
+
+  IF (.job_notify)
+  THEN
+    BEGIN
+    itmlst_ptr[ITM$W_BUFSIZ] = 0;
+    itmlst_ptr[ITM$W_ITMCOD] = SJC$_NOTIFY;
+    itmlst_ptr[ITM$L_BUFADR] = 0;
+    itmlst_ptr[ITM$L_RETLEN] = 0;
+    itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+    END;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = 0;
+  itmlst_ptr[ITM$W_ITMCOD] = (IF (.job_keep)
+			      THEN
+				SJC$_NO_DELETE_FILE
+			      ELSE
+				SJC$_DELETE_FILE);
+  itmlst_ptr[ITM$L_BUFADR] = 0;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = 0;
+  itmlst_ptr[ITM$W_ITMCOD] = (IF (.job_hold)
+			      THEN
+				SJC$_HOLD
+			      ELSE
+				SJC$_NO_HOLD);
+  itmlst_ptr[ITM$L_BUFADR] = 0;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[ITM$W_BUFSIZ] = 0;
+  itmlst_ptr[ITM$W_ITMCOD] = (IF (.job_restart)
+			      THEN
+				SJC$_RESTART
+			      ELSE
+				SJC$_NO_RESTART);
+  itmlst_ptr[ITM$L_BUFADR] = 0;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  IF (.job_wsdefault NEQU 0)
+  THEN BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 4;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_WSDEFAULT;
+	itmlst_ptr[ITM$L_BUFADR] = .job_wsdefault;
+       END
+  ELSE BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 0;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_NO_WSDEFAULT;
+	itmlst_ptr[ITM$L_BUFADR] = 0;
+  END;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  IF (.job_wsquota NEQU 0)
+  THEN BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 4;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_WSQUOTA;
+	itmlst_ptr[ITM$L_BUFADR] = .job_wsquota;
+       END
+  ELSE BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 0;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_NO_WSQUOTA;
+	itmlst_ptr[ITM$L_BUFADR] = 0;
+  END;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  IF (.job_wsextent NEQU 0)
+  THEN BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 4;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_WSEXTENT;
+	itmlst_ptr[ITM$L_BUFADR] = .job_wsextent;
+       END
+  ELSE BEGIN
+	itmlst_ptr[ITM$W_BUFSIZ] = 0;
+	itmlst_ptr[ITM$W_ITMCOD] = SJC$_NO_WSEXTENT;
+	itmlst_ptr[ITM$L_BUFADR] = 0;
+  END;
+  itmlst_ptr[ITM$L_RETLEN] = 0;
+  itmlst_ptr = .itmlst_ptr + ITM$S_ITEM;
+
+  itmlst_ptr[0,0,32,0] = 0;
+
+  status = $SNDJBCW (FUNC=SJC$_ENTER_FILE, ITMLST=jbc_itmlst, IOSB=iosb);
+
+  IF (.status) AND NOT(.iosb)			!If an error was returned
+  THEN						!... in the IOSB, then use
+	status = .iosb[0,0,16,0];		!... that value as the status
+
+  IF (.status)					!If status was successful
+  THEN BEGIN					!Then print the returned
+     job_status[DSC$W_LENGTH] = .x;		!... job status string
+     status = LIB$PUT_OUTPUT(job_status);	!...
+  END;						!...
+
+  RETURN .status;					!Return success
+
+END;
+
+END
+ELUDOM

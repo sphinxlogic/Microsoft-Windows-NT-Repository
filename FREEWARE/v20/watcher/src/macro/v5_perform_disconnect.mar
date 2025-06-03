@@ -1,0 +1,152 @@
+
+
+	.TITLE  PERFORM_DISCONNECT PERFORM_DISCONNECT
+	.IDENT  \V1.0-1\
+
+	.EXTRN  SCH$IOLOCKR, IOC$SEARCHDEV, SCH$IOUNLOCK, CTL$GL_PCB, SMP$ACQUIREL, SMP$ACQNOIPL, SMP$GL_FLAGS
+	.EXTRN  SMP$RESTOREL, SMP$RELEASEL
+
+	.PSECT  $CODE$,NOWRT,2
+
+U.1:
+	.ENTRY  PERFORM_DISCONNECT, ^M<R2,R3,R4,R5,R6,R7,- ;PERFORM_DISCONNECT, Save R2,R3,R4,R5,R6,R7,R8,R9,R10,R11
+		R8,R9,R10,R11>				   ;
+	SUBL2   #16, SP					   ;#16, SP
+	MOVL    G^CTL$GL_PCB, R4			   ;CTL$GL_PCB, R4
+	JSB     G^SCH$IOLOCKR				   ;SCH$IOLOCKR
+	CLRQ    R2					   ;R2
+	MOVL    4(AP), R1				   ;DEVNAM_A, R1
+	JSB     G^IOC$SEARCHDEV				   ;IOC$SEARCHDEV
+	MOVQ    R0, (SP)				   ;R0, STATUS
+	BLBS    (SP), 1$				   ;STATUS, 1$
+	BRW     11$					   ;11$
+1$:	ADDL3   #76, 4(SP), R0				   ;#76, UCB, R0
+	CMPB    (R0), #66				   ;(R0), #66
+	BEQL    3$					   ;3$
+2$:	BRW     10$					   ;10$
+3$:	ADDL3   #60, 4(SP), R1				   ;#60, UCB, R1
+	BBC     #2, (R1), 2$				   ;#2, (R1), 2$
+	ADDL3   #61, 4(SP), R0				   ;#61, UCB, R0
+	BBS     #5, (R0), 2$				   ;#5, (R0), 2$
+	ADDL3   #64, 4(SP), R0				   ;#64, UCB, R0
+	BBS     #1, (R0), 2$				   ;#1, (R0), 2$
+	ADDL3   #64, 4(SP), R1				   ;#64, UCB, R1
+	BBS     #2, (R1), 2$				   ;#2, (R1), 2$
+	ADDL3   #65, 4(SP), R2				   ;#65, UCB, R2
+	BLBS    (R2), 2$				   ;(R2), 2$
+	ADDL3   #180, 4(SP), R0				   ;#180, UCB, R0
+	CMPL    (R0), 4(SP)				   ;(R0), UCB
+	BEQL    2$					   ;2$
+4$:	MOVL    4(SP), R0				   ;UCB, U
+	ADDL3   #86, 4(SP), R1				   ;#86, UCB, R1
+	BBS     #1, (R1), 5$				   ;#1, (R1), 5$
+	CLRL    (SP)					   ;STATUS
+	BRB     6$					   ;6$
+5$:	MOVL    180(R0), 4(SP)				   ;180(U), UCB
+	CMPL    R0, 4(SP)				   ;U, UCB
+	BNEQ    4$					   ;4$
+	MOVL    #1, (SP)				   ;#1, STATUS
+6$:	ADDL3   #304, 4(SP), R0				   ;#304, UCB, R0
+	MOVL    (R0), 8(SP)				   ;(R0), CLASS_BASE
+	BLBC    (SP), 9$				   ;STATUS, 9$
+	BEQL    9$					   ;9$
+	MOVL    G^CTL$GL_PCB, R4			   ;CTL$GL_PCB, R4
+	JSB     G^SCH$IOUNLOCK				   ;SCH$IOUNLOCK
+	ADDL3   #40, 4(SP), R1				   ;#40, UCB, R1
+	MOVL    (R1), R0				   ;(R1), $$$SPINLOCK
+	MFPR    #18, 12(SP)				   ;#18, TMP
+	BLBC    G^SMP$GL_FLAGS, 7$			   ;SMP$GL_FLAGS, 7$
+	JSB     G^SMP$ACQUIREL				   ;SMP$ACQUIREL
+7$:	ADDL3   #114, 4(SP), R1				   ;#114, UCB, R1
+	MOVZBL  (R1), R0				   ;(R1), R0
+	MTPR    R0, #18					   ;R0, #18
+	MOVL    4(SP), R5				   ;UCB, R5
+	ADDL3   #24, 8(SP), -(SP)			   ;#24, CLASS_BASE, -(SP)
+	PUSHL   @(SP)+					   ;@(SP)+
+	JSB     @(SP)+					   ;@(SP)+
+	BLBC    G^SMP$GL_FLAGS, 8$			   ;SMP$GL_FLAGS, 8$
+	ADDL3   #40, 4(SP), R1				   ;#40, UCB, R1
+	MOVL    (R1), R0				   ;(R1), R0
+	JSB     G^SMP$RELEASEL				   ;SMP$RELEASEL
+8$:	MTPR    12(SP), #18				   ;TMP, #18
+	MTPR    #0, #18					   ;#0, #18
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+9$:	MOVL    #2, (SP)				   ;#2, STATUS
+	BRB     11$					   ;11$
+10$:	MOVL    #4, (SP)				   ;#4, STATUS
+11$:	MOVL    G^CTL$GL_PCB, R4			   ;CTL$GL_PCB, R4
+	JSB     G^SCH$IOUNLOCK				   ;SCH$IOUNLOCK
+	MTPR    #0, #18					   ;#0, #18
+	MOVL    (SP), R0				   ;STATUS, R0
+	RET     					   ;
+
+; Routine Size:  308 bytes,    Routine Base:  $CODE$ + 0000
+
+
+
+
+
+
+
+U.2:
+	.ENTRY  AFTER_PERFORM_DISCONNECT, ^M<>		   ;AFTER_PERFORM_DISCONNECT, Save nothing
+	MOVL    #1, R0					   ;#1, R0
+	RET     					   ;
+
+; Routine Size:  6 bytes,    Routine Base:  $CODE$ + 0134
+
+
+
+
+
+	.EXTRN  SYS$LKWSET
+
+	.ENTRY  LOCK_DISCONNECT_CODE, ^M<>		   ;LOCK_DISCONNECT_CODE, Save nothing
+	SUBL2   #4, SP					   ;#4, SP
+	PUSHAB  W^U.1					   ;U.1
+	MOVAB   B^U.2, 4(SP)				   ;U.2, LCKLST+4
+	CLRQ    -(SP)					   ;-(SP)
+	PUSHAB  8(SP)					   ;LCKLST
+	CALLS   #3, G^SYS$LKWSET			   ;#3, SYS$LKWSET
+	RET     					   ;
+
+; Routine Size:  27 bytes,    Routine Base:  $CODE$ + 013A
+
+
+
+
+
+
+
+
+;				       PSECT SUMMARY
+;
+;	Name			 Bytes			       Attributes
+;
+;  $CODE$			      341  NOVEC,NOWRT,  RD ,  EXE,NOSHR,  LCL,  REL,  CON,NOPIC,ALIGN(2)
+
+
+
+
+;				Library Statistics
+;
+;					     -------- Symbols --------	    Pages	Processing
+;	File				     Total    Loaded   Percent      Mapped	Time
+;
+;  RPI$SRC:[LIBREQ.VAX_V5]LIB.L32;1	     28937        25         0      1547          00:00.1
+
+
+
+
+
+
+
+;					COMMAND QUALIFIERS
+
+;	BLISS/LIST=[.MACRO]V5_PERFORM_DISCONNECT.MAR/NOOBJ/MACHINE=(OBJ,NOBIN,ASSEM,UNIQUE,NOCOMM)/SOURCE=(NOHEAD,NOSOURCE) PERFO
+;	RM_DISCONNECT.B32
+
+; Compilation Complete
+
+	.END

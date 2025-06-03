@@ -1,0 +1,914 @@
+%title 'Nmail queue-related subroutines'
+module nm$quesubs(
+    	         ident='14',
+    	         addressing_mode(external=general)
+                 ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	16-Aug-1985
+!
+! Revision history:
+!
+!   01  13-Nov-1985
+!	Make NM$GET_QUE_FILEID try the alternative filespec on
+!	RMS$_SYN errors as well.
+!
+!   02	14-Nov-1985
+!	Remove local literal definitions for sizes of things; use
+!	ones defined in the common library file.
+!
+!   03  11-Apr-1986
+!	The NM$GT_xxx strings are now defined as counted strings
+!
+!   04	16-Apr-1986
+!	Add NM$SNDJBC routine
+!
+!   05	19-Apr-1986
+!	Add NM$NEXT_QUEUE routine to scan a queue list
+!                                       
+!   06	12-Aug-1987
+!	Fix NM$GET_QUE_FILEID bug where the 'bad directory'
+!	recovery action wouldn't work for files with a filetype
+!	other than .WRK.
+!
+!   07	2-Sep-1987
+!	Include NM$FIND_ENTRY, previously local to NM$CANCEL
+!
+!   08	7-Feb-1989
+!	Remove obsolete NM$GET_QUE_FILEID routine.
+!
+!   09	17-Feb-1989
+!	Add option to NM$GET_QUE_LIST to allow generic queue to
+!	be listed before execution queues -- needed by STOP QUEUE.
+!
+!   10	23-Feb-1989
+!	Incorporate NM$RESUBMIT_JOB, previously in module NM$SUBMIT.
+!
+!   11  27-Feb-1991
+!	Add routine NM$MASSAGE_QSTATUS, copied from code supplied 
+!	by Ray Guzman and Sue Heimbach from VMS.
+!
+!   12	1-Jul-1992
+!	Always call NM$POKEUSER with three parameters
+!
+!   13	4-Jul-1992
+!	Add some VOLATILE attributes
+!
+!   14	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!--
+
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Define size of username cell in P1 region
+!
+literal
+    ctl_username_len = 12;
+
+%sbttl 'send to job controller'
+global routine nm$sndjbc (function, itemlist) =
+
+!++
+! Functional description:
+!
+! Issues a call to the SNDJBCW system service
+!
+! Formal parameters:
+!
+! function.rl.v = function code
+! itemlist.ra.r = longword vector (itemlist format)
+!
+! Routine value:
+!
+! status.wlc.v = returned system service / IOSB status
+!
+!--
+
+    begin
+
+    local 
+	status,
+	iosb : vector[2];
+
+    !
+    ! Issue the system service call
+    !
+    status = $sndjbcw(func=.function, iosb=iosb, itmlst=.itemlist);
+
+    !
+    ! Return any error status
+    !
+    if not .status
+    then
+    	return .status
+    else
+    	return .iosb[0];
+
+    end;
+
+%sbttl 'get queue information'
+global routine nm$getqui (function, itemlist) =
+
+!++
+! Functional description:
+!
+! Issues a call to the GETQUIW system service
+!
+! Formal parameters:
+!
+! function.rl.v = function code
+! itemlist.ra.r = longword vector (itemlist format)
+!
+! Routine value:
+!
+! status.wlc.v = returned system service / IOSB status
+!
+!--
+
+    begin
+
+    local 
+	status,
+	iosb : vector[2];
+
+    !
+    ! Issue the system service call
+    !
+    status = $getquiw(func=.function, iosb=iosb, itmlst=.itemlist);
+
+    !
+    ! Return any error status
+    !
+    if not .status
+    then
+    	return .status
+    else
+    	return .iosb[0];
+
+    end;
+
+%sbttl 'get queue list'
+global routine nm$get_que_list (gqueue : ref descrip, qlist : ref descrip, rev) =
+
+!++
+! Functional description:
+!
+! Given a queue name, which can be an execution queue, generic queue,
+! or logical queue name, this routine returns a comma-list of all
+! those queues which can process jobs which are entered in the 
+! specified queue.
+!
+! For an execution queue, this will just be the execution queue name.
+!
+! For a generic queue, this will be a list of the target execution queues
+! (all those mentioned in a /GENERIC=xxx qualifier) plus the name of 
+! the generic queue itself.
+!
+! For a logical queue name, this will be the assigned execution queue.
+!
+! Each queue name in the returned list will be terminated by a comma,
+! even the last one.
+!
+!
+! Formal parameters:
+! 
+! gqueue.rt.ds = specified queue name
+! qlist.wt.dd  = returned queue list
+! rev.rl.v     = optional parameter
+!		 if omitted or false, returned order is execution/generic
+!		 if supplied and true, then order is generic/execution
+!		 
+!
+! Routine value/condition codes:
+!
+! status.wlc.v = true if it worked
+!		 otherwise failure status
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    !
+    ! Buffers for storage of various queue names
+    !
+    local
+        queue_name_buff     : vector[nm$s_quenam,byte] alias,
+        assigned_queue_buff : vector[nm$s_quenam,byte] alias,
+        generic_target_buff : vector[nm$s_quenam*nm$k_maxque,byte] alias,
+	queue_name_len	    : word alias,
+	assigned_queue_len  : word alias,
+	generic_target_len  : word alias;
+
+    !
+    ! Some scratch static descriptors and other miscellaneous stuff
+    !
+    local
+	dsc1   : descrip initial(0,0),
+	dsc2   : descrip initial(0,0),
+	dsc3   : descrip initial(0,0),
+	do_rev : initial(false),
+	status;
+
+    !
+    ! Pieces of string
+    !
+    bind
+	comma = %ascid',',
+	empty = %ascid'';
+
+    !
+    ! Itemlist to expand the generic queue name
+    !
+    local
+        dpy_gen : $itemlist(
+			qui$_search_name,         .gqueue[dsc$w_length],   .gqueue[dsc$a_pointer],       0,
+			qui$_search_flags,        %upval,                  uplit(qui$m_search_symbiont), 0,
+    			qui$_queue_name,          nm$s_quenam,             queue_name_buff,              queue_name_len,
+    	                qui$_generic_target,      nm$s_quenam*nm$k_maxque, generic_target_buff,          generic_target_len,
+			qui$_assigned_queue_name, nm$s_quenam,             assigned_queue_buff,          assigned_queue_len
+			);
+
+    !
+    ! Determine return order
+    !
+    if not nullparameter(rev) then do_rev = .rev;
+
+    !
+    ! Cancel in-progress operations
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then return .status;
+
+    !
+    ! Take a peek at the generic queue to see what it maps onto
+    !
+    status = nm$getqui(qui$_display_queue, dpy_gen);
+    if not .status then return .status;
+
+    !
+    ! Make some descriptors for the returned strings
+    !
+    dsc1[dsc$w_length]  = .generic_target_len;
+    dsc1[dsc$a_pointer] = generic_target_buff;
+    dsc2[dsc$w_length]  = .assigned_queue_len;
+    dsc2[dsc$a_pointer] = assigned_queue_buff;
+    dsc3[dsc$w_length]  = .queue_name_len;
+    dsc3[dsc$a_pointer] = queue_name_buff;
+
+    !
+    ! Assemble big list of all queues we need to look at. Put the
+    ! execution queues first so the active jobs wil be displayed first.
+    !
+    if not .rev 
+    then
+        str$concat(
+              	  .qlist,
+                  dsc1, (if .dsc1[dsc$w_length] eql 0 then empty else comma),
+    	          dsc2, (if .dsc2[dsc$w_length] eql 0 then empty else comma),
+    	          dsc3, (if .dsc3[dsc$w_length] eql 0 then empty else comma)
+                  )
+    else
+        str$concat(
+              	  .qlist,
+    	          dsc3, (if .dsc3[dsc$w_length] eql 0 then empty else comma),
+    	          dsc2, (if .dsc2[dsc$w_length] eql 0 then empty else comma),
+                  dsc1, (if .dsc1[dsc$w_length] eql 0 then empty else comma)
+                  );
+
+    !
+    ! All done
+    !
+    true
+
+    end;
+
+%sbttl 'scan queue list'
+global routine nm$next_queue(quelist : ref descrip, quedesc : ref descrip) =
+
+!++
+! Formal description:
+!
+! Given a comma-list of queues, this routine will return a
+! descriptor to the `next' queue in the list.
+!
+! If required, this routine can also get the list of queues
+! in the first place.
+!
+! Formal parameters:
+!
+! quelist.mt.dx = comma-list of queues. if the length word is zero, then
+!		  this list will be initialised by calling NM$GET_QUEUE_LIST
+! quedesc.mq.r  = descriptor for selected next queue. if the length word is
+!		  zero then the first queue in the list will be returned, else
+!		  we carry on where we left off.
+!
+! Routine values:
+!
+! gotone.wl.v = true if there was a next queue
+!	        false if we reached the end of the list
+!
+!--
+
+    begin
+
+    local
+	qptr,	! pointer to part of list to be scanned
+	qlen,	! length of list to be scanned
+    	qcom,	! pointer to next comma
+	status;
+
+    !
+    ! Initialise queue list if required
+    !
+    if .quelist[dsc$w_length] eql 0
+    then
+	begin
+	local master_queue : descrip initial(.nm$gt_queue[0], nm$gt_queue[1]);
+
+	!
+	! Get list of execution queues
+	!
+	status = nm$get_que_list(master_queue, .quelist);
+	if not .status 
+	then
+	    begin
+	    if .status neq jbc$_nosuchque then signal_stop(nm$_jbc, 0, .status);
+	    signal(nm$_nonxque);
+	    return nm$_nonxque;
+	    end;
+
+	!
+	! Zero target descriptor to force us to begin at the beginning
+	!
+	quedesc[dsc$w_length]  = 0;
+	quedesc[dsc$a_pointer] = 0;
+	end;
+
+    !
+    ! Decide where to start the search
+    !
+    if .quedesc[dsc$w_length] eql 0
+    then
+	begin
+	qptr = .quelist[dsc$a_pointer];
+	qlen = .quelist[dsc$w_length];
+	end
+    else
+	begin
+	qptr = .quedesc[dsc$a_pointer] + .quedesc[dsc$w_length] + 1;
+	qlen = .quelist[dsc$a_pointer] + .quelist[dsc$w_length] - .qptr;
+	end;
+
+    !	
+    ! Now, scan for next comma.  Since all queue names are terminated
+    ! by a comma, if we fail to find one it means that the list is
+    ! exhausted (rather than meaning that we just found the last entry
+    ! in the list);
+    !
+    qcom = ch$find_ch(.qlen, .qptr, ',');
+    if .qcom neq 0
+    then
+	begin
+	quedesc[dsc$a_pointer] = .qptr;
+	quedesc[dsc$w_length]  = .qcom - .qptr;
+	end
+    else
+	begin
+	quedesc[dsc$a_pointer] = 0;
+	quedesc[dsc$w_length]  = 0;
+	end;
+
+    !
+    ! Return true if we found something, false if we didn't
+    !
+    .quedesc[dsc$w_length] neq 0
+
+    end;
+
+%sbttl 'find required entry in nmail queues'
+global routine nm$find_entry (
+		      quelist : ref descrip, 
+		      entry_num, 
+		      user    : ref descrip,
+		      queue   : ref descrip,
+		      jobsts
+		      ) =
+
+!++
+! Functional description:
+!
+! Scans all Nmail queues and locates a particular entry by
+! number.  It's necessary to do this by scanning because of 
+! limitations in SYS$GETQUI.  
+!
+! On return from this routine, job control context is
+! left around, so that further operations (such as _DISPLAY_FILE)
+! can be executed within the context of the found job.
+!
+! Formal parameters:
+!                
+! quelist.mt.dx  = comma-list of queues to scan (initially null)
+! entry_num.rl.v = entry number of job we're looking for
+! user.rt.dx1    = username owning job (optional, omitted=>self)
+! queue.wq.r     = descriptor for queue for job 
+! jobsts.wl.r    = job status bits
+!
+! Routine value:
+!
+! status.wlc.v = true if entry found, false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! Storage for returned queue information items
+    !
+    local
+	username_buff   : vector[nm$s_usernam,byte] alias,
+	username_len    : word alias,
+	current_entry   : long alias,
+	job_status	: block[%upval,byte] alias;
+
+    !
+    ! Other scratch bits and pieces
+    !
+    local 
+	status,
+	srch_wild : alias initial(qui$m_search_wildcard),
+	srch_all  : alias initial(0);
+
+    !
+    ! Items lists for the various 'display' functions to be requested.
+    !
+    local
+	dpy_queue : $itemlist(
+			qui$_search_name,  0,            0,             0,
+			qui$_search_flags, %upval,       srch_wild,     0
+			),
+	dpy_job   : $itemlist(
+			qui$_search_flags, %upval,       srch_all,      0,
+			qui$_entry_number, %upval,       current_entry, 0,
+			qui$_job_status,   %upval,       job_status,    0,
+			qui$_username,	   nm$s_usernam, username_buff, username_len
+			);
+
+    !
+    ! If this job may be owned by someone other than ourselves, tell
+    ! the job controller to give details of all jobs
+    !
+    if .user neq 0 then srch_all = qui$m_search_all_jobs;
+
+    !
+    ! Now, process each queue in turn.
+    !
+    while nm$next_queue(.quelist, dpy_queue) do
+	begin
+
+	!
+	! Establish queue context for job controller
+	!
+	status = nm$getqui(qui$_cancel_operation, %ref(0));
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+	status = nm$getqui(qui$_display_queue, dpy_queue);
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+
+	!
+	! Loop through all jobs
+	!
+	while begin
+	      status = nm$getqui(qui$_display_job, dpy_job);
+	      if not .status
+	      then 
+	          if .status neq jbc$_nosuchjob and 
+		     .status neq jbc$_nomorejob
+	          then
+		      signal_stop(nm$_jbc, 0, .status);
+	      .status
+	      end
+        do
+
+	    begin
+
+	    !
+	    ! If this is the job we're looking for, then return queue and
+	    ! job details, and make a hasty exit preserving job controller
+	    ! context
+	    !
+	    if .current_entry eql .entry_num
+	    then
+		begin
+	        bind dpy_que_dsc = dpy_queue : descrip;
+		if .user neq 0 
+		then
+		    if ch$neq(
+			     .username_len, username_buff, 
+		             .user[dsc$w_length], .user[dsc$a_pointer]
+			     )
+		    then
+		    	return false;
+		queue[dsc$w_length]  = .dpy_que_dsc[dsc$w_length];
+		queue[dsc$a_pointer] = .dpy_que_dsc[dsc$a_pointer];
+		.jobsts              = .job_status;
+		return true;
+		end;
+
+	    !
+            ! End of job-loop
+	    !
+	    end;
+
+	!
+	! End of queue-loop
+	!
+	end;
+
+    !
+    ! If we fall out here, can't find the job
+    !
+    false
+
+    end;  
+
+%sbttl 'resubmit job'
+global routine nm$resubmit_job (
+    			       fileid  : ref block[,byte],
+    			       jobname : ref descrip, 
+    			       queue   : ref descrip,
+    			       after   : ref vector,
+    			       prio,   ! ref long,
+    			       user    : ref descrip,
+    			       uic,    ! ref long,
+    			       account : ref descrip,
+			       hold,   ! long
+			       entry   ! ref long
+    			       ) =
+
+!++
+! Functional description:
+!
+! The control file is submitted to the Nmail queue for 
+! processing.
+!
+! Formal parameters:
+!
+! fileid.rr.r   = 28 byte device, directory, file-id buffer
+! jobname.rt.dx = name to give job
+! queue.rt.dx   = queue to submit job to
+! after.rq.r    = after time (optional)
+! prio.rl.r     = priority (optional)
+! user.rt.dx    = username for job (optional)
+! uic.rl.r      = uic (optional)
+! account.rt.dx = account (optional)
+! hold.rl.v     = hold flag (optional)
+! entry.wl.r    = entry number of created job (optional)
+!
+! Routine value:
+!
+! status.wlc.v = status from queue request
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    !
+    ! A few item list declarations
+    !
+    literal
+	max_items = 12;
+    macro
+	itm_len  = 0,0,16,0 % ,
+	itm_code = 2,0,16,0 % ,
+	itm_buff = 4,0,32,0 % ,
+	itm_rlen = 8,0,32,0 % ;
+    literal
+	item_size = 12;
+    local
+	items : blockvector[max_items+1,item_size,byte] alias,
+	iptr  : ref block[item_size,byte] initial(items);
+    compiletime 
+	item_num = 0;
+
+    !
+    ! Macro to fill in one item
+    !
+    macro
+	add_item(code, source, len) =
+	    begin
+	    %assign(item_num, item_num+1)
+	    %if item_num gtr max_items 
+	    %then 
+		%error('overflow at item #', %number(item_num))
+	    %fi
+	    %if %length eql 2
+	    %then
+    	    $movq(source, iptr[long0]);
+	    %fi
+    	    %if %length eql 3
+    	    %then
+	    iptr[itm_len]  = (len);
+	    iptr[itm_buff] = (source);
+    	    %fi
+	    iptr[itm_code] = %name(sjc$_,code);
+	    iptr = .iptr + item_size;
+	    end
+	%,
+	add_item_if(param) =
+	    if not nullparameter(param) then add_item(%remaining)
+	%;
+	    
+    !
+    ! Assorted local data
+    !
+    local
+	iosb    : vector[2],
+	savuser : vector[ctl_username_len,byte],
+	kstat   : initial(0),
+	status;
+
+    !
+    ! Fill in the item list required parameters
+    !
+    ch$fill(0, (max_items+1)*item_size, items);
+    add_item(queue, .queue);
+    add_item(job_name, .jobname);
+    add_item(restart);
+    add_item(file_identification, .fileid, nm$s_fileid);
+
+    !
+    ! Now add the optional stuff
+    !
+    add_item_if(after, after_time, .after, 2*%upval);
+    add_item_if(prio, priority, .prio, %upval);
+    add_item_if(uic, uic, .uic, %upval);
+    add_item_if(account, account_name, .account);
+    add_item_if(hold, hold);
+    add_item_if(entry, entry_number_output, .entry, %upval);
+
+    !
+    ! If 'username' was specified, then we switch into kernel
+    ! mode to temporarily patch our username to equal the desired
+    ! username.  We do this rather than using the SJC$_USERNAME item,
+    ! since in VMS V5 this item causes some checks which we'd rather
+    ! not have.
+    !
+    if not nullparameter(user)
+    then
+	begin
+        kstat = nm$pokeuser(.user[dsc$w_length], .user[dsc$a_pointer], savuser);
+	if not .kstat then return .kstat;         
+	end;
+
+    !
+    ! And queue the job
+    ! 
+    status = $sndjbcw(func=sjc$_enter_file, itmlst=items, iosb=iosb);
+
+    !
+    ! Restore original username now
+    !
+    if .kstat
+    then
+	begin
+        kstat = nm$pokeuser(ctl_username_len, savuser, 0);
+	if not .kstat then return .kstat;
+	end;        
+
+    !
+    ! Return status to caller
+    !
+    (if .status then .iosb[0] else .status)
+
+    end;
+
+%sbttl 'poke username in control region'
+global routine nm$pokeuser (
+			ulen  : word, 
+			uname : ref vector[,byte], 
+			prev  : ref vector[,byte]
+			) =
+
+!++
+! Functional description:
+!
+! Patches the username cell (in the control region) to the 
+! required value.  
+!
+! Formal parameters:
+!
+! ulen.rw.v  = length of username
+! uname.rt.r = required username
+! prev.rt.r  = previous username (0 if not required)
+!
+! Routine value:
+!
+! status.wlc.v = always true
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    !
+    ! Kernel mode routine to do the poking
+    !
+    routine pokeit (len : word, name, prev) =
+	begin
+        external ctl$t_username : vector[ctl_username_len,byte];
+ 	if .prev neq 0
+	then
+	    ch$move(ctl_username_len, ctl$t_username, .prev);
+        ch$copy(.len, .name, ' ', ctl_username_len, ctl$t_username);
+	true
+	end;
+
+    !
+    ! Call poke routine in kernel mode
+    ! 
+    $cmkrnl(routin=pokeit, arglst=argptr())
+
+    end;
+
+%sbttl 'massage queue status from old job controllers'
+global routine nm$massage_qstatus(
+			queue_status : block[%upval,byte],
+			executing_job_count,
+			job_limit
+			) =
+
+!++
+! Functional description:
+!
+! This routine converts queue_status to 1990 format,
+! where only one state bit can be set at any time.
+!
+! Formal parameters:
+!
+! queue_status.rl.v        = queue status longword
+! executing_job_count.rl.v = number of jobs currently executing on the queue
+! job_limit.rl.v           = maximum number of jobs allowed to execute 
+!			     simultaneously on the queue
+!
+! Routine value:
+!
+! new_queue_status.wl.v    = the converted queue status
+!
+!--
+
+    begin
+
+    literal 
+	state_mask =
+		qui$m_queue_available or
+		qui$m_queue_busy or
+		qui$m_queue_disabled or
+		qui$m_queue_idle or
+		qui$m_queue_paused or
+		qui$m_queue_pausing or
+		qui$m_queue_resuming or
+		qui$m_queue_stalled or
+		qui$m_queue_starting or
+		qui$m_queue_stopped or
+		qui$m_queue_stopping or
+		qui$m_queue_undefined;
+
+    local
+	queue_state 	 : block[%upval,byte],
+	new_queue_status : block[%upval,byte];
+
+    !
+    ! Mask out all non-state bits (those that can be set
+    ! in conjunction with other bits).
+    !
+    queue_state = .queue_status and state_mask;
+                
+    !
+    ! If more or less than one state bit is set, or if the stopped bit is set
+    ! but there are still job(s) executing on the queue, then this queue_status
+    ! must have come from a "pre-1990 design" queue manager.  Massage this 
+    ! queue_status to make it look like its equivalent "1990 design" status.
+    !
+    ! The first test shown below works for determining if more than one bit is
+    ! set because subtracting one causes borrowing up to, but no further than,
+    ! the first set bit.  When the difference is "ANDed" with the original,
+    ! the result shows all bits to the left of the first set bit in their
+    ! original state.  If any of these "leftward" bits was set, we get a
+    ! non-zero result.
+    ! 
+    if (.queue_state and .queue_state-1) eql 0
+    and .queue_state neq 0
+    and not (.queue_state[qui$v_queue_stopped] and .executing_job_count neq 0)
+    then
+        return .queue_status;  
+
+    !
+    ! Copy queue_status into new_queue_status, but clear all state bits.
+    ! The one and only state bit representing the true state of the queue
+    ! will be set based on the results of the upcoming inquiries.
+    !
+    new_queue_status = .queue_status and not state_mask;
+
+    !
+    ! Stop_pending status means that the queue will be stopped when job(s) 
+    ! currently executing on the queue have completed.  This is not one of 
+    ! the state bits, but it is new for the 1990 design.
+    !
+    if .queue_status[qui$v_queue_stopped] and not .queue_status[qui$v_queue_idle]
+    then
+        new_queue_status[qui$v_queue_stop_pending] = true;
+
+    !
+    ! First, test and set if necessary the transient ("-ing") state bits.
+    ! In the old design, these were often set in addition to other state bits.
+    !
+    if .queue_status[qui$v_queue_pausing]
+    then 
+	new_queue_status[qui$v_queue_pausing] = true
+    else if .queue_status[qui$v_queue_stopping]
+    then 
+	new_queue_status[qui$v_queue_stopping] = true
+    else if .queue_status[qui$v_queue_resuming]
+    then 
+	new_queue_status[qui$v_queue_resuming] = true
+    else if .queue_status[qui$v_queue_starting]
+    then 
+	new_queue_status[qui$v_queue_starting] = true
+
+    !
+    ! Next, test and set if necessary the non-transient ("-ed") state bits.
+    !
+    else if .queue_status[qui$v_queue_disabled]
+    then 
+	new_queue_status[qui$v_queue_disabled] = true
+    else if .queue_status[qui$v_queue_paused]
+    then 
+	new_queue_status[qui$v_queue_paused] = true
+    else if .queue_status[qui$v_queue_stalled]
+    then 
+	new_queue_status[qui$v_queue_stalled] = true
+
+    !
+    ! Stopped state in the old design used to be determined by
+    ! the stopped and idle bits.
+    !
+    else if .queue_status[qui$v_queue_stopped] and .queue_status[qui$v_queue_idle]
+    then 
+	new_queue_status[qui$v_queue_stopped] = true
+
+    !
+    ! Finally, determine appropriate active state of queue based on the number 
+    ! of jobs currently executing compared to the maximum number allowed to
+    ! simultaneously execute.
+    !
+    else if .executing_job_count geq .job_limit
+    then
+        new_queue_status[qui$v_queue_busy] = true
+    else if .executing_job_count neq 0
+    then 
+	new_queue_status[qui$v_queue_available] = true
+    else 
+	new_queue_status[qui$v_queue_idle] = true;
+
+    !
+    ! Return fixed-up status
+    !
+    .new_queue_status
+
+    end;
+         
+end
+eludom

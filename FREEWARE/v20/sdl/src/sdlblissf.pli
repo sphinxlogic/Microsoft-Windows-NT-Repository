@@ -1,0 +1,1237 @@
+/*
+****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1988	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Creates the BLISS language output from the SDL tree.
+	Generates fieldset macros for accessing the data structures.
+
+author:
+	Marty Jack	(VMS)
+
+date:
+	revised 22-DEC-1980	ctp
+	revised 30-JUN-1982	lhs		version 1.5 changes
+	revised 20-AUG-1982	lhs		add vms macros and fieldsets
+	revised 04-OCT-1982	lhs		version 1.7 changes
+	revised 30-NOV-1982	lhs		level 1.7-3 changes
+	revised 27-Apr-1983	kd		level 1.8 changes including
+						optional parameter macro
+	revised 14-Jun-1983	kd		1.8 changes - comma ommitted
+						after first field declaration of
+						implicit union with FILL attribute.
+	revised 18-Jun-1983	kd		fixed problem of extra comma generated
+						by the above fix.
+	revised    Aug-1983	kd		Make necessary changes to make
+						this a seperate shareable image
+						for the V2.0 packaging scheme.
+	revised 30-May-1984	kd		Add prefix to FIELDSET name.
+	revised 02-Aug-1984	kd		Add IDENT field.  2-0
+
+			C H A N G E    L O G
+_______________________________________________________________________________
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+    07-Dec-1984	|  kd	| 2-1    make comment on aggregates appear on FIELDSET 
+                |       |        declaration
+________________|_______|______________________________________________________
+    28-Jan-1985	|  kd	| 2-2    Make default output for longword item signed.
+________________|_______|______________________________________________________
+    22-Mar-1985	|  kd	| 2-3    Add type name support
+________________|_______|______________________________________________________
+     6-Jun-1985	|  kd	| 2-4    Add a close for output file.  Add condition 
+		|	|	 handler for undefinedfile condition.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+     4-Jul-1985	|  kd	| T2.9-1 Do not surpress sub-aggregate names with
+		|	|	 FILL fields until a new algorithm is in place.
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-2 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    25-Mar-1986	|  pc	| V3.0-1 Add stuff for LIST parameters.
+________________|_______|______________________________________________________
+     6-Mar-1987	|  jgw	| T3.1-0 Corrected KEYWORDMACRO name derived for
+		|	|	 an entry point with no ALIAS specified;
+		|	|	 provided support here for LIB$, SCR$, MTH$,
+		|	|	 OTS$, SMG$, DTK$ and STR$ prefixes.  Also, made
+		|	|	 appropriate modifications to pc's 25-Mar-1986
+		|	|	 changes to allow for OPTIONAL LIST.
+		|	|	 Also:  initialized output buffer (buf) and
+		|	|	 tmpbuf to '' at outer-level declaration.
+________________|_______|______________________________________________________
+     2-Apr-1987	|  jgw	| X3.1-1 Bumped the version number and switched from T
+		|	|	 to X in the version number, since X is used
+		|	|	 for development releases.
+________________|_______|______________________________________________________
+    23-Apr-1987	|  jgw	| X3.1-2 Added handling of COMPLEX data types.
+________________|_______|______________________________________________________
+    04-May-1987	|  jgw	| X3.1-3 Fixed macro syntax for COMPLEX data types.
+________________|_______|______________________________________________________
+    18-Jan-1988	|  PG	| X3.2-0 Add CONSTANT STRING
+________________|_______|______________________________________________________
+    26-Jan-1988	|  PG	| X3.2-1 Fix CONSTANT STRING to use MACRO
+________________|_______|______________________________________________________
+     1-Feb-1988	|  jg	| X3.2-2 Implement user defined types.
+		|	|	 VOID returns :novalue.
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-3 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    29-Jun-1988	|  jgw	| X3.2-4 Corrected macro name derived for an ENTRY with
+ 		|	|	 no ALIAS specified.
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording
+                |       |           for VMS VDE system builder.
+________________|_______|______________________________________________________
+    25-Apr-1991 |  AWF  | X3.2-5 Modifier is SDL project developer.  Added
+		|	|	 support for BLISS_FIELDS extensions used by
+		|	|	 TPU.
+________________|_______|______________________________________________________
+    31-Oct-1991 |  AWF  | X3.2-6 Output names are now up to 64 chars.  Fix
+		|	|	 for EVMS QAR 1098.  Note that input names are 
+		|	|	 still limited to 32 chars. 
+________________|_______|______________________________________________________
+    25-Feb-1992	|  JAK	| EV1-7	 Fix for QAR 1934.  At COMMON_2:, the call to 
+		|	|	outputnode should be with "level", not "level+1".
+________________|_______|______________________________________________________
+    20-Mar-1992	|  JAK	| EV1-10 Made BLISS_FIELDS stuff conditional on /SUBFIELD.
+		|	|	Added revision checks.
+________________|_______|______________________________________________________
+    11-Jun-1992	|  JAK	| EV1-14 Made signed the default for QUADWORD and OCTAWORD.
+		|	|	Ignore typdef items.
+________________|_______|______________________________________________________
+    29-Jun-1992	|  JAK	| EV1-15 Back out the change to ignore typdef items.
+________________|_______|______________________________________________________
+     2-Sep-1992	|  JAK	| EV1-18 Bug fix: null fieldsets when declaring user type agg.
+		|	|	Changed sdl$putline calls to internal putline.
+		|	|	Reformatted indentation style of much so I could understand code.
+________________|_______|______________________________________________________
+    12-Jan-1993	|  JAK	| EV1-20 Fix: null fieldsets at level-1.
+________________|_______|______________________________________________________
+    29-Jan-1993	|  JAK	| EV1-21 Changed so that size literals put out only if greater than
+		|	|	blissword size: 8 if alpha, else 4.
+		|	|	Implemented BLISSF64 functionality here triggered by 
+		|	|	sdl$v_b64_opt (/B64).
+    18-Feb-1993	|	|	Set blissword_size to 8 if /B64 or /ALPHA.
+		|	|	Emit size literals if > 4 independent of /ALPHA or /B64.
+		|	|	Change test to suppress aggregate size literal if 
+		|	|	defined with a named type to not require node 
+		|	|	pointed toby TYPEINFO2 to be a TYPE node.
+    24-Feb-1993	|	|	Removed TYPEINFO2 ^= null() as a reason for using zero for a size field.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-40';
+
+
+SDL$OUTPUT:	proc (out_file, default_name, sdl$_shr_data)
+		options(ident(MODULE_IDENT));
+
+/* INCLUDED SOURCE FILES */
+	%include 'sdl$library:sdlnodef.in';
+	%include 'sdl$library:sdltypdef.in';
+	%include 'sdl$library:sdlmsgdef.in';
+	%include 'sdl$library:sdlshr.in';
+        %include 'SDL$LIBRARY:sdlgetfnm.in';
+
+/* CONSTANTS */
+	%replace true by '1'b;
+	%replace false by '0'b;		
+ 
+/* LOCALS */
+	dcl default_name char(132) var;
+	dcl out_file char(128) var ;
+	dcl output_file file output record sequential;
+	dcl (module_name, cmod_name) char(128) var;
+	dcl (buf,tmpbuf) char(1024) var init('');
+	dcl based_string char(1024) var based;
+	dcl (i,j) fixed;
+	dcl origin fixed bin;
+	dcl tab char initial (byte(9));
+	dcl tag char(2);
+	dcl long_name char(132) var init ('');
+	dcl fieldset_name   char(132) var init('');
+	dcl fieldset_comment char(132) var init ('');
+	dcl b64 bit(64) aligned;
+
+	dcl put_optmacro bit
+		init ('0'b);	/* flag to indicate that the optional parameter
+				   macro has been put out */
+	dcl optional_flag bit
+		init ('0'b);	/* a flag to be kept after an entry node has
+				   been read to be set to = nod$v_optional */
+	dcl last_field bit
+		init ('0'b);	/* a flag to indicate when the last field in
+				   a fieldset structure has been found */
+	dcl (f_complex_flag,
+	     d_complex_flag,
+	     g_complex_flag,
+	     h_complex_flag) aligned bit init('0'b);	
+				/* flags which indicate whether or not each of
+				   the COMPLEX data types have been previously
+				   encountered -- to control output of related
+				   component macros, size constants and FIELDSETs */
+
+	dcl blissword_size	fixed bin(31);
+	dcl lang_ext char(4) var;
+	dcl lang_name char(32) var;
+
+/*** main ***/
+
+/* Check version mismatch */
+    if shrdata_version ^= sdl$k_shrdata_rev |
+       node_version ^= sdl$k_node_rev then 
+	do;
+	call errmsg(sdl$_shr_data,sdl$_revcheck,,);
+	goto exit;
+	end;
+
+    if sdl$v_b64_opt | sdl$v_alpha_opt then 
+	blissword_size = 8;
+    else 
+	blissword_size = 4;
+
+    if sdl$v_b64_opt then 
+	do;
+	lang_ext = '.R64';	/* language extension for BLISS64 */
+	lang_name = 'BLISSF64';	/* Language name for conditional - jg */
+	end;
+    else 
+	do;
+	lang_ext = '.R32';	/* language extension for BLISS32 */
+	lang_name = 'BLISSF';	/* Language name for conditional - jg */
+	end;
+
+/* first open up the output file */
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(sdl$gt_filename));
+	    goto exit;
+	end;
+
+	/* concatenate the extension for the language */
+	out_file = out_file ;	
+	open file (output_file) title (out_file) 
+			environment (default_file_name( default_name || lang_ext),
+				     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	call sdl$header(sdl$_shr_data, '! ','',line_length);
+
+	call outputnode(tree_root->nod$a_flink,tree_root,0,'','',0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+
+	close file (output_file);
+exit: 
+	return;
+
+/** Find named type routine **/
+findnamedtype: 
+    procedure(initp, startp, typename)	    returns (ptr);
+
+    dcl (initp, startp, p, q) ptr;
+    dcl typename char(34) var;
+
+	do p = initp  repeat p->nod$a_flink  while(p ^= startp);
+	    if p->nod$b_type = nod$k_itemnode then 
+	    if p->nod$w_datatype = typ$k_structure | p->nod$w_datatype = typ$k_union then 
+	    if p->nod$t_name = typename then
+		return(p);
+
+	    if p->nod$a_child ^= null() then 
+	    if p->nod$w_datatype ^= typ$k_structure & p->nod$w_datatype ^= typ$k_union then 
+		do;
+		q = findnamedtype(p->nod$a_child->nod$a_flink,p->nod$a_child,typename);
+		if q ^= null() then
+		    return(q);
+		end;
+	end;
+	return(null());
+
+    end findnamedtype;
+
+/** print node routine **/
+outputnode:
+    proc( initp, startp, level, prefix, midfix, basis);
+
+  dcl (initp,p,startp,q) ptr;
+  dcl (prefix, new_prefix) char(34) var;
+  dcl midfix char(132) var;
+  dcl (level, basis) fixed bin(15);
+  dcl (internal_name, external_name, entry_name_prefix, indent) 
+		char(34) var init (' ');
+  dcl pcnt fixed bin;
+  dcl dollar_pos fixed bin init (0);
+  dcl tab2 char(2) init(byte(9)||byte(9));
+  dcl (temp1,temp2) char(128) var;				/* PG */
+  dcl dtype fixed bin(15); /* data type */
+  dcl dsign char(1); /* signed/unsigned */
+
+    /* main node loop */
+    do p = initp  repeat p->nod$a_flink  while( p ^= startp );
+
+	if p->nod$b_type ^= nod$k_itemnode then
+	if prefix ^= '' then
+	    goto common_2;
+
+	goto case(p->nod$b_type);
+
+case(nod$k_rootnode):
+	buf='';
+	goto common_2;
+
+case(nod$k_commnode):
+	goto common;
+
+case(nod$k_constnode):						/* PG */
+
+	if sdl$v_vms_opt then 
+	    buf = '';
+	else 
+	    buf= copy ('  ',level-1);
+
+	if p->nod$w_datatype = typ$k_char then 
+	    do;
+	    temp1=p->nod$a_typeinfo2->based_string;
+	    call sdl$cvtstr(temp1,temp2, '''''''');
+	    buf=buf||'macro '||p->nod$t_name||' = '''||temp2||'''%;';
+	    end;
+	else
+        if p->nod$v_mask then
+	    buf=buf||'literal '||p->nod$t_name||' = %X'''||p->nod$t_maskstr||''';';
+        else 
+	    buf=buf||'literal '||p->nod$t_name||' = '||trim(p->nod$l_typeinfo)||';';
+
+	goto common;
+
+case(nod$k_entrynode):
+
+	if ^sdl$v_vms_opt then	/* non-VMS case */
+	    do;
+	    buf='external routine '||p->nod$t_name;
+	    if p->nod$w_datatype=0 | p->nod$w_datatype=typ$k_void then
+	        buf=buf||': novalue';		/* jg */
+	    buf=buf||';';
+	    goto common;
+	    end;
+
+	/* special case of VMS entry info, do keyword macro */
+	
+	/* if the optional parameter has not yet been put out then put it out */
+	if ^put_optmacro then 
+	    do;
+	    call optmacro;
+	    put_optmacro = true;
+	    end;
+
+	/* make $name label spelling */
+	external_name = p->nod$t_name;
+	if p->nod$v_alias then
+	    internal_name = p->nod$t_naked;
+	else 
+	    do;
+	    /*
+	    * No ALIAS clause was specified, so construct a
+	    * macro name of the form:
+	    *
+	    *	    $fac_routine
+	    */
+	    internal_name = p->nod$t_name;
+
+	    dollar_pos = index(internal_name, '$');
+	    if dollar_pos ^= 0 then do;
+		entry_name_prefix =
+		translate(substr(internal_name, 1, dollar_pos - 1),
+   				    'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+   				    'abcdefghijklmnopqrstuvwxyz');
+		if (entry_name_prefix = 'SYS') then
+		    internal_name = substr(internal_name, 4,length(internal_name)-3);
+		else
+		    internal_name = '$' ||
+   			          substr(internal_name, 1, dollar_pos - 1) ||
+   				  '_' || substr(internal_name, dollar_pos + 1,
+   				            length(internal_name) - dollar_pos);
+		end;
+	    else
+	     /*
+	      * No dollar sign is present, so we don't have a
+	      * facility prefix in the specified name.  Therefore,
+	      * just stick an underscore in front of the routine
+	      * name to form the macro name.  VMS Development agrees
+	      * that this is the appropriate convention.
+	      */
+		internal_name = '_' || internal_name;
+	    end;
+
+	/* put out KEYWORD $name macro */
+
+	if p->nod$v_variable then 
+	    do;
+	    buf = 'MACRO ' || internal_name ||'[]=';
+	    call putline(buf);
+	    call putline(tab||'('); 
+
+	    /* put out macro body*/
+	    call putline(tab|| 'EXTERNAL ROUTINE ' || external_name
+			    || ' : BLISS ADDRESSING_MODE (GENERAL);');
+
+	    /* line to declare external*/
+	    buf = tab|| external_name || ' (';
+	    buf = buf || '%REMAINING';
+	    buf = buf || ')';
+	    call putline(buf);
+	    call putline(tab || ') %;');
+	    buf = '';
+	    goto common;
+	    end;
+
+	/* for a variable number of parameters */
+	buf = 'KEYWORDMACRO ' || internal_name;
+	if p->nod$a_child^=null() then 
+	    do;
+	    /* if it has parameters, then go down the parameter list
+	       putting out macro arg list*/
+	    buf = buf || ' (';
+	    pcnt = outputspell ( p->nod$a_child->nod$a_flink,
+				p->nod$a_child, comma_proc, true);
+	    buf = buf || ') =';
+	    end;	
+	else 
+	    buf = buf || ' =';
+
+	/* put out macro header */
+	call putline(buf);
+ 
+	call putline('   '||'BEGIN');
+
+	/* line to declare external*/
+	call putline('   '||'EXTERNAL ROUTINE ' || external_name
+			|| ' : BLISS ADDRESSING_MODE (GENERAL);');
+
+	/* put out KEYWORDMACRO which handles optional parameters */
+	if p->nod$a_child ^= null() then 
+	    do;
+	    buf = external_name || ' (';
+	    call put_opt_kwmacro (p->nod$a_child->nod$a_flink,p->nod$a_child);
+	    call putline(' ');
+	    end;
+	else 
+	    do;	/* if there are no parameters */
+	    call putline(tab||external_name||'()');
+	    call putline('   END %;');
+	    buf = '';
+	    end;
+
+	goto common;
+
+case(nod$k_itemnode):
+	
+	if p->nod$v_declared then 
+	    goto common; /* ignore declared item - jg */
+
+	/* Follow typedef chain for user types */
+	do q=p repeat q->nod$a_typeinfo2->nod$a_flink 
+	    while( q->nod$w_datatype = typ$k_user );
+	end;
+	dtype = q->nod$w_datatype;
+
+	if dtype = typ$k_union then 
+	    dtype = typ$k_structure;  /* treat structure/union as one case */
+
+	if q->nod$v_unsigned then 
+	    dsign = '0';
+	else 
+	if q->nod$v_signed | 
+	    dtype = typ$k_byte |
+	    dtype = typ$k_word |
+	    dtype = typ$k_longword | 
+	    dtype = typ$k_quadword |	/* EV1-14 */
+	    dtype = typ$k_octaword then /* EV1-14 */
+	    dsign = '1';
+	else 
+	    dsign = '0';
+
+       /*
+	* If this is one of the COMPLEX data types,
+	* put out the real/imaginary FIELDSET, macro and size
+	* constants if this COMPLEX data type has not been
+	* previously encountered (and we are not inside a structure).
+	*/
+	if level = 1 then 
+	if dtype = typ$k_float_complex | dtype = typ$k_double_complex |
+	   dtype = typ$k_grand_complex | dtype = typ$k_huge_complex   then 
+	    call put_complex_definitions(q);
+
+	if p->nod$v_userfill & level > 1 then 
+	if sdl$v_vms_opt | dtype ^= typ$k_structure then 
+	    goto common_2;	    /* SKIP ANY USER FILL FIELDS */
+
+	/* CHECK FOR FIELDSET CANDIDATE */
+	if ^sdl$v_vms_opt then 
+	if dtype = typ$k_structure & level = 1 then 
+	if p->nod$a_child ^= null() then 
+	    do;
+	    last_field = false;	/* initialize the last_field flag */
+
+	    /* GET NESTED AGGREGATES */
+	    do q = p->nod$a_child->nod$a_flink  repeat q->nod$a_flink  while(q ^= p->nod$a_child);
+		/* put out size constants for fields in advance */
+		if q->nod$b_type = nod$k_itemnode & ^q->nod$v_userfill then 
+		    do;
+		    if q->nod$w_datatype = typ$k_float_complex | q->nod$w_datatype = typ$k_double_complex |
+		       q->nod$w_datatype = typ$k_grand_complex | q->nod$w_datatype = typ$k_huge_complex   then 
+		        call put_complex_definitions(q);
+		    if substr(q->nod$t_name,1,1) < 'a' then tag = 'S_'; else tag = 's_';
+		    if q->nod$w_datatype ^= typ$k_vield & q->nod$l_fldsiz > 4 then 
+			call putline('literal '||q->nod$t_prefix||tag||q->nod$t_naked||' = '||trim(q->nod$l_fldsiz)||';');
+		    end;
+	    end;
+
+	    origin = p->nod$l_typeinfo;
+
+	    /* Put out FIELD SET definition */
+	    fieldset_name = p->nod$t_prefix || p->nod$t_naked || '_FIELDSET';
+	    if length(fieldset_name) > 64 then 
+		do;
+		call errmsg (sdl$_shr_data,sdl$_namtrunc,,fieldset_name);
+		fieldset_name = substr(fieldset_name,1,64);
+		end;
+
+	    if p->nod$a_comment^=null() & sdl$v_comment_opt then 
+		fieldset_comment = '          ! '||p->nod$a_comment->based_string;
+	    else 
+		fieldset_comment = '';
+
+	    call putline('FIELD ' || fieldset_name || ' =' || fieldset_comment);
+	    call putline('  ' || 'SET');
+
+	    /* Put out member fields */
+	    call outputnode(p->nod$a_child->nod$a_flink, p->nod$a_child,
+				level+1, prefix, midfix, basis);
+
+	    call putline('  '|| 'TES;');
+
+	    /* Put out aggregate size */
+	    if substr(p->nod$t_name,1,1) < 'a' then tag = 'S_'; else tag = 's_';
+	    call putline('literal '||p->nod$t_prefix||tag||p->nod$t_naked||' = '||trim(p->nod$l_fldsiz)||';');
+
+	    if (p->nod$v_common | p->nod$v_global) then 
+		do;	/* special case for EXTERNAL structures */
+		if p->nod$v_dimen then 
+		    buf = 'STRUCTURE ' || p->nod$t_name || '$TYPE[I] = ';
+		else 
+		    buf = 'MACRO ' || p->nod$t_name || '$TYPE = BLOCK';
+
+		buf = buf||' ['||p->nod$t_prefix||tag||p->nod$t_naked;
+
+		if p->nod$v_dimen then 
+		    buf = buf || '] (' || p->nod$t_name ||'$TYPE+'
+				||trim(divide(p->nod$l_fldsiz,(p->nod$l_hidim-p->nod$l_lodim+1),31)) || '*I);';
+		else 
+		    buf = buf || ',byte] FIELD (' || fieldset_name ||') %;';
+
+		call putline( buf);
+
+		if sdl$v_global_opt then 
+		    buf = 'global ';
+		else 
+		    buf = 'external ';
+		buf = buf || p->nod$t_name || ' : ' || p->nod$t_name || '$TYPE;';
+
+		end;
+	    else 
+		/* otherwise put out block macro using fields and size */
+		buf = 'MACRO ' || p->nod$t_name || ' = BLOCK [' ||
+			p->nod$t_prefix||tag||p->nod$t_naked||',byte] FIELD (' || fieldset_name ||') %;';
+
+	    goto common;
+	    end;
+
+	/* FIELDSET COMPONENT */
+	if level = 1 then 
+	    do;
+	    origin=0;
+	    indent = '';
+	    end;
+	else
+	    indent = copy ('  ', level-1);	
+
+	if dtype = typ$k_structure & level > 1 then 
+	    do; /* aggregate as field */
+	    if sdl$v_vms_opt then 
+		goto common;
+	    /* recurse to put member fields in same fieldset */
+	    if p->nod$a_child^=null() then 
+		call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				    level+1,prefix,midfix,basis);
+	    else 
+	    /* Handle subfields of members declared with a named type */
+	    if sdl$v_subfield_opt then 
+	    if p->nod$a_typeinfo2 ^= null() then 
+	        do;
+	        q = p->nod$a_typeinfo2->nod$a_typeinfo2;
+	        if q = null() then 
+		    do;
+		    q = findnamedtype(tree_root->nod$a_flink, tree_root, p->nod$a_typeinfo2->nod$t_name);
+		    if q = null() then
+		        call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+		    end;
+		if q->nod$a_child ^= null() then 
+		    do;
+		    if prefix = '' then 
+		        new_prefix = p->nod$t_prefix;
+		    else 
+		        new_prefix = prefix;
+		    if new_prefix ^= '' then 
+		        call outputnode(q->nod$a_child->nod$a_flink, q->nod$a_child,
+					    level+1, new_prefix, 
+					    midfix || p->nod$t_naked || '_',
+					    p->nod$l_offset + origin + basis);
+		    end;
+		end;
+
+	    if prefix = '' then 
+		buf = p->nod$t_name;
+	    else 
+	        do;
+	        buf = prefix;
+	        if p->nod$t_tag ^= '' then 
+		    buf = buf || p->nod$t_tag || '_';
+		buf = buf || midfix || p->nod$t_naked;
+		if length (buf) > 64 then 
+		    do;
+		    long_name = buf;
+		    call errmsg (sdl$_shr_data, sdl$_namtrunc, , long_name);
+		    buf = substr (long_name, 1, 64);
+		    end;
+		end;
+
+	    buf = indent||buf||' = ['|| trim(p->nod$l_offset+origin+basis)||',0,';
+	    /* If size is too large for relevant Bliss */
+	    if p->nod$l_fldsiz > blissword_size then 
+	        buf=buf||'0,0]';
+	    else 
+	        buf=buf||trim(p->nod$l_fldsiz*8)||',0]';
+
+	    do q = p->nod$a_flink repeat q->nod$a_flink 
+		while ( q ^= startp & 
+			(q->nod$b_type = nod$k_commnode | q->nod$v_userfill & q->nod$a_child = null()) );
+	    end;
+
+	    if q ^= startp | level > 2 then 
+	        do; /* Skip fill */
+	        if p->nod$v_userfill then 
+		    do;
+		    buf = '';
+		    goto common_2;
+		    end;
+
+		buf = buf || ',';
+		end;
+	    goto common;
+	    end;
+
+	if p->nod$v_common | p->nod$v_global then 
+	if prefix = '' then 
+	    do;	/* item which is external */
+	    if sdl$v_global_opt then 
+	        buf = 'global ';
+	    else 
+	        buf = 'external ';
+	    buf = buf || p->nod$t_name;
+	    if dtype=typ$k_word then 
+		buf = buf || ' : word';
+	    else 
+	    if dtype=typ$k_byte then 
+		buf = buf || ' : byte';
+	    buf = buf || ';' ;
+	    goto common;
+	    end;
+
+	/* member fields or macros */
+	if sdl$v_vms_opt | level = 1 then 
+	    buf = 'macro ' || p->nod$t_name ||' = ';
+	else 
+	    do;
+            if prefix = '' then 
+		buf = p->nod$t_name;
+	    else 
+		do;
+		buf = prefix;
+		if p->nod$t_tag ^= '' then 
+		    buf = buf || p->nod$t_tag || '_';
+		buf = buf || midfix || p->nod$t_naked;
+		if length (buf) > 64 then 
+		    do;
+		    long_name = buf;
+		    call errmsg (sdl$_shr_data, sdl$_namtrunc, , long_name);
+		    buf = substr (long_name, 1, 64);
+		    end;
+		end;
+	    buf = indent || buf || ' = [';
+	    end;
+
+	if p->nod$v_complex & level = 1 then 
+	    do;
+	    /*
+	    * If the data type is COMPLEX (and we are not inside
+	    * of a structure), then put out the appropriate
+	    * pre-defined macro name.
+	    */
+	    buf = buf || cmod_name || '_';
+	    select(dtype);
+	        when(typ$k_float_complex)   buf = buf || 'F';
+	        when(typ$k_double_complex)  buf = buf || 'D';
+	        when(typ$k_grand_complex)   buf = buf || 'G';
+	        when(typ$k_huge_complex)    buf = buf || 'H';
+	        otherwise 
+		    call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+	    end; /* select */
+	    buf = buf || '_COMPLEX';
+	    end;
+	else 
+	if dtype = typ$k_vield then 
+	    do;
+	    i = mod(p->nod$l_typeinfo2,32);
+	    j = divide(p->nod$l_typeinfo2-i,8,31)+p->nod$l_offset+origin+basis;
+	    buf=buf||trim(j)||','||trim(i)||','||trim(p->nod$l_typeinfo)||','||dsign;
+	    end;
+	else
+	    do;
+	    buf=buf||trim(p->nod$l_offset+origin+basis)||',';
+	    buf=buf||'0,';
+	    if p->nod$l_fldsiz > blissword_size then 
+	        buf=buf||'0,'||dsign;
+	    else 
+	        buf=buf||trim(p->nod$l_fldsiz*8)||','||dsign;
+	    end;
+
+	if sdl$v_vms_opt | level = 1 then 
+	    buf=buf||' %;';
+	else 
+	    do;
+	    buf=buf||']';
+	    /* if this is not the last field then add a comma to field declaration*/
+	    /* if the next node is a comment node or a filler then you are not yet*/
+	    /* sure if this is the last field */
+	    if p->nod$v_bottom & level = 2 then 
+		last_field = true;
+
+	    /* if the next node is a comment node or is declared with FILL attribure */
+	    /* and the bottom flag has not yet been encountered */
+	    do q = p->nod$a_flink  repeat q->nod$a_flink 
+		while( ^last_field & q ^= startp & (q->nod$b_type = nod$k_commnode | q->nod$v_userfill) );
+		/* if this is the last field then add a comma to field declaration*/
+		/* the bottom of the structure could have been a filler */
+		if q->nod$v_bottom & level = 2 then 
+		    last_field = true;
+	    end;
+	    if ^last_field then 
+		do;
+		if p->nod$v_userfill then 
+		    do;	/* Skip fill */
+		    buf = '';
+		    goto common_2;
+    	        end;
+		buf = buf || ',';
+		end;
+	    goto common;
+	    end;
+
+	if substr(p->nod$t_name,1,1) < 'a' then tag = 'S_'; else tag = 's_';
+
+	if dtype = typ$k_vield & p->nod$l_typeinfo > 1 then 
+	    do;
+	    call putline(buf);
+	    if prefix = '' then 
+	        buf = p->nod$t_prefix || tag || p->nod$t_naked;
+	    else 
+	        do;
+	        buf = prefix || tag || midfix || p->nod$t_naked;
+	        if length (buf) > 64 then 
+		    do;
+		    long_name = buf;
+		    call errmsg (sdl$_shr_data, sdl$_namtrunc, , long_name);
+		    buf = substr (long_name, 1, 64);
+		    end;
+		end;
+
+	    buf = 'literal ' || buf || ' = ' || trim (p->nod$l_typeinfo) || ';';
+	    goto common;
+	    end;
+
+	if dtype = typ$k_structure | 
+	   dtype = typ$k_char & p->nod$l_fldsiz > 1 | 
+	   p->nod$l_fldsiz > 4 & ^p->nod$v_complex |
+	   p->nod$v_dimen then 
+	    do;
+	    call putline(buf);
+	    if prefix = '' then 
+	        buf = p->nod$t_prefix || tag || p->nod$t_naked;
+	    else 
+	        do;
+	        buf = prefix || tag || midfix || p->nod$t_naked;
+	        if length (buf) > 64 then 
+		    do;
+		    long_name = buf;
+		    call errmsg (sdl$_shr_data, sdl$_namtrunc, , long_name);
+		    buf = substr (long_name, 1, 64);
+		    end;
+		end;
+	    buf = 'literal ' || buf || ' = ' || trim (p->nod$l_fldsiz) || ';';
+	    goto common;
+	    end;
+
+	goto common;
+
+case(nod$k_modulnode):
+	call putline(' ');
+	buf='!*** MODULE '||p->nod$t_name;
+	if p->nod$t_naked ^= '' then
+		buf=buf ||' IDENT '||p->nod$t_naked;
+	buf=buf||' ***';
+	module_name = p->nod$t_name ;	/* save the module for the
+					   keyword macro which deals with
+					   optional parameters.		*/
+	call putline(buf);
+	buf='';
+	
+	goto common;
+
+case(nod$k_parmnode):
+	goto common_2;
+case(nod$k_objnode):
+	buf='';
+	goto common_2;
+case(nod$k_headnode):
+	buf='';
+	goto common_2;
+case(nod$k_litnode):						/* jg */
+	/* Process literal node */
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+case(nod$k_condnode):						/* jg */
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+
+	/* Search for this language in the list */
+	do q = p->nod$a_typeinfo2->nod$a_flink  repeat q->nod$a_flink  
+	    while( q->nod$b_type = nod$k_objnode );
+	    if q->nod$t_name = lang_name then 
+		goto common;
+	end;
+	goto common_2;
+
+common:
+	if sdl$v_comment_opt then 
+	if p->nod$a_comment^=null() then 
+	    do;
+	    if buf ^= '' then
+		buf = fill(buf,40);
+	    buf=buf||'! '||p->nod$a_comment->based_string;
+	    if length(buf)>line_length then
+	    	buf=substr(buf,1,line_length);
+	    end;
+	call putline(buf);
+	buf='';
+
+	if p->nod$b_type = nod$k_condnode then 
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level,prefix,midfix,basis);
+common_2:
+	if p->nod$a_child ^= null() then 
+	if p->nod$b_type ^= nod$k_condnode then 
+	if sdl$v_vms_opt | dtype ^= typ$k_structure then 
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level+1,prefix,midfix,basis);
+
+	end; /* main node loop */
+
+    return;
+
+outputspell : procedure (initp, startp, separator_proc, default_flag)
+		returns (fixed bin);
+
+/*
+ * parameters:
+ *		initp	= address of node to output
+ *
+ *		startp	= address of where to stop on outputting list
+ *
+ *		separator_proc	= procedure to supply separator
+ *
+ *		default_flag = boolean for default parm values or not
+ */
+
+dcl (initp,p,startp) pointer;
+dcl separator_proc entry (pointer, fixed bin) returns (char(32) var);
+dcl default_flag bit;
+dcl list_length fixed bin;
+dcl separator char(32) var;
+dcl opt_count fixed bin;	/* count of optional parameters */
+
+/* Loop on input name list */
+	p = initp;
+	list_length = 0;
+
+	optional_flag = false;	/* initialize the optional flag */
+	opt_count = 0;		/* and the count for this entry */
+
+	do while (p^=startp);
+	  /* get separator and append name */
+	  separator = separator_proc (p, list_length);
+
+/*	  If the parameter is an optional parameter then increment the count*/
+	  if p->nod$v_optional then opt_count=opt_count +1; 
+
+	  if ^default_flag & p->nod$v_optional
+	  then do;
+		call putline(buf);
+		buf = tab2 || '%IF NOT %NULL ('	|| p->nod$t_name || ') %THEN ';
+	  end;
+
+	  buf = buf || separator || p->nod$t_name;
+	  if ^default_flag & p->nod$v_optional
+	  then do;
+		buf = buf || ' %FI';
+		call putline(buf);
+		buf = tab2;
+	  end;		
+
+	  /* add default value, individually if given */
+	  if default_flag & ^p->nod$v_optional
+	  then 
+		if p->nod$v_default then
+			buf = buf || '=' || trim(p->nod$l_initial);
+	    	else 
+		if p->nod$v_optional then
+			buf = buf || '=0';    /* default default */
+	  list_length = list_length + 1;  /* keep list count */
+	  p = p->nod$a_flink;
+	end;
+	
+/*	Check the optional count and set the optional flag */
+	if opt_count ^= 0 then 
+		optional_flag = true;
+	else 
+		optional_flag = false;
+
+	return (list_length);
+end outputspell;
+
+comma_proc:
+    procedure( p, i )	returns( char(32) var );
+
+dcl p pointer;
+dcl i fixed bin;
+
+	/* just return comma within list */
+	if length (buf) > 60 then 
+	    do;
+	    call putline(buf);
+	    buf = tab2;
+	    end;
+
+	if i ^= 0 then 
+	    return(',');
+
+	return('');
+
+end comma_proc;
+
+put_complex_definitions:
+    proc( p );
+/*
+ * This routine puts out the appropriate FIELDSET, macro and
+ * size constant(s) to define the COMPLEX data type specified
+ * in p->nod$w_datatype.
+ */
+
+dcl p pointer;
+
+    select (p->nod$w_datatype);
+	when (typ$k_float_complex)  call put_def('F',4,f_complex_flag);
+	when (typ$k_double_complex) call put_def('D',8,d_complex_flag);
+	when (typ$k_grand_complex)  call put_def('G',8,g_complex_flag);
+	when (typ$k_huge_complex)   call put_def('H',16,h_complex_flag);
+	otherwise 
+	    call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+    end;
+    return;
+
+    /*-------------------------------------*/
+    put_def:
+	proc(typ,siz,flag);
+
+    dcl typ char(1);
+    dcl siz fixed bin(31);
+    dcl flag aligned bit(1);
+
+    dcl (mod_name,cname,ctname) char(128) var;
+    dcl bsiz	fixed bin(31);
+
+	if flag then 
+	    return;
+
+       /*
+	* Ensure that the names generated for COMPLEX stuff
+	* will be less than or equal to 31 characters in length by
+	* providing a truncated module name if necessary.
+	*/
+	if length(module_name) > 13 then
+	    mod_name = substr(module_name,1,13);
+	else 
+	mod_name = module_name;
+
+	cname = 'SDL$';
+	cmod_name = cname || mod_name;
+	ctname = cname;
+	if substr(mod_name, 1, 1) < 'a' then
+	    ctname = ctname || 'S_';
+	else
+	    ctname = ctname || 's_';
+
+	cname = cname || mod_name || '_' || typ || '_';
+	ctname = ctname || mod_name || '_' || typ || '_';
+
+	bsiz = siz*8;
+	if bsiz > 32 then 
+	    bsiz = 0;
+
+	call putline(' ');
+	call putline('%if not %declared(%quote ' || cname || 'REAL_PART) %then');
+	call putline('! Definition of '||typ||'_FLOATING COMPLEX data type');
+	call putline('!');
+	call putline('field ' || cname || 'COMPLEX_F =');
+	call putline('  set');
+	call putline('  ' || cname || 'REAL_PART = [0,0,'||trim(bsiz)||',0],');
+	call putline('  ' || cname || 'IMAG_PART = ['||trim(siz)||',0,'||trim(bsiz)||',0]');
+	call putline('  tes;');
+	call putline('literal ' || ctname || 'COMPLEX = '||trim(siz*2)||';');
+	if bsiz = 0 then 
+	    do;
+	    call putline('literal ' || ctname || 'REAL_PART = '||trim(siz)||';');
+	    call putline('literal ' || ctname || 'IMAG_PART = '||trim(siz)||';');
+	    end;
+	call putline('macro ' || cname || 'COMPLEX =');
+	call putline('  block [' || ctname || 'COMPLEX, byte]');
+	call putline('  field (' || cname || 'COMPLEX_F) %;');
+	call putline('%fi');
+	call putline(' ');
+
+	flag = true;
+
+	end put_def;
+    /*-------------------------------------*/
+
+end put_complex_definitions;
+
+put_opt_kwmacro:   proc (initp, startp);
+/*
+ * This routine puts out the KEYWORDMACRO which handles the optional
+ * parameters.
+ *
+ *
+ *	initp		address of node to output
+ *	startp 	 	address of where to stop on outputting list
+*/
+ 
+dcl (p, initp, startp) pointer;
+dcl line_limit fixed bin(31) ;     /* line length limits for parameter lists */
+dcl doing_req bit(1) init('0'b);   /* used to make the output pretty	     */
+
+/* Initialize the buffers */
+
+/* Loop on input name list */ 
+    p = initp;
+    line_limit = 60 ;  /* number of characters per line */
+    buf = tab || '   ' || buf||'SDL$'||module_name||'_CONCAT( ' ;
+ 
+    do while (p^=startp);
+
+	if( p->nod$v_default )	    /* if its a default parameter  */
+	then
+	    buf = buf || p->nod$t_name ;
+	else
+	if( p->nod$v_list )	    /* if its a LIST parameter     */
+	then
+	    if p->nod$v_optional then
+	        buf = buf || 'SDL$'||module_name||'_LIST_0_REQ(' || p->nod$t_name || ')';
+	    else
+		buf = buf || 'SDL$'||module_name||'_LIST_1_REQ(' || p->nod$t_name || ', %QUOTE ' || p->nod$t_name || ')';
+	else
+	if (^p->nod$v_optional &    /* if its a required parameter */
+	    ^p->nod$v_default  & 
+	    ^p->nod$v_list )
+	then do;
+	   doing_req = '1'b;	    /* this is used to line up parameters */
+				    /* nice and pretty			  */
+	   buf = buf || 'SDL$'||module_name||'_REQ(' || p->nod$t_name||
+		 ', %QUOTE '|| P->nod$t_name|| ') ';  
+	end;
+	else
+	if( p->nod$v_optional )	    /* if its a OPTIONAL parameter           */
+	then do;
+	    buf = buf || 'SDL$'||module_name||'_OPT( ' || p->nod$t_name;
+	    p = p->nod$a_flink;
+	    /*
+	     * all consecutive OPTIONAL parameters go in the same macro.
+	     */
+	    do while( p->nod$v_optional ) ;
+		buf = buf || ', ' || p->nod$t_name ;
+		p = p->nod$a_flink;
+	    end;
+	    p = p->nod$a_blink;	    /* set to current parameter */
+	    buf = buf || ')';
+	end;
+
+
+	/*
+	 * if no more parameters then put out the last line and close everything
+	 * off with the double parens. otherwise append a coma so we are ready
+	 * for the next parameter. And if the line limit has been reached 
+	 * then output the buffer. Or if the there is a required parameter 
+	 * followed by an OPTIONAL parameter then output the buffer ( this is
+	 * done so the the declaration looks NICE. 
+	 */
+	if( p->nod$a_flink = startp )	
+	then
+	    call putline(buf||'))');
+	else do;
+	    buf = buf || ', ';
+	    if( length(buf) > line_limit  |  (doing_req & p->nod$a_flink->nod$v_optional) )
+	    then do;
+		call putline(buf);
+		buf = tab || '   ';
+		doing_req = '0'b;
+	    end;
+	end;
+
+	p = p->nod$a_flink;   /* next parameter (if any)*/
+
+   end; 
+
+call putline( '   '||'END %;');
+buf= '';
+
+return;
+end put_opt_kwmacro ;
+
+ 
+optmacro:	proc ;
+
+%replace opt_macro_len by 57;	/* # of lines in the macro to be output */
+
+declare j fixed;
+dcl optional_macro (opt_macro_len) char(128) var init(
+'%if not %declared(%quote SDL$'||module_name||'_REQ) %then',
+'! MACRO to emit warning and default to 0 if required argument is missing',
+'!',
+'macro',
+'SDL$'||module_name||'_REQ(ARG1, arg2) =',
+'    %IF not %NULL(ARG1) %THEN ARG1',
+'    %else',
+'	%warn(%string(''REQUIRED ARGUMENT '', %NAME(ARG2), '' MISSING'')) 0',
+'    %FI %;',
+'%fi',
+' ',
+'%if not %declared(%quote SDL$'||module_name||'_OPT) %then',
+'! Defaults omitted arguments to 0 if followed by additional arguments',
+'!',
+'macro',
+'SDL$'||module_name||'_OPT[ARG] =',
+'    %IF %NULL(ARG)',
+'    %THEN',
+'	%IF NOT %NULL(%REMAINING)',
+'	%THEN',
+'	    0',
+'	%FI',
+'    %ELSE',
+'	ARG',
+'    %FI %;',
+'%fi',
+' ',
+'%if not %declared(%quote SDL$'||module_name||'_LIST_0_REQ) %then',
+'! Handles LIST parameters that are also OPTIONAL',
+'!',
+'macro',
+'SDL$'||module_name||'_LIST_0_REQ(ARG) =',
+'    %IF NOT %NULL(ARG) %THEN %REMOVE(ARG) %FI %;',
+'%fi',
+' ',
+'%if not %declared(%quote SDL$'||module_name||'_LIST_1_REQ) %then',
+'! Handles LIST parameters that are not OPTIONAL',
+'! Emits warning and defaults to 0 if required argument is missing',
+'!',
+'macro',
+'SDL$'||module_name||'_LIST_1_REQ(ARG, ARG2) =',
+'    %IF %NULL(ARG) %THEN',
+'	 %warn(%string(''REQUIRED ARGUMENT '', %NAME(ARG2), '' MISSING'')) 0',
+'    %ELSE',
+'        SDL$'||module_name||'_LIST_0_REQ(ARG) %FI %;',
+'%fi',
+' ',
+'%if not %declared(%quote SDL$'||module_name||'_CONCAT) %then',
+'! Eliminates trailing null arguments',
+'!',
+'macro',
+'SDL$'||module_name||'_CONCAT[ARG] =',
+'    %IF NOT %NULL(ARG) %THEN ARG %FI %;',
+'%fi',
+' ',
+'!             ***********************************	',
+' ');
+dcl i fixed;
+do i =1 to opt_macro_len;
+   buf = optional_macro (i);
+   call putline(buf);	/* put out a line of the macro*/
+end;
+
+return;
+end optmacro;
+ 
+end outputnode; 
+ 
+PUTLINE: proc(buf);		/* EV1-18 */
+    dcl buf char(1024) var;
+    call sdl$putline(outfile,buf,line_length);
+end putline;
+
+end sdl$output;

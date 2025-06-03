@@ -1,0 +1,202 @@
+%TITLE 'DEBUG'
+MODULE debug(IDENT = 'V1.0',
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! MODULE DESCRIPTION:
+!
+!	This modules contains routines to do debugging output.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	January 10, 1995
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0		Darrell Burkhead	10-JAN-1995 10:56
+!		Original version.
+!--
+LIBRARY	'SYS$LIBRARY:STARLET';
+LIBRARY	'MGBOOK';
+LIBRARY	'FIELDS';
+
+FORWARD ROUTINE
+	dbg_open,
+	dbg_write,
+	dbg_close : NOVALUE;
+
+_DEF(dbgctx)
+    dbgctx_t_fab	= _BYTES(FAB$C_BLN),
+    _ALIGN(LONG)
+    dbgctx_t_rab	= _BYTES(RAB$C_BLN),
+    _ALIGN(LONG)
+    dbgctx_t_fname	= _BYTES(NAM$C_MAXRSS)
+_ENDDEF(dbgctx);
+
+
+%SBTTL 'DBG_OPEN'
+GLOBAL ROUTINE dbg_open(context_a_a, filename_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine opens the debugging log file specified.  Only the
+!	name portion of the filespec given is used.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	context		= .context_a_a	: REF DBGCTXDEF;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$GET_VM);
+
+LOCAL
+	status,
+	status2	: INITIAL(0);
+
+    status = LIB$GET_VM(			!Allocate a context block
+		%REF(DBGCTX_S_DBGCTXDEF), context);
+    IF .status
+    THEN BEGIN
+	BIND
+	    fab	= context[DBGCTX_T_FAB]	: $BBLOCK,
+	    rab	= context[DBGCTX_T_RAB]	: $BBLOCK;
+	LOCAL
+	    nam		: $NAM(	ESA = context[DBGCTX_T_FNAME],
+				ESS = NAM$C_MAXRSS);
+
+	$FAB_INIT(
+		FAB	= fab,
+		FNA	= .filename[DSC$A_POINTER],
+		FNS	= .filename[DSC$W_LENGTH],
+		DNM	= 'SYS$LOGIN:.LOG',
+		FAC	= PUT,
+		FOP	= MXV,
+		RAT	= CR,
+		NAM	= nam);
+	status = $PARSE(FAB = fab);		!Get the name
+	IF .status
+	THEN BEGIN
+	    fab[FAB$L_FNA] = .nam[NAM$L_NAME];
+	    fab[FAB$B_FNS] = .nam[NAM$B_NAME];
+	    fab[FAB$L_NAM] = 0;			!Don't use the NAM any more
+
+	    status = $CREATE(FAB = fab);		!Open the log file
+	    IF .status
+	    THEN BEGIN
+		$RAB_INIT(
+			RAB	= rab,
+			FAB	= fab);
+		status = $CONNECT(RAB = rab);	!Connect the output stream
+		IF NOT .status
+		THEN status2 = .rab[RAB$L_STV];	!Save 2ndary status
+		END				!End of opened log file
+	    ELSE status2 = .fab[FAB$L_STV];	!Save 2ndary status
+	    END					!End of parsed the name
+	ELSE status2 = .fab[FAB$L_STV];		!Save 2ndary status
+
+	IF NOT .status
+	THEN dbg_close(context);		!Clean up
+	END;					!End of got a context block
+
+    IF NOT .status THEN SIGNAL(MGBOOK__DBGERR, 0, .status, .status2);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of dbg_open
+
+
+%SBTTL 'DBG_WRITE'
+GLOBAL ROUTINE dbg_write(context_a_a, text_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to write a line to a debug log file.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a_a		: REF DBGCTXDEF;
+
+LOCAL
+	status;
+
+    IF .context EQLA 0
+    THEN RETURN(SS$_NORMAL);			!Error setting up debug log
+
+    BEGIN
+    BIND
+	rab	= context[DBGCTX_T_RAB]	: $BBLOCK,
+	text	= .text_a		: $BBLOCK;
+
+	rab[RAB$L_RBF] = .text[DSC$A_POINTER];	!Set up the output buffer
+	rab[RAB$W_RSZ] = .text[DSC$W_LENGTH];
+
+	status = $PUT(RAB = rab);		!Write the log file line
+	IF NOT .status
+	THEN BEGIN
+	    SIGNAL(MGBOOK__DBGERR, 0, .status, .rab[RAB$L_STV]);
+	    dbg_close(context);
+	    END;				!End of error writing line
+    END;
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of dbg_write
+
+
+%SBTTL 'DBG_CLOSE'
+GLOBAL ROUTINE dbg_close(context_a_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to close a debugging log file.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a_a		: REF DBGCTXDEF,
+	fab	= context[DBGCTX_T_FAB]	: $BBLOCK;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$FREE_VM);
+
+    IF .fab[FAB$W_IFI] NEQ 0
+    THEN $CLOSE(FAB = fab);			!Close the log file
+    LIB$FREE_VM(%REF(DBGCTX_S_DBGCTXDEF),	!Free the context block
+		context);
+    context = 0;
+END;						!End of dbg_close
+
+END
+ELUDOM

@@ -1,0 +1,787 @@
+;
+; This software is COPYRIGHT © 1990, Stephane Germain. ALL RIGHTS RESERVED.
+; Permission is granted for not-for-profit redistribution, provided all source
+; and object code remain unchanged from the original distribution, and that all
+; copyright notices remain intact.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; This is SYS_TOOLS:TESTDEV.MAR
+; Creator S.Germain p.eng
+; Using   VAX/VMS 5.2
+; History V1.0	18-MAR-1990
+;         V2.0   6-MAY-1990 : Revised CLD, added sequential from-to processing,
+;                             enhanced problem status signaling,
+;                             made streams fully independant (reentrant IO's),
+;                             improved near-zero statistic compilation
+;         V2.1  27-MAY-1990 : New statistics computation & display format,
+;                             minor miscellaneous changes
+;
+;; CONCEPT ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  Times a specified number of read IO's randomly spread over a specified
+;  physical range of a disk. Alternately, sequential access can be specified
+;  which can be useful in error scanning a device. Computes the average data
+;  access time and standard deviation of collected samples. Multiple streams
+;  and variable blocking factor are possible.
+;
+;; NOTES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  1. Conditions found during initialization are signaled according to VAX/VMS
+;  standards. Messages are contained in TESTDEV.MSG. 
+;  Assembling and linking is done as follows:
+;
+;  $ MACRO/NODEBUG TESTDEV
+;  $ MESSAGE/OBJECT=MSG TESTDEV
+;  $ LINK/NODEBUG/NOTRACEBACK TESTDEV,MSG
+;
+;  2. Invocation is performed and run-time information parsed using VMS CLI
+;  routines. The command definition is contained in file TESTDEV.CLD and is
+;  included in the process command table as follows:
+;
+;  $ SET COMMAND TESTDEV
+;
+;  3. In order for this program to run, the process must have or be authorized
+;  the PHY_IO privilege or the image must be installed with that privilege. The
+;  image executes in user mode and cannot be shared (not fully reentrant).
+;
+;; CONSTANTS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.TITLE	TESTDEV  DEVICE IO CHARACTERIZATION
+	.IDENT	/2.1/
+;
+	$DCDEF				; 
+	$DVIDEF				; 
+	$IODEF				; 
+	$LNMDEF				; 
+	$PRVDEF				; 
+;
+	.PSECT	FIXDATA,NOEXE,NOWRT,NOSHR,LONG
+;
+; command table label names (see CLD files)
+;
+D_DEVICE:	.ASCID	/TDV_NAME/
+D_BLOCK:	.ASCID	/TDV_BLCK/
+D_COVER:	.ASCID	/TDV_CVRG/
+D_IO:		.ASCID	/TDV_IO/
+D_FROM:		.ASCID	/SEEK_LBS/
+D_MEG:		.ASCID	/SEEK_MEG/
+D_RANDOM:	.ASCID	/CVRG_RND/
+D_SEEK:		.ASCID	/TDV_SEEK/
+D_SEQ:		.ASCID	/CVRG_SEQ/
+D_STREAM:	.ASCID	/TDV_STRM/
+D_TO:		.ASCID	/SEEK_LBE/
+;
+; output keyword
+;
+D_VERSION:	.ASCID	/2.1/		; software revision
+D_ALEATOIRE:	.ASCID	/random/
+D_SEQUENTIEL:	.ASCID	/sequential/
+;
+; standard logical name directory
+;
+D_LNMTAB:	.ASCID	/LNM$FILE_DEV/
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	WORKDATA,NOEXE,WRT,NOSHR,LONG
+;
+K_AZ1		=	23		; output display spacing (from host)
+K_AZ2		=	19		; output display spacing (from coverage)
+K_GENSIZE	=	16		; generic string size
+K_MAXIO		=	100000		; maximum IO's permitted
+K_MAXSTR	=	50		; maximum streams permitted
+W_MODE:		.WORD	0		; [0] 0:random (default)  1:sequential
+					; [1] 0:HILIM seek limit  1:device max
+W_SYNCH:	.WORD	0		; synchronization value - word aligned
+W_VALUE_SIZ:	.WORD	0		; generic string size
+W_DEVGEN_SIZ:	.WORD	0		; device information return size
+L_CHANNEL:	.LONG	0		; device channel
+L_DEVGEN:	.LONG	0		; generic device information return code
+S_VALUE:	.BLKB	K_GENSIZE	; storage for generic string
+S_DEVNAME:	.BLKB	K_GENSIZE	; storage for device name string
+S_DEVTYPE:	.BLKB	K_GENSIZE	; storage for device/media type string
+S_NODENAME:	.BLKB	K_GENSIZE	; storage for node name string
+S_HOSTNAME:	.BLKB	K_GENSIZE	; storage for device serving host
+S_LABEL:	.BLKB	K_GENSIZE	; storage for device label
+D_VALUE:	.LONG	K_GENSIZE	; generic string descriptor
+		.ADDRESS S_VALUE	; 
+D_DEVNAME:	.LONG	0		; device name descriptor
+		.ADDRESS S_DEVNAME	; 
+D_DEVTYPE:	.LONG	0		; device type descriptor
+		.ADDRESS S_DEVTYPE	; 
+D_NODENAME:	.LONG	0		; node name descriptor
+		.ADDRESS S_NODENAME	; 
+D_HOSTNAME:	.LONG	0		; serving host name descriptor
+		.ADDRESS S_HOSTNAME	; 
+D_LABEL:	.LONG	0		; label descriptor
+		.ADDRESS S_LABEL	; 
+L_SERIAL:	.LONG	0		; device/volume serial number
+L_IO:		.LONG	0		; IO count from command line
+L_IODRP:	.LONG	0		; IO completed/dropped on failed streams
+L_BLOCK:	.LONG	0		; transfer block size from command line
+L_STEP:		.LONG	0		; LBN's over target accessed by each IO
+L_STREAM:	.LONG	0		; stream from command line
+L_SEEK:		.LONG	0		; seek range (MB) from command line
+F_SEEK:		.FLOAT	0		; seek range in blocks
+L_MAXBLK:	.LONG	0		; device capacity
+L_LOWLIM:	.LONG	0		; low LBN boundary (zero by default)
+L_HILIM:	.LONG	0		; high LBN boundary (computed)
+L_REALOW:	.LONG	0		; actual low boundary reached
+L_REALHI:	.LONG	0		; actual high boundary reached
+L_TSFBYTE:	.LONG	0		; transfer byte size from block size
+L_SEED:		.LONG	12345678	; random number generator default seed
+A_IOSB:		.LONG	0		; status block array address for AST
+A_COUNT:	.LONG	0		; count array address for AST
+A_TIME:		.LONG	0		; time array address for AST
+A_DATA:		.LONG	0		; data storage address for AST
+F_MEAN:		.FLOAT	0		; computed mean
+F_ECART:	.FLOAT	0		; computed variance
+Q_NEWPRIV:	.QUAD	PRV$M_PHY_IO	; physical I/O
+Q_GTIME:	.QUAD	0		; generic (start & elapsed) binary time
+Q_NTIME:	.QUAD	0		; absolute end binary time
+L_ELAPSED:	.LONG	0		; test delta time in 102.4 usec unit
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	CODE,EXE,NOWRT,NOSHR
+;
+; main program & subroutines
+;
+	.ENTRY	TESTDEV,^M<>		; entry point, IV trap disabled
+;
+; command line processing, get device, attempt logical name translation
+; & get node name
+;
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_DEVICE		; >device label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get specified device name
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	MOVL	SP,R11			; prepare to build stack item list
+	SUBL2	#16,SP			; make stack space (4 longwords)
+	MOVL	SP,R10			; setup pointer to item list
+	MOVW	#K_GENSIZE,(R10)	; >buffer length - same for next 2 calls
+	MOVW	#LNM$_STRING,2(R10)	; >item code
+	MOVAB	S_DEVNAME,4(R10)	; >buffer address
+	MOVAW	D_DEVNAME,8(R10)	; >return length address
+	CLRL	12(R10)			; >end of list descriptor - next 3 calls
+	CLRL	R9			; use as recursive logical protection
+NXLOG:	$TRNLNM_S -			; translate logical device into physical
+		tabnam=D_LNMTAB, -	; >use normal process tables
+		lognam=D_VALUE, -	; >source logical name is inputted value
+		itmlst=(R10)		; >stacked item list
+	BLBC	R0,NOTRAN		; confirm valid device name returned
+	MOVW	D_DEVNAME,D_VALUE	; then transfer translated value
+	MOVC3	D_DEVNAME,S_DEVNAME, -	; into input descriptor
+		S_VALUE			; 
+	AOBLEQ	#10,R9,NXLOG		; try another translation until too many
+NOTRAN:	MOVW	D_VALUE,D_DEVNAME	; use specified device as physical
+	MOVC3	D_VALUE,S_VALUE, -	; ...release generic buffer
+		S_DEVNAME		; 
+	MOVW	#SYI$_NODENAME,2(R10)	; >item code - get node name
+	MOVAB	S_NODENAME,4(R10)	; >buffer address
+	MOVAW	D_NODENAME,8(R10)	; >return length address, eol already ok
+	$GETSYIW_S -			; get system node name
+		itmlst=(R10)		; >stacked item list
+	BLBS	R0,PARSE		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+PARSE:
+; command line parsing, get qualifiers/keywords and validate
+;
+	PUSHAQ	D_SEQ			; >address of label descriptor
+	CALLS	#1,G^CLI$PRESENT	; check for keyword sequential
+	BLBC	R0,RNDM			; if present on command line
+	BISW2	#1,W_MODE		; then mode is sequential scan
+	BRB	DEFQUA			; bypass random seed processing
+RNDM:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_RANDOM		; >random seed label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get user-specified random seed
+	BLBC	R0,DEFQUA		; skip to next qualifier if unspecified
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_SEED			; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,DEFQUA		; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+DEFQUA:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_IO			; >sample size label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get IO count
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_IO			; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,OK1			; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+OK1:	TSTL	L_IO			; bound check integer
+	BLEQ	BADIO			; check that IO count is positive
+	CMPL	#K_MAXIO,L_IO		; and also less than maximum
+	BGEQ	NEXT1			; otherwise
+BADIO:	PUSHL	#K_MAXIO		; >maximum allowed
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_NILIO		; >message code
+	CALLS	#3,G^LIB$SIGNAL		; otherwise, signal
+NEXT1:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_BLOCK			; >IO block size label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get IO size
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_BLOCK			; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,OK2			; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+OK2:	TSTL	L_BLOCK			; bound check integer
+	BGTR	NEXT2			; good if positive
+	PUSHAL	TDV_NILBLCK		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; otherwise, signal
+NEXT2:	SUBL3	#1,L_BLOCK,L_STEP	; compute step size from block size
+	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_STREAM		; >parallelism value label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get IO streams
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_STREAM		; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,OK3			; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+OK3:	TSTL	L_STREAM		; bound check integer
+	BLEQ	BADSTR			; check that streams is positive
+	CMPL	#K_MAXSTR,L_STREAM	; and also less than maximum
+	BGEQ	NEXT3			; otherwise
+BADSTR:	PUSHL	#K_MAXSTR		; >maximum allowed
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_NILSTRM		; >message code
+	CALLS	#3,G^LIB$SIGNAL		; otherwise, signal
+NEXT3:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_FROM			; >sample size label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get disk seek low boundary
+	BLBC	R0,ZRLOW		; if keyword was present
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_LOWLIM		; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,OK4			; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+OK4:	TSTL	L_LOWLIM		; bound check integer
+	BGEQ	NEXT4			; check that LBN is positive or null
+	PUSHAL	TDV_ZEROLOW		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; otherwise, signal
+ZRLOW:	CLRL	L_LOWLIM		; low seek limit at beginning of volume
+NEXT4:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_TO			; >sample size label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get disk seek low boundary
+	BLBC	R0,ELSE4		; if keyword was present
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_HILIM			; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBC	R0,NOHI			; validate status
+	BRW	CHKDEV			; if ok then limit check later
+NOHI:	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+ELSE4:	MOVW	#K_GENSIZE,D_VALUE	; readjust generic descriptor size
+	PUSHAW	W_VALUE_SIZ		; >address of string length
+	PUSHAQ	D_VALUE			; >address of string descriptor
+	PUSHAQ	D_MEG			; >sample size label descriptor
+	CALLS	#3,G^CLI$GET_VALUE	; get disk seek size
+	MOVW	W_VALUE_SIZ,D_VALUE	; update descriptor
+	CLRL	-(SP)			; >no flags, disregard spaces/tabs
+	PUSHL	#4			; >number of bytes to provide - longword
+	PUSHAL	L_SEEK			; >output value
+	PUSHAL	D_VALUE			; >input descriptor
+	CALLS	#4,G^OTS$CVT_TI_L	; convert string to integer value
+	BLBS	R0,OK5			; validate status
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal error
+OK5:	TSTL	L_SEEK			; bound check megabyte specification
+	BEQL	FULVOL			; if null then use full volume
+	BGTR	CVTMEG			; if negative
+	PUSHAL	TDV_NEGSEEK		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal & stop
+CVTMEG:	MULL3	#1954,L_SEEK,L_HILIM	; else, convert megabyte to approx LBN
+	BVC	CHKDEV			; limit check value
+	PUSHAL	TDV_MEG2LBN		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; and signal
+FULVOL:	BISW2	#2,W_MODE		; indicate seeking to volume end
+CHKDEV:
+; verify that device is a mounted disk & get its type, host, label & size...
+;
+	MOVW	#4,(R10)		; >buffer length - good for next calls
+	MOVW	#DVI$_DEVCLASS,2(R10)	; >item code
+	MOVAL	L_DEVGEN,4(R10)		; >buffer address - for next DVI calls
+	MOVAW	W_DEVGEN_SIZ,8(R10)	; >return length address - don't care
+	$GETDVIW_S -			; check that device is a disk
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device class
+	BLBS	R0,VALDEV		; confirm operation status
+	PUSHL	R0			; >message vector
+	PUSHAQ	D_DEVNAME		; >device name descriptor
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_DEVBUG		; >message code
+	CALLS	#4,G^LIB$SIGNAL		; signal message
+VALDEV:	CMPL	#DC$_DISK,L_DEVGEN	; check device class
+	BEQL	CHKMNT			; if not a disk...
+	PUSHAQ	D_DEVNAME		; >device name descriptor
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_NODISK		; >message code
+	CALLS	#3,G^LIB$SIGNAL		; ... and quit
+CHKMNT:	MOVW	#DVI$_MNT,2(R10)	; >else, load new item in list
+	$GETDVIW_S -			; get disk mounted status
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device status
+	BLBC	R0,MNTBUG		; validate call success
+	BLBS	L_DEVGEN,CHKSIZ		; check that device is mounted, else
+MNTBUG:	PUSHAQ	D_DEVNAME		; >device name descriptor
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_DISMNT		; >message code
+	CALLS	#3,G^LIB$SIGNAL		; ... and quit
+CHKSIZ:	MOVW	#DVI$_MAXBLOCK,2(R10)	; >load new item code into list
+	MOVAL	L_MAXBLK,4(R10)		; >buffer address - device capacity
+	$GETDVIW_S -			; get disk block size
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device capacity
+	BLBS	R0,VALSIZ		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+VALSIZ:	MOVL	L_MAXBLK,L_REALOW	; initialize low reached boundary at max
+	MOVW	#DVI$_SERIALNUM,2(R10)	; >load new item code into list
+	MOVAL	L_SERIAL,4(R10)		; >buffer address - serial number
+	$GETDVIW_S -			; get disk serial number
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device serial
+	BLBS	R0,VALSN		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+VALSN:	MOVW	#K_GENSIZE,(R10)	; >buffer length - good for next calls
+	MOVW	#DVI$_VOLNAM,2(R10)	; >item code
+	MOVAB	S_LABEL,4(R10)		; >buffer address - label
+	MOVAW	D_LABEL,8(R10)		; >return length address in descriptor
+	$GETDVIW_S -			; get device label
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device label
+	BLBS	R0,VALLBL		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+VALLBL:	MOVW	#DVI$_MEDIA_NAME,2(R10)	; >item code
+	MOVAB	S_DEVTYPE,4(R10)	; >buffer address - device type
+	MOVAW	D_DEVTYPE,8(R10)	; >return length address in descriptor
+	$GETDVIW_S -			; get device type
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - device label
+	BLBS	R0,VALTYP		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+VALTYP:	MOVW	#DVI$_HOST_NAME,2(R10)	; >item code
+	MOVAB	S_HOSTNAME,4(R10)	; >buffer address - serving node
+	MOVAW	D_HOSTNAME,8(R10)	; >return length address in descriptor
+	$GETDVIW_S -			; get device label
+		devnam=D_DEVNAME, -	; >device name descriptor
+		itmlst=(R10)		; >item list - serving node
+	BLBS	R0,VALHST		; confirm operation status
+	PUSHL	R0			; >message vector
+	CALLS	#1,G^LIB$SIGNAL		; signal message
+VALHST:
+; attach device & boost privileges for physical IO
+;
+	$ASSIGN_S -			; assign a channel to the device
+		devnam=D_DEVNAME, -	; >input descriptor - device name
+		chan=L_CHANNEL		; >resulting channel
+	BLBS	R0,DEVOK		; validate status
+	PUSHL	R0			; >message vector
+	PUSHAQ	D_DEVNAME		; >device name descriptor
+	PUSHL	#1			; >FAO argument count
+	PUSHAL	TDV_NOLINK		; >message code
+	CALLS	#3,G^LIB$SIGNAL		; ...quit (signal out)
+DEVOK:	$SETPRV_S -			; test/boost privileges (PHY_IO)
+		enbflg=#1, -		; >enable masked privileges
+		prvadr=Q_NEWPRIV	; >address of new privilege mask
+	BLBS	R0,PRIVOK		; check successful completion, else...
+	PUSHAL	TDV_NOPRIV		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; ... quit (signal out)
+PRIVOK:
+; verify qualifier relationship, signal warning if required
+;
+	BITW	#2,W_MODE		; check for high LBN limit specification
+	BNEQ	FIXHI			; if explicitely defined
+	CMPL	L_MAXBLK,L_HILIM	; validate within volume capacity
+	BGTR	SKSIZ			; if beyond
+	PUSHAL	TDV_XCRANGE		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; inform user
+FIXHI:	SUBL3	#1,L_MAXBLK,L_HILIM	; make high limit the volume limit
+SKSIZ:	SUBL3	L_LOWLIM,L_HILIM,L_SEEK	; compute seek coverage from limits
+	INCL	L_SEEK			; make that limit-inclusive
+	BGTR	SIZOK			; check that seek is positive, otherwise
+	PUSHAL	TDV_REVLBN		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; inform user & stop
+SIZOK:	CVTLF	L_SEEK,F_SEEK		; convert seek to floating
+	ADDL3	L_LOWLIM,L_STEP,R9	; compute minimal high limit
+	CMPL	L_HILIM,R9		; check that actual limit is further
+	BGEQU	SCNOK			; else, no room to maneuver
+	PUSHAL	TDV_SEEKBLK		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; inform user & stop
+SCNOK:	CMPL	L_IO,L_STREAM		; compare IO and streams
+	BGEQ	IOOK			; if more stream than overall IO's
+	MOVL	L_IO,L_STREAM		; then use 1 IO per stream, drop rest
+	PUSHAL	TDV_IOLSTRM		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; inform user
+IOOK:	CMPL	#99,L_IO		; validate statistical collection
+	BGEQ	SMALL			; should be at least 100
+	DIVL3	#1000,L_SEEK,R9		; and 0.1 % of seek range
+	CMPL	L_IO,R9			; check for condition match
+	BGEQ	SETUP			; if not then
+SMALL:	PUSHAL	TDV_COLLSIZ		; >message code
+	CALLS	#1,G^LIB$SIGNAL		; inform user
+SETUP:
+; compute required heap space and allocate - pointers IOSB(), COUNT(), TIME()
+;
+	MOVL	R11,SP			; recover stack , discard previous lists
+	MULL3	#8,L_STREAM,R6		; quadword for each stream IOSB
+	SUBL3	R6,R11,R10		; locate pointer to IO status list
+	MOVL	R10,A_IOSB		; freeze array start address for AST
+	SUBL3	R6,R10,R9		; locate pointer to IO count & LBN list
+	MOVL	R9,A_COUNT		; freeze array start address for AST
+	MULL3	#8,L_IO,R6		; quadword for each IO reference time
+	SUBL3	R6,R9,R8		; locate pointer to IO time list
+	MOVL	R8,A_TIME		; freeze array start address for AST
+	MULL3	#512,L_BLOCK,R6		; calculate IO transfer size in bytes
+	MOVL	R6,L_TSFBYTE		; store this value for QIO
+	SUBL3	R6,R8,R7		; locate pointer to transfer data area
+	MOVL	R7,A_DATA		; freeze array start address for AST
+	MOVL	R7,SP			; create stack space
+;
+; output processing banner message... last info before IO
+;
+	$GETTIM_S -			; get current system time
+		timadr=Q_GTIME		; >start time
+	MOVL	SP,R3			; prepare to build stack item list
+	SUBL2	#24,SP			; make stack space (6 longwords)
+	MOVL	SP,R2			; setup pointer to item list
+	MOVL	#^X10005,(R2)		; >message option & argument count
+	MOVAL	TDV_START,4(R2)		; >message code
+	MOVL	#3,8(R2)		; >FAO argument count
+	MOVAQ	D_DEVNAME,12(R2)	; >device name
+	MOVAQ	D_LABEL,16(R2)		; >device label
+	MOVAQ	Q_GTIME,20(R2)		; >start time
+	$PUTMSG_S -			; signal start of test
+		msgvec=(R2)		; >message vector
+	MOVL	R3,SP			; recover stack , discard temporary list
+	BLBS	R0,READY		; confirm call success, else
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal problem
+READY:
+; set up IO stream(s)... will be completed via AST's
+;
+	SUBL3	#1,L_STREAM,R4		; create index based on stream
+ZRSTRM:	CLRQ	(R10)[R4]		; initialize (zero) stream status blocks
+	MOVL	L_LOWLIM,R5		; prepare LBN as per single-sequential
+	BLBS	W_MODE,GOSTRM		; override LBN if random requested
+	PUSHAL	L_SEED			; >seed address
+	CALLS	#1,G^MTH$RANDOM		; generate next sequence number
+	MULF2	F_SEEK,R0		; expand to offset within range
+	CVTFL	R0,R5			; drop off decimal portion
+	ADDL2	L_LOWLIM,R5		; compute LBN within actual range
+	ADDL3	R5,L_STEP,R6		; compute last LBN to access by this IO
+	CMPL	L_HILIM,R6		; check that step within seek range
+	BGEQU	GOSTRM			; else
+	SUBL3	L_STEP,L_HILIM,R5	; reduce LBN so that step will fit
+GOSTRM:	MOVAQ	(R9)[R4],R6		; point to stream control area
+	MOVQ	R4,(R6)			; load stream id & initial LBN pair
+	$GETTIM_S -			; get current system time
+		timadr=(R8)[R4]		; >time slot at current index
+	$QIO_S -			; perform IO operation
+		chan=L_CHANNEL, -	; >channel
+		func=#IO$_READLBLK, -	; >read logical block
+		iosb=(R10)[R4], -	; >iosb at current index
+		astadr=TIMEIO, -	; >name of AST routine
+		astprm=R4, -		; >stream id
+		p1=(R7), -		; >data storage for transfer
+		p2=L_TSFBYTE, -		; >transfer size
+		p3=4(R6)		; >device block address (LBN)
+	BLBS	R0,NXSTRM		; validate proper queuing operation
+	MOVL	#-1,(R6)		; else, hands-off AST notification
+	ADAWI	#1,W_SYNCH		; stream done
+	PUSHL	R5			; >LBN value
+	PUSHL	R0			; >error code
+	PUSHL	R4			; >stream value
+	PUSHL	#3			; >FAO argument count
+	PUSHAL	TDV_IOBUG		; >message code
+	CALLS	#5,G^LIB$SIGNAL		; notify user - stream did not start
+NXSTRM:	ACBL	#0,#-1,R4,ZRSTRM	; repeat for all streams
+	CMPW	W_SYNCH,L_STREAM	; check that at least one good stream
+	BGEQ	CLOCK			; and synchronize for completion
+;
+	$HIBER_S			; hibernate until awaken by AST
+SPIN:	CMPW	W_SYNCH,L_STREAM	; check number of finished streams
+	BNEQ	SPIN			; synchronize on end-of-stream
+;
+CLOCK:	$GETTIM_S -			; get current system time
+		timadr=Q_NTIME		; >stop time
+	SUBL2	Q_NTIME,Q_GTIME		; compute (low) elapsed time
+	SBWC	Q_NTIME+4,Q_GTIME+4	; compute (high) elapsed time
+	MOVQ	Q_GTIME,R2		; load VAX format binary interval
+	ASHQ	#-10,R2,R2		; scale delta to 102.4 usec base unit
+	MNEGL	R2,L_ELAPSED		; discard high (negative) portion
+	MOVL	SP,R3			; prepare to build stack item list
+	SUBL2	#24,SP			; make stack space (6 longwords)
+	MOVL	SP,R2			; setup pointer to item list
+	MOVL	#^X10005,(R2)		; >message option & argument count
+	MOVAL	TDV_STOP,4(R2)		; >message code
+	MOVL	#3,8(R2)		; >FAO argument count
+	MOVAQ	D_VERSION,12(R2)	; >device name
+	MOVAQ	D_NODENAME,16(R2)	; >device serial number
+	MOVAQ	Q_NTIME,20(R2)		; >start time
+	$PUTMSG_S -			; signal start of test
+		msgvec=(R2)		; >message vector
+	MOVL	R3,SP			; recover stack , discard temporary list
+	BLBS	R0,STATS		; confirm call success, else
+	PUSHL	R0			; >message code
+	CALLS	#1,G^LIB$SIGNAL		; signal problem
+;
+; first pass, extract time values & compute mean
+;
+STATS:	CLRL	R1			; initialize running time total
+	CLRL	R2			; initialize entry count
+	SUBL3	#1,L_STREAM,R4		; create index based on stream
+SCAN:	MOVAQ	(R9)[R4],R6		; point to stream control area
+	MOVL	(R6),R3			; check would-be last stream IO index
+	BGTR	RETRV			; if negative stream had a problem
+DRPCNT:	ADDL2	L_STREAM,R3		; compute previous IO index
+	BGEQ	NXPASS			; until index becomes invalid
+	INCL	L_IODRP			; for each index count a dropped IO
+	BRB	DRPCNT			; and repeat
+RETRV:	SUBL2	L_STREAM,R3		; compute actual IO index
+	BLSS	NXPASS			; stream done when index changes sign
+	MOVAQ	(R8)[R3],R6		; point to time value
+	MNEGL	(R6),R5			; use (low) time interval, discard high
+	DIVL2	#1000,R5		; scale to 100 microsecond unit
+	MOVL	R5,(R6)			; save as time() for deviation pass
+	ADDL2	R5,R1			; add time() to running total
+	INCL	R2			; update entry processed count
+	BRB	RETRV			; continue flushing this stream
+NXPASS:	SOBGEQ	R4,SCAN			; retrieve next stream entries
+	CVTLF	R2,R6			; convert entry count to floating
+	BNEQ	ECART			; check non-zero
+;
+; logic for 0 valid entry processing to be enhanced
+	BRW	QUIT			; quit on 0, produce results otherwise
+;
+ECART:	CVTLF	R1,R5			; convert running time total to floating
+	DIVF3	R6,R5,F_MEAN		; compute mean (total time/entry count)
+;
+; second pass, compute standard deviation
+;
+	CLRF	R1			; initialize summ
+	SUBL3	#1,L_STREAM,R4		; create index based on stream
+SCAN2:	MOVAQ	(R9)[R4],R6		; point to stream control area
+	MOVL	(R6),R3			; check would-be last stream IO index
+	BLEQ	NXPSS2			; nothing to do if negative
+RETRV2:	SUBL2	L_STREAM,R3		; compute actual index
+	BLSS	NXPSS2			; stream done when negative index
+	MOVAQ	(R8)[R3],R6		; point to interval time value
+	CVTLF	(R6),R5			; load/convert interval time
+	SUBF3	R5,F_MEAN,R5		; compute mean to entry difference
+	MULF2	R5,R5			; square difference
+	ADDF2	R5,R1			; summ squared difference
+	BRB	RETRV2			; continue flushing this stream
+NXPSS2:	SOBGEQ	R4,SCAN2		; retrieve next stream entries
+	CVTLF	R2,R6			; convert entry count to floating
+	DIVF3	R6,R1,F_ECART		; compute variance (squared summ/entry)
+	MOVL	R11,SP			; recover stack, discard heap
+	PUSHAF	F_ECART			; >variance
+	CALLS	#1,G^MTH$SQRT		; compute standard dev (variance root)
+	CVTRFL	R0,R3			; make standard dev an integer
+	CLRL	R4			; clear r3-r4 quadword top longword
+	EDIV	#10,R3,R7,R8		; decompose deviation to int.frac format
+	CVTRFL	F_MEAN,R5		; make mean an integer
+	CLRL	R6			; clear r5-r6 quadword top longword
+	EDIV	#10,R5,R9,R10		; decompose mean into integer.fraction
+;
+; output results
+;
+	MOVL	SP,R11			; prepare to build stack item list
+	SUBL2	#140,SP			; make stack space (35 longwords)
+	MOVL	SP,R6			; setup pointer to item list
+	MOVL	#^X10022,(R6)		; >message option & argument count
+	MOVAL	TDV_DEVID,4(R6)		; >message code
+	MOVL	#7,8(R6)		; >FAO argument count
+	CLRL	12(R6)			; >minimum type name size
+	SUBW3	D_DEVTYPE,#K_AZ1,R1	; compute right justified spacing
+	BLSS	OPT0			; validate positive displacement
+	MOVZWL	R1,12(R6)		; >host name required spacing
+OPT0:	MOVAQ	D_DEVTYPE,16(R6)	; >device type
+	MOVL	L_SERIAL,20(R6)		; >device serial number
+	CLRL	24(R6)			; >minimum host name size
+	SUBW3	D_HOSTNAME,#K_AZ1,R1	; compute right justified spacing
+	BLSS	OPT1			; validate positive displacement
+	MOVZWL	R1,24(R6)		; >host name required spacing
+OPT1:	MOVAQ	D_HOSTNAME,28(R6)	; >serving node name
+	MOVL	L_MAXBLK,32(R6)		; >device capacity (LBN max)
+	DIVL3	#1954,L_MAXBLK,36(R6)	; >device capacity (in megabyte)
+	MOVAL	TDV_TESTID,40(R6)	; >message code
+	MOVL	#4,44(R6)		; >FAO argument count
+	BLBC	W_MODE,OPT2		; check for sequential access
+	SUBW3	D_SEQUENTIEL,#K_AZ2,R1	; compute right justified spacing
+	MOVZWL	R1,48(R6)		; >sequential required spacing
+	MOVAQ	D_SEQUENTIEL,52(R6)	; >access mode string for sequential
+	BRB	NXT1			; else
+OPT2:	SUBW3	D_ALEATOIRE,#K_AZ2,R1	; compute right justified spacing
+	MOVZWL	R1,48(R6)		; >random required spacing
+	MOVAQ	D_ALEATOIRE,52(R6)	; >access mode string for random
+NXT1:	MOVL	L_STREAM,56(R6)		; >number of active streams
+	MOVL	L_BLOCK,60(R6)		; >block transfer size
+	MOVAL	TDV_TESTID2,64(R6)	; >message code
+	MOVL	#5,68(R6)		; >FAO argument count
+	SUBL3	L_REALOW,L_REALHI,R1	; compute actual seek coverage
+	ADDL3	#1,R1,72(R6)		; >actual seek span
+	MOVL	L_SEEK,76(R6)		; >logical block range (max span)
+	MOVL	R2,80(R6)		; >processed IO count
+	MOVL	L_IO,84(R6)		; >maximum specified IO count
+	MOVL	L_IODRP,88(R6)		; >IO's dropped (aborted streams)
+	MOVAL	TDV_PERFID,92(R6)	; >message code
+	MOVL	#4,96(R6)		; >FAO argument count
+	MOVAQ	Q_GTIME,100(R6)		; >elapsed time (VMS format)
+	CVTLF	L_ELAPSED,R3		; change elapsed time to floating format
+	BNEQ	TIMOK			; if interval too small then 
+	CLRL	104(R6)			; >uncomputable throughput
+	CLRL	108(R6)			; >uncomputable IO rate integer
+	CLRL	112(R6)			; >uncomputable IO rate fraction
+	BRB	SPEED			; skip rate computation
+TIMOK:	MULL3	L_BLOCK,R2,R1		; compute total blocks transfered
+	CVTLF	R1,R1			; change blocks to floating format
+	MULF2	#5E6,R1			; compute prescaled total bytes moved
+	DIVF2	R3,R1			; compute byte rate
+	CVTRFL	R1,104(R6)		; >throughput
+	CVTLF	R2,R1			; convert IO's done to floating format
+	DIVF2	R3,R1			; compute IO's per base time unit
+	DIVF2	#102.4E-7,R1		; rescale to second (10 times actual)
+	CVTRFL	R1,R3			; convert value to decimal format
+	CLRL	R4			; prepare quadword - clear upper 32 bits
+	EDIV	#10,R3,108(R6),112(R6)	; >IO rate integer.fraction
+SPEED:	MOVAL	TDV_PERFID2,116(R6)	; >message code
+	MOVL	#4,120(R6)		; >FAO argument count
+	MOVL	R9,124(R6)		; >integer portion of average
+	MOVL	R10,128(R6)		; >fractional portion of average
+	MOVL	R7,132(R6)		; >integer portion of deviation
+	MOVL	R8,136(R6)		; >fractional portion of deviation
+	$PUTMSG_S -			; signal start of test
+		msgvec=(R6)		; >message vector
+	MOVL	R11,SP			; recover stack , discard temporary list
+	BLBS	R0,QUIT			; check function status
+	RET				; report problem, otherwise
+QUIT:	MOVL	#SS$_NORMAL,R0		; final image status - all ok
+	RET				; quit...
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; Asynchronous system trap (AST) code
+;
+	.ENTRY	TIMEIO,^M<R2,R3,R4,R5,R10,R11>	; entry point, IV trap disabled
+;
+	MOVL	4(AP),R4		; load IO parameter - stream
+	MOVAQ	@A_COUNT[R4],R5		; point to stream control area
+	MOVL	(R5),R2			; load last IO index
+	BGEQ	HOLD			; must be positive, otherwise...
+	RET				; ...drop off (spurious)
+HOLD:	MOVAQ	@A_IOSB[R4],R3		; load previous IOSB address
+	MOVZWL	(R3),R0			; load error code
+	BLBS	R0,LASTOK		; if previous IO status faulty
+	TSTL	R2			; check for first of stream
+	BNEQ	LASBAD			; if so then
+	INCL	L_IODRP			; consider one dropped IO
+LASBAD:	ADDL2	L_STREAM,R2		; update index to would-be last IO
+	BRW	NOMORE			; drop out, shut down stream operations
+LASTOK:	MOVAQ	@A_TIME[R2],R3		; load reference time address
+	MOVQ	(R3),R10		; load start time into r10-r11 pair
+	$GETTIM_S -			; get current system time
+		timadr=(R3)		; >reuse IO time address for current
+	SUBL2	(R3),R10		; compute (low) delta time
+	SBWC	4(R3),R11		; compute (high) delta time
+	MOVQ	R10,(R3)		; save delta time to IO list
+	CMPL	4(R5),L_REALOW		; check last LBN outside low threshold
+	BGEQU	LOBND			; if so
+	MOVL	4(R5),L_REALOW		; update low threshold
+LOBND:	ADDL3	4(R5),L_STEP,R11	; compute last IO upper LBN reach
+	CMPL	R11,L_REALHI		; check value outside upper threshold
+	BLEQU	HIBND			; if so 
+	MOVL	R11,L_REALHI		; update high threshold
+HIBND:	ADDL2	L_STREAM,R2		; compute next IO index
+	MOVL	R2,(R5)			; save index to IO count list
+	CMPL	L_IO,R2			; check for last IO reached
+	BGTR	PURSUE			; if so then
+	BRW	EOS			; drop out... end-of-stream reached
+PURSUE:	BLBC	W_MODE,RANDOM		; check for sequential or random access
+	ADDL3	L_BLOCK,4(R5),R0	; compute next LBN in ascending order
+	CMPL	L_HILIM,R0		; check for scan boundary
+	BGEQU	CHKSTP			; if target block outside of seek range
+	BRW	EOS			; then drop out... end-of-stream reached
+RANDOM:	PUSHAL	L_SEED			; >seed address
+	CALLS	#1,G^MTH$RANDOM		; generate next sequence number
+	MULF2	F_SEEK,R0		; expand to offset within range
+	CVTFL	R0,R0			; drop off decimal portion
+	ADDL2	L_LOWLIM,R0		; compute LBN within actual range
+CHKSTP:	MOVL	L_STEP,R10		; load step size
+	BEQL	EXER			; if zero, LBN will be in range
+	ADDL3	R0,R10,R11		; else compute last LBN to access
+	CMPL	L_HILIM,R11		; check that step within seek range
+	BGEQU	EXER			; else
+	SUBL3	R10,L_HILIM,R0		; reduce LBN so that step will fit
+EXER:	MOVL	R0,4(R5)		; store target LBN in stream control
+	$GETTIM_S -			; get current time
+		timadr=@A_TIME[R2]	; >next IO time pointed by new index
+	$QIO_S -			; perform IO operation
+		chan=L_CHANNEL, -	; >channel
+		func=#IO$_READLBLK, -	; >read logical block
+		iosb=@A_IOSB[R4], -	; >iosb at current index
+		astadr=TIMEIO, -	; >name of this routine
+		astprm=R4, -		; >stream id
+		p1=@A_DATA, -		; >data storage for transfer
+		p2=L_TSFBYTE, -		; >transfer size
+		p3=4(R5)		; >device block address (LBN)
+	BLBS	R0,NORMAL		; validate proper operation
+NOMORE:	ADDL3	L_STEP,4(R5),-(SP)	; >last LBN accessed
+	PUSHL	4(R5)			; >target LBN
+	PUSHL	R0			; >error code
+	PUSHL	R4			; >stream index number
+	PUSHL	#4			; >FAO argument count
+	PUSHAL	TDV_STRMDIS		; >message code
+	CALLS	#6,G^LIB$SIGNAL		; notify user - shutting off this stream
+	MNEGL	R2,(R5)			; hands-off signalisation
+EOS:	ADAWI	#1,W_SYNCH		; notify master of end-of-stream
+	$WAKE_S				; wake master up
+NORMAL:	RET				; that's it
+;
+	.END	TESTDEV

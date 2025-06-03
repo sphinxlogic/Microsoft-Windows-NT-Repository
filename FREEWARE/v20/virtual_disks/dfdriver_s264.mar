@@ -1,0 +1,1201 @@
+evax = 1
+	.TITLE	VDDRIVER - VAX/VMS VIRT DISK DRIVER
+	.IDENT	'V4f'
+	.enable SUP
+; step 2 driver for VD...
+; Edited from step 1 version.
+;
+; Changed by making it fd1 type and adding nodename prefix characteristic
+; so that hopefully it will now work with MSCP.
+;
+; Added save/restore of IRP$L_MEDIA for second I/O completion (by VDDRIVER)
+; so that error path code that assumes this field unaltered will work. 4/14/89
+;
+;md$stat=1
+;d$$bug=1
+;x$$$dt=1	;call xdelta
+; Note: define symbol VMS$V5 to assemble in VMS V5.x or later. Default
+; assembly without this definition produces a VMS V4.x driver.
+; Glenn C. Everhart, 2/2/1989
+; Merged in some of Marty Sasaki's changes
+vms$v5=1
+; define v5$picky also for SMP operation
+v5$picky=1
+;USAPADDR=0
+;d$$bug=0
+;
+; FACILITY:
+; 
+; 	VAX/VMS VIRTUAL DISK DRIVER USING CONTIGUOUS FILES.
+; 
+; AUTHOR:
+; 
+; G. EVERHART
+;
+; 
+; ABSTRACT:
+; 
+; 	THIS MODULE CONTAINS THE TABLES AND ROUTINES NECESSARY TO
+; 	PERFORM ALL DEVICE-DEPENDENT PROCESSING OF AN I/O REQUEST
+;	FOR VMS VIRTUAL DISKS ON CONTIG FILES.
+;
+; Note:
+;	This driver has an FDT table that will look just like other
+;	disks for everything, but will NOT do buffered I/O.
+;	In its' FDT routines, which will be dummies, it will just
+;	modify logical block numbers in the I/O packets, assume
+;	the buffered bit in irp$w_STS clear (like all disk drivers 
+;	except floppy drivers), do a range check to make sure
+;	the LBN used is in the legal range for this particular unit
+;	ov VD:, and reset things to call the real driver's FDT
+;	routines and let IT do the work. It will unbusy itself
+;	before losing control.
+;		The idea is that only I/O "gets at the physical
+;	storage", so only that need be munged. Since this happens
+;	only for read/write logical/physical, we just leave OUR
+;	FDT routines in there for everything else. In just assuming
+;	the buffered bit in the I/O we MAY mess up some quotas (this
+;	will eventually get cleaned up), but won't lose buffers or
+;	otherwise mess up things. Since most drivers have nonbuffered
+;	I/O, we'll usually be just fine. (Disk drivers, that is.)
+;	(In fact only RX01 class real drivers are buffered. Don't
+;	put vd: units on those!!!)
+;		To call the "real" FDT routines we'll just reset the
+;	registers (and the IORP) to the real device and return. The
+;	exec routines that handle FDT routines will take it from there
+;	and do the FDT processing in the real driver. We just have to
+;	let them work...
+;		The FDT routines are called from SYSQIOREQ.MAR for
+;	future reference.
+;		The main work is in the start-IO area. There, the I/O
+;	packet is edited to relocate the I/O to the contiguous file
+;	and sent to the real driver. First however we bash the IRP$L_PID
+;	field to get control back (via jsb) here. At that point,
+;	the UCB and IRP pointers are restored, the IRP returned to point
+;	at VD: (and the correct unit), and the normal IOC$REQCOM call
+;	is made to finish off the I/O packet in VD: context. (This allows
+;	any i/o splits to be handled correctly and SHOULD allow MSCP
+;	to work OK if enabled.) The vd: unit stays busy until reqcom
+;	calls free it. Normal reqcom completion in the host will free
+;	THAT unit also; we don't need to mess with it. The VD: unit will
+;	eventually RSB its way back to normal processing in the rest of
+;	VMS. 
+;
+;	The logical I/O FDT entry has been commented out to keep the
+;	operation simpler. It is OK as is, but things are cleaner with
+;	NO prospect of clobbering any arguments.
+;
+; Note that ASNVD simply inserts a phony device structure for VD: units
+; of 64 sectors per track, one track/cylinder, n cylinders. INIT seems
+; to need this, though physical I/O is disabled.
+;--
+	.PAGE
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+; 
+; EXTERNAL SYMBOLS
+; 
+	.library /ALPHA$LIBRARY:LIB/
+	.NoCross	;save list length
+;	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DYNDEF ;define dynamic data types
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$DDTDEF				; DEFINE DISPATCH TBL...
+	$ptedef
+	$vadef
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$prvdef
+	$arbdef
+	$irpedef
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+	$pcbdef
+	$jibdef
+p1=0	; first qio param
+p2=4
+p3=8
+p4=12
+p5=16
+p6=20	;6th qio param offsets
+VD_UNITS=64			; Number of devices we can have
+VD_BLKSIZ=512
+DMA_MAXSIZ      =127*VD_BLKSIZ	;big per-xfr bytecount. Get no bigger.
+
+	.IF	DF,VMS$V5	;VMS V5 + LATER ONLY
+	$SPLCODDEF
+	$cpudef
+	.ENDC
+	.cross
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; 
+	$DEFINI	UCB			;START OF UCB DEFINITIONS
+
+;.=UCB$W_BCR+2				;BEGIN DEFINITIONS AT END OF UCB
+.=UCB$K_LCL_DISK_LENGTH	;v4 def end of ucb
+; USE THESE FIELDS TO HOLD OUR LOCAL DATA FOR VIRT DISK.
+$DEF	UCB$W_VD_WPS	.BLKW	1	;Words per sector.
+$DEF	UCB$W_VD_CS	.BLKW	1	;CONTROL STATUS REGISTER
+$DEF	UCB$W_VD_DB	.BLKW	1	;UCB ADDRESS OF HOST DRIVER
+$DEF	UCB$W_VD_DPN	.BLKW	1	;(LONGWORD)
+$DEF	UCB$L_VD_DPR	.BLKL	1	;START LBN OF HOST CONTIG FILE
+$DEF	UCB$L_VD_FMPR	.BLKL	1	;
+$DEF	UCB$L_VD_PMPR	.BLKL	1	;PREVIOUS MAP REGISTER
+$DEF	UCB$B_VD_ER	.BLKB	1	;SPECIAL ERROR REGISTER
+			.BLKB	1	;Reserved.
+$DEF	UCB$B_VD_LCT	.BLKB	1	;LOOP COUNTER
+$DEF	UCB$B_VD_XBA	.BLKB	1	;BUS ADDRESS EXTENSION BITS
+$DEF	UCB$W_VD_PWC	.BLKW	1	;PARTIAL WORD COUNT
+$DEF	UCB$W_VD_SBA	.BLKW	1	;SAVED BUFFER ADDRESS
+$DEF	UCB$L_VD_XFER	.BLKL	1	;TRANSFER FUNCTION CSR BITS
+$DEF	UCB$L_VD_LMEDIA	.BLKL	1	;LOGICAL MEDIA ADDRESS
+$DEF	UCB$Q_VD_EXTENDED_STATUS	; Area into which we do READ ERROR
+			.BLKQ	1	;  REGISTER command.
+$DEF	UCB$Q_VD_SVAPTETMP		; Area in which we save UCB fields -
+			.BLKQ	1	;  SVAPTE, BOFF, and BCNT.
+$DEF	UCB$L_VD_MAPREGTMP		; Area in which we save CRB fields -
+			.BLKL	1	;  MAPREG, NUMREG, and DATAPATH.
+$DEF	UCB$L_VD_SAVECS	.BLKL	1	; Area in which we save CS and DB regs.
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+$DEF	UCB$HUCB	.BLKL	1	;ADDRESS OF HOST UCB
+$DEF	UCB$HLBN	.BLKL	1	;LBN OF HOST FILE
+$DEF	UCB$HFSZ	.BLKL	1	;SIZE OF HOST FILE, BLKS
+$DEF	UCB$PPID	.BLKL	1	;PID OF ORIGINAL PROCESS FROM IRQ BLK
+; NOTE: It is important to ENSURE that we never clobber IRP$L_PID twice!
+; therefore, adopt convention that UCB$PPID is cleared whenever we put
+; back the old PID value in the IRP. Only clobber the PID where
+; UCB$PPID is zero!!!
+$DEF	UCB$stats	.BLKL	1	;STATUS CODE SAVE AREA
+$DEF	UCB$OBCT	.BLKL	1	;STORE FOR IRP$L_OBCNT too
+$def	ucb$lmedia	.blkl	1	;storage for IRP$L_MEDIA
+$def	ucb$owind	.blkl	1	; store irp$l_wind...
+$def	ucb$osegv	.blkl	1	; and irp$l_segvbn
+; Since I/O postprocessing on virtual or paging I/O makes lots of
+; assumptions about location of window blocks, etc., which are
+; not true here (wrong UCB mainly), we'll bash the function code
+; we send to the host driver to look like logical I/O is being
+; done and save the real function code here. Later when VD: does
+; I/O completion processing, we'll replace the original function
+; from here back in the IRP. This will be saved/restored along with
+; ucb$ppid (irp$l_pid field) and so synchronization will be detected
+; with ucb$ppid usage.
+; define extra fork blks to try to avoid double forking possibilities
+$def	ucb$l_vd_host_descr	.blkl	2	; char string descr
+$def	ucb$vdcontfil	.blkb	80
+;
+$def	ucb$l_sanity	.blkl	1	;sanity chk /GCEF/ ascii if dfdriver
+$DEF	UCB$K_VD_LEN	.BLKW	1	;LENGTH OF UCB
+$def	ucb$k_vd_leng
+;UCB$K_VD_LEN=.				;LENGTH OF UCB
+
+	$DEFEND	UCB			;END OF UCB DEFINITONS
+ 
+	.SBTTL	STANDARD TABLES
+
+	DRIVER_DATA			; make sure we are in driver data psect (PLM)
+
+; 
+; DRIVER PROLOGUE TABLE
+; 
+; 	THE DPT DESCRIBES DRIVER PARAMETERS AND I/O DATABASE FIELDS
+; 	THAT ARE TO BE INITIALIZED DURING DRIVER LOADING AND RELOADING
+; 
+VD$DPT::
+	DPTAB	-			;DPT CREATION MACRO
+		END=VD_END,-		;END OF DRIVER LABEL
+		ADAPTER=NULL,-		;ADAPTER TYPE = NONE (VIRTUAL)
+		FLAGS=<DPT$M_SMPMOD!DPT$M_NOUNLOAD>, -	;SET TO USE SMP
+		DEFUNITS=32,-		;UNITS 0 THRU 1 thru 31
+		UCBSIZE=UCB$K_VD_LENG,-	;LENGTH OF UCB
+		MAXUNITS=VD_UNITS,-	;FOR SANITY...CAN CHANGE
+		NAME=DFDRIVER,-		;DRIVER NAME
+		SMP=YES,-
+		STEP=2
+;		Unload = VD_UNLOAD,-
+
+	;alpha drivers need these 2 lines
+	; alpha preliminary vers. however.
+
+	DPT_STORE INIT			;START CONTROL BLOCK INIT VALUES
+	DPT_STORE DDB,DDB$L_ACPD,L,<^A\F11\>  ;DEFAULT ACP NAME
+	DPT_STORE DDB,DDB$L_ACPD+3,B,DDB$K_PACK	;ACP CLASS
+	.IF	NDF,VMS$V5
+	DPT_STORE UCB,UCB$B_FIPL,B,8	;FORK IPL (VMS V4.X)
+	.IFF	;DEFINE FOR VMS V5.X & LATER
+	DPT_STORE UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8  ;FORK IPL (VMS V5.X + LATER)
+	.ENDC
+; NOTE THESE CHARACTERISTICS HAVE TO LOOK LIKE THE "REAL" DISK.
+	DPT_STORE UCB,UCB$L_DEVCHAR,L,-	;DEVICE CHARACTERISTICS
+		<DEV$M_FOD-		; FILES ORIENTED
+		!DEV$M_DIR-		; DIRECTORY STRUCTURED
+		!DEV$M_AVL-		; AVAILABLE
+		!DEV$M_SHR-		; SHAREABLE
+		!DEV$M_IDV-		; INPUT DEVICE
+		!DEV$M_ODV-		; OUTPUT DEVICE
+		!DEV$M_RND>		; RANDOM ACCESS
+	DPT_STORE UCB,UCB$L_DEVCHAR2,L,- ;DEVICE CHARACTERISTICS
+		<DEV$M_NNM>		; Prefix name with "node$" (like rp06)
+	DPT_STORE UCB,UCB$B_DEVCLASS,B,DC$_DISK  ;DEVICE CLASS
+	DPT_STORE UCB,UCB$W_DEVBUFSIZ,W,VD_BLKSIZ  ;DEFAULT BUFFER SIZE
+; FOLLOWING DEFINES OUR DEVICE "PHYSICAL LAYOUT". It's faked here and
+; this structure (64 sectors/trk, 1 trk/cyl, nn cylinders) forces
+; VD: units to be in multiples of 64 blocks. It can be modified as
+; appropriate. However, recall that one has 1 byte for sectors/trk
+; and 16 bits for cylinder number and 1 byte for tracks/cylinder.
+; The current structure allows vd: units as large as 65535*64 blocks
+; (about 4 million blocks, or 2 gigabytes), which is probably big enough
+; for most purposes. The actual size is set up in ASNVD which finds the
+; number of cylinders to "fit" in the container file. For emulating other
+; ODS-2 volumes, the appropriate physical structure should be emulated also.
+; NO logic in this driver depends on this stuff. It just has to be there
+; to keep INIT and friends happy.
+        DPT_STORE UCB,UCB$B_DEVTYPE,B,- ;Device type - foreign disk
+                <DT$_FD1>
+	DPT_STORE UCB,UCB$B_TRACKS,B,1	; 1 TRK/CYL
+	DPT_STORE UCB,UCB$B_SECTORS,B,64  ;NUMBER OF SECTORS PER TRACK
+	DPT_STORE UCB,UCB$W_CYLINDERS,W,16  ;NUMBER OF CYLINDERS
+; FAKE GEOMETRY TO MAKE TRANSLATION EASIER. HAVE PRIV'D IMAGE LATER
+; RESET THE UCB$W_CYLINDERS TO WHATEVER'S DESIRED. JUST MAKE SURE IT'S
+; A MULTIPLE OF 64 BLOCKS IN SIZE, WHICH OUGHT TO BE GOOD ENOUGH.
+	DPT_STORE UCB,UCB$B_DIPL,B,21	;DEVICE IPL
+	DPT_STORE UCB,UCB$L_ERTMAX,L,10	;MAX ERROR RETRY COUNT
+	DPT_STORE UCB,UCB$L_DEVSTS,L,-	;INHIBIT LOG TO PHYS CONVERSION IN FDT
+		<UCB$M_NOCNVRT>		;...
+        DPT_STORE UCB,UCB$L_MAXBCNT,L,DMA_MAXSIZ ;Maximum byte count per segment
+;
+; don't mess with LBN; leave alone so it's easier to hack on...
+;
+	DPT_STORE REINIT		;START CONTROL BLOCK RE-INIT VALUES
+;	DPT_STORE DDB,DDB$L_DDT,D,VD$DDT	  ;DDT ADDRESS
+	DPT_STORE UCB,UCB$L_SANITY,L,<^A\GCEF\>
+
+	DPT_STORE END			;END OF INITIALIZATION TABLE
+
+; 
+; DRIVER DISPATCH TABLE
+; 
+; 	THE DDT LISTS ENTRY POINTS FOR DRIVER SUBROUTINES WHICH ARE
+; 	CALLED BY THE OPERATING SYSTEM.
+; 
+;VD$DDT:
+	.if	ndf,irp$q_qio_p1_got
+	DDTAB	-			;DDT CREATION MACRO
+		DEVNAM=DF,-		;NAME OF DEVICE
+		START=VD_STARTIO,-	;START I/O ROUTINE
+		FUNCTB=VD_FUNCTABLE,-	;FUNCTION DECISION TABLE
+                CTRLINIT=VD_CTRL_INIT,-	; ctrl & unit init go here
+                UNITINIT=VD_UNIT_INIT,-	; in alpha drivers
+		CANCEL=0,-		;CANCEL=NO-OP FOR FILES DEVICE
+		REGDMP=0,-	;REGISTER DUMP ROUTINE
+		DIAGBF=0,-  ;BYTES IN DIAG BUFFER
+		ERLGBF=0	;BYTES IN
+				;ERRLOG BUFFER
+	.iff
+	DDTAB	-			;DDT CREATION MACRO
+		DEVNAM=DF,-		;NAME OF DEVICE
+		START=VD_STARTIO,-	;START I/O ROUTINE
+		FUNCTB=VD_FUNCTABLE,-	;FUNCTION DECISION TABLE
+                CTRLINIT=VD_CTRL_INIT,-	; ctrl & unit init go here
+                UNITINIT=VD_UNIT_INIT,-	; in alpha drivers
+		CANCEL=0,-		;CANCEL=NO-OP FOR FILES DEVICE
+		REGDMP=0,-	;REGISTER DUMP ROUTINE
+		DIAGBF=0,-  ;BYTES IN DIAG BUFFER
+		FAST_FDT=ACP_STD$FASTIO_BLOCK,-	;fastio support
+		ERLGBF=0	;BYTES IN
+				;ERRLOG BUFFER
+	.endc
+; 
+; FUNCTION DECISION TABLE
+; 
+; 	THE FDT LISTS VALID FUNCTION CODES, SPECIFIES WHICH
+; 	CODES ARE BUFFERED, AND DESIGNATES SUBROUTINES TO
+; 	PERFORM PREPROCESSING FOR PARTICULAR FUNCTIONS.
+; 
+
+VD_FUNCTABLE:
+	FDT_INI
+; no-op phys I/O for a test here...
+	FDT_BUF	-			;BUFFERED FUNCTIONS
+		<NOP,-
+		FORMAT,-		; FORMAT
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; SET CHARACTERISTICS
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+	.if	ndf,irp$q_qio_p1_got
+        FDT_64  <-                              ; Functions supporting 64-bit a$
+                AVAILABLE,-                     ; Available (rewind/nowait clea$
+                NOP,-                           ; No operation
+                PACKACK,-                       ; Pack acknowledge
+                READLBLK,-                      ; Read logical block forward
+                READVBLK,-                      ; Read virtual block
+                SENSECHAR,-                     ; Sense characteristics
+                SENSEMODE,-                     ; Sense mode
+                SETCHAR,-                       ; Set characterisitics
+                SETMODE,-                       ; Set mode
+                UNLOAD,-                        ; Unload volume
+                WRITECHECK,-                    ; Write check
+                WRITEPBLK,-                     ; Write Physical Block (bogus)
+                READPBLK,-                      ; Read Physical Block (bogus)
+                WRITELBLK,-                     ; Write LOGICAL Block
+                WRITEVBLK>                      ; Write VIRTUAL Block
+	.endc
+	FDT_ACT vd_format,-		;point to host disk
+		<format>
+; NOTE SEPARATE CALL FOR PHYSICAL I/O SO WE CAN JUST CONVERT TO LOGICAL AND
+; DO OUR THING... CONVERT TO A LOGICAL QIO THERE FOR "REAL" DRIVER ALSO
+; SO IT CAN DO CONVERSION TO ITS IDEA OF PHYSICAL IF IT WISHES...
+;
+; LEAVE NORMAL ACP CALLS IN SO FILE STRUCTURED STUFF ON OUR VD: UNIT
+; WILL WORK OK.
+;
+; Get these fdt routines as copies from pddriver for alpha.
+;
+	FDT_ACT	ACP_STD$READBLK,-		;READ FUNCTIONS
+		<READLBLK,-		; READ LOGICAL BLOCK
+		READPBLK,-
+		>
+	FDT_ACT	ACP_STD$READBLK,-		;READ FUNCTIONS
+		<READVBLK-		; READ VIRTUAL BLOCK
+		>
+	FDT_ACT	ACP_STD$WRITEBLK,-		;WRITE FUNCTIONS
+		<WRITELBLK,-		; WRITE LOGICAL BLOCK
+		WRITEPBLK,-
+		>
+	FDT_ACT	ACP_STD$WRITEBLK,-		;WRITE FUNCTIONS
+		<WRITEVBLK-		; WRITE VIRTUAL BLOCK
+		>
+	FDT_ACT	ACP_STD$ACCESS,-		;ACCESS FUNCTIONS
+		<ACCESS,-		; ACCEESS FILE / FIND DIRECTORY ENTRY
+		CREATE-			; CREATE FILE AND/OR DIRECTORY ENTRY
+		>
+	FDT_ACT	ACP_STD$DEACCESS,-		;DEACCESS FUNCTION
+		<DEACCESS-		; DEACCESS FILE
+		>
+	FDT_ACT	ACP_STD$MODIFY,-		;MODIFY FUNCTIONS
+		<ACPCONTROL,-		; ACP CONTROL FUNCTION
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY-			; MODIFY FILE ATTRIBUTES
+		>
+	FDT_ACT	ACP_STD$MOUNT,-		;MOUNT FUNCTION
+		<MOUNT>			; MOUNT VOLUME
+        FDT_ACT EXE_STD$LCLDSKVALID,-      ;Local disk valid functions
+                <UNLOAD,-               ;Unload volume
+                 AVAILABLE,-            ;Unit available
+                 PACKACK-               ;Pack acknowledge
+                >
+ 	FDT_ACT	EXE_STD$ZEROPARM,-		;ZERO PARAMETER FUNCTIONS
+		<NOP,-
+		>
+;	FDT_ACT	EXE_STD$ONEPARM,-		;ONE PARAMETER FUNCTION
+;		<FORMAT-		; FORMAT
+;		>
+	FDT_ACT	EXE_STD$SENSEMODE,-	;SENSE FUNCTIONS
+		<SENSECHAR,-		; SENSE CHARACTERISTICS
+		SENSEMODE-		; SENSE MODE
+		>
+	.if	df,alwshd$
+	fdt_act crrmshd,<CRESHAD,REMSHAD> ;create/remove shadowset members
+	.endc
+; BLOCK OF UCB ADDRESSES
+;
+	
+VD_UCBTBL::
+	.BLKL	VD_UNITS
+	.LONG 0,0	;SAFETY
+	.long	0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0	;more safety
+; offset address table
+v_unm=0
+; Note: code elsewhere assumes that the xxvc macro generates 8 bytes.
+; If .address generates more than 4, it breaks as coded here!!!
+	.macro xxvc lblct
+	.address	vd_fxs'lblct
+	.globl	vd_fxs'lblct
+	.long	0
+	.endm
+VD_VOADT::
+	.rept	<vd_units+4>
+	xxvc	\v_unm
+v_unm = <v_unm+1>
+	.endr
+	.if	df,d$$bug
+DBGDTA:	.BLKL	6	;AREA TO HOLD DISPLAYS
+	.BLKL	20
+	.BLKL	20
+	.BLKL	40
+	.endc
+
+	.PAGE
+	.SBTTL FDT Routines
+	DRIVER_CODE
+
+	.if	df,alwshd$
+; create/remove shadow set member functions.
+; Lets VMS do all the actual work. Just does the dispatching here.
+; Note there ought to be a check for logical i/o to shadowset members
+; but we'll hope the vms standard calls do that in v6.1 on...
+;
+crrmshd: $driver_fdt_entry
+	MOVL    G^EXE$GL_HBS_PTR,R0	;get host based shadowing pointer
+	bgeq	10$			;if not filled in, forget it.
+	pushl	r6
+	pushl	r5
+	pushl	r4
+	pushl	r3	;new call seq. for step2
+	calls	#4,(r0)
+	ret
+10$:	MOVZBL  #SS$_ILLIOFUNC,R0	;illegal if no dispatcher
+11$:	call_finishioc do_ret=no	;error return...
+	ret
+	.endc
+;++
+;
+; vd_format - point to proper location on the host disk
+;
+; With no function modifiers, this routine takes as arguments the name
+; of the host disk (the real disk where the virtual disk will exist),
+; the size of the virtual disk, and the LBN where the virtual disk
+; will start. After these are set up, the device is put online and is
+; software enabled.
+;
+; This routine does virtually no checking, so the parameters must be
+; correct.
+;
+; Inputs:
+;	p1 - pointer to buffer. The buffer has the following format:
+;	     longword 0 - starting LBN, where the virtual disk starts
+;	     		  on the real disk.
+;	     longword 1 - virtual disk length, the number of blocks in
+;			  the virtual disk.
+;	     longword 2 through the end of the buffer, the name of the
+;			  virtual disk. This buffer must be blank
+;			  padded if padding is necessary
+;
+;	p2 - size of the above buffer
+;--
+; Note this function does not support 64 bit, so need not be modified
+; for 64 bit buffer addresses.
+vd_format: $driver_fdt_entry
+	bicl3	#io$m_fcode,irp$l_func(r3),r0	;mask off function code
+	bneq	20$			;branch if modifiers, special
+;thus, normal io$_format will do nothing.
+
+;	ret				;regular processing
+10$:
+	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	call_abortio do_ret=yes
+;	jmp	g^exe_STD$abortio
+20$:
+	movl	irp$l_qio_p1(r3),r0	;buffer address
+	movl	irp$l_qio_p2(r3),r1	;length of buffer
+	call_writechk
+;	jsb	g^exe$writechk		;read access? doesn't return on error
+	clrl	irp$l_bcnt(r3)		;paranoia, don't need to do this...
+	movl	irp$l_qio_p1(r3),r0	;get buffer address
+	movl	(r0)+,-			;move starting lbn
+		ucb$hlbn(r5)
+	blss	10$
+	movl	(r0)+,-			;size of virtual disk
+		ucb$hfsz(r5)
+	bleq	10$
+	movl	(r0),-			;name of "real" disk
+		ucb$l_vd_host_descr+4(r5)
+	subl3	#8,irp$l_qio_p2(r3),-	;set length of name in descriptor
+		ucb$l_vd_host_descr(r5)
+	bleq	10$			;bad length
+	moval	ucb$l_vd_host_descr(r5),r1	;descriptor for...
+	call_searchdev
+;	jsb	g^ioc$searchdev		;search for host device
+	blbs	r0,30$			;branch on success
+	movzwl	#ss$_nosuchdev+2,r0	;make an error, usually a warning
+	clrl	r1
+	call_abortio do_ret=yes
+;	jmp	g^exe_STD$abortio		;exit with error
+30$:
+	addl3	ucb$hfsz(r5),- 	;end of virtual device
+		ucb$hlbn(r5),r0
+	cmpl	ucb$l_maxblock(r1),r0		; < end of real disk?
+	blss	10$
+	movl	r1,ucb$hucb(r5)	;stash the ucb
+	clrl	ucb$ppid(r5)		; mark driver free of old pids
+	bisl	#ucb$m_valid,ucb$l_sts(r5)	;set volume valid
+	bisl	#ucb$m_online,ucb$l_sts(r5)	;set unit online
+	movl	ucb$l_irp(r5),r3		;restore r3, neatness counts
+	movzwl	#ss$_normal,r0			;success
+	call_finishio do_ret=yes
+;	jmp	g^exe_STD$finishio		;wrap things up.
+
+	.SBTTL	CONTROLLER INITIALIZATION ROUTINE
+; ++
+; 
+; VD_ctrl_INIT - CONTROLLER INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; noop
+; INPUTS:
+; R4 - CSR ADDRESS
+; R5 - IDB ADDRESS
+; R6 - DDB ADDRESS
+; R8 - CRB ADDRESS
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 	THE DRIVER CALLS THIS ROUTINE TO INIT AFTER AN NXM ERROR.
+;--
+VD_ctrl_INIT: $driver_ctrlinit_entry
+;	CLRL	CRB$L_AUXSTRUC(R8)	; SAY NO AUX MEM
+        movzwl    #ss$_normal,r0
+	RET				;RETURN
+	.PAGE
+	.SBTTL	INTERNAL CONTROLLER RE-INITIALIZATION
+;
+; INPUTS:
+;	R4 => controller CSR (dummy)
+;	R5 => UCB
+;
+	.PAGE
+	.SBTTL	UNIT INITIALIZATION ROUTINE
+; MEDIA		- MSCP media identifier to VMS device type conversion
+;
+; Functional description:
+;
+;	This macro produces one entry in the MSCP media identifier to VMS 
+;	device type conversion table.
+;
+; Parameters:
+;
+;	dd	the two character prefered device controller name ( the DD 
+;		part of DDCn )
+;	devnam	the hardware device name ( e.g. RA81 )
+;	dtname	if DT$_'devnam' is not a legal VMS device type, this parameter 
+;		gives the correct VMS device type for the device ( should be 
+;		used only when DT$_'devnam' is not correct )
+;-
+
+	.MACRO	MEDIA DD, DEVNAM, DTNAME
+
+$$BEGIN$$=-1
+$$MEDIA$$=0
+$$S$$=27
+	.IRPC	$$L$$,<DD>
+	$$TEMP$$ = ^A/$$L$$/ - ^X40
+	.IF	GT $$TEMP$$
+	$$MEDIA$$ = $$MEDIA$$ + <$$TEMP$$ @ $$S$$>
+	.ENDC
+	$$S$$ = $$S$$ - 5
+	.ENDR
+	.IRPC	$$L$$,<DEVNAM>
+	.IF	GE <$$S$$ - 7>
+	$$TEMP$$ = ^A/$$L$$/ - ^X40
+	.IF	GT $$TEMP$$
+	$$MEDIA$$ = $$MEDIA$$ + <$$TEMP$$ @ $$S$$>
+	.IF_FALSE
+	.IIF	LT $$BEGIN$$, $$BEGIN$$ = <17-$$S$$>/5
+	.ENDC
+	$$S$$ = $$S$$ - 5
+	.ENDC
+	.ENDR
+	.IIF	LT $$BEGIN$$, $$BEGIN$$ = 3
+	$$N$$ = %EXTRACT( $$BEGIN$$, 3, DEVNAM )
+	$$MEDIA$$ = $$MEDIA$$ + $$N$$
+;	.LONG	$$MEDIA$$
+	.ENDM	MEDIA
+;++
+; 
+; VD_unit_INIT - UNIT INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS ROUTINE SETS THE VD: ONLINE.
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 
+; INPUTS:
+; 
+; 	R4	- CSR ADDRESS (CONTROLLER STATUS REGISTER)
+; 	R5	- UCB ADDRESS (UNIT CONTROL BLOCK)
+;	R8	- CRB ADDRESS
+; 
+; OUTPUTS:
+; 
+; 	THE UNIT IS SET ONLINE.
+; 	ALL GENERAL REGISTERS (R0-R15) ARE PRESERVED.
+; 
+;--
+	MEDIA DF,RP06
+VD_unit_INIT: $driver_unitinit_entry
+; Don't set unit online here. Priv'd task that assigns VD unit
+; to a file does this to ensure only assigned VDn: get used.
+;	BISl	#UCB$M_ONLINE,UCB$l_STS(R5)  ;SET UCB STATUS ONLINE
+;limit size of VD: data buffers
+;vd_bufsiz=8192
+;	movl	#vd_bufsiz,ucb$l_maxbcnt(r5)	;limit transfers to 8k
+	MOVB	#DC$_DISK,UCB$B_DEVCLASS(R5) ;SET DISK DEVICE CLASS
+; NOTE: we may want to set this as something other than an RX class
+; disk if MSCP is to use it. MSCP explicitly will NOT serve an
+; RX type device. For now leave it in, but others can alter.
+; (There's no GOOD reason to disable MSCP, but care!!!)
+	movl	#$$media$$,ucb$l_media_id(r5)	; set media id as VD
+; (note the id might be wrong but is attempt to get it.) (used only for
+; MSCP serving.)
+	MOVB	#DT$_FD1,UCB$B_DEVTYPE(R5)  ;Make it foreign disk type 1
+; (dt$_rp06 works but may confuse analyze/disk)
+;;; NOTE: changed from fd1 type so MSCP will know it's a local disk and
+;;; attempt no weird jiggery-pokery with the VD: device.
+; MSCP may still refuse to do a foreign drive too; jiggery-pokery later
+; to test if there's occasion to do so.
+        movzwl    #ss$_normal,r0
+	RET				;RETURN
+	.PAGE
+	.SBTTL	FDT ROUTINES 
+;++
+; 
+; VD_ALIGN - FDT ROUTINE TO TEST XFER BYTE COUNT
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS ROUTINE IS CALLED FROM THE FUNCTION DECISION TABLE DISPATCHER
+; 	TO CHECK THE BYTE COUNT PARAMETER SPECIFIED BY THE USER PROCESS
+; 	FOR AN EVEN NUMBER OF BYTES (WORD BOUNDARY).
+; 
+; INPUTS:
+; 
+; 	R3	- IRP ADDRESS (I/O REQUEST PACKET)
+; 	R4	- PCB ADDRESS (PROCESS CONTROL BLOCK)
+; 	R5	- UCB ADDRESS (UNIT CONTROL BLOCK)
+; 	R6	- CCB ADDRESS (CHANNEL CONTROL BLOCK)
+; 	R7	- BIT NUMBER OF THE I/O FUNCTION CODE
+; 	R8	- ADDRESS OF FDT TABLE ENTRY FOR THIS ROUTINE
+; 	4(AP)	- ADDRESS OF FIRST FUNCTION DEPENDENT QIO PARAMETER
+; 
+; OUTPUTS:
+; 
+; 	IF THE QIO BYTE COUNT PARAMETER IS ODD, THE I/O OPERATION IS
+; 	TERMINATED WITH AN ERROR. IF IT IS EVEN, CONTROL IS RETURNED
+; 	TO THE FDT DISPATCHER.
+; 
+;--
+nolchk=0
+; (currently this is not used in step2 driver.)
+VD_ALIGN: $driver_fdt_entry
+;	BLBS	irp$l_qio_p2(R3),10$		;IF LBS - ODD BYTE COUNT
+	movzwl	#ss$_normal,r0
+	RET				;EVEN - RETURN TO CALLER
+;10$:	MOVZWL	#SS$_IVBUFLEN,R0	;SET BUFFER ALIGNMENT STATUS
+;	JMP	G^EXE$ABORTIO		;ABORT I/O
+	.PAGE
+	.SBTTL	START I/O ROUTINE
+;++
+; 
+; VD_STARTIO - START I/O ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS FORK PROCESS IS ENTERED FROM THE EXECUTIVE AFTER AN I/O REQUEST
+; 	PACKET HAS BEEN DEQUEUED.
+; 
+; INPUTS:
+; 
+; 	R3		- IRP ADDRESS (I/O REQUEST PACKET)
+; 	R5		- UCB ADDRESS (UNIT CONTROL BLOCK)
+; 	IRP$L_MEDIA	- PARAMETER LONGWORD (LOGICAL BLOCK NUMBER)
+; 
+; OUTPUTS:
+; 
+; 	R0	- FIRST I/O STATUS LONGWORD: STATUS CODE & BYTES XFERED
+; 	R1	- SECOND I/O STATUS LONGWORD: 0 FOR DISKS
+; 
+; 	THE I/O FUNCTION IS EXECUTED.
+; 
+; 	ALL REGISTERS EXCEPT R0-R4 ARE PRESERVED.
+; 
+;--
+	.if df,x$$$dt
+rwflg:	.long	0
+	.endc
+REQUEUE:
+	.if	df,d$$bug
+	movl	r3,dbgdta+68	;store offending IRP here
+	.endc
+	.if	df,x$$$dt
+	jsb	g^ini$brk
+	.endc
+	JSB	G^EXE_STD$INSIOQ		; REQUEUE packet to ourselves
+	ret
+; return to our caller direct from insioq.
+; (note this also sets busy, so it will NOT loop forever.)
+VD_STARTIO: $driver_start_entry
+; 	PREPROCESS UCB FIELDS
+; 
+;	ASSUME	RY_EXTENDED_STATUS_LENGTH  EQ  8
+;	CLRQ	UCB$Q_VD_EXTENDED_STATUS(R5)	; Zero READ ERROR REGISTER area.
+; 
+; 	BRANCH TO FUNCTION EXECUTION
+	bbs	#ucb$v_online,-	; if online set software valid
+		ucb$l_sts(r5),210$
+216$:	movzwl	#ss$_volinv,r0	; else set volume invalid
+	brw	resetxfr	; reset byte count & exit
+210$:
+	tstl	ucb$hucb(r5)	; do we have any host device?
+	beql	216$		; if eql no, flag invalid volume.
+			; THIS IS SAFETY FROM CONFIGURING FROM OUTSIDE
+; BEFORE GOING ON, WE WANT TO ENSURE THE UCB IS FREE.
+	TSTL	UCB$PPID(R5)		; MAKE SURE we haven't got
+					; a packet in process
+	BNEQ	REQUEUE			; IF a packet's in process, requeue
+					; back to this driver; do NOT process
+					; immediately!
+; Note...never seems to get to requeue (xdelta would catch it!)
+; (that's a good sign; should never get there.)
+	bisl	#ucb$m_online,ucb$l_sts(r5)	; set online
+	bisl	#ucb$m_valid,ucb$l_sts(r5)	;set valid
+; set ourselves as owners of channel for VD:
+;	movl	ucb$l_crb(r5),r0
+;	movl	crb$l_intd+vec$l_idb(r0),r0	;get idb address
+214$:
+;
+10$:;	BBS	#IRP$V_PHYSIO,-		;IF SET - PHYSICAL I/O FUNCTION
+;		IRP$l_STS(R3),20$	;...
+	BBS	#UCB$V_VALID,-		;IF SET - VOLUME SOFTWARE VALID
+		UCB$l_STS(R5),20$	;...
+	MOVZWL	#SS$_VOLINV,R0		;SET VOLUME INVALID STATUS
+	BRW	RESETXFR		;RESET BYTE COUNT AND EXIT
+20$:
+; IF WE GET A SEGMENT TRANSFER HERE (LOGICAL I/O)
+; IT MUST BE UPDATED FOR HOST AND SHIPPED OUT.
+; OUR UCB HAS BLOCK NUMBER INFO...
+; FIND OUT IF THIS IS LOGICAL OR PHYSICAL I/O FIRST. THEN IF IT IS BUGGER
+; THE I/O PACKET USING UCB INFO AND SEND TO THE REAL DRIVER...
+; ALSO ENSURE WE ARE UNBUSIED...
+;
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,IRP$L_FUNC(R3),R1	; GET FCN CODE
+	case	r1,<-			; Dispatch to function handling routine
+		nop,-			; no-op
+		unload,-		; Unload
+		nop,-			; Seek
+		NOP,-			; Recalibrate(unsupported)
+		nop,-			; Drive clear
+		NOP,-			; Release port(unsupported)
+		NOP,-			; Offset heads(unsupported)
+		NOP,-			; Return to center
+		nop,-			; Pack acknowledge
+		NOP,-			; Search(unsupported)
+		WRITEDATA,-		; Write check(unsupported)
+		WRITEDATA,-		; Write data
+		READDATA,-		; Read data
+		NOP,-			; Write header(unsupported)
+		NOP,-			; Read header(unsupported)
+		NOP,-			; Place holder
+		NOP,-			; Place holder
+		available,-		; Available (17)
+		>,LIMIT=#0
+
+nop:				;unimplemented function
+	brw	fexl
+
+readdata:
+	.if df,x$$$dt
+	clrl	rwflg
+	brb	rwcmn
+	.endc
+; Allow access via writedata or writecheck...axp only...
+writedata:
+	.if df,x$$$dt
+	movl #1,rwflg
+rwcmn:
+	.endc
+; debug using sda to peek
+; NOW VALIDATED I/O FCN... MODIFY AND SEND OFF
+	.if	df,d$$bug
+	MOVL	#1,DBGDTA	;TELL THAT WE GOT HERE
+	MOVL	R5,DBGDTA+4	;SAVE OUR UCB ADDR
+	MOVL	R3,DBGDTA+8	; AND I/O PKT
+	MOVL	IRP$L_MEDIA(R3),DBGDTA+12	;STORE BLK NUMBER GIVEN
+	MOVL	IRP$L_OBCNT(R3),DBGDTA+16	;ALSO ORIG BYTE CNT
+	MOVL	R1,DBGDTA+36	;SAVE FCN OFFSET
+	.endc
+	CMPL	IRP$L_MEDIA(R3),UCB$HFSZ(R5)	;BE SURE LBN OK
+	blequ	65$
+	brw	Fatalerr	;dismiss I/o if not ok block number
+65$:
+; HAVE TO BE CAREFUL WHAT WE SHIP TO REAL DRIVER
+; Now that we know IRP$L_MEDIA is ok in IRP, save it for restore at
+; I/O completion by VDDRIVER
+
+	movl	irp$l_media(r3),ucb$lmedia(r5)
+	; Prepare to enter another context.
+; SEND PKT OFF TO REAL DRIVER...
+	.if	df,x$$$dt
+	cmpl	irp$l_bcnt(r3),irp$l_obcnt(r3)
+	beql	117$		;branch if no split I/O going on
+	movl	irp$l_segvbn(r3),r2	;get segvbn
+	movl	irp$l_media(r3),r1	;and media fields
+	jsb	g^ini$brk
+117$:
+	.endc
+	ADDL2	UCB$HLBN(R5),IRP$L_MEDIA(R3)	;ADJUST LBN IN IO PKT
+;
+; NOW we have to fix up the media address for the host...
+; ... otherwise we confuse the heck out of things by making
+; ... the host (who is expecting a track/sect/cyl number) get really
+; ... goofy numbers. Cheat by using exec routine after a bit more messup.
+;
+	MOVL	UCB$HUCB(R5),IRP$L_UCB(R3)	;FIX UP PTR IN I/O PKT
+; GRAB HOST PID
+	TSTL	UCB$PPID(R5)		; GUARD AGAINST DOUBLE BASH
+	BNEQ	12$
+	MOVL	IRP$L_PID(R3),UCB$PPID(R5)	; SAVE PROCESS ID IN VD: UCB
+	movl	irp$l_sts(r3),ucb$stats(r5)	;save original fcn code
+	movl	irp$l_obcnt(r3),ucb$obct(r5)	;store obcnt field
+; belt 'n' suspenders next...
+	movl	irp$l_bcnt(r3),irp$l_obcnt(r3)	;and reset to actual
+					; requested so driver NEVER sees
+					; need to do postprocessing requeues
+					; in host context. (we do that in OUR
+					; context.)
+	movl	irp$l_wind(r3),ucb$owind(r5)	;store window ptr
+	movl	irp$l_segvbn(r3),ucb$osegv(r5)	;store segment vbn also
+	brb	1200$	;mousetrap loc for attempted dbl bash
+12$:
+	.if	df,x$$$dt
+	jsb	g^ini$brk	;break here ONLY if ppid was nonzero
+	.endc
+1200$:
+; For Alpha, the stack manipulation here is messy to track in machine
+; code, so do it in a register.
+	movl	r11,-(sp)		; Free up ol' reliable R11 as scratch
+	movl	r10,-(sp)		; Free R10 also
+	movzwl	ucb$w_unit(r5),r11	; Need address cell
+; following assumes that addresses are 32 bits long so shift by 2 gets us
+; to an address offset.
+	ashl	#2,r11,r11		; to get ucb address back at i/o done
+	movab	vd_ucbtbl,r10		; Base of table of UCB addresses
+	addl2	r11,r10			; Make R10 point to cell for THIS UCB
+	movl	r5,(r10)		; Now save our UCB address there
+; (THIS ALLOWS US TO GET IT BACK...)
+; Now the tricky bit.
+; We must fill the appropriate address into IRP$L_PID for a call at
+; I/O completion. We use a table of such routines, one per unit,
+; all of the same size so we can calculate the address of the
+; routines. However, since the routine addresses can be almost
+; anywhere when the compiler gets done with them, we will
+; use a table constructed BY the compiler of pointers to them all and
+; access via that instead of just forming the address directly. The table
+; entries will be left 2 longs in size each.
+; Table VD_VOADT is what we need. Note however that the .address operators
+; there probably need to change to some more general .linkage directive.
+	movzwl	ucb$w_unit(r5),r11	; get our unit number
+; Each linkage pair is 8 bytes long...
+	ashl	#3,r11,r11		; Make an offset to the linkage area
+	movab	vd_voadt,r10		; get the table base
+	addl2	r10,r11			; r11 now points at the link addr
+	movl	(r11),irp$l_pid(r3)	; Now point irp$l_pid at a proper
+					; pointer to the desired procedure
+;				; GET BACK CONTROL AT VD_FIXSPLIT (VIA JSB)
+;				; WHEN HOST'S I/O IS DONE.
+	movl	(sp)+,r10		; Restore R10
+	movl	(sp)+,r11		; get r11 back & clean stack now
+	.if	df,vms$v5		;save our UCB for synch
+; normally just call exe$insioqc to avoid SMP problems in V5.x and up
+	.if	df,relacq
+	movzbl	ucb$b_flck(r5),-(sp)	;store fork lock info on stack
+	.endc
+	.endc
+	MOVL	UCB$HUCB(R5),R5		;NOW POINT AT HOST UCB OURSELVES
+;
+;;;
+	MOVL	IRP$L_MEDIA(R3),R0	;GET LBN TO CONVERT
+; Note that the host driver normally will get physical I/O addresses
+; in this entry. Logical I/O is converted to physical in FDT
+; routines for most drivers; the few exceptions inhibit conversion
+; via IOC$CVTLOGPHY anyway. Therefore we must ALWAYS convert to
+; physical.
+	JSB	G^IOC$CVTLOGPHY		; LET THE EXEC DO IT
+; Logical I/O... relocate it here
+; Already adjusted the logical blk # earlier
+	.if	df,d$$bug
+	MOVL	IRP$L_MEDIA(R3),DBGDTA+56	;SAVE FOR DEBUG EXAM
+	.endc
+; next op may mess up some regs. Also we cannot access the packet once
+; we give it to the host driver thus:
+	.if	ndf,vms$v5	;this code is fine in V4
+	JSB	G^EXE$INSIOQ		; INSERT PACKET INTO HOST'S QUEUE
+	Ret
+	.iff
+; for smp may need to release a spinlock on vd: ucb at this point before
+; the jmp.
+;  Since this vd: unit is busy at this point, we won't get back here
+; until the I/O completion anyway, so we should be able to leave fork state
+; and let exe$insioq re-enter it for our host driver.
+; Main difficulty is releasing the correct fork...
+	.if	df,relacq
+	.if	ndf,v5$picky
+	movl	(sp)+,r0		;restore our fork lock info
+	forkunlock R0			;and release VD:'s spinlocks
+; Notice that exe$insioq acquires and releases forklock. Since we were
+; called from this routine ultimately also, we should ensure that
+; when we return that we hold the proper VD: forklock to be released.
+; This will be conditioned by v5$picky defined.
+	JSB	G^EXE$INSIOQ		; INSERT PACKET INTO HOST'S QUEUE
+	ret
+	.iff	;v5$picky
+	movl	(sp),r0			;get our lock ID
+	forkunlock r0			;release vd: spinlocks and so on
+	jsb	g^exe$insioq		;stash the IRP on host driver's queue
+;now get our forklock back
+	movl	(sp)+,r0		;get r0 back as vd: lock id
+	forklock r0			;and re-acquire lock so
+;					;exe$insioq can dismiss it...
+	ret				;then return
+	.endc	;v5$picky
+	.iff	;relacq
+	call_insioqc
+	ret
+	.endc	;relacq
+	.endc	;vms$v5
+; WE Now have queued the work to the real driver. Since the
+; I/O may have splits, just await done return and let the
+; vd_fixsplit processing get done our cleanup. Because we need
+; to await this, just return with VD: unit STILL BUSY to ensure
+; that we don't get thru here until we're GOOD AND READY!
+	.if	ndf,vms$v5
+402$:
+	BRW	FEXL			;Else, branch to execute function.
+;
+	.endc
+;	UNLOAD and AVAILABLE Functions
+;	Clear UCB$V_VALID in UCB$W_STS
+;
+UNLOAD:
+AVAILABLE: 
+;	BICl	#UCB$M_VALID, -		;Clear sofware volume valid bit.
+;		UCB$l_STS(R5)
+;	BRB	NORMAL			;Then complete the operation.
+; 
+; 	OPERATON COMPLETION
+; 
+FEXL:	; dummy entry ... should never get here
+NORMAL:	
+	MOVZWL	#SS$_NORMAL,R0		;ASSUME NORMAL COMPLETION STATUS
+	BRB	FUNCXT			;FUNCTION EXIT
+
+FATALERR: 		;UNRECOVERABLE ERROR
+	MOVZWL	#SS$_DRVERR,R0		;ASSUME DRIVE ERROR STATUS
+
+RESETXFR:	; dummy entry ... should never really get here
+	MOVL	UCB$L_IRP(R5),R3	;GET I/O PKT
+;	MNEGW	IRP$L_BCNT(R3),UCB$L_BCR(R5) ; RESET BYTECOUNT
+;	BRW	FUNCXT
+FUNCXT: 					;FUNCTION EXIT
+	CLRL	R1			;CLEAR 2ND LONGWORD OF IOSB
+	REQCOM,environment=CALL		; COMPLETE REQUEST
+	.PAGE
+; 
+;VD_INT::
+VD_UNSOLNT:: .call_entry input=<r3,r4,r5>
+	RET
+	;;
+; FIX SPLITS...
+; RETURN IRP TO OUR UCB ADDRESS
+; THEN REQCOM
+;
+; TRICK IS TO GET OUR UCB ADDRESS BACK WHEN WE REGAIN CONTROL. DO SO VIA
+; JIGGERY-POKERY WITH THE ADDRESS WE CALL. STORE UCB ADDRESSES IN A TABLE
+; INTERNALLY AND USE THE CALL ADDRESS TO GET WHERE WE ARE BACK AGAIN.
+;
+; Note: On entry, r5 points at the IRP we're to handle. We bash this
+; information and regenerate it, since irp$l_ucb has already been
+; bashed and can't locate our UCB anyway. Therefore we let the return
+; address give us the VD: UCB address implicitly via local save and
+; restore; each VD: unit returns to a different entry point which preloads
+; r5 with a different offset. Once the ucb is located, ucb$l_irp gets
+; back the IRP address. This is possibly extra work; one can imagine
+; that some IRP fields like SEGVBN could be used to hold the vd: ucb
+; address temporarily, since they are saved/restored internally. This
+; would allow some address arithmetic to be dispensed with. The current
+; method is merely intended to work and NOT force us to let the host driver
+; (and maybe other host software) look at bogus IRP fields, and also
+; let us remain blissfully ignorant of how VMS handles IRPEs for purposes
+; of this driver. (ecch...having to figure out a way to keep i/o post
+; processing out of OUR IRPEs (for sure) while using them for temporary
+; storage... what a thought!)
+;
+; NOTE FOLLOWING CODE ASSUMES VD_UNITS IS 2 OR MORE.
+; Note: we get here from ioc$iopost call. This is the really tricky
+; thing here...question is, does the ioc$iopost call work the same
+; in alpha as in vax???
+V_UNIT=0
+V_UNM=1
+VD_FXS0:: .jsb_entry input=<r5>
+	MOVL	I^#V_UNIT,R4
+	BSBW	VD_FIXSPLIT	;GO HANDLE
+	RSB
+VD_FXPL==<.-VD_FXS0>	;LENGTH IN BYTES OF THIS LITTLE CODE SEGMENT
+V_UNIT=V_UNIT+4		;PASS TO NEXT UNIT
+	.MACRO	XVEC LBLC
+VD_FXS'LBLC: .jsb_entry input=<r5>
+	MOVL	I^#V_UNIT,R4
+	BSBW	VD_FIXSPLIT
+	RSB
+	.ENDM
+	.REPEAT	<VD_UNITS+4>	; some extra for safety
+	XVEC	\V_UNM
+V_UNIT=V_UNIT+4		;PASS TO NEXT UNIT
+V_UNM=V_UNM+1
+	.ENDR
+
+VD_FIXSPLIT: .jsb_entry
+; GET OLD PID..
+; IN OUR UCB$PPID LONGWORD...
+;	.IF	NDF,VMS$V5
+;; assume ipl$_synch = 8
+;	DSBINT	ipl=#8		; GO TO FORK IPL
+;	.ENDC
+; NOTE!!! PROBABLY NEEDS MODS FOR VMS V5!!!
+;some cleanup for host needed here. Note that r5 enters as IRP address.
+; Use initial R5 to help reset host's system...
+	movl	irp$l_ucb(r5),r3	;get host's UCB addr
+	movl	r5,r2		;store entry IRP address for check later
+	PUSHL	R4	;NEED TO WORK IN R5
+	MOVAB	VD_UCBTBL,R5
+	ADDL2	(SP)+,R5	;R5 NOW POINTS AT UCB ADDRESS
+	MOVL	(R5),R5		;NOW HAVE OUR UCB ADDRESS IN R5
+	decl	ucb$l_qlen(r3)	;cleanup host's q len as ioc$iopost would have
+	bgeq	6$
+	clrl	ucb$l_qlen(r3)	;force queue length zero
+6$:
+	cmpl	r2,ucb$l_irp(r5)	;got the correct IRP???
+	beql	7$		;if eql yes
+	.iif	df,x$$$dt,jsb g^ini$brk ;notify...
+; MUST avoid screwup where we don't have the correct IRP since there's
+; no connection directly between IRP and UCB. VD: unit being busy should
+; avoid this error, BUT we have no way to be certain of this w/o exhaustive
+; system code checks.
+	rsb			;else wrong IRP, don't do more damage.
+7$:
+; notice stack is now clean too.
+	movl	r5,r4
+	FORK			;go fork on our UCB now (vd: ucb)
+	movl	r4,r5
+;	.IF	DF,VMS$V5
+;	FORKLOCK SAVIPL=-(SP)
+;	.ENDC
+	.if	df,d$$bug
+	movl	r5,dbgdta+72	;save ucb addr as flag we got here
+	movl	ucb$l_irp(r5),dbgdta+76	;save irp addr also
+	.endc
+	MOVL	UCB$L_IRP(R5),R3	; POINT R3 AT IRP AGAIN
+	.if	df,d$$bug
+	movl	r5,dbgdta+80	;save ucb addr as flag we got here
+	movl	ucb$l_irp(r5),dbgdta+84	;save irp addr also
+	movl	ucb$ppid(r5),dbgdta+88	;save old pid field also
+	.endc
+	TSTL	UCB$PPID(R5)	; ENSURE PID IS NONZERO AS SAVED
+	BEQL	15$		; SKIP BASH IF NOT
+	MOVL	UCB$PPID(R5),IRP$L_PID(R3)	;RESTORE THE OLD PID
+; since we may now have later parts of virtual, paging, or swapping I/O
+; to do, restore saved byte counts and function codes.
+	movl	ucb$obct(r5),irp$l_obcnt(r3)	;restore orig byte cnt
+;	movl	ucb$owind(r5),irp$l_wind(r3)	;restore window pointer
+	movl	ucb$osegv(r5),irp$l_segvbn(r3)	;restore segment vbn also
+	brb	1501$
+15$:
+	.if	df,x$$$dt
+;mousetrap if we EVER see 0 saved PID!!
+	jsb	g^ini$brk
+	.endc
+	clrl	irp$l_pid(r3)	;make sure we DON'T get back here anyway!
+; this is actually an error condition and should NEVER occur...
+	movl	ucb$obct(r5),irp$l_obcnt(r3)	;restore orig byte cnt
+1501$:
+	.if	df,x$$$dt
+	cmpl	irp$l_bcnt(r3),irp$l_obcnt(r3)
+	beql	17$		;branch if no split I/O going on
+	movl	irp$l_segvbn(r3),r2	;get segvbn
+	movl	irp$l_media(r3),r1	;and media fields
+	jsb	g^ini$brk
+17$:
+	.endc
+	CLRL	UCB$PPID(R5)	; ZERO SAVED PID FIELD FOR CLEANLINESS
+	MOVL	R5,IRP$L_UCB(R3)	;RESTORE VD: AS UCB IN IRP TOO
+; GRAB R0 AND R1 AS REQCOM IN HOST DRIVER LEFT THEM...
+	MOVL	IRP$L_MEDIA(R3),R0	;GET BACK R0
+	MOVL	IRP$L_MEDIA+4(R3),R1	;AND R1
+; R0, R1 ARE AS HOST DRIVER LEFT THEM. R5 POINTS TO CORRECT UCB.
+;  ===> GO FOR IT !!!
+;
+; Now restore the original IRP$L_MEDIA field of the IRP in case error
+; paths in IOC$REQCOM ever need it. Some very low XQP cache situations
+; may occasionally need this, though in reasonable sysgen configs it
+; should never be needed. This is the one area that got bashed during
+; the earlier I/O completion processing in the host driver.
+;
+	MOVL	UCB$LMEDIA(R5),IRP$L_MEDIA(R3)
+;
+; notice that for virtual I/O, the IRP's IRP$L_SEGVBN longword still
+; has the starting VIRTUAL block number of the I/O request in the context
+; of the virtual disk. This must be present as any second and later parts
+; of the I/O request modify that field to compute where to go for the
+; next I/O. Due to getting back here, the host driver need never know
+; about this; it is basically doing ONLY physical and logical I/O where
+; this sort of completion jiggery-pokery does not occur.
+;		- GCE
+; Now go REALLY complete the I/O (possibly causing more I/O and certainly
+; ensuring the VD: I/O queue is emptied and VD: unbusied after all is done.)
+	call_reqcom
+;	JSB	@#IOC$REQCOM	; GO COMPLETE THE I/O REQUEST IN VD: CONTEXT
+; (OR DO I/O SPLIT NEXT PART IN VD: CONTEXT!)
+; ALSO, RETURN **HERE**, SO WE CAN WRAP UP ALL ELSE.
+;	.IF	NDF,VMS$V5
+;	ENBINT		; RESTORE IPL TO IPL$_IOPOST
+;	.IFF
+;	FORKUNLOCK	NEWIPL=(SP)+
+;	.ENDC
+; rsb exits the fork level.
+; IPL4 level exited at fork above, with stack intact at that point.
+; iopost saves/restores regs, so r5 bash is ok.
+	RSB	; GET BACK TO HOST SOMETIME
+; unload routine...dummy...
+vd_unload: .jsb_entry
+	movl	#SS$_NORMAL,R0
+	RSB	;unload routine
+;
+;ADDRESS OF LAST LOCATION IN DRIVER
+;
+VD_END:
+	.END
+
+% ====== Internet headers and postmarks (see DECWRL::GATEWAY.DOC) ======
+% Received: from mail1.digital.com by us2rmc.zko.dec.com (5.65/rmc-22feb94) id AA19739; Sat, 3 Jun 95 14:50:40 -040
+% Received: from gce.com by mail1.digital.com; (5.65 EXP 4/12/95 for V3.2/1.0/WV) id AA18801; Sat, 3 Jun 1995 11:41:02 -070
+% Date: Sat, 3 Jun 1995 14:40:55 -0400 (EDT)
+% From: EVERHART@arisia.gce.com
+% To: row::everhart
+% Message-Id: <950603144055.63@arisia.gce.com>
+% Subject: vddriver_s264.mar

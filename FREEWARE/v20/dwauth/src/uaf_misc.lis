@@ -1,0 +1,982 @@
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 1
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (1)
+
+
+
+    1        	#module UAF_MISC "X-3"
+    2        	
+    3        	/*
+    4        	**++
+    5        	**  FACILITY:	Authorization record maintenance utility
+    6        	**
+    7        	**  MODULE DESCRIPTION:
+    8        	**
+    9        	**		This module contains miscellaneous routines needed by the
+   10        	**		DECwindows AUTHORIZE utility.
+   11        	**
+   12        	**  AUTHORS:	L. Mark Pilant		CREATION DATE:  12-Nov-1992
+   13        	**
+   14        	**  MODIFICATION HISTORY:
+   15        	**
+   16        	**	X-3	LMP		L. Mark Pilant,		 8-OCT-1993  15:43
+   17        	**		Add AUTHORIZE$MATCH_NAME routine.
+   18        	**
+   19        	**	X-2	LMP		L. Mark Pilant,		 2-MAR-1993  15:40
+   20        	**		Convert to C from BLISS sources.
+   21        	**
+   22        	**	X-1	LMP		L. Mark Pilant		12-Nov-1992
+   23        	**		Original version.
+   24        	**
+   25        	**--
+   26        	*/
+   27        	
+   28        	/*
+   29        	**
+   30        	**  INCLUDE FILES
+   31        	**
+   32        	*/
+   33        	
+   34        	#include <SSDEF>
+  676        	#include <TPADEF>
+  725        	
+  726        	#include "uaf_header"
+ 2146        	
+ 2147        	/*
+ 2148        	**
+ 2149        	**  FORWARD ROUTINES
+ 2150        	**
+ 2151        	*/
+ 2152        	
+ 2153        	#pragma noinline (AUTHORIZE$CONVERT_UIC)
+ 2154        	#pragma noinline (AUTHORIZE$ITMLST_ADD_ITEM)
+ 2155        	#pragma noinline (AUTHORIZE$ITMLST_COMPARE)
+ 2156        	#pragma noinline (AUTHORIZE$ITMLST_COPY)
+ 2157        	#pragma noinline (AUTHORIZE$ITMLST_DELETE)
+ 2158        	#pragma noinline (AUTHORIZE$ITMLST_MERGE)
+ 2159        	#pragma noinline (AUTHORIZE$ITMLST_UPDATE)
+ 2160        	#pragma noinline (AUTHORIZE$MATCH_NAME)
+ 2161        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 2
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (2)
+
+             	
+ 2162        	extern unsigned int AUTHORIZE$CONVERT_UIC (uic_string, uic_value)
+ 2163        	
+ 2164        	char				*uic_string;
+ 2165        	unsigned int			*uic_value;
+ 2166        	{
+ 2167    1   	/*
+ 2168    1   	**++
+ 2169    1   	**  FUNCTIONAL DESCRIPTION:
+ 2170    1   	**
+ 2171    1   	**	This routine is called to convert a UIC string to a value.
+ 2172    1   	**
+ 2173    1   	**  FORMAL PARAMETERS:
+ 2174    1   	**
+ 2175    1   	**	UIC_STRING	- Pointer to the UIC string
+ 2176    1   	**	UIC_VALUE	- Address of a cell to contain the converted UIC
+ 2177    1   	**
+ 2178    1   	**  RETURN VALUE:
+ 2179    1   	**
+ 2180    1   	**	Status from LIB$TPARSE.
+ 2181    1   	**
+ 2182    1   	**  SIDE EFFECTS:
+ 2183    1   	**
+ 2184    1   	**	None
+ 2185    1   	**
+ 2186    1   	**--
+ 2187    1   	*/
+ 2188    1   	
+ 2189    1   	/* External routines. */
+ 2190    1   	
+ 2191    1   	#if defined (__ALPHA) || defined (__alpha)
+ 2192   X    	extern			LIB$TABLE_PARSE ();
+ 2193    1   	#else
+ 2194    1   	extern			LIB$TPARSE ();
+ 2195    1   	#endif /* defined (__ALPHA) || defined (__alpha) */
+ 2196    1   	
+ 2197    1   	/* Global storage. */
+ 2198    1   	
+ 2199    1   	globalref unsigned int	converted_uic;			/* Converted UIC value */
+ 2200    1   	globalref unsigned char	uic_key[];			/* TPARSE key tables */
+ 2201    1   	globalref unsigned char	uic_state[];			/* TPARSE state tables */
+ 2202    1   	globalref struct tpadef	tparse_block;			/* TPARSE argument block */
+ 2203    1   	
+ 2204    1   	/* Local storage. */
+ 2205    1   	
+ 2206    1   	unsigned int		status;				/* Routine exit status */
+ 2207    1   	
+ 2208    1   	/* Initialize needed storage. */
+ 2209    1   	
+ 2210    1   	converted_uic = 0;
+ 2211    1   	status = SS$_NORMAL;					/* Assume success */
+ 2212    1   	
+ 2213    1   	/* In there is something to convert, do it.  Otherwise, simply skip the
+ 2214    1   	** following which will allow a zero UIC value to be returned. */
+ 2215    1   	
+ 2216    1   	if (strlen (uic_string) != 0)
+ 2217    1   	    {
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 3
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (2)
+
+ 2218    2   	    tparse_block.tpa$l_stringcnt = strlen (uic_string);
+ 2219    2   	    tparse_block.tpa$l_stringptr = uic_string;
+ 2220    2   	
+ 2221    2   	/* On an OpenVMS/AXP system (and also OpenVMS/VAX Version 6) the parse
+ 2222    2   	** routine is called LIB$TABLE_PARSE.  On an OpenVMS/VAX system the parse
+ 2223    2   	** routine is called LIB$TPARSE.  Compile the appropriate source. */
+ 2224    2   	
+ 2225    2   	#if defined (__ALPHA) || defined (__alpha)
+ 2226   X    	    status = LIB$TABLE_PARSE (&tparse_block, uic_state, uic_key);
+ 2227    2   	#else
+ 2228    2   	    status = LIB$TPARSE (&tparse_block, uic_state, uic_key);
+ 2229    2   	#endif /* defined (__ALPHA) || defined (__alpha) */
+ 2230    2   	    }
+ 2231    1   	
+ 2232    1   	/* Return the converted UIC if necessary. */
+ 2233    1   	
+ 2234    1   	if (uic_value != 0) *uic_value = converted_uic;
+ 2235    1   	
+ 2236    1   	return status;
+ 2237    1   	}
+ 2238        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 4
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (3)
+
+             	
+ 2239        	extern void AUTHORIZE$ITMLST_ADD_ITEM (itmlst, item_code, entry_size, entry)
+ 2240        	
+ 2241        	struct ITMDEF			(**itmlst)[];
+ 2242        	int				item_code;
+ 2243        	int				entry_size;
+ 2244        	unsigned char			*entry;
+ 2245        	{
+ 2246    1   	/*
+ 2247    1   	**++
+ 2248    1   	**  FUNCTIONAL DESCRIPTION:
+ 2249    1   	**
+ 2250    1   	**	This routine is called to add an entry to a dynamic item list.  To
+ 2251    1   	**	do this, a buffer is allocated an the item list extended so the new
+ 2252    1   	**	entry may be added to the end of the item list.
+ 2253    1   	**
+ 2254    1   	**	This routine assumes the buffer information is disjoint from the
+ 2255    1   	**	actual item lust.  This allows just the item list to be freed up
+ 2256    1   	**	without having to diddle with all the individual buffers.
+ 2257    1   	**
+ 2258    1   	**  FORMAL PARAMETERS:
+ 2259    1   	**
+ 2260    1   	**	ITMLST		- Address of a pointer containing the pointer to
+ 2261    1   	**			  the dynamic item list
+ 2262    1   	**	ITEM_CODE	- Item code for the new item list entry
+ 2263    1   	**	ENTRY_SIZE	- Number of bytes for the new item list entry
+ 2264    1   	**	ENTRY		- Pointer to the buffer containing the information
+ 2265    1   	**			  for the new item list entry
+ 2266    1   	**
+ 2267    1   	**  RETURN VALUE:
+ 2268    1   	**
+ 2269    1   	**	None
+ 2270    1   	**
+ 2271    1   	**  SIDE EFFECTS:
+ 2272    1   	**
+ 2273    1   	**	None
+ 2274    1   	**
+ 2275    1   	**--
+ 2276    1   	*/
+ 2277    1   	
+ 2278    1   	/* External routines. */
+ 2279    1   	
+ 2280    1   	extern void		AUTHORIZE$ITMLST_DELETE ();
+ 2281    1   	extern void		AUTHORIZE$ITMLST_COPY ();
+ 2282    1   	
+ 2283    1   	/* Local storage. */
+ 2284    1   	
+ 2285    1   	int			itmlst_size = 0;		/* Size of the item list to free up */
+ 2286    1   	int			itmlst_index = 0;		/* Index into item list */
+ 2287    1   	struct ITMDEF		(*new_itmlst)[] = 0;		/* New allocated item list */
+ 2288    1   	unsigned int		status;				/* Routine exit status */
+ 2289    1   	
+ 2290    1   	/* Copy the input item list, and request enough room to be added for the
+ 2291    1   	** new item list entry. */
+ 2292    1   	
+ 2293    1   	AUTHORIZE$ITMLST_COPY (*itmlst,
+ 2294    1   			       &new_itmlst,
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 5
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (3)
+
+ 2295    1   			       itm$c_length);
+ 2296    1   	
+ 2297    1   	/* Figure out where the current item list is terminated. */
+ 2298    1   	
+ 2299    1   	if (*itmlst != 0)
+ 2300    1   	    {
+ 2301    2   	    while ((**itmlst)[itmlst_index].itm$w_itmcod != 0) itmlst_index++;
+ 2302    2   	    }
+ 2303    1   	
+ 2304    1   	/* Allocate storage for the new item list entry buffer.  Also fill the
+ 2305    1   	** other parts of the new item list entry.  */
+ 2306    1   	
+ 2307    1   	(*new_itmlst)[itmlst_index].itm$w_itmcod = item_code;
+ 2308    1   	(*new_itmlst)[itmlst_index].itm$w_bufsiz = entry_size;
+ 2309    1   	(*new_itmlst)[itmlst_index].itm$l_bufadr = malloc (entry_size);
+ 2310    1   	
+ 2311    1   	/* If the allocation fails, free up the memory allocated for the new item
+ 2312    1   	** list, and signal a failure status. */
+ 2313    1   	
+ 2314    1   	if ((*new_itmlst)[itmlst_index].itm$l_bufadr == 0)
+ 2315    1   	    {
+ 2316    2   	    AUTHORIZE$ITMLST_DELETE (&new_itmlst);		/* Delete the copy */
+ 2317    2   	    free (new_itmlst);
+ 2318    2   	    LIB$SIGNAL (UAF$_NOPROCMEM);
+ 2319    2   	    return;
+ 2320    2   	    }
+ 2321    1   	
+ 2322    1   	/* Copy the information from the supplied buffer to the newly allocated buffer. */
+ 2323    1   	
+ 2324    1   	memmove ((*new_itmlst)[itmlst_index].itm$l_bufadr, entry, entry_size);
+ 2325    1   	
+ 2326    1   	/* Since the new item list is complete, delete the original item list. */
+ 2327    1   	
+ 2328    1   	if (*itmlst != 0) AUTHORIZE$ITMLST_DELETE (itmlst);
+ 2329    1   	
+ 2330    1   	/* Return a pointer to the new item list. */
+ 2331    1   	
+ 2332    1   	*itmlst = new_itmlst;
+ 2333    1   	}
+ 2334        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 6
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (4)
+
+             	
+ 2335        	extern void AUTHORIZE$ITMLST_COMPARE (first_itmlst, second_itmlst, itmlst_out)
+ 2336        	
+ 2337        	struct ITMDEF			first_itmlst[];
+ 2338        	struct ITMDEF			second_itmlst[];
+ 2339        	struct ITMDEF			(**itmlst_out)[];
+ 2340        	{
+ 2341    1   	/*
+ 2342    1   	**++
+ 2343    1   	**  FUNCTIONAL DESCRIPTION:
+ 2344    1   	**
+ 2345    1   	**	This routine is called to compare two item lists and produce a third
+ 2346    1   	**	item list with only the differences; using the first item list as the
+ 2347    1   	**	source for the new item list.
+ 2348    1   	**
+ 2349    1   	**  FORMAL PARAMETERS:
+ 2350    1   	**
+ 2351    1   	**	FIRST_ITMLST	- Address of the first item list to compare
+ 2352    1   	**	SECOND_ITMLST	- Address of the second item list to compare
+ 2353    1   	**	ITMLST_OUT	- Address of a pointer containing the pointer to the
+ 2354    1   	**			  new item list
+ 2355    1   	**
+ 2356    1   	**  RETURN VALUE:
+ 2357    1   	**
+ 2358    1   	**	None
+ 2359    1   	**
+ 2360    1   	**  SIDE EFFECTS:
+ 2361    1   	**
+ 2362    1   	**	None
+ 2363    1   	**
+ 2364    1   	**--
+ 2365    1   	*/
+ 2366    1   	
+ 2367    1   	/* External routines. */
+ 2368    1   	
+ 2369    1   	extern void		AUTHORIZE$ITMLST_ADD_ITEM ();
+ 2370    1   	extern void		AUTHORIZE$ITMLST_COPY ();
+ 2371    1   	extern void		AUTHORIZE$ITMLST_DELETE ();
+ 2372    1   	
+ 2373    1   	/* Local storage. */
+ 2374    1   	
+ 2375    1   	short int		add_to_output;			/* Simple flag */
+ 2376    1   	int			first_itmlst_index;		/* Index into first item list */
+ 2377    1   	struct ITMDEF		(*new_itmlst)[] = 0;		/* New item list */
+ 2378    1   	struct ITMDEF		(*second_itmlst_copy)[] = 0;	/* Local copy of the second item list */
+ 2379    1   	int			second_itmlst_index;		/* Index into second item list */
+ 2380    1   	unsigned int		status;				/* Routine exit status */
+ 2381    1   	
+ 2382    1   	/* Before starting, copy the second item list.  This will allow the item entries
+ 2383    1   	** to be flagged (by setting the item code to -1) as being processed.  This means
+ 2384    1   	** it is possible to transfer any remaining item entries from the second item list
+ 2385    1   	** to the output item list. */
+ 2386    1   	
+ 2387    1   	AUTHORIZE$ITMLST_COPY (second_itmlst,
+ 2388    1   			       &second_itmlst_copy,
+ 2389    1   			       0);
+ 2390    1   	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 7
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (4)
+
+ 2391    1   	/* Compare the item list entries in each of the two input item lists, and
+ 2392    1   	** produce a third item list containing the differences (using the first item
+ 2393    1   	** list as the source).
+ 2394    1   	**
+ 2395    1   	** Because there is no assumed order in either of the input item lists, the
+ 2396    1   	** comparison takes a little more time (but not a whole lot of effort).  The
+ 2397    1   	** comparison is done by taking each item list entry from the first list (in
+ 2398    1   	** turn) and checking to see if it exists in the ssecond item list.  If it
+ 2399    1   	** does not exist, or it exists and the data is different, add it to the third
+ 2400    1   	** item list. */
+ 2401    1   	
+ 2402    1   	/* Loop through each item list entry in the first item list. */
+ 2403    1   	
+ 2404    1   	for (first_itmlst_index = 0; first_itmlst[first_itmlst_index].itm$w_itmcod != 0; first_itmlst_index++)
+ 2405    1   	    {
+ 2406    2   	    add_to_output = 1;				/* Assume entry will be added to output list */
+ 2407    2   	
+ 2408    2   	/* Loop through each item list entry in the second item list. */
+ 2409    2   	
+ 2410    2   	    for (second_itmlst_index = 0; (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0; second_itmlst_index++)
+ 2411    2   		{
+ 2412    3   	
+ 2413    3   	/* Look for an item code match.  If the item codes match, check the item entry
+ 2414    3   	** size and finally the buffer contents. */
+ 2415    3   	
+ 2416    3   		if (first_itmlst[first_itmlst_index].itm$w_itmcod == (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod)
+ 2417    3   		    {
+ 2418    4   	
+ 2419    4   	/* Flag this item entry as being processed. */
+ 2420    4   	
+ 2421    4   		    (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod = -1;
+ 2422    4   	
+ 2423    4   	/* If the buffer sizes do not match, trip out early since the buffer contents
+ 2424    4   	** cannot possibly match. */
+ 2425    4   	
+ 2426    4   		    if (first_itmlst[first_itmlst_index].itm$w_bufsiz != (*second_itmlst_copy)[second_itmlst_index].itm$w_bufsiz) bre
+ak;
+ 2427    4   	
+ 2428    4   	/* Since the buffer sizes match, check the buffer contents.  If the buffer
+ 2429    4   	** contents match, do not add the item list entry to the third item list. */
+ 2430    4   	
+ 2431    4   		    if (memcmp (first_itmlst[first_itmlst_index].itm$l_bufadr,
+ 2432    4   				(*second_itmlst_copy)[second_itmlst_index].itm$l_bufadr,
+ 2433    4   				first_itmlst[first_itmlst_index].itm$w_bufsiz) == 0)
+ 2434    4   			add_to_output = 0;			/* Do not add entry to output list */
+ 2435    4   	
+ 2436    4   	/* Since the item codes from the two item list entries matched, there is no
+ 2437    4   	** need to continue on in the second item list.  Trip out now. */
+ 2438    4   	
+ 2439    4   		    break;
+ 2440    4   		    }
+ 2441    3   		}
+ 2442    2   	
+ 2443    2   	/* At this point, the second item list has been searched for the entry from the
+ 2444    2   	** first item list.  Either a match has been found, a similar entry with different
+ 2445    2   	** data has been found, or the entry has not been found.
+ 2446    2   	**
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 8
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (4)
+
+ 2447    2   	** If the entry has not been found or it is different, add it to the third item
+ 2448    2   	** list. */
+ 2449    2   	
+ 2450    2   	    if (add_to_output != 0)
+ 2451    2   		AUTHORIZE$ITMLST_ADD_ITEM (&new_itmlst,
+ 2452    2   					   first_itmlst[first_itmlst_index].itm$w_itmcod,
+ 2453    2   					   first_itmlst[first_itmlst_index].itm$w_bufsiz,
+ 2454    2   					   first_itmlst[first_itmlst_index].itm$l_bufadr);
+ 2455    2   	    }
+ 2456    1   	
+ 2457    1   	/* Since the entire first item list has been processed, scan through all the
+ 2458    1   	** entries of the second item list looking for any item entries not processed.
+ 2459    1   	** These are then added to the output item list.
+ 2460    1   	**
+ 2461    1   	** Note the USERNAME item entry is not copied, if it is present.  This is not
+ 2462    1   	** done because $SETUAI does not know to ignore it; and will return a bad
+ 2463    1   	** parameter error status if it is present. */
+ 2464    1   	
+ 2465    1   	for (second_itmlst_index = 0; (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0; second_itmlst_index++)
+ 2466    1   	    {
+ 2467    2   	    if ((*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0xffff &&
+ 2468    2   		(*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != UAI$_USERNAME)
+ 2469    2   		{
+ 2470    3   		AUTHORIZE$ITMLST_ADD_ITEM (&new_itmlst,
+ 2471    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod,
+ 2472    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$w_bufsiz,
+ 2473    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$l_bufadr);
+ 2474    3   		}
+ 2475    2   	    }
+ 2476    1   	
+ 2477    1   	/* Now delete the copy of the second item list. */
+ 2478    1   	
+ 2479    1   	AUTHORIZE$ITMLST_DELETE (&second_itmlst_copy);
+ 2480    1   	
+ 2481    1   	/* If there is an existing dynamic (output) item list, delete it. */
+ 2482    1   	
+ 2483    1   	if (*itmlst_out != 0) AUTHORIZE$ITMLST_DELETE (itmlst_out);
+ 2484    1   	
+ 2485    1   	/* If no new item list was created, because the item lists were the same,
+ 2486    1   	** create a null item list. */
+ 2487    1   	
+ 2488    1   	if (new_itmlst == 0)
+ 2489    1   	    {
+ 2490    2   	    new_itmlst = calloc (1, LONGWORD);		/* Single longword item list terminator */
+ 2491    2   	    if (new_itmlst == 0) LIB$SIGNAL (UAF$_NOPROCMEM);
+ 2492    2   	    }
+ 2493    1   	
+ 2494    1   	/* Return the address of the new item list. */
+ 2495    1   	
+ 2496    1   	*itmlst_out = new_itmlst;
+ 2497    1   	}
+ 2498        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 9
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (5)
+
+             	
+ 2499        	extern void AUTHORIZE$ITMLST_COPY (itmlst_in, itmlst_out, additional_size)
+ 2500        	
+ 2501        	struct ITMDEF			itmlst_in[];
+ 2502        	struct ITMDEF			(**itmlst_out)[];
+ 2503        	int				additional_size;
+ 2504        	{
+ 2505    1   	/*
+ 2506    1   	**++
+ 2507    1   	**  FUNCTIONAL DESCRIPTION:
+ 2508    1   	**
+ 2509    1   	**	This routine is called to copy an item list.  This is done by allocating
+ 2510    1   	**	a new item listand needed buffers and then copying the information in
+ 2511    1   	**	the original buffers.
+ 2512    1   	**
+ 2513    1   	**  FORMAL PARAMETERS:
+ 2514    1   	**
+ 2515    1   	**	ITMLST_IN	- Address of the item list to copy
+ 2516    1   	**	ITMLST_OUT	- Address of a pointer containing the pointer to the
+ 2517    1   	**			  new item list
+ 2518    1   	**	ADDITIONAL_SIZE	- Number of additional bytes to add to the new item list
+ 2519    1   	**
+ 2520    1   	**  RETURN VALUE:
+ 2521    1   	**
+ 2522    1   	**	None
+ 2523    1   	**
+ 2524    1   	**  SIDE EFFECTS:
+ 2525    1   	**
+ 2526    1   	**	None
+ 2527    1   	**
+ 2528    1   	**--
+ 2529    1   	*/
+ 2530    1   	
+ 2531    1   	/* External routines. */
+ 2532    1   	
+ 2533    1   	extern void	AUTHORIZE$ITMLST_DELETE ();
+ 2534    1   	
+ 2535    1   	/* Local storage. */
+ 2536    1   	
+ 2537    1   	int		itmlst_size = 0;		/* Size of item list to copy */
+ 2538    1   	int		itmlst_index = 0;		/* Index into item list */
+ 2539    1   	struct ITMDEF	(*new_itmlst)[];		/* New allocated item list */
+ 2540    1   	unsigned int	status;				/* Routine exit status */
+ 2541    1   	
+ 2542    1   	/* Special case when there is no input item list.  In this case, the
+ 2543    1   	** output item list will be created with the terminator (item code 0)
+ 2544    1   	** as the only thing in the new item list. */
+ 2545    1   	
+ 2546    1   	if (itmlst_in == 0)
+ 2547    1   	    {
+ 2548    2   	    itmlst_size = 4;						/* For the terminator longword */
+ 2549    2   	    itmlst_size += additional_size;				/* Any additional space as requested */
+ 2550    2   	
+ 2551    2   	/* Allocate and clear a new item list. */
+ 2552    2   	
+ 2553    2   	    new_itmlst = calloc (1, itmlst_size);
+ 2554    2   	    if (new_itmlst == 0) LIB$SIGNAL (UAF$_NOPROCMEM);
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 10
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (5)
+
+ 2555    2   	
+ 2556    2   	/* If there is an existing dynamic (output) item list, delete it. */
+ 2557    2   	
+ 2558    2   	    if (*itmlst_out != 0) AUTHORIZE$ITMLST_DELETE (itmlst_out);
+ 2559    2   	
+ 2560    2   	/* Return the address of the new item list. */
+ 2561    2   	
+ 2562    2   	    *itmlst_out = new_itmlst;
+ 2563    2   	
+ 2564    2   	/* Exit stage left. */
+ 2565    2   	
+ 2566    2   	    return;
+ 2567    2   	    }
+ 2568    1   	
+ 2569    1   	/* Figure out how big the input item list is. */
+ 2570    1   	
+ 2571    1   	for (itmlst_index = 0; itmlst_in[itmlst_index].itm$w_itmcod != 0; itmlst_index++)
+ 2572    1   	    itmlst_size += itm$c_length;
+ 2573    1   	itmlst_size += 4;						/* Account for the terminator longword. */
+ 2574    1   	
+ 2575    1   	/* If there is a need for additional bytes to be added to the new item
+ 2576    1   	** list, add in the required number of bytes. */
+ 2577    1   	
+ 2578    1   	itmlst_size += additional_size;
+ 2579    1   	
+ 2580    1   	/* Allocate the main body of the new item list.  This is done with calloc
+ 2581    1   	** instead of malloc because any additional space must be cleared. */
+ 2582    1   	
+ 2583    1   	new_itmlst = calloc (1, itmlst_size);
+ 2584    1   	if (new_itmlst == 0) LIB$SIGNAL (UAF$_NOPROCMEM);
+ 2585    1   	
+ 2586    1   	/* Copy the main body of the item list. */
+ 2587    1   	
+ 2588    1   	memmove (new_itmlst, itmlst_in, itmlst_size - additional_size);
+ 2589    1   	
+ 2590    1   	/* Now look at each item list entry, and copy the buffer information. */
+ 2591    1   	
+ 2592    1   	itmlst_index = 0;						/* Reset the item list index */
+ 2593    1   	
+ 2594    1   	for (itmlst_index = 0; itmlst_in[itmlst_index].itm$w_itmcod != 0; itmlst_index++)
+ 2595    1   	    {
+ 2596    2   	
+ 2597    2   	/* If the buffer size of the item list entry is zero, simply set the buffer
+ 2598    2   	** address to be that of the item list entry.  This avoids any potential
+ 2599    2   	** problems with bufer address validation; even through the buffer size is
+ 2600    2   	** zero. */
+ 2601    2   	
+ 2602    2   	    if (itmlst_in[itmlst_index].itm$w_bufsiz == 0)
+ 2603    2   		(*new_itmlst)[itmlst_index].itm$l_bufadr = &(*new_itmlst)[itmlst_index];
+ 2604    2   	    else
+ 2605    2   		{
+ 2606    3   	
+ 2607    3   	/* Othersize, allocate a new buffer and copy the contents. */
+ 2608    3   	
+ 2609    3   		(*new_itmlst)[itmlst_index].itm$l_bufadr = malloc (itmlst_in[itmlst_index].itm$w_bufsiz);
+ 2610    3   	
+ 2611    3   	/* If the allocation fails, run through the new item list and free up any
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 11
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (5)
+
+ 2612    3   	** memory allocated to buffers.  These buffers can be identified by having
+ 2613    3   	** an address that is not the item list entry address and is not the same
+ 2614    3   	** as the input item list entry buffer address.  In the former case, there
+ 2615    3   	** is nothing to deallocate, and in the latter case, a new buffer has not
+ 2616    3   	** yet been allocated (which also means the list processing can terminate. */
+ 2617    3   	
+ 2618    3   		if ((*new_itmlst)[itmlst_index].itm$l_bufadr == 0)
+ 2619    3   		    {
+ 2620    4   		    for (itmlst_index = 0; itmlst_in[itmlst_index].itm$w_itmcod != 0; itmlst_index++)
+ 2621    4   			{
+ 2622    5   	
+ 2623    5   	/* If the buffer address in the input and output item lists is the same,
+ 2624    5   	** list processing can stop. */
+ 2625    5   	
+ 2626    5   			if (itmlst_in[itmlst_index].itm$l_bufadr ==
+ 2627    5   			    (*new_itmlst)[itmlst_index].itm$l_bufadr) break;
+ 2628    5   	
+ 2629    5   	/* See if there is anything to deallocate. */
+ 2630    5   	
+ 2631    5   			if ((*new_itmlst)[itmlst_index].itm$l_bufadr !=
+ 2632    5   			    &(*new_itmlst)[itmlst_index]) free ((*new_itmlst)[itmlst_index].itm$l_bufadr);
+ 2633    5   	
+ 2634    5   			}
+ 2635    4   	
+ 2636    4   	/* Deallocate the main body of the new item list. */
+ 2637    4   	
+ 2638    4   		    free (new_itmlst);
+ 2639    4   	
+ 2640    4   	/* Signal a failure status. */
+ 2641    4   	
+ 2642    4   		    LIB$SIGNAL (UAF$_NOPROCMEM);
+ 2643    4   		    }
+ 2644    3   	
+ 2645    3   	/* Copy the actual buffer information. */
+ 2646    3   	
+ 2647    3   		memmove ((*new_itmlst)[itmlst_index].itm$l_bufadr, itmlst_in[itmlst_index].itm$l_bufadr,
+ 2648    3   								   itmlst_in[itmlst_index].itm$w_bufsiz);
+ 2649    3   		}
+ 2650    2   	    }
+ 2651    1   	
+ 2652    1   	/* If there is an existing dynamic (output) item list, delete it. */
+ 2653    1   	
+ 2654    1   	if (*itmlst_out != 0) AUTHORIZE$ITMLST_DELETE (itmlst_out);
+ 2655    1   	
+ 2656    1   	/* Return the address of the new item list. */
+ 2657    1   	
+ 2658    1   	*itmlst_out = new_itmlst;
+ 2659    1   	}
+ 2660        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 12
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (6)
+
+             	
+ 2661        	extern void AUTHORIZE$ITMLST_DELETE (itmlst)
+ 2662        	
+ 2663        	struct ITMDEF			(**itmlst)[];
+ 2664        	{
+ 2665    1   	/*
+ 2666    1   	**++
+ 2667    1   	**  FUNCTIONAL DESCRIPTION:
+ 2668    1   	**
+ 2669    1   	**	This routine is called free up a dynamic item list.  This is done by
+ 2670    1   	**	first traversing the item list, freeing up the memory for any of the
+ 2671    1   	**	buffers.  Then the actual item list is deallocated.
+ 2672    1   	**
+ 2673    1   	**  FORMAL PARAMETERS:
+ 2674    1   	**
+ 2675    1   	**	ITMLST		- Address of a pointer containing the pointer to the
+ 2676    1   	**			  item list to delete
+ 2677    1   	**
+ 2678    1   	**  RETURN VALUE:
+ 2679    1   	**
+ 2680    1   	**	None
+ 2681    1   	**
+ 2682    1   	**  SIDE EFFECTS:
+ 2683    1   	**
+ 2684    1   	**	The item list pointer is cleared.
+ 2685    1   	**
+ 2686    1   	**--
+ 2687    1   	*/
+ 2688    1   	
+ 2689    1   	/* Local storage. */
+ 2690    1   	
+ 2691    1   	int		itmlst_index;			/* Index into item list */
+ 2692    1   	
+ 2693    1   	/* Initialize needed storage. */
+ 2694    1   	
+ 2695    1   	itmlst_index = 0;
+ 2696    1   	
+ 2697    1   	/* If there is an item list to delete, do it.  Otherwise simply return. */
+ 2698    1   	
+ 2699    1   	if (*itmlst != 0)
+ 2700    1   	    {
+ 2701    2   	    for (itmlst_index = 0; (**itmlst)[itmlst_index].itm$w_itmcod != 0; itmlst_index++)
+ 2702    2   		{
+ 2703    3   	
+ 2704    3   	/* See if there is anything to deallocate. */
+ 2705    3   	
+ 2706    3   		if ((**itmlst)[itmlst_index].itm$l_bufadr != 0) free ((**itmlst)[itmlst_index].itm$l_bufadr);
+ 2707    3   		}
+ 2708    2   	
+ 2709    2   	/* Deallocate the main body of the new item list. */
+ 2710    2   	
+ 2711    2   	    free (*itmlst);
+ 2712    2   	
+ 2713    2   	/* Note there is now no dynamic item list. */
+ 2714    2   	
+ 2715    2   	    *itmlst = 0;
+ 2716    2   	    }
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 13
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (6)
+
+ 2717    1   	}
+ 2718        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 14
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (7)
+
+             	
+ 2719        	extern void AUTHORIZE$ITMLST_MERGE (first_itmlst, second_itmlst, itmlst_out)
+ 2720        	
+ 2721        	struct ITMDEF			first_itmlst[];
+ 2722        	struct ITMDEF			second_itmlst[];
+ 2723        	struct ITMDEF			(**itmlst_out)[];
+ 2724        	{
+ 2725    1   	/*
+ 2726    1   	**++
+ 2727    1   	**  FUNCTIONAL DESCRIPTION:
+ 2728    1   	**
+ 2729    1   	**	This routine is called to merge two item lists and produce a third item
+ 2730    1   	**	list containing all the entries from the first item list and those entries
+ 2731    1   	**	from the second item list not present in the first item list.
+ 2732    1   	**
+ 2733    1   	**  FORMAL PARAMETERS:
+ 2734    1   	**
+ 2735    1   	**	FIRST_ITMLST	- Address of the first item list to compare
+ 2736    1   	**	SECOND_ITMLST	- Address of the second item list to compare
+ 2737    1   	**	ITMLST_OUT	- Address of a pointer containing the pointer to the
+ 2738    1   	**			  new item list
+ 2739    1   	**
+ 2740    1   	**  RETURN VALUE:
+ 2741    1   	**
+ 2742    1   	**	None
+ 2743    1   	**
+ 2744    1   	**  SIDE EFFECTS:
+ 2745    1   	**
+ 2746    1   	**	None
+ 2747    1   	**
+ 2748    1   	**--
+ 2749    1   	*/
+ 2750    1   	
+ 2751    1   	/* External routines. */
+ 2752    1   	
+ 2753    1   	extern void		AUTHORIZE$ITMLST_ADD_ITEM ();
+ 2754    1   	extern void		AUTHORIZE$ITMLST_COPY ();
+ 2755    1   	extern void		AUTHORIZE$ITMLST_DELETE ();
+ 2756    1   	
+ 2757    1   	/* Local storage. */
+ 2758    1   	
+ 2759    1   	struct ITMDEF		(*first_itmlst_copy)[] = 0;	/* Local copy of the first item list */
+ 2760    1   	int			first_itmlst_index;		/* Index into first item list */
+ 2761    1   	struct ITMDEF		(*second_itmlst_copy)[] = 0;	/* Local copy of the second item list */
+ 2762    1   	int			second_itmlst_index;		/* Index into second item list */
+ 2763    1   	
+ 2764    1   	/* Before starting, copy the item lists.  This will allow a new item list
+ 2765    1   	** to be built using the first item list as a starting point.   It will
+ 2766    1   	** also allow the item entries in the (copied) second itemlist to be
+ 2767    1   	** flagged (by setting the item code to -1) as being processed.  This means
+ 2768    1   	** it is possible to transfer any remaining item entries from the second
+ 2769    1   	** item list to the new item list. */
+ 2770    1   	
+ 2771    1   	
+ 2772    1   	AUTHORIZE$ITMLST_COPY (first_itmlst,
+ 2773    1   			       &first_itmlst_copy,
+ 2774    1   			       0);
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 15
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (7)
+
+ 2775    1   	AUTHORIZE$ITMLST_COPY (second_itmlst,
+ 2776    1   			       &second_itmlst_copy,
+ 2777    1   			       0);
+ 2778    1   	
+ 2779    1   	/* Compare the item list entries in each of the two input item lists.  Flag
+ 2780    1   	** those common entries (in the second item list) to avoid using them.
+ 2781    1   	** After both lists have been processed, take the unflagged entries and add
+ 2782    1   	** them to the new list.
+ 2783    1   	**
+ 2784    1   	** Note: The process of traversing these lists is fairly brute force; an inner
+ 2785    1   	** loop (to traverse the second list entries) within an outer loop (to traverse
+ 2786    1   	** the first list entries).  This does add a bit of overhead.
+ 2787    1   	**
+ 2788    1   	** A more elegant solution would be to have a three phase approach in the outer
+ 2789    1   	** loop.  The first phase (pass) would find the maximum item code seen for all
+ 2790    1   	** entries in the first item list.  This would allow an appropaitely sized bit
+ 2791    1   	** stream to be created.  The second phase (pass) would set a bit in the bit
+ 2792    1   	** stream (corresponding to the item code) indicating the item code was in use
+ 2793    1   	** in the first item list.  The third phase (third and successive passes) would
+ 2794    1   	** simply have to check to see if the bit corresponding to the item code from
+ 2795    1   	** the second item list was set in the bit stream.  If it is, the item list
+ 2796    1   	** entry is present in the first item list and should be ignored.
+ 2797    1   	**
+ 2798    1   	** In addition to having the first two phases size and populate the bit stream,
+ 2799    1   	** it would be possible to flag the item list entries in the second item list
+ 2800    1   	** at the same time; so no effort was wasted. */
+ 2801    1   	
+ 2802    1   	/* Loop through each item list entry in the first item list. */
+ 2803    1   	
+ 2804    1   	for (first_itmlst_index = 0; (*first_itmlst_copy)[first_itmlst_index].itm$w_itmcod != 0; first_itmlst_index++)
+ 2805    1   	    {
+ 2806    2   	
+ 2807    2   	/* Loop through each item list entry in the second item list. */
+ 2808    2   	
+ 2809    2   	    for (second_itmlst_index = 0; (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0; second_itmlst_index++)
+ 2810    2   		{
+ 2811    3   	
+ 2812    3   	/* Look for an item code match.  If the item codes match, check the item entry
+ 2813    3   	** size and finally the buffer contents. */
+ 2814    3   	
+ 2815    3   		if ((*first_itmlst_copy)[first_itmlst_index].itm$w_itmcod == (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod)
+ 2816    3   		    {
+ 2817    4   	
+ 2818    4   	/* Flag this item entry as being processed. */
+ 2819    4   	
+ 2820    4   		    (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod = -1;
+ 2821    4   	
+ 2822    4   	/* Since the item codes from the two item list entries matched, there is no
+ 2823    4   	** need to continue on in the second item list.  Trip out now. */
+ 2824    4   	
+ 2825    4   		    break;
+ 2826    4   		    }
+ 2827    3   		}
+ 2828    2   	    }
+ 2829    1   	
+ 2830    1   	/* Since the entire first item list has been processed, scan through all the
+ 2831    1   	** entries of the second item list looking for any item entries not processed.
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 16
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (7)
+
+ 2832    1   	** These are then added to the new item list.
+ 2833    1   	**
+ 2834    1   	** Note the USERNAME item entry is not copied, if it is present.  This is not
+ 2835    1   	** done because $SETUAI does not know to ignore it; and will return a bad
+ 2836    1   	** parameter error status if it is present. */
+ 2837    1   	
+ 2838    1   	for (second_itmlst_index = 0; (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0; second_itmlst_index++)
+ 2839    1   	    {
+ 2840    2   	    if ((*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != 0xffff &&
+ 2841    2   		(*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod != UAI$_USERNAME)
+ 2842    2   		{
+ 2843    3   		AUTHORIZE$ITMLST_ADD_ITEM (&first_itmlst_copy,
+ 2844    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$w_itmcod,
+ 2845    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$w_bufsiz,
+ 2846    3   					   (*second_itmlst_copy)[second_itmlst_index].itm$l_bufadr);
+ 2847    3   		}
+ 2848    2   	    }
+ 2849    1   	
+ 2850    1   	/* Now delete the copy of the second item list. */
+ 2851    1   	
+ 2852    1   	AUTHORIZE$ITMLST_DELETE (&second_itmlst_copy);
+ 2853    1   	
+ 2854    1   	/* If there is an existing dynamic (output) item list, delete it. */
+ 2855    1   	
+ 2856    1   	if (*itmlst_out != 0) AUTHORIZE$ITMLST_DELETE (itmlst_out);
+ 2857    1   	
+ 2858    1   	/* Return the address of the new item list. */
+ 2859    1   	
+ 2860    1   	*itmlst_out = first_itmlst_copy;
+ 2861    1   	}
+ 2862        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 17
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (8)
+
+             	
+ 2863        	extern void AUTHORIZE$ITMLST_UPDATE (itmlst, item_code, entry_size, entry)
+ 2864        	
+ 2865        	struct ITMDEF			(**itmlst)[];
+ 2866        	int				item_code;
+ 2867        	int				entry_size;
+ 2868        	unsigned char			*entry;
+ 2869        	{
+ 2870    1   	/*
+ 2871    1   	**++
+ 2872    1   	**  FUNCTIONAL DESCRIPTION:
+ 2873    1   	**
+ 2874    1   	**	This routine is called to update an entry in a dynamic item list.
+ 2875    1   	**	If an entry with the specified item code already exists, it is replaced
+ 2876    1   	**	with the information supplied (to this routine).  If it does not exist,
+ 2877    1   	**	it is added to the item list.
+ 2878    1   	**
+ 2879    1   	**  FORMAL PARAMETERS:
+ 2880    1   	**
+ 2881    1   	**	ITMLST		- Address of a pointer containing the pointer to
+ 2882    1   	**			  the dynamic item list
+ 2883    1   	**	ITEM_CODE	- Item code for the new item list entry
+ 2884    1   	**	ENTRY_SIZE	- Number of bytes for the new item list entry
+ 2885    1   	**	ENTRY		- Pointer to the buffer containing the information
+ 2886    1   	**			  for the new item list entry
+ 2887    1   	**
+ 2888    1   	**  RETURN VALUE:
+ 2889    1   	**
+ 2890    1   	**	None
+ 2891    1   	**
+ 2892    1   	**  SIDE EFFECTS:
+ 2893    1   	**
+ 2894    1   	**	None
+ 2895    1   	**
+ 2896    1   	**--
+ 2897    1   	*/
+ 2898    1   	
+ 2899    1   	/* External routines. */
+ 2900    1   	
+ 2901    1   	extern void	AUTHORIZE$ITMLST_ADD_ITEM ();
+ 2902    1   	
+ 2903    1   	/* Local storage. */
+ 2904    1   	
+ 2905    1   	int		itmlst_index;			/* Index into item list */
+ 2906    1   	unsigned int	status;				/* Routine exit status */
+ 2907    1   	
+ 2908    1   	/* Initialize needed storage. */
+ 2909    1   	
+ 2910    1   	itmlst_index = 0;						/* Set initial index */
+ 2911    1   	
+ 2912    1   	/* Traverse the item list looking for the specified item code. */
+ 2913    1   	
+ 2914    1   	for (itmlst_index = 0;; itmlst_index++)
+ 2915    1   	    {
+ 2916    2   	
+ 2917    2   	/* If the end of the item list is reached, the entry did not exist.  Add a new
+ 2918    2   	** entry to the end of the existing item list. */
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 18
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (8)
+
+ 2919    2   	
+ 2920    2   	    if ((**itmlst)[itmlst_index].itm$w_itmcod == 0)
+ 2921    2   		{
+ 2922    3   		AUTHORIZE$ITMLST_ADD_ITEM (itmlst, item_code, entry_size, entry);
+ 2923    3   		return;
+ 2924    3   		}
+ 2925    2   	
+ 2926    2   	/* If an entry was found with the specified item code, trip out of the loop now. */
+ 2927    2   	
+ 2928    2   	    if ((**itmlst)[itmlst_index].itm$w_itmcod == item_code) break;
+ 2929    2   	    }
+ 2930    1   	
+ 2931    1   	/* At this point, the index is pointing to the entry with the desired item code.
+ 2932    1   	** deallocate the existing buffer, if any, allocate a new buffer and copy the
+ 2933    1   	** supplied information.  If the allocation failes, signal a failure status. */
+ 2934    1   	
+ 2935    1   	if ((**itmlst)[itmlst_index].itm$l_bufadr != 0) free ((**itmlst)[itmlst_index].itm$l_bufadr);	/* Free up original */
+ 2936    1   	(**itmlst)[itmlst_index].itm$l_bufadr = malloc (entry_size);					/* Allocate a new */
+ 2937    1   	if ((**itmlst)[itmlst_index].itm$l_bufadr == 0) LIB$SIGNAL (UAF$_NOPROCMEM);			/* Abort on failure */
+ 2938    1   	memmove ((**itmlst)[itmlst_index].itm$l_bufadr, entry, entry_size);				/* Move contents */
+ 2939    1   	(**itmlst)[itmlst_index].itm$w_bufsiz = entry_size;						/* Set new size */
+ 2940    1   	}
+ 2941        	
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 19
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (9)
+
+             	
+ 2942        	extern unsigned int AUTHORIZE$MATCH_NAME (candidate_length, candidate_string, pattern_length, pattern_string)
+ 2943        	
+ 2944        	unsigned short int		candidate_length;
+ 2945        	char				*candidate_string;
+ 2946        	unsigned short int		pattern_length;
+ 2947        	char				*pattern_string;
+ 2948        	{
+ 2949    1   	/*
+ 2950    1   	**++
+ 2951    1   	**  FUNCTIONAL DESCRIPTION:
+ 2952    1   	**
+ 2953    1   	**	This routine is a jacket for STR$MATCH_WILD.  Originally, this utility
+ 2954    1   	**	used FMG$MATCH_NAME, but that was not generally available.  STR$MATCH_WILD
+ 2955    1   	**	does the same thing but the interface is much more cumbersome in C, so
+ 2956    1   	**	I am using this jacket routine to make things a little easier and cleaner.
+ 2957    1   	**
+ 2958    1   	**  FORMAL PARAMETERS:
+ 2959    1   	**
+ 2960    1   	**	CANDIDATE_LENGTH	- Number of bytes in the candidate string
+ 2961    1   	**	CANDIDATE_STRING	- Pointer to the candidate string text
+ 2962    1   	**	PATTERN_LENGTH		- Number of bytes in the pattern string
+ 2963    1   	**	PATTERN_STRING		- Pointer to the pattern string text
+ 2964    1   	**
+ 2965    1   	**  RETURN VALUE:
+ 2966    1   	**
+ 2967    1   	**	Status from STR$MATCH_WILD
+ 2968    1   	**
+ 2969    1   	**  SIDE EFFECTS:
+ 2970    1   	**
+ 2971    1   	**	None
+ 2972    1   	**
+ 2973    1   	**--
+ 2974    1   	*/
+ 2975    1   	
+ 2976    1   	/* Local storage. */
+ 2977    1   	
+ 2978    1   	int		candidate_desc[2];		/* Simple candidate string descriptor */
+ 2979    1   	int		pattern_desc[2];		/* Simple pattern string descriptor */
+ 2980    1   	
+ 2981    1   	/* Initialize needed storage. */
+ 2982    1   	
+ 2983    1   	candidate_desc[0] = candidate_length;
+ 2984    1   	candidate_desc[1] = candidate_string;
+ 2985    1   	pattern_desc[0] = pattern_length;
+ 2986    1   	pattern_desc[1] = pattern_string;
+ 2987    1   	
+ 2988    1   	/* Return the comparison status. */
+ 2989    1   	
+ 2990    1   	return STR$MATCH_WILD (candidate_desc, pattern_desc);
+ 2991    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+
+UAF_MISC                                                        22-NOV-1993 11:29:44    VAX C      V3.2-044                 Page 20
+X-3                                                              4-NOV-1993 09:00:02    [PILANT.HACK.DWAUTH.BL2]UAF_MISC.C;95 (9)
+
+CC/LIST=UAF_MISC/OBJECT=UAF_MISC UAF_MISC
+

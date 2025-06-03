@@ -1,0 +1,152 @@
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+
+
+fpmt:	.ascid	/Entry name ? > /
+
+	.entry	start,0
+
+
+	pushaw	input
+	pushaq	Fpmt
+	pushaq	input
+	calls	#3,g^lib$get_Foreign
+	check	r0,error
+
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr,outbuf=out,outlen=out,-
+		p1=seen_map_len,-
+		p2=seen_map+1, -
+		p3=seen_map+5, -
+		p4=seen_map+9, -
+		p5=seen_map+13, -
+		p6=seen_map+17
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+error:	ret
+
+
+
+ctr:	.ascid	/seen map len !UL, !XL !XL !XL !XL !XL/
+out:	.long	100
+	.long	out+8
+	.blkb	100
+
+ent_in:		.word	0
+		.word	notes$k_entry_name
+		.long	0
+		.long	0
+;
+		.long	0
+
+
+
+ent_out:	.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.long	0
+
+
+
+seen_map:	.blkb	5000
+seen_map_len:	.blkl	1
+
+book_in:	.word	4
+		.word	notes$k_notefile_context
+		.long	notebook_file_cont
+		.long	0
+;
+		.long	0
+
+
+
+	movw	notebook_spec, notebook_in
+
+
+
+notebook_spec:		.long	100
+			.long	notebook_spec+8
+			.blkb	100
+
+
+
+
+
+
+notebook_in:	.word   notebook_def_len
+                .word   notes$k_notefile_file_name
+                .long   notebook_def_spec
+                .long   0
+;
+		.word	notebook_def_len
+		.word	notes$k_notefile_default_name
+		.long	notebook_def_spec
+		.long	0
+;
+		.long	0
+
+
+
+notebook_def_spec:	.ascii	/SYS$LOGIN:notes$notebook.NOTE/
+notebook_def_len = . - notebook_def_spec
+
+notebook_file_cont:	.blkl	1
+
+
+
+
+input:	.long	100
+	.long	input+8
+	.blkb	100
+
+
+notebook_cont:	.blkl	1
+
+
+null:	.word	0
+	.word	notes$k_noop
+	.long	null
+	.long	null
+;
+	.long	0
+
+
+	.end	start

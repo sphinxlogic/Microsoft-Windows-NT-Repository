@@ -1,0 +1,792 @@
+%TITLE 'FINGER'
+MODULE FINGER (IDENT='V1.6', MAIN=FINGER) =
+BEGIN
+!++
+! FACILITY: 	    FINGER
+!
+! ABSTRACT: 	    A Finger utility for NETLIB.
+!
+! MODULE DESCRIPTION:
+!
+!   This module contains the Finger utility.  It interfaces with the
+!   NETLIB TCP/IP access library.
+!
+! AUTHOR:   	    M. Madison
+!   	    	    Copyright © 1994,1995  MadGoat Software.
+!   	    	    ALL RIGHTS RESERVED.
+!
+! CREATION DATE:    16-APR-1990
+!
+! MODIFICATION HISTORY:
+!
+!   16-APR-1990	V1.0	Madison	    Initial coding (partly from CMU-based code).
+!   17-DEC-1990	V1.1	Madison	    Scan for @ from right, not left.
+!   05-JAN-1993	V1.2	Madison	    Port to NETLIB.
+!   23-JAN-1993	V1.2-1	Madison	    Fix fetch of local hostname.
+!   25-MAY-1993	V1.2-2	Madison	    Add default host name.
+!   28-MAY-1993 V1.2-3	Goatley     Fix detection of image privs.
+!   22-JUN-1993 V1.3	Goatley     Added support for plan files.
+!    6-APR-1994 V1.4	Goatley     Use asynchronous RMS instead of $QIO to
+!				    that output can be redirected to a file.
+!    2-MAY-1994 V1.5	Goatley     Modify PARSE_CMD call (not SERVER).
+!   25-FEB-1995	V1.6	Madison	    Update for NETLIB V2.0.  Remove MDMLIB
+!   	    	    	    	    dependency.
+!--
+    LIBRARY 'SYS$LIBRARY:STARLET';
+    LIBRARY 'NETLIB_DIR:NETLIBDEF';
+    LIBRARY 'FINGER';
+    LIBRARY 'FIELDS';
+
+    FORWARD ROUTINE
+    	FINGER,
+    	READ_CMD,
+    	READ_AST,
+    	PRINT_LINE,
+    	PROCESS_CMD,
+    	CLEANUP,
+    	SEND_AST,
+    	PRINT_AST;
+
+    EXTERNAL ROUTINE
+    	COLLECT_PINFO,
+    	FORMAT_INFO,
+    	FORMAT_HDR,
+    	GET_LAVINFO,
+    	GET_EMAIL_ADDRESS,
+	get_login_directory,
+    	PARSE_CMD,
+    	G_HAT (NETLIB_SOCKET, NETLIB_CLOSE, NETLIB_CONNECT_BY_NAME,
+    	    NETLIB_WRITELINE, NETLIB_READLINE, NETLIB_GET_HOSTNAME,
+    	    NETLIB_GETPEERNAME, NETLIB_ADDRESS_TO_NAME, NETLIB_ADDRTOSTR),
+    	G_HAT (LIB$GET_VM, LIB$FREE_VM, STR$COPY_DX, STR$TRANSLATE,
+    	    STR$COPY_R, STR$TRIM, STR$PREFIX, LIB$SYS_FAO, LIB$CVT_DTB,
+    	    LIB$GET_FOREIGN, STR$CONCAT, CLI$GET_VALUE, CLI$DCL_PARSE,
+    	    CLI$PRESENT);
+
+    EXTERNAL LITERAL
+    	FINGER__NOCONNECT, CLI$_NEGATED, CLI$_PRESENT;
+
+    EXTERNAL
+    	FINGER_CLD;
+
+    _DEF (WRK)
+    	WRK_L_FLINK 	= _LONG,
+    	WRK_L_BLINK 	= _LONG,
+    	WRK_L_ROUTINE	= _LONG,
+    	WRK_L_CTX   	= _LONG
+    _ENDDEF (WRK);
+
+    LITERAL
+    	CTX_S_PLANBUF	= 1024;
+
+    _DEF (CTX)
+    	CTX_Q_INFOQ 	= _QUAD,
+    	CTX_Q_OUTSTR	= _QUAD,
+    	CTX_Q_INSTR 	= _QUAD,
+    	CTX_Q_IOSB  	= _QUAD,
+    	_OVERLAY (CTX_Q_IOSB)
+    	    CTX_W_STAT	= _WORD,
+    	    CTX_W_CNT	= _WORD,
+    	    CTX_L_XSTAT	= _LONG,
+    	_ENDOVERLAY
+    	CTX_L_STATE 	= _LONG,
+    	CTX_L_JPISTAT	= _LONG,
+    	CTX_L_TCPCTX	= _LONG,
+	CTX_X_FAB	= _BYTES (FAB$C_BLN),
+	CTX_X_RAB	= _BYTES (RAB$C_BLN),
+    	CTX_X_PLANFAB	= _BYTES (FAB$C_BLN),
+    	CTX_X_PLANRAB	= _BYTES (RAB$C_BLN),
+    	CTX_T_PLANBUF	= _BYTES (CTX_S_PLANBUF)
+    _ENDDEF (CTX);
+
+    MACRO
+    	CRLF = %ASCID %STRING (%CHAR (13), %CHAR (10))%,
+    	SEND (ASTRTN, CTRSTR) [] =
+    	BEGIN
+    	    BIND OUTSTR  = CTX [CTX_Q_OUTSTR] : BLOCK [,BYTE],
+		 rab	= ctx [CTX_X_RAB]	: $RAB_DECL;
+    	    EXTERNAL ROUTINE G_HAT (STR$CONCAT, STR$APPEND, LIB$SYS_FAO);
+    	    LOCAL _STAT;
+    	    %IF %NULL (%REMAINING) %THEN
+		rab [RAB$W_RSZ] = .outstr [DSC$W_LENGTH];
+		rab [RAB$L_RBF] = .outstr [DSC$A_POINTER];
+		_stat = $PUT (RAB = rab, SUC = astrtn);
+    	    %ELSE
+    	    	LIB$SYS_FAO (CTRSTR, 0, CTX [CTX_Q_OUTSTR], %REMAINING);
+		rab [RAB$W_RSZ] = .outstr [DSC$W_LENGTH];
+		rab [RAB$L_RBF] = .outstr [DSC$A_POINTER];
+		_stat = $PUT (RAB = rab, SUC = astrtn);
+    	    %FI
+    	    ._STAT
+    	END%;
+
+    LITERAL
+    	LOW_STATE   	= 1,
+    	STATE_GETUSER	= 1,
+    	STATE_JPI   	= 2,
+    	STATE_PRINT 	= 3,
+    	STATE_PRINT1	= 4,
+    	STATE_CLUP  	= 5,
+	STATE_PLAN	= 6,
+	STATE_PLAN1	= 7,
+    	HIGH_STATE  	= 7;
+
+    GLOBAL
+    	PRVMSK	    : VECTOR [2,LONG],
+    	NOCLUSTER   : INITIAL (0);
+
+    OWN
+    	WRKQUE	    : QUEDEF,
+    	ACCEPT_PENDING : INITIAL (0),
+    	HOSTNAME    : BLOCK [DSC$K_S_BLN,BYTE];
+
+%SBTTL 'FINGER'
+GLOBAL ROUTINE FINGER = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   This is the main FINGER routine.  It obtains global information,
+!   initializes the thread context blocks, sets up the listener on
+!   the FINGER port, and handles the first-come, first-served scheduling
+!   of threads.
+!
+!   The only I/O that blocks a thread is a network I/O.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   FINGER
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	CTX 	: REF CTXDEF,
+    	WRK 	: REF WRKDEF,
+    	STR 	: BLOCK [DSC$K_S_BLN,BYTE],
+    	OUTDEV	: BLOCK [DSC$K_S_BLN,BYTE],
+    	HOST	: BLOCK [DSC$K_S_BLN,BYTE],
+    	JPILST	: $ITMLST_DECL (ITEMS=2),
+    	CURPRV	: VECTOR [2,LONG],
+    	PRCPRV	: VECTOR [2,LONG],
+    	STATUS;
+
+    $ITMLST_INIT (ITMLST=JPILST,
+    	(ITMCOD=JPI$_CURPRIV, BUFADR=CURPRV, BUFSIZ=%ALLOCATION (CURPRV)),
+    	(ITMCOD=JPI$_PROCPRIV, BUFADR=PRCPRV, BUFSIZ=%ALLOCATION (PRCPRV)));
+    STATUS = $GETJPIW (ITMLST=JPILST);
+    IF NOT .STATUS THEN RETURN SS$_NORMAL;
+
+    PRVMSK [0] = .CURPRV [0] AND NOT .PRCPRV [0];
+    PRVMSK [1] = .CURPRV [1] AND NOT .PRCPRV [1];
+
+    $SETPRV (PRVADR=PRVMSK, ENBFLG=0);
+
+    INIT_DYNDESC (HOSTNAME, STR);
+    WRKQUE [QUE_L_TAIL] = WRKQUE [QUE_L_HEAD] = WRKQUE;
+    LIB$GET_VM (%REF (CTX_S_CTXDEF), CTX);
+    CH$FILL (%CHAR (0), CTX_S_CTXDEF, .CTX);
+    INIT_DYNDESC (STR, CTX [CTX_Q_INSTR], CTX [CTX_Q_OUTSTR], OUTDEV);
+    INIT_QUEUE (CTX [CTX_Q_INFOQ]);
+
+    NETLIB_GET_HOSTNAME (HOSTNAME);
+
+
+    BEGIN
+    	BIND
+    	    USER    = CTX [CTX_Q_INSTR]	    : BLOCK [,BYTE];
+
+    	INIT_DYNDESC (HOST);
+
+    	STATUS = LIB$GET_FOREIGN (STR);
+    	IF .STATUS THEN
+    	BEGIN
+    	    STR$PREFIX (STR, %ASCID'FINGER ');
+    	    CLI$DCL_PARSE (STR, FINGER_CLD, LIB$GET_FOREIGN, LIB$GET_FOREIGN);
+    	    NOCLUSTER = CLI$PRESENT (%ASCID'CLUSTER') EQL CLI$_NEGATED;
+    	    IF CLI$PRESENT (%ASCID'OUTPUT') EQL CLI$_PRESENT THEN
+    	    	CLI$GET_VALUE (%ASCID'OUTPUT', OUTDEV)
+    	    ELSE
+    	    	STR$COPY_DX (OUTDEV, %ASCID'SYS$OUTPUT');
+    	    STATUS = CLI$GET_VALUE (%ASCID'USER', STR);
+    	    IF .STATUS AND .STR [DSC$W_LENGTH] GTR 0 THEN
+    	    	PARSE_CMD (STR, USER, HOST, 0);	!Not server
+    	END;
+    	FREE_STRINGS (STR);
+
+!+
+!  Asynchronous RMS is used for output so that it can be written
+!  to either a terminal or a file (with /OUTPUT=file-spec)
+!-
+    	$FAB_INIT (FAB = ctx [CTX_X_FAB], FNS = .OUTDEV [DSC$W_LENGTH],
+		FNA = .OUTDEV [DSC$A_POINTER], FAC = PUT, FOP = (MXV),
+		SHR = (GET,PUT), RAT=CR, RFM=VAR, MRS=0);
+    	$RAB_INIT (RAB = ctx [CTX_X_RAB], FAB = ctx [CTX_X_FAB], CTX = .ctx);
+
+    	status = $CREATE (FAB = ctx [CTX_X_FAB]);
+    	IF NOT .status THEN SIGNAL_STOP (.status);
+
+    	status = $CONNECT (RAB = ctx [CTX_X_RAB]);
+    	IF NOT .status THEN SIGNAL_STOP (.status);
+
+    	BEGIN
+	    BIND rab = ctx [CTX_X_RAB] : $RAB_DECL;
+	    rab [RAB$V_ASY] = 1;	!Asynch from here on out
+    	END;
+
+    	FREE_STRINGS (OUTDEV);
+
+    	IF .HOST [DSC$W_LENGTH] GTR 0 THEN
+    	BEGIN
+    	    CTX [CTX_L_STATE] = STATE_PRINT;
+    	    STATUS = NETLIB_SOCKET (CTX [CTX_L_TCPCTX]);
+    	    IF .STATUS THEN
+    	    	STATUS = NETLIB_CONNECT_BY_NAME (CTX [CTX_L_TCPCTX], HOST, %REF (79));
+    	    FREE_STRINGS (HOST);
+    	    IF NOT .STATUS THEN SIGNAL_STOP (FINGER__NOCONNECT, .STATUS);
+    	    STATUS = NETLIB_WRITELINE (CTX [CTX_L_TCPCTX], USER, CTX [CTX_Q_IOSB],
+    	    	READ_AST, .CTX);
+    	    IF NOT .STATUS THEN SIGNAL_STOP (FINGER__NOCONNECT, .STATUS);
+    	END
+    	ELSE
+    	BEGIN
+    	    CTX [CTX_L_STATE] = STATE_GETUSER;
+    	    CTX [CTX_W_STAT] = SS$_NORMAL;
+    	    PROCESS_CMD (.CTX);
+    	END;
+
+    END;
+
+    WHILE 1 DO
+    BEGIN
+    	WHILE NOT REMQUE (.WRKQUE [QUE_L_HEAD], WRK) DO
+    	BEGIN
+    	    STATUS = (.WRK [WRK_L_ROUTINE]) (.WRK [WRK_L_CTX]);
+    	    IF NOT .STATUS THEN CLEANUP (WRK [WRK_L_CTX]);
+    	    LIB$FREE_VM (%REF (WRK_S_WRKDEF), WRK);
+    	END;
+    	$HIBER;
+    END;
+
+    SS$_NORMAL
+
+END; ! FINGER
+
+%SBTTL 'READ_CMD'
+ROUTINE READ_CMD (CTX : REF CTXDEF) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Reads a command.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   READ_CMD  ctx
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	STATUS;
+
+    STATUS = NETLIB_READLINE (CTX [CTX_L_TCPCTX], CTX [CTX_Q_INSTR], 0, 0, 0,
+    	    CTX [CTX_Q_IOSB],  READ_AST, .CTX);
+    IF NOT .STATUS THEN CLEANUP (CTX);
+
+    SS$_NORMAL
+
+END;  ! READ_CMD
+
+%SBTTL 'READ_AST'
+ROUTINE READ_AST (CTX_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   AST routine executed when read completes.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   READ_AST ctx (AST level)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LOCAL
+    	WRK 	: REF WRKDEF;
+
+    LIB$GET_VM (%REF (WRK_S_WRKDEF), WRK);
+    WRK [WRK_L_ROUTINE] = PRINT_LINE;
+    WRK [WRK_L_CTX] = .CTX_A;
+    INSQUE (.WRK, .WRKQUE [QUE_L_TAIL]);
+    $WAKE ()
+
+END; ! READ_AST
+
+%SBTTL 'PRINT_LINE'
+GLOBAL ROUTINE PRINT_LINE (CTX_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Prints a line read from remote host.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PRINT_LINE  ctx
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	CTX 	= .CTX_A    	    : CTXDEF,
+    	INSTR	= CTX [CTX_Q_INSTR] : BLOCK [,BYTE];
+
+    LOCAL
+    	REMADR,
+    	REMPORT;
+
+    IF NOT .CTX [CTX_W_STAT] THEN
+    BEGIN
+    	CLEANUP (CTX);
+    	RETURN SS$_NORMAL;
+    END;
+
+    IF .CTX [CTX_L_STATE] EQL STATE_PRINT THEN
+    BEGIN
+    	LOCAL
+    	    STR : BLOCK [DSC$K_S_BLN,BYTE],
+    	    SIN : SINDEF;
+    	$INIT_DYNDESC (STR);
+    	NETLIB_GETPEERNAME (CTX [CTX_L_TCPCTX], SIN, %REF (SIN_S_SINDEF));
+    	IF NOT NETLIB_ADDRESS_TO_NAME (CTX [CTX_L_TCPCTX], 
+    	    	    	    	%REF (NETLIB_K_LOOKUP_DNS), SIN [SIN_X_ADDR],
+    	    	    	    	%REF (INADDR_S_INADDRDEF), STR) THEN
+    	       IF NOT NETLIB_ADDRESS_TO_NAME (CTX [CTX_L_TCPCTX],
+    	    	    	    	    %REF (NETLIB_K_LOOKUP_HOST_TABLE),
+    	    	    	    	    SIN [SIN_X_ADDR], %REF (INADDR_S_INADDRDEF),
+    	    	    	    	    STR) THEN
+    	    	    NETLIB_ADDRTOSTR (SIN [SIN_X_ADDR], STR);
+    	STR$CONCAT (CTX [CTX_Q_OUTSTR], %ASCID'[', STR, %ASCID']', CRLF);
+    	FREE_STRINGS (STR);
+    	CTX [CTX_L_STATE] = STATE_PRINT1;
+    END
+    ELSE
+    	STR$TRANSLATE (CTX [CTX_Q_OUTSTR], INSTR,
+    	    %ASCID %STRING ('         ', %CHAR (9), '                      '),
+    	    %ASCID %STRING (%CHAR (0), %CHAR (1), %CHAR (2), %CHAR (3),
+    	    	%CHAR (4), %CHAR (5), %CHAR (6), %CHAR (7), %CHAR (8),
+    	    	%CHAR (9), %CHAR (10), %CHAR (11), %CHAR (12), %CHAR (13),
+    	    	%CHAR (14), %CHAR (15), %CHAR (16), %CHAR (17), %CHAR (18),
+    	    	%CHAR (19), %CHAR (20), %CHAR (21), %CHAR (22), %CHAR (23),
+    	    	%CHAR (24), %CHAR (25), %CHAR (26), %CHAR (27), %CHAR (28),
+    	    	%CHAR (29), %CHAR (30), %CHAR (31)));
+
+    SEND (PRINT_AST, CTX [CTX_Q_OUTSTR]);
+
+    SS$_NORMAL
+
+END; ! PRINT_LINE
+
+%SBTTL 'PROCESS_CMD'
+ROUTINE PROCESS_CMD (CTX : REF CTXDEF) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Issues a command read.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PROCESS_CMD  ctx
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	INFOQ	= CTX [CTX_Q_INFOQ] 	: QUEDEF,
+    	INSTR	= CTX [CTX_Q_INSTR] 	: BLOCK [,BYTE],
+    	OUTSTR	= CTX [CTX_Q_OUTSTR]	: BLOCK [,BYTE],
+    	STATE	= CTX [CTX_L_STATE];
+
+    LOCAL
+    	INF 	    : REF INFDEF,
+	devdir		: $BBLOCK [DSC$K_S_BLN],
+    	REMADR,
+    	REMPORT,
+    	LCLADR,
+    	LCLPORT,
+    	STATUS;
+
+
+    IF NOT .CTX [CTX_W_STAT] THEN
+    BEGIN
+    	CLEANUP (CTX);
+    	RETURN SS$_NORMAL;
+    END;
+
+    CASE .STATE FROM LOW_STATE TO HIGH_STATE OF
+    SET
+
+    [STATE_GETUSER] :
+    	BEGIN
+    	    IF .INSTR [DSC$W_LENGTH] EQL 0 THEN
+    	    BEGIN
+    	    	STATE = STATE_JPI;
+    	    	STR$COPY_DX (INSTR, %ASCID'*');
+    	    	GET_LAVINFO (OUTSTR);
+    	    	SEND (SEND_AST, OUTSTR);
+    	    END
+    	    ELSE
+    	    BEGIN
+    	    	STATUS = GET_EMAIL_ADDRESS (INSTR, OUTSTR);
+    	    	IF .STATUS THEN
+    	    	BEGIN
+		    STATE = STATE_PLAN;
+    	    	    SEND (SEND_AST, OUTSTR);
+    	    	END
+    	    	ELSE
+    	    	BEGIN
+    	    	    STATE = STATE_CLUP;
+    	    	    SEND (SEND_AST, %ASCID'"!AS" is not a user on this system.',
+    	    	    	    INSTR);
+    	    	END;
+    	    END;
+    	END;
+
+    [STATE_PLAN] :
+	BEGIN
+	    BIND no_plan = %ASCID %STRING('No plan.', %CHAR(13), %CHAR(10));
+	    BIND no_plan_file = %ASCID %STRING('No plan file.', %CHAR(13), %CHAR(10));
+	    STATE = STATE_JPI;
+	    INIT_DYNDESC (devdir);
+	    $SETPRV (PRVADR=PRVMSK, ENBFLG=1);
+	    status = GET_LOGIN_DIRECTORY (INSTR, devdir);
+	    IF (.status)
+	    THEN
+    	    BEGIN
+    	    	LOCAL
+    	    	    ALLPRV  : VECTOR [2,LONG],
+    	    	    PRVPRV  : VECTOR [2,LONG];
+    	    	ALLPRV [0] = ALLPRV [1] = -1;
+		LIB$SYS_FAO (%ASCID'!ASPLAN.TXT', 0, OUTSTR, devdir);
+    	    	$FAB_INIT (FAB=CTX [CTX_X_PLANFAB], FNS=.OUTSTR [DSC$W_LENGTH],
+    	    	    	   FNA=.OUTSTR [DSC$A_POINTER], FAC=GET, SHR=GET);
+    	    	$SETPRV (ENBFLG=0, PRVADR=ALLPRV, PRVPRV=PRVPRV);
+    	    	STATUS = $OPEN (FAB=CTX [CTX_X_PLANFAB]);
+		IF NOT(.status)
+		THEN
+		    BEGIN
+		    LIB$SYS_FAO (%ASCID'!AS.PLAN', 0, OUTSTR, devdir);
+    	    	    $FAB_INIT (FAB=CTX [CTX_X_PLANFAB], FNS=.OUTSTR [DSC$W_LENGTH],
+    	    	    	       FNA=.OUTSTR [DSC$A_POINTER], FAC=GET, SHR=GET);
+    	    	    STATUS = $OPEN (FAB=CTX [CTX_X_PLANFAB]);
+		    END;
+		FREE_STRINGS (devdir);
+    	    	$SETPRV (ENBFLG=1, PRVADR=PRVPRV);
+    	    	$SETPRV (ENBFLG=0, PRVADR=PRVMSK);
+
+    	    	IF .STATUS THEN
+    	    	BEGIN
+    	    	    $RAB_INIT (RAB=CTX [CTX_X_PLANRAB], FAB=CTX [CTX_X_PLANFAB],
+    	    	    	       UBF=CTX [CTX_T_PLANBUF], USZ=CTX_S_PLANBUF);
+    	    	    STATUS = $CONNECT (RAB=CTX [CTX_X_PLANRAB]);
+    	    	    IF NOT .STATUS THEN $CLOSE (FAB=CTX [CTX_X_PLANFAB]);
+    	    	END;
+
+		IF (.status)
+		THEN
+		    BEGIN
+		    state = STATE_PLAN1;
+		    SEND (send_ast, %ASCID'Plan:');
+		    END
+		ELSE
+		    SEND (send_ast, no_plan_file);
+	    END
+	    ELSE
+		SEND (send_ast, no_plan);
+
+	END;
+
+    [STATE_PLAN1] :
+	BEGIN
+	    state = STATE_PLAN1;
+    	    STATUS = $GET (RAB=CTX [CTX_X_PLANRAB]);
+	    IF (.status)
+	    THEN
+    	    BEGIN
+    	    	BIND RAB = CTX [CTX_X_PLANRAB] : BLOCK [,BYTE];
+    	    	LOCAL DSC : BLOCK [DSC$K_S_BLN,BYTE];
+    	    	DSC [DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    	    	DSC [DSC$B_CLASS] = DSC$K_CLASS_S;
+    	    	DSC [DSC$W_LENGTH] = .RAB [RAB$W_RSZ];
+    	    	DSC [DSC$A_POINTER] = .RAB [RAB$L_RBF];
+		SEND (send_ast, DSC);
+    	    END
+	    ELSE
+		BEGIN
+		state = STATE_JPI;
+    	    	$DISCONNECT (RAB=CTX [CTX_X_PLANRAB]);
+    	    	$CLOSE (FAB=CTX [CTX_X_PLANFAB]);
+		SEND (send_ast, %ASCID'');
+		$SETPRV (PRVADR=PRVMSK, ENBFLG=0);
+		END;
+	END;
+
+    [STATE_JPI] :
+    	BEGIN
+    	    STATE = STATE_PRINT;
+    	    STATUS = COLLECT_PINFO (INSTR, INFOQ, CTX [CTX_L_JPISTAT],
+    	    	SEND_AST, .CTX);
+    	    IF NOT .STATUS THEN
+    	    BEGIN
+    	    	CLEANUP (CTX);
+    	    	RETURN SS$_NORMAL;
+    	    END;
+    	END;
+
+    [STATE_PRINT] :
+    	BEGIN
+    	    IF NOT .CTX [CTX_L_JPISTAT] THEN
+    	    BEGIN
+    	    	CLEANUP (CTX);
+    	    	RETURN SS$_NORMAL;
+    	    END;
+    	    IF .INFOQ [QUE_L_HEAD] NEQA INFOQ THEN
+    	    BEGIN
+    	    	STATE = STATE_PRINT1;
+    	    	FORMAT_HDR (OUTSTR);
+    	    	SEND (SEND_AST, OUTSTR);
+    	    END
+    	    ELSE
+    	    	CLEANUP (CTX);
+    	END;
+
+    [STATE_PRINT1] :
+    	BEGIN
+    	    IF NOT REMQUE (.INFOQ [QUE_L_HEAD], INF) THEN
+    	    BEGIN
+    	    	FORMAT_INFO (.INF, OUTSTR);
+    	    	LIB$FREE_VM (%REF (INF_S_INFDEF), INF);
+    	    	SEND (SEND_AST, OUTSTR);
+    	    END
+    	    ELSE
+    	    	CLEANUP (CTX);
+    	END;
+
+    [STATE_CLUP] :
+    	CLEANUP (CTX);
+
+    TES;
+
+    SS$_NORMAL
+
+END; ! PROCESS_CMD
+
+%SBTTL 'CLEANUP'
+ROUTINE CLEANUP (CTX_A_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   Cleans up after a thread.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   CLEANUP  ctx
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BIND
+    	CTX 	= .CTX_A_A  	    : REF CTXDEF,
+    	INFOQ	= CTX [CTX_Q_INFOQ] : QUEDEF;
+
+    LOCAL
+    	INF 	: REF INFDEF;
+
+    IF .CTX [CTX_L_TCPCTX] NEQ 0 THEN
+    	NETLIB_CLOSE (CTX [CTX_L_TCPCTX]);
+
+    $CLOSE (FAB = ctx [CTX_X_FAB]);
+!    $DASSGN (CHAN=.CTX [CTX_W_TTCHAN]);
+
+    WHILE NOT REMQUE (.INFOQ [QUE_L_HEAD], INF) DO
+    	LIB$FREE_VM (%REF (INF_S_INFDEF), INF);
+
+    FREE_STRINGS (CTX [CTX_Q_OUTSTR], CTX [CTX_Q_INSTR]);
+
+    LIB$FREE_VM (%REF (CTX_S_CTXDEF), CTX);
+
+    $EXIT (CODE=SS$_NORMAL);
+
+    SS$_NORMAL
+
+END; ! CLEANUP
+
+%SBTTL 'SEND_AST'
+ROUTINE SEND_AST (CTX_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   AST routine executed when START completes.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   SEND_AST ctx (AST level)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BUILTIN
+	ACTUALCOUNT;
+    LOCAL
+    	WRK 	: REF WRKDEF;
+    BIND
+	rab	= .CTX_A : $RAB_DECL;
+
+    LIB$GET_VM (%REF (WRK_S_WRKDEF), WRK);
+    WRK [WRK_L_ROUTINE] = PROCESS_CMD;
+    WRK [WRK_L_CTX] = .CTX_A;
+
+    IF .rab [RAB$B_BID] EQLU RAB$C_BID		!Is is a RAB or CTX?
+    THEN
+	BEGIN
+	wrk [WRK_L_CTX] = .rab [RAB$L_CTX];
+	END;
+
+    INSQUE (.WRK, .WRKQUE [QUE_L_TAIL]);
+    $WAKE ()
+
+END; ! SEND_AST
+
+%SBTTL 'PRINT_AST'
+ROUTINE PRINT_AST (CTX_A) = 
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!   AST routine executed when START completes.
+!
+! RETURNS:  	cond_value, longword (unsigned), write only, by value
+!
+! PROTOTYPE:
+!
+!   PRINT_AST ctx (AST level)
+!
+! IMPLICIT INPUTS:  None.
+!
+! IMPLICIT OUTPUTS: None.
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    BUILTIN
+	ACTUALCOUNT;
+    LOCAL
+    	WRK 	: REF WRKDEF;
+    BIND
+	rab	= .CTX_A : $RAB_DECL;
+
+    LIB$GET_VM (%REF (WRK_S_WRKDEF), WRK);
+    WRK [WRK_L_ROUTINE] = READ_CMD;
+    WRK [WRK_L_CTX] = .CTX_A;
+
+    IF .rab [RAB$B_BID] EQLU RAB$C_BID		!Is is a RAB or CTX?
+    THEN
+	BEGIN
+	BIND rab = .ctx_a : $RAB_DECL;
+	wrk [WRK_L_CTX] = .rab [RAB$L_CTX];
+	END;
+
+    INSQUE (.WRK, .WRKQUE [QUE_L_TAIL]);
+    $WAKE ()
+
+END; ! PRINT_AST
+
+END
+ELUDOM

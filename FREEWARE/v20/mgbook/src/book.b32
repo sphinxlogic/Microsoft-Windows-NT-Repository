@@ -1,0 +1,3264 @@
+%TITLE 'BOOK'
+MODULE book(IDENT = 'V1.0',
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! MODULE DESCRIPTION:
+!
+!	This module contains routines to process the contents of .DECW$BOOK
+!	files.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	December 7, 1994
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0-1		Darrell Burkhead	26-APR-1995 15:44
+!		Fixed index.  Entries before the first letter-entry in the
+!		index would throw off the index levels.  Now, the font and
+!		spacing info for these entries are ignored.  The first one
+!		is made into a top-level entry and subsequent entries are
+!		treated as sub-entries of the first (matches the behavior of
+!		DECW$BOOKREADER).
+!
+!	V1.0		Darrell Burkhead	 7-DEC-1994 09:41
+!		Original version.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'MGBOOK';
+LIBRARY 'BOOK';
+LIBRARY 'MENU';
+LIBRARY	'DEBUG';
+LIBRARY 'FIELDS';
+
+FORWARD ROUTINE
+	book_menu : NOVALUE,
+	book_init,
+	book_cleanup : NOVALUE,
+	read_book_info,
+	read_first_rec,
+	add_tblhdr,
+	delete_tblhdr : NOVALUE,
+	read_last_rec,
+	read_part,
+	process_text,
+	process_index,
+	subpart_ndxtext,
+	numbered_entry,
+	get_index_level,
+	add_ndxlvl,
+	subpart_booktext,
+	txtrec_to_text,
+	add_whitespace,
+	add_book_text,
+	add_subent,
+	delete_submenu : NOVALUE,
+	delete_subent : NOVALUE,
+	get_term_row,
+	convert_row,
+	get_term_col,
+	subpart_figure,
+	subpart_hotspot,
+	add_hotspot,
+	scrap_hotspots : NOVALUE,
+	build_section_map,
+	process_font,
+	skip_desc,
+	skip_az32,
+	make_mainmenu : NOVALUE,
+	make_submenu,
+	delete_ndxlvlque : NOVALUE,
+	delete_ndxlvl : NOVALUE,
+	show_sect,
+	display_part,
+	undisplay_part : NOVALUE,
+	change_part_and_line,
+	change_part,
+	go_back,
+	current_hotspot,
+	add_gbe,
+	delete_gbe : NOVALUE,
+	add_row,
+	find_row,
+	scrap_rows : NOVALUE,
+	delete_row : NOVALUE;
+
+EXTERNAL ROUTINE
+	create_scrolling_region,
+	delete_scrolling_region : NOVALUE,
+	show_scrolling_region,
+	extend_scrolling_region,
+	erase_scrolling_region,
+	hide_scrolling_region,
+	change_viewport,
+	put_chars,
+	read_key,
+	scroll,
+	get_cursor_row,
+	get_cursor_col,
+	set_cursor_pos,
+	set_cursor_rel,
+	create_menu,
+	select_from_menu,
+	delete_menu : NOVALUE,
+	ring_bell,
+	start_batch,
+	end_batch,
+	hilight,
+	g_hat(LIB$GET_VM, LIB$FREE_VM),
+	g_hat(STR$APPEND, STR$COPY_DX, STR$COPY_R, STR$FREE1_DX);
+
+EXTERNAL
+	pb_rows,
+	pb_cols;
+
+LITERAL
+	max_fonts	= 256;
+
+MACRO
+	fontvecdef(n) = BLOCKVECTOR[n, DFLGS_S_DFLGSDEF, BYTE]
+			FIELD(DFLGS_FIELDS)%;
+
+_DEF(book)
+    book_l_dbgctx	= _LONG,
+    book_l_numparts	= _LONG,
+    book_l_partvec	= _LONG,
+    book_l_numsects	= _LONG,
+    book_l_sectvec	= _LONG,
+    book_l_prevpart	= _LONG,
+    book_l_nextpart	= _LONG,
+    book_l_curpart	= _LONG,
+    book_l_cursect	= _LONG,
+    book_l_currow	= _LONG,
+    book_l_cury		= _LONG,
+    book_l_lasty	= _LONG,
+    book_l_curhs	= _LONG,
+    book_l_lowest	= _LONG,
+    book_l_leftmost	= _LONG,
+    book_l_rightmost	= _LONG,
+    book_f_normscale	= _LONG,
+    book_f_dblscale	= _LONG,
+    book_q_leftover	= _QUAD,
+    book_q_title	= _QUAD,
+    book_q_rowque	= _QUAD,
+    book_q_hsque	= _QUAD,
+    book_q_gbque	= _QUAD,
+    book_q_ndxlvlque	= _QUAD,
+    book_l_curmainent	= _LONG,
+    book_l_curfont	= _LONG,
+    book_l_numfonts	= _LONG,
+    book_l_fontvec	= _LONG,
+    book_t_scrollinfo	= _BYTES(SINFO_S_SINFODEF),
+    _ALIGN(LONG)
+    book_t_mainmenu	= _BYTES(MINFO_S_MINFODEF),
+    _ALIGN(LONG)
+    book_t_fab		= _BYTES(FAB$C_BLN),
+    _ALIGN(LONG)
+    book_t_rab		= _BYTES(RAB$C_BLN),
+    _ALIGN(LONG)
+    book_t_xabfhc	= _BYTES(XAB$C_FHCLEN),
+    _ALIGN(LONG)
+    book_t_xabitm	= _BYTES(XAB$C_ITMLEN),
+    _ALIGN(LONG)
+    book_t_itmlst	= _BYTES(ITM$S_ITEM+4)
+_ENDDEF(book);
+
+_DEF(mainent)
+    mainent_l_flink	= _LONG,		!This much of the structure
+    mainent_l_blink	= _LONG,		!...can be referenced as a
+    mainent_q_title	= _QUAD,		!...MENENTDEF
+    mainent_l_rend	= _LONG,		!...
+    mainent_l_level	= _LONG,		!...
+    mainent_l_flags	= _LONG,
+    _OVERLAY(mainent_l_flags)
+	mainent_v_skip	= _BIT,			!Already skipped the first line
+    _ENDOVERLAY
+    mainent_l_kind	= _LONG,
+    mainent_l_subcount	= _LONG,		!# of items in this submenu
+    mainent_l_partno	= _LONG,
+    mainent_t_submenu	= _BYTES(MINFO_S_MINFODEF)
+_ENDDEF(mainent);
+
+_DEF(submenent)
+    submenent_l_flink	= _LONG,		!This much of the structure
+    submenent_l_blink	= _LONG,		!...can be referenced as a
+    submenent_q_title	= _QUAD,		!...MENENTDEF
+    submenent_l_rend	= _LONG,		!...
+    submenent_l_level	= _LONG,		!...
+    submenent_l_sect	= _LONG
+_ENDDEF(submenent);
+
+_DEF(hotspot)
+    hotspot_l_flink		= _LONG,
+    hotspot_l_blink		= _LONG,
+    hotspot_l_row		= _LONG,
+    hotspot_l_col		= _LONG,
+    hotspot_l_lines		= _LONG,
+    hotspot_l_chars		= _LONG,
+    hotspot_l_sect		= _LONG
+_ENDDEF(hotspot);
+
+_DEF(gbent)
+    gbent_l_flink		= _LONG,
+    gbent_l_blink		= _LONG,
+    gbent_l_partno		= _LONG,
+    gbent_l_lineno		= _LONG,
+    gbent_l_curhs		= _LONG
+_ENDDEF(gbent);
+
+_DEF(ndxlvl)
+    ndxlvl_l_flink		= _LONG,
+    ndxlvl_l_blink		= _LONG,
+    ndxlvl_l_pos		= _LONG,
+    ndxlvl_l_font		= _LONG
+_ENDDEF(ndxlvl);
+
+_DEF(row)
+    row_l_flink			= _LONG,
+    row_l_blink			= _LONG,
+    row_l_bookpos		= _LONG,
+    row_l_row			= _LONG
+_ENDDEF(row);
+
+OWN
+	done_one_index_entry;
+
+BIND
+	one_half	= UPLIT(%X'4000');	!0.5 as a single-precision
+						!...floating-point number
+
+MACRO
+    part_start(context, startpos, startlen, cont, newpos, newlen)=
+	BEGIN
+	BIND
+	    _context	= context			: BOOKDEF,
+	    _left	= _context[BOOK_Q_LEFTOVER]	: $BBLOCK;
+
+	IF cont AND ._left[DSC$W_LENGTH] NEQ 0
+	THEN BEGIN
+	    LOCAL rest_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+				[DSC$W_LENGTH]	= startlen,
+				[DSC$B_CLASS]	= DSC$K_CLASS_S,
+				[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				[DSC$A_POINTER]	= startpos);
+
+	    STR$APPEND(_left, rest_desc);	!Complete the partial record
+	    newpos = ._left[DSC$A_POINTER];	!Save the position and length
+	    newlen = ._left[DSC$W_LENGTH];	!...of the completed record
+	    END					!End of leftover chunk found
+	ELSE BEGIN
+	    newpos = startpos;			!Complete record, use the
+	    newlen = startlen;			!...position and len provided
+	    END;				!End of complete record
+	END%,					!End of macro part_start
+    part_end(context, leftpos, leftlen)=
+	BEGIN
+	BIND
+	    _context	= context			: BOOKDEF,
+	    _left	= _context[BOOK_Q_LEFTOVER]	: $BBLOCK;
+
+	IF leftlen EQL 0
+	THEN STR$FREE1_DX(_left)		!This record was complete
+	ELSE STR$COPY_R(_left, %REF(leftlen),	!Save partial record chunk
+			leftpos);
+	END%,					!End of macro part_end
+    copyl(src, dest) = CH$MOVE(4, src, dest)%,	!End of macro copyl
+    divide(num, denom, quot)=
+	BEGIN
+	LOCAL
+	    temp_num	: INITIAL(num),
+	    temp_denom	: INITIAL(denom);
+
+	CVTLF(temp_num, temp_num);		!Convert to floating point
+	CVTLF(temp_denom, temp_denom);		!...
+	DIVF(temp_num, temp_denom, quot);	!Perform the division
+	END%,					!End of macro divide
+    multiply(long_op, float_op, product)=
+	BEGIN
+	LOCAL
+	    temp_op	: INITIAL(long_op);
+
+	CVTLF(temp_op, temp_op);		!Convert to floating point
+	MULF(temp_op, float_op, product);	!Perform the multiplication
+	END%,					!End of macro multiply
+    round(float_op, long_op)=
+	BEGIN
+	LOCAL temp_op;
+
+	ADDF(float_op, one_half, temp_op);	!Add 0.5 to make truncation
+						!...the same as rounding
+	CVTFL(temp_op, long_op);		!Round
+	END%;					!End of macro round
+
+
+%SBTTL 'BOOK_MENU'
+GLOBAL ROUTINE book_menu(filename_a, defname_a, title_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine opens a book and builds menus to display its contents.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	defname		= .defname_a	: $BBLOCK,
+	title		= .title_a	: $BBLOCK;
+
+LOCAL
+	bookctx	: BOOKDEF,
+	status;
+
+    status = book_init(bookctx, filename, defname, title);
+    IF .status
+    THEN BEGIN
+	BIND
+	    mainmenu	= bookctx[BOOK_T_MAINMENU]	: MINFODEF;
+
+	IF .mainmenu[MINFO_L_NUMENTS] EQL 1
+	THEN make_submenu(bookctx,		!1 main menu entry
+			.mainmenu[MINFO_L_ENTHEAD])
+	ELSE IF .mainmenu[MINFO_L_NUMENTS] GTR 1
+	    THEN make_mainmenu(bookctx)		!Make the main menu
+	    ELSE show_sect(1);			!No main menu entries
+
+	book_cleanup(bookctx);			!Close the book file
+	END;					!End of opened the book
+END;						!End of book_menu
+
+
+%SBTTL 'BOOK_INIT'
+ROUTINE book_init(context_a, filename_a, defname_a, title_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine initializes a context block and opens the book file
+!	specifies.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	mainmenu	= context[BOOK_T_MAINMENU]	: MINFODEF,
+	sinfo		= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	fab		= context[BOOK_T_FAB]		: $BBLOCK,
+	rab		= context[BOOK_T_RAB]		: $BBLOCK,
+	xabfhc		= context[BOOK_T_XABFHC]	: $BBLOCK,
+	itmlst		= context[BOOK_T_ITMLST]	: $BBLOCK,
+	filename	= .filename_a			: $BBLOCK,
+	defname		= .defname_a			: $BBLOCK,
+	title		= .title_a			: $BBLOCK;
+
+LOCAL
+	temp_ptr	: REF $BBLOCK,
+	block_count	: INITIAL(127),
+	status,
+	statusv		: INITIAL(0);
+
+BUILTIN
+	CVTLF,
+	DIVF;
+
+!
+! Set up for the $OPEN call.
+!
+    $FAB_INIT(	FAB	= fab,
+		FNA 	= .filename[DSC$A_POINTER],
+		FNS 	= .filename[DSC$W_LENGTH],
+		DNA	= .defname[DSC$A_POINTER],
+		DNS	= .defname[DSC$W_LENGTH],
+		XAB	= context[BOOK_T_XABITM]);
+    $RAB_INIT(	RAB	= rab,
+		FAB	= fab);
+    $XABITM_INIT(
+		XAB	= context[BOOK_T_XABITM],
+		ITEMLIST= itmlst,
+		MODE	= SETMODE,
+		NXT 	= xabfhc);
+    $XABFHC_INIT(
+		XAB	= xabfhc);
+
+    itmlst[ITM$W_ITMCOD] = XAB$_NET_BLOCK_COUNT;
+    itmlst[ITM$W_BUFSIZ] = %ALLOCATION(block_count);
+    itmlst[ITM$L_BUFADR] = block_count;
+    itmlst[ITM$L_RETLEN] = 0;
+    itmlst[ITM$S_ITEM, 0, 32, 0] = 0;
+
+    context[BOOK_L_NUMPARTS] = 0;		!Vectors haven't been allocated
+    context[BOOK_L_NUMSECTS] = 0;
+    context[BOOK_L_NUMFONTS] = 0;
+
+    context[BOOK_L_PREVPART] = 0;
+    context[BOOK_L_NEXTPART] = 0;
+
+    context[BOOK_L_CURFONT] = 0;
+
+    context[BOOK_L_DBGCTX] = 0;
+
+    context[BOOK_L_CURROW] = context[BOOK_L_CURY] = context[BOOK_L_LASTY] = 0;
+    context[BOOK_L_LOWEST] = 1;
+    context[BOOK_L_LEFTMOST] = %X'FFFF';
+    context[BOOK_L_RIGHTMOST] = 1;
+
+    divide(def_charsize, char_width, context[BOOK_F_NORMSCALE]);
+    divide(highwide_min, char_width, context[BOOK_F_DBLSCALE]);
+
+    mainmenu[MINFO_L_NUMENTS] = 0;		!No main menu entries yet
+    mainmenu[MINFO_L_WIDTH] = 0;
+    mainmenu[MINFO_L_CONTEXT] = 0;
+
+    sinfo[SINFO_L_DISP] = 0;
+    sinfo[SINFO_L_FLAGS] = 0;
+    sinfo[SINFO_V_USEPOS] = 1;
+    sinfo[SINFO_L_ROW] = 2;
+    sinfo[SINFO_L_COL] = 1;
+    sinfo[SINFO_L_VIEWLEN] = sinfo[SINFO_L_LEN] = .pb_rows - 2;
+    sinfo[SINFO_L_VIEWWID] = sinfo[SINFO_L_WID] = 132;
+
+    $INIT_DYNDESC(context[BOOK_Q_LEFTOVER]);
+    $INIT_DYNDESC(context[BOOK_Q_TITLE]);
+    init_queue(mainmenu[MINFO_Q_ENTRIES],
+		context[BOOK_Q_ROWQUE], context[BOOK_Q_HSQUE],
+		context[BOOK_Q_GBQUE], context[BOOK_Q_NDXLVLQUE]);
+
+    dbg_init(context[BOOK_L_DBGCTX], filename);	!Open the debug log file
+
+    status = $OPEN(FAB = fab);			!Open the book file
+    IF .status EQL RMS$_FNF
+    THEN BEGIN
+	BIND
+	    book_dnm	= %ASCID'DECW$BOOK:.DECW$BOOK',
+	    dnm_desc	= book_dnm	: $BBLOCK;
+
+	fab[FAB$L_DNA] = .dnm_desc[DSC$A_POINTER];
+	fab[FAB$B_DNS] = .dnm_desc[DSC$W_LENGTH];
+	status = $OPEN(FAB = fab);		!Try again w/a new default
+	END;					!End of switch defaults
+
+    IF NOT .status
+    THEN statusv = .fab[FAB$L_STV]
+    ELSE BEGIN
+	rab[RAB$W_USZ] =			!Determine the maximum record
+		(IF .xabfhc[XAB$W_LRL] EQL 0	!...size
+		 THEN IF .xabfhc[XAB$W_MRZ] EQL 0
+		      THEN %X'FFFF'
+		      ELSE .xabfhc[XAB$W_MRZ]
+		 ELSE .xabfhc[XAB$W_LRL]);
+
+	status = LIB$GET_VM(rab[RAB$W_USZ], rab[RAB$L_UBF]);
+	IF .status
+	THEN BEGIN
+	    status = $CONNECT(RAB = rab);	!Connect the data stream
+	    IF NOT .status
+	    THEN statusv = .rab[RAB$L_STV]
+	    END;				!End of buffer allocated
+	END;					!End of file opened
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__OPENIN, 1, filename, .status, .statusv)
+    ELSE BEGIN
+	status = read_book_info(context);
+	IF .status
+	THEN BEGIN
+	    BIND ctx_title = context[BOOK_Q_TITLE] : $BBLOCK;
+
+	    status = create_scrolling_region(sinfo);
+	    IF .status AND .ctx_title[DSC$W_LENGTH] EQL 0
+	    THEN status = STR$COPY_DX(ctx_title, title);
+	    IF NOT .status
+	    THEN SIGNAL(MGBOOK__BOOKERR, 1, filename, .status);
+	    END;				!End of read header info
+	END;					!End of stream connected
+
+    IF NOT .status
+    THEN book_cleanup(context);			!Error, Clean up
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of book_init
+
+
+%SBTTL 'BOOK_CLEANUP'
+ROUTINE book_cleanup(context_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine closes a book file and deallocates the buffer associated
+!	with it.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	fab		= context[BOOK_T_FAB]		: $BBLOCK,
+	rab		= context[BOOK_T_RAB]		: $BBLOCK,
+	mainmenu	= context[BOOK_T_MAINMENU]	: MINFODEF,
+	sinfo		= context[BOOK_T_SCROLLINFO]	: SINFODEF;
+
+LOCAL
+	cur_entry	: REF MAINENTDEF;
+
+    IF .fab[FAB$W_IFI] NEQ 0
+    THEN $CLOSE(FAB = fab);			!Close the book file
+    IF .rab[RAB$L_UBF] NEQA 0			!Deallocate the buffer
+    THEN LIB$FREE_VM(rab[RAB$W_USZ], rab[RAB$L_UBF]);
+    IF .context[BOOK_L_NUMPARTS] NEQA 0
+    THEN LIB$FREE_VM(%REF(.context[BOOK_L_NUMPARTS]*PAGE_S_PAGEDEF),
+			context[BOOK_L_PARTVEC]);
+    IF .context[BOOK_L_NUMSECTS] NEQA 0
+    THEN LIB$FREE_VM(%REF((.context[BOOK_L_NUMSECTS]+1)*SECT_S_SECTDEF),
+			context[BOOK_L_SECTVEC]);
+    IF .context[BOOK_L_NUMFONTS] NEQA 0
+    THEN LIB$FREE_VM(%REF(.context[BOOK_L_NUMFONTS]*DFLGS_S_DFLGSDEF),
+			context[BOOK_L_FONTVEC]);
+    STR$FREE1_DX(context[BOOK_Q_LEFTOVER]);
+    STR$FREE1_DX(context[BOOK_Q_TITLE]);
+
+    WHILE NOT REMQUE(.mainmenu[MINFO_L_ENTHEAD], cur_entry)
+    DO delete_tblhdr(.cur_entry);		!Dealloc a main menu entry
+! dealloc main menu context info
+
+    scrap_hotspots(context[BOOK_Q_HSQUE]);	!Deallocate the hotspot queue
+
+    IF .sinfo[SINFO_L_DISP] NEQ 0
+    THEN delete_scrolling_region(sinfo);	!Delete the book display
+
+    IF .context[BOOK_L_DBGCTX] NEQA 0
+    THEN dbg_cleanup(context[BOOK_L_DBGCTX]);	!Close the log file
+END;						!End of book_cleanup
+
+
+%SBTTL 'READ_BOOK_INFO'
+ROUTINE read_book_info(context_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads the index and font information from a book.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a		: BOOKDEF,
+	rab	= context[BOOK_T_RAB]	: $BBLOCK;
+
+LOCAL
+	last_rfa	: $BBLOCK[rfa_len],
+	index_page,
+	font_page,
+	status;
+
+
+    status = read_first_rec(context, index_page, font_page, last_rfa);
+    IF .status
+    THEN status = read_last_rec(context, last_rfa);
+    IF .status
+    THEN status = read_part(context, .index_page, type_sectmap);
+    IF .status
+    THEN BEGIN
+	BIND sectvec = .context[BOOK_L_SECTVEC] : SECTVECDEF();
+
+	sectvec[0, SECT_L_VPOS] = 1;		!Default start row
+	status = read_part(context, .font_page, type_font);
+	END;
+
+    .status
+END;						!End of read_book_info
+
+
+%SBTTL 'READ_FIRST_REC'
+ROUTINE read_first_rec(context_a, index_page_a, font_page_a, last_rfa_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads the first record of a book.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a		: BOOKDEF,
+	rab		= context[BOOK_T_RAB]	: $BBLOCK,
+	rec		= .rab[RAB$L_UBF]	: FIRSTRECDEF,
+	index_page	= .index_page_a		: LONG,
+	font_page	= .font_page_a		: LONG,
+	last_rfa	= .last_rfa_a		: $BBLOCK[rfa_len];
+
+LOCAL
+	cur_key	: REF KEYHEADDEF,
+	key_len,
+	cur_len,
+	count,
+	partno,
+	status,
+	statusv	: INITIAL(0);
+
+    status = $GET(RAB = rab);			!Read the first record
+    IF NOT .status
+    THEN statusv = .rab[RAB$L_STV]
+    ELSE BEGIN
+	copyl(rec[FIRSTREC_L_LEN], count);
+
+	IF .rec[FIRSTREC_W_TYPE] NEQ type_first
+	THEN BEGIN
+	    SIGNAL(MGBOOK__FIRSTREC, 0,
+		MGBOOK__BADRECTYP, 2, .rec[FIRSTREC_W_TYPE], type_first);
+	    status = MGBOOK__BADRECTYP OR STS$M_INHIB_MSG;
+	    END					!End of bad record type
+	ELSE IF .rab[RAB$W_RSZ] LSS FIRSTREC_S_FIRSTRECDEF OR
+		.rab[RAB$W_RSZ] LSS .count
+	THEN BEGIN
+	    SIGNAL(MGBOOK__FIRSTREC, 0,
+		MGBOOK__BADSIZE, 2, .count, .rab[RAB$W_RSZ]);
+	    status = MGBOOK__BADSIZE OR STS$M_INHIB_MSG;
+	    END;				!End of bad record size
+	END;					!End of read first record
+
+    IF .status
+    THEN BEGIN
+	CH$MOVE(rfa_len, rec[FIRSTREC_T_LASTPTR], last_rfa);
+	copyl(rec[FIRSTREC_L_IDXPAGE], index_page);
+	copyl(rec[FIRSTREC_L_FONTPAGE], font_page);
+	copyl(rec[FIRSTREC_L_PARTCOUNT], count);
+	dbg_fao(context[BOOK_L_DBGCTX], 'Part count = !UL', .count);
+
+	status = LIB$GET_VM(			!Allocate the part vector
+		%REF(.count * PAGE_S_PAGEDEF), context[BOOK_L_PARTVEC]);
+	IF .status
+	THEN BEGIN
+	    context[BOOK_L_NUMPARTS] = .count;
+	    copyl(rec[FIRSTREC_L_SECTCOUNT], count);
+	    dbg_fao(context[BOOK_L_DBGCTX], 'Section count = !UL', .count);
+	    status = LIB$GET_VM(		!Allocate the section vector
+		%REF((.count+1) * SECT_S_SECTDEF), context[BOOK_L_SECTVEC]);
+	    IF .status
+	    THEN BEGIN
+		context[BOOK_L_NUMSECTS] = .count;
+		copyl(rec[FIRSTREC_L_MAXFONT], count);
+		count = .count + 1;
+		dbg_fao(context[BOOK_L_DBGCTX], 'Font count = !UL', .count);
+		status = LIB$GET_VM(		!Allocate the section vector
+			%REF(.count * DFLGS_S_DFLGSDEF),
+			context[BOOK_L_FONTVEC]);
+		IF .status
+		THEN context[BOOK_L_NUMFONTS] = .count;
+		END;				!End of section vector alloc'ed
+	    END;				!End of part vector allocated
+
+	IF .status
+	THEN BEGIN
+	    copyl(rec[FIRSTREC_L_LEN], key_len);
+	    key_len = .key_len - FIRSTREC_S_FIRSTRECDEF;
+	    cur_key = rec[FIRSTREC_T_KEYSTART];
+
+	    WHILE (copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+		   .cur_len NEQ 0 AND
+		   .key_len GEQU .cur_len)
+	    DO BEGIN
+		IF .cur_key[KEYHEAD_W_TYPE] EQL type_sb_tblhdr
+		THEN BEGIN
+		    BIND
+			entry 	= cur_key[KEYHEAD_T_REST] 	: KTBLHDRDEF,
+			title_ac= entry[KTBLHDR_T_TITLE_AC]	: VECTOR[,BYTE];
+		    LOCAL
+			title_len : INITIAL(length_asciz(title_ac[1],
+							 .title_ac[0])),
+			temp_id;
+
+		    temp_id =			!Determine the menu type
+		    (IF .entry[KTBLHDR_V_CONTENTS]
+		     THEN menu_contents
+		     ELSE IF .entry[KTBLHDR_V_INDEX]
+		     THEN menu_index
+		     ELSE menu_other);
+		    copyl(entry[KTBLHDR_L_COUNT], count);
+		    copyl(entry[KTBLHDR_L_PARTNO], partno);
+		    status = add_tblhdr(	!Add a main menu entry
+				context[BOOK_T_MAINMENU],
+				title_ac[1], .title_len,
+				.temp_id, .count, .partno);
+		    dbg_fao(context[BOOK_L_DBGCTX],
+			'!AD menu : kind = !UL, items = !UL, part # = !UL',
+			.title_len, title_ac[1], .entry[KTBLHDR_B_KEYID],
+			.count, .partno);
+		    IF NOT .status
+		    THEN EXITLOOP;		!On error, get out
+		    END;			!End of main menu entry
+
+		key_len = .key_len - .cur_len;
+		cur_key = .cur_key + .cur_len;
+		END;				!End of key loop
+	    END;
+
+	IF .status
+	THEN status = STR$COPY_R(		!Save the title
+				context[BOOK_Q_TITLE],
+				%REF(.rec[FIRSTREC_B_TITLELEN]),
+				rec[FIRSTREC_T_TITLE]);
+	END;					!End of read the first record
+
+     IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+     THEN SIGNAL(MGBOOK__FIRSTREC, 0, .status, .statusv);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of read_first_rec
+
+
+%SBTTL 'ADD_TBLHDR'
+ROUTINE add_tblhdr(menu_info_a, title_buf_a, title_len, kind, submenu_count,
+			partno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to add a main menu entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	title_buf	= .title_buf_a	: $BBLOCK;
+
+LOCAL
+	new_ent	: REF MAINENTDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(MAINENT_S_MAINENTDEF), new_ent);
+    IF .status
+    THEN BEGIN
+	BIND
+	    submenu	= new_ent[MAINENT_T_SUBMENU]	: MINFODEF;
+
+	$INIT_DYNDESC(new_ent[MAINENT_Q_TITLE]);
+	new_ent[MAINENT_L_KIND] = .kind;
+	new_ent[MAINENT_L_SUBCOUNT] = .submenu_count;
+	new_ent[MAINENT_L_PARTNO] = .partno;
+	new_ent[MAINENT_L_FLAGS] = new_ent[MAINENT_L_REND] =
+		new_ent[MAINENT_L_LEVEL] = 0;
+	new_ent[MAINENT_V_SKIP] =		!Don't skip CONTENTS entry
+			.kind EQL menu_contents;
+	submenu[MINFO_L_NUMENTS] = submenu[MINFO_L_WIDTH] = 0;
+	submenu[MINFO_L_ENTHEAD] = submenu[MINFO_L_ENTTAIL] =
+					submenu[MINFO_Q_ENTRIES];
+	submenu[MINFO_L_CONTEXT] = 0;
+
+	status = STR$COPY_R(new_ent[MAINENT_Q_TITLE], title_len, title_buf);
+	IF .status
+	THEN add_entry(menu_info, .new_ent)	!Update the menu stats
+	ELSE delete_tblhdr(.new_ent)		!Clean up
+	END;					!End of allocated an entry
+
+    .status
+END;						!End of add_tblhdr
+
+
+%SBTTL 'DELETE_TBLHDR'
+ROUTINE delete_tblhdr(mainent_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to deallocate a main menu entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	mainent	= .mainent_a	: MAINENTDEF;
+
+    STR$FREE1_DX(mainent[MAINENT_Q_TITLE]);
+    delete_submenu(mainent[MAINENT_T_SUBMENU]);
+    LIB$FREE_VM(%REF(MAINENT_S_MAINENTDEF), mainent_a);
+END;						!End of delete_tblhdr
+
+
+%SBTTL 'READ_LAST_REC'
+ROUTINE read_last_rec(context_a, last_rfa_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads the last record of a book.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a		: BOOKDEF,
+	rab		= context[BOOK_T_RAB]	: $BBLOCK,
+	rec		= .rab[RAB$L_UBF]	: LASTRECDEF,
+	last_rfa	= .last_rfa_a		: $BBLOCK[rfa_len];
+
+LOCAL
+	vec_len,
+	rest_len,
+	status,
+	statusv	: INITIAL(0);
+
+    CH$MOVE(rfa_len, last_rfa, rab[RAB$W_RFA]);	!RFA of the record to find
+    rab[RAB$B_RAC] = RAB$C_RFA;
+    status = $GET(RAB = rab);			!Read the last record
+    IF NOT .status
+    THEN statusv = .rab[RAB$L_STV]
+    ELSE BEGIN
+	rest_len = .rab[RAB$W_RSZ] - LASTREC_S_LASTRECDEF;
+	vec_len = .context[BOOK_L_NUMPARTS] * PAGE_S_PAGEDEF;
+
+	IF .rec[LASTREC_W_TYPE] NEQ type_last
+	THEN BEGIN
+	    SIGNAL(MGBOOK__LASTREC, 0,
+		MGBOOK__BADRECTYP, 2, .rec[LASTREC_W_TYPE], type_last);
+	    status = MGBOOK__BADRECTYP OR STS$M_INHIB_MSG;
+	    END					!End of bad record type
+	ELSE IF .rest_len NEQ .vec_len
+	THEN BEGIN
+	    SIGNAL(MGBOOK__LASTREC, 0,
+		MGBOOK__BADSIZE, 2, LASTREC_S_LASTRECDEF + .vec_len,
+					.rab[RAB$W_RSZ]);
+	    status = MGBOOK__BADSIZE OR STS$M_INHIB_MSG;
+	    END;				!End of bad record size
+	END;					!End of read the last record
+
+    IF .status
+    THEN CH$MOVE(.vec_len, rec[LASTREC_T_PAGEVEC], .context[BOOK_L_PARTVEC]);
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__LASTREC, 0, .status, .statusv);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of read_last_rec
+
+
+%SBTTL 'READ_PART'
+ROUTINE read_part(context_a, partno, kind) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads a part (a series of records) from a book.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	rab		= context[BOOK_T_RAB]		: $BBLOCK,
+	rec		= .rab[RAB$L_UBF]		: BOOKRECDEF,
+	partvec		= .context[BOOK_L_PARTVEC]	: PAGEVECDEF();
+
+LOCAL
+	cont_rec	: INITIAL(0),
+	rec_type	: INITIAL(type_unknown),
+	part_len,
+	rec_len,
+	temp,
+	status,
+	statusv		: INITIAL(0);
+
+BUILTIN
+	NULLPARAMETER;
+
+MACRO
+    signal_sts(sts)=
+	BEGIN
+	SIGNAL(sts %IF NOT %NULL(%REMAINING) %THEN , %REMAINING %FI);
+	status = sts OR STS$M_INHIB_MSG;
+	END%;					!End of macro signal_sts
+
+    rab[RAB$B_RAC] = RAB$C_RFA;
+    CH$MOVE(rfa_len, partvec[.partno, PAGE_T_RFA], rab[RAB$W_RFA]);
+    part_len = .partvec[.partno, PAGE_L_SIZE] - 16;
+    STR$FREE1_DX(context[BOOK_Q_LEFTOVER]);
+
+    DO BEGIN
+	status = $GET(RAB = rab);		!Read a record of this part
+	IF NOT .status
+	THEN statusv = .rab[RAB$L_STV]
+	ELSE BEGIN
+	    rab[RAB$B_RAC] = RAB$C_SEQ;		!Switch from RFA to sequential
+	    part_len = .part_len + 16 - .rab[RAB$W_RSZ];
+
+	    IF .rec_type EQL type_unknown
+	    THEN rec_type =			!Set the expected record type
+		(IF NOT NULLPARAMETER(kind)
+		 THEN .kind
+		 ELSE .rec[BOOKREC_W_TYPE]);
+	    copyl(rec[BOOKREC_L_LENGTH], temp);
+
+	    IF .part_len LSS 0
+	    THEN signal_sts(MGBOOK__BADPART, 4, .partno, .rab[RAB$L_RFA0],
+			.rab[RAB$W_RFA4], .part_len)
+	    ELSE IF .temp NEQ .rab[RAB$W_RSZ]
+	    THEN signal_sts(MGBOOK__BADSIZE, 2, .temp,
+			.rab[RAB$W_RSZ])
+	    ELSE IF .rec[BOOKREC_W_TYPE] NEQ .rec_type AND
+			.rec[BOOKREC_W_TYPE] NEQ type_cont_mid AND
+			.rec[BOOKREC_W_TYPE] NEQ type_cont_end
+	    THEN signal_sts(MGBOOK__BADRECTYP, 2, .rec[BOOKREC_W_TYPE],
+			.rec_type);
+	    END;
+		
+	IF .status
+	THEN BEGIN
+	    copyl(rec[BOOKREC_L_LENGTH], rec_len);
+	    rec_len = .rec_len - BOOKREC_S_BOOKRECDEF;
+	    IF .part_len GTR 0				!Trim off the next
+	    THEN rec_len = .rec_len - PAGE_S_PAGEDEF;	!...record reference
+
+dbg_fao(context[BOOK_L_DBGCTX], 'read_part : type = !UL, len = !UL',
+ .rec_type, .rec_len);
+	    status =
+	    (SELECTONE .rec_type OF
+	      SET
+		[type_book_sect]:
+			process_text(context, rec[BOOKREC_T_KEYHEAD],
+					.rec_len, .cont_rec);
+		[type_index]:
+			process_index(context, rec[BOOKREC_T_KEYHEAD],
+					.rec_len, .cont_rec);
+		[type_sectmap]:
+			build_section_map(context, rec[BOOKREC_T_KEYHEAD],
+					.rec_len, .cont_rec);
+		[type_font]:
+			process_font(context, rec[BOOKREC_T_KEYHEAD],
+				.rec_len, .cont_rec);
+		[type_desc]:
+			skip_desc(context, rec[BOOKREC_T_KEYHEAD],
+				.rec_len, .cont_rec);
+		[type_asciz_32]:
+			skip_az32(context, rec[BOOKREC_T_KEYHEAD],
+				.rec_len, .cont_rec);
+		[OTHERWISE]:
+			BEGIN
+			SIGNAL(MGBOOK__UNKRECTYP, 1, .rec_type);
+			MGBOOK__UNKRECTYP OR STS$M_INHIB_MSG
+			END;			!End of unknown record type
+	      TES);
+
+	    cont_rec = 1;			!If we read again, mark as a
+						!...continued record
+	    END;				!End of read a record
+    END WHILE .status AND .part_len GTR 0;
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__PARTERR, 1, .partno, .status, .statusv);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of read_part
+
+
+%SBTTL 'PROCESS_TEXT'
+ROUTINE process_text(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a record containing book text.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a	: BOOKDEF;
+
+LOCAL
+	cur_key	: REF KEYHEADDEF INITIAL(.keyvec_a),
+	cur_len,
+	len,
+	status;
+
+    IF NOT .continued
+    THEN BEGIN
+	BIND header = .cur_key : TXTHDRDEF;
+
+	context[BOOK_L_PREVPART] = .header[TXTHDR_L_PREVPART];
+	context[BOOK_L_NEXTPART] = .header[TXTHDR_L_NEXTPART];
+	cur_key = .cur_key + TXTHDR_S_TXTHDRDEF;
+	length = .length - TXTHDR_S_TXTHDRDEF;
+	END;					!End of first record
+
+    part_start(context, .cur_key, .length, .continued, cur_key, len);
+
+    WHILE (copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+	   .len GTR KEYHEAD_S_KEYHEADDEF AND .len GEQ .cur_len)
+    DO BEGIN
+	IF .cur_len EQL 0
+	THEN BEGIN
+	    len = 0;				!This is the last key
+	    EXITLOOP;				!...get out
+	    END					!End of found the last key
+	ELSE BEGIN
+BEGIN
+BIND kbooksub = cur_key[KEYHEAD_T_REST]	: KBOOKSUBDEF;
+
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'book subpart : type = !UL, subtype = !UL, cursect = !UL, refsect = !UL',
+ .cur_key[KEYHEAD_W_TYPE], .kbooksub[KBOOKSUB_L_TYPE],
+ .kbooksub[KBOOKSUB_L_CURSECT], .kbooksub[KBOOKSUB_L_SECT]);
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'book subpart : x = !UL, y = !UL, wid = !UL, ht = !UL, data len = !UL',
+ .kbooksub[KBOOKSUB_L_HORPOS], .kbooksub[KBOOKSUB_L_VERPOS],
+ .kbooksub[KBOOKSUB_L_WIDTH], .kbooksub[KBOOKSUB_L_HEIGHT],
+ .kbooksub[KBOOKSUB_L_LENGTH]);
+END;
+	    status =
+		(SELECTONE .cur_key[KEYHEAD_W_TYPE] OF
+		  SET
+		    [type_sb_booktext]:
+			subpart_booktext(context, .cur_key);
+		    [type_sb_figure]:
+			subpart_figure(context, .cur_key);
+		    [type_sb_hotspot]:
+			subpart_hotspot(context, .cur_key);
+		    [OTHERWISE]:		!Unknown key, ignore it
+			SS$_NORMAL;
+		  TES);
+	    END;				!End of got another subpart
+
+	len = .len - .cur_len;			!Move to the next text key
+	cur_key = .cur_key + .cur_len;
+	END;					!End of text key loop
+
+    part_end(context, .cur_key, .len);
+
+    .status
+END;						!End of process_text
+
+
+%SBTTL 'PROCESS_INDEX'
+ROUTINE process_index(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a record containing index information.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a	: BOOKDEF;
+
+LOCAL
+	cur_key	: REF KEYHEADDEF,
+	cur_len,
+	len,
+	status;
+
+dbg_fao(context[BOOK_L_DBGCTX], 'process_index');
+
+    IF NOT .continued
+    THEN done_one_index_entry = 0;		!Set up for a new index
+
+    part_start(context, .keyvec_a, .length, 1, cur_key, len);
+
+    WHILE (copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+	   .len GTR KEYHEAD_S_KEYHEADDEF AND .len GEQ .cur_len)
+    DO BEGIN
+	IF .cur_len EQL 0
+	THEN BEGIN
+	    len = 0;				!This is the last key
+	    EXITLOOP;				!...get out
+	    END					!End of found the last key
+	ELSE BEGIN
+	    status =
+		(SELECTONE .cur_key[KEYHEAD_W_TYPE] OF
+		  SET
+		    [type_sb_ndxtext]:
+			subpart_ndxtext(context, .cur_key);
+		    [OTHERWISE]:		!Unknown key, ignore it
+			SS$_NORMAL;
+		  TES);
+	    END;				!End of got another subpart
+
+	len = .len - .cur_len;			!Move to the next text key
+	cur_key = .cur_key + .cur_len;
+	END;					!End of text key loop
+
+    part_end(context, .cur_key, .len);
+
+    .status
+END;						!End of process_index
+
+
+%SBTTL 'SUBPART_NDXTEXT'
+ROUTINE subpart_ndxtext(context_a, cur_key_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a type_sb_ndxtext subpart.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	scale	= context[BOOK_F_NORMSCALE]	: LONG,
+	mainent	= .context[BOOK_L_CURMAINENT]	: MAINENTDEF,
+	cur_key	= .cur_key_a			: KEYHEADDEF,
+	ktext	= cur_key[KEYHEAD_T_REST]	: KTEXTDEF;
+
+LOCAL
+	cur_txt	: REF TXTRECDEF INITIAL(ktext[KTEXT_T_TXTREC]),
+	txt_ptr	: REF $BBLOCK,
+	entry	: $BBLOCK[DSC$C_S_BLN],
+	level	: INITIAL(1),
+	first	: INITIAL(1),
+	cur_len,
+	txt_len,
+	temp,
+	status	: INITIAL(SS$_NORMAL);
+
+BUILTIN
+	ADDF,
+	CVTFL,
+	CVTLF,
+	MULF;
+
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'subpart_ndxtext : total len = !UW, name len = !UB, num sects = !UB',
+ .ktext[KTEXT_W_LENGTH], .ktext[KTEXT_B_NAMELEN], .ktext[KTEXT_B_NUMSECTS]);
+    IF NOT .mainent[MAINENT_V_SKIP]
+    THEN BEGIN
+	mainent[MAINENT_V_SKIP] = 1;		!Skipped first menu entry
+	RETURN(SS$_NORMAL);			!Get out
+	END;					!End of skip first entry
+
+!    copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+!    cur_len = .cur_len - CH$DIFF(ktext[KTEXT_T_TXTREC], cur_key);
+    cur_len = .ktext[KTEXT_W_LENGTH];
+
+    $INIT_DYNDESC(entry);
+    WHILE .cur_len GTR 0
+    DO BEGIN
+	SELECTONE .cur_txt[TXTREC_B_TYPE] OF
+	  SET
+	    [2, 3]:
+		BEGIN
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'txtrec_to_text : type = !UL, hor = !UW, ver = !UW, font = !UB',
+ .cur_txt[TXTREC_B_TYPE], .cur_txt[TXTREC_W_HOR],
+ .cur_txt[TXTREC_W_VER], .cur_txt[TXTREC_B_FONT]);
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'txtrec_to_text : x = !UB, y= !UB, text = /!AF/', .cur_txt[TXTREC_B_X],
+ .cur_txt[TXTREC_B_Y], .cur_txt[TXTREC_B_LEN] - TXTREC_S_TXTRECDEF,
+ cur_txt[TXTREC_T_TEXT]);
+		txt_ptr = cur_txt[TXTREC_T_TEXT];
+		txt_len = .cur_txt[TXTREC_B_LEN] - TXTREC_S_TXTRECDEF;
+
+		temp = 			!Assume no spacing
+		(IF .first
+		 THEN BEGIN
+		    first = 0;			!Handled the first txtrec
+		    SELECTONE .mainent[MAINENT_L_KIND] OF
+		      SET
+			[menu_contents]:
+				BEGIN
+				IF numbered_entry(context, .txt_ptr, level)
+				THEN BEGIN
+				    status = txtrec_to_text(
+						context, entry, .txt_ptr,
+						.txt_ptr[0,0,8,0], .scale);
+				    IF NOT .status THEN EXITLOOP;
+
+				    txt_len = .txt_len - .txt_ptr[0,0,8,0] - 2;
+				    txt_ptr = .txt_ptr + .txt_ptr[0,0,8,0] + 2;
+				    1		!One space after sect #
+				    END		!End of got a section # (x.y)
+				ELSE BEGIN
+				    level =
+				    (IF get_term_col(context,
+						.cur_txt[TXTREC_W_HOR],
+						.scale) GTR 0
+				     THEN 1	!Preface, table #, etc.
+				     ELSE 0);	!CONTENTS, INDEX, etc.
+
+				    0		!Let create_menu handle spacing
+				    END		!End of not a numbered entry
+				END;		!End of TOC entry
+			[menu_index]:
+				BEGIN
+				level = get_index_level(context, .cur_txt);
+				0		!Let create_menu handle spacing
+				END;		!End of index entry
+			[menu_other]:
+				level = 0;	!Let create_menu handle spacing
+		      TES			!End of cases
+		    END				!End of 1st txtrec
+		 ELSE 1);			!Assume 1 space between
+						!...txtrecs
+
+		IF .temp GTR 0
+		THEN status = add_whitespace(	!Add # spaces specified
+					context, entry, .temp);
+		IF .status
+		THEN status = txtrec_to_text(	!Format this txtrec
+					context, entry, .txt_ptr, .txt_len,
+					.scale);
+		IF NOT .status THEN EXITLOOP;
+		END;
+	    [OTHERWISE]:	;	!Ignore other types
+	  TES;					!End of cases
+
+	cur_len = .cur_len - .cur_txt[TXTREC_B_LEN];
+	cur_txt = .cur_txt + .cur_txt[TXTREC_B_LEN];
+	END;					!End of subpart skip loop
+
+!
+! If this is an active menu item, then the name will be followed
+! by a section number.  Use section # 0 to denote no section #.
+!
+    IF .status
+    THEN BEGIN
+	temp =				!Get the section #
+	(IF .ktext[KTEXT_B_NUMSECTS] GTRU 0
+	 THEN (txt_ptr = CH$PLUS(ktext[KTEXT_T_TXTREC],
+			.ktext[KTEXT_W_LENGTH] + .ktext[KTEXT_B_NAMELEN]);
+		.txt_ptr[0,0,32,0])	!Use the longword after
+	 ELSE 0);			!No section # provided
+
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'Menu item : text = /!AS/, level = !UL, sect = !UL',
+ entry, .level, .temp);
+	status = add_subent(			!Add the menu info
+			mainent[MAINENT_T_SUBMENU], entry,
+			.level, .temp);
+	END;					!End of no errors so far
+
+    STR$FREE1_DX(entry);			!Clean up
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__SUBMENERR, 1, mainent[MAINENT_Q_TITLE], .status);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of subpart_ndxtext
+
+
+%SBTTL 'NUMBERED_ENTRY'
+ROUTINE numbered_entry(context_a, first_word_ac_a, level_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to determine whether a TOC entry starts with a
+!	section # (e.g., 1.5.8) and, if so, determine the nesting level.
+!
+!	It returns true (low bit set) if this is a section #.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a		: BOOKDEF,
+	first_word_ac	= .first_word_ac_a	: $BBLOCK,
+	level		= .level_a		: LONG;
+
+LOCAL
+	txt_ptr	: REF $BBLOCK INITIAL(first_word_ac[1,0,0,0]),
+	txt_len	: INITIAL(.first_word_ac[0,0,8,0]),
+	temp_ptr: REF $BBLOCK;
+
+    WHILE .txt_len GTR 0 AND .txt_ptr[0,0,8,0] GEQ %C'0' AND
+		.txt_ptr[0,0,8,0] LEQ %C'9'
+    DO BEGIN
+	txt_ptr = .txt_ptr + 1;
+	txt_len = .txt_len - 1;
+	END;					!End of number loop
+
+    IF .txt_len GTR 0 AND .txt_ptr[0,0,8,0] NEQ %C'.'
+    THEN RETURN(0);				!Not a section #
+
+    level = 1;
+    WHILE .txt_len GTR 0
+    DO BEGIN
+	temp_ptr = CH$FIND_CH(.txt_len, .txt_ptr, %C'.');
+	IF CH$FAIL(.temp_ptr) THEN EXITLOOP;
+	level = .level + 1;			!Found another subsection
+	txt_len = .txt_len - CH$DIFF(.temp_ptr, .txt_ptr) - 1;
+	txt_ptr = CH$PLUS(.temp_ptr, 1);
+	END;					!End of find . loop
+
+    RETURN(1);					!This is a section #
+END;						!End of numbered_entry
+
+
+%SBTTL 'GET_INDEX_LEVEL'
+ROUTINE get_index_level(context_a, txtrec_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns the nesting level of a given index entry.
+!	The horizontal position and font number are used.  When a new
+!	position-font pair is encountered, a new level is added to the
+!	index-level queue.
+!
+!	Note: A position match is within a 20 point radius.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	queue	= context[BOOK_Q_NDXLVLQUE]	: QUEDEF,
+	txtrec	= .txtrec_a			: TXTRECDEF;
+
+LOCAL
+	cur_lvl	: REF NDXLVLDEF INITIAL(.queue[QUE_L_HEAD]),
+	level	: INITIAL(0);
+
+MACRO
+	letter_entry(text)=
+	BEGIN
+	BIND
+	    _txtrec	= text 				: TXTRECDEF,
+	    _text	= _txtrec[TXTREC_T_TEXT]	: VECTOR[,BYTE];
+
+	._text[0] EQL 1 AND ._text[1] GEQ %C'A' AND ._text[1] LEQ %C'Z'
+	END%;					!End of macro letter_entry
+
+    IF .cur_lvl EQLA queue AND NOT letter_entry(txtrec)
+    THEN BEGIN
+	IF NOT .done_one_index_entry
+	THEN BEGIN
+	    done_one_index_entry = 1;		!This is the first one, make
+	    RETURN(0);				!...it a top-level entry
+	    END					!End of first entry
+	ELSE RETURN(1);				!Otherwise, it's a sub-entry
+	END;					!End of stuff before letters
+
+    WHILE .cur_lvl NEQA queue
+    DO BEGIN
+	IF .txtrec[TXTREC_B_FONT] EQL .cur_lvl[NDXLVL_L_FONT] AND
+	   .txtrec[TXTREC_W_HOR] GTRU .cur_lvl[NDXLVL_L_POS] - 20 AND
+	   .txtrec[TXTREC_W_HOR] LSSU .cur_lvl[NDXLVL_L_POS] + 20
+	THEN RETURN(.level);			!Match, return the level
+
+	level = .level + 1;			!Move to the next level
+	cur_lvl = .cur_lvl[NDXLVL_L_FLINK];
+	END;					!End of index-level queue loop
+
+    add_ndxlvl(context, .txtrec[TXTREC_W_HOR], .txtrec[TXTREC_B_FONT]);
+    RETURN(.level);				!Return the new level #
+END;						!End of get_index_level
+
+
+%SBTTL 'ADD_NDXLVL'
+ROUTINE add_ndxlvl(context_a, pos, font) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds a new index-level to the end of the queue.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	queue	= context[BOOK_Q_NDXLVLQUE]	: QUEDEF;
+
+LOCAL
+	new_lvl	: REF NDXLVLDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(NDXLVL_S_NDXLVLDEF), new_lvl);
+    IF .status
+    THEN BEGIN
+	new_lvl[NDXLVL_L_POS] = .pos;		!Save level info
+	new_lvl[NDXLVL_L_FONT] = .font;
+	INSQUE(.new_lvl, .queue[QUE_L_TAIL]);	!Append to queue
+	END;					!End of allocated a new level
+
+    .status
+END;						!End of add_ndxlvl
+
+
+%SBTTL 'SUBPART_BOOKTEXT'
+ROUTINE subpart_booktext(context_a, cur_key_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a type_sb_booktext subpart.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	rab		= context[BOOK_T_RAB]		: $BBLOCK,
+	scale		= context[BOOK_F_NORMSCALE]	: LONG,
+	dbl_scale	= context[BOOK_F_DBLSCALE]	: LONG,
+	fontvec		= .context[BOOK_L_FONTVEC]	: FONTVECDEF(max_fonts),
+	sectvec		= .context[BOOK_L_SECTVEC]	: SECTVECDEF(),
+	sinfo		= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	book_len	= sinfo[SINFO_L_LEN]		: LONG,
+	cur_key		= .cur_key_a			: KEYHEADDEF,
+	kbooksub	= cur_key[KEYHEAD_T_REST]	: KBOOKSUBDEF;
+
+LOCAL
+	cur_txt		: REF TXTRECDEF INITIAL(kbooksub[KBOOKSUB_T_DATA]),
+	out_line	: $BBLOCK[DSC$C_S_BLN],
+	ws_buffer	: $BBLOCK[255],
+	row,
+	col,
+	cur_len,
+	temp,
+	status;
+
+BUILTIN
+	ADDF,
+	CVTLF,
+	DIVF;
+
+    context[BOOK_L_CURSECT] = .kbooksub[KBOOKSUB_L_CURSECT];
+    context[BOOK_L_LASTY] = .context[BOOK_L_CURY];
+    copyl(kbooksub[KBOOKSUB_L_LENGTH], cur_len);
+
+    WHILE .cur_len GTR 0
+    DO BEGIN
+	SELECTONE .cur_txt[TXTREC_B_TYPE] OF
+	  SET
+	    [2, 3]:
+		BEGIN
+		BIND
+		    flags = fontvec[.cur_txt[TXTREC_B_FONT],
+					DFLGS_L_FLAGS]	: DFLGSDEF;
+
+		row = get_term_row(context, .cur_txt[TXTREC_W_VER] +
+						.context[BOOK_L_LASTY]);
+		col = get_term_col(context, .cur_txt[TXTREC_W_HOR],
+					(IF .flags[DFLGS_V_HIGHWIDE]
+					 THEN .dbl_scale
+					 ELSE .scale));
+
+		context[BOOK_L_CURY] = .context[BOOK_L_LASTY] +
+					.cur_txt[TXTREC_W_VER];
+		context[BOOK_L_CURROW] = .row;
+
+		IF .flags[DFLGS_V_HIGHWIDE]
+		THEN row = .row + 1;
+
+		IF .sectvec[.context[BOOK_L_CURSECT], SECT_L_VPOS] EQL 0
+		THEN BEGIN
+dbg_fao(context[BOOK_L_DBGCTX], 'subpart_booktext : sect = !UL, vpos = !UL',
+ .context[BOOK_L_CURSECT], .row);
+		    sectvec[.context[BOOK_L_CURSECT], SECT_L_VPOS] = .row;
+		    END;
+
+		$INIT_DYNDESC(out_line);
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'txtrec_to_text : type = !UL, hor = !UW, ver = !UW, font = !UB',
+ .cur_txt[TXTREC_B_TYPE], .cur_txt[TXTREC_W_HOR],
+ .cur_txt[TXTREC_W_VER], .cur_txt[TXTREC_B_FONT]);
+dbg_fao(context[BOOK_L_DBGCTX],
+ 'txtrec_to_text : x = !UB, y= !UB, text = /!AF/', .cur_txt[TXTREC_B_X],
+ .cur_txt[TXTREC_B_Y], .cur_txt[TXTREC_B_LEN] - TXTREC_S_TXTRECDEF,
+ cur_txt[TXTREC_T_TEXT]);
+		status = txtrec_to_text(
+			context, out_line, cur_txt[TXTREC_T_TEXT],
+			.cur_txt[TXTREC_B_LEN] - TXTREC_S_TXTRECDEF,
+			(IF .flags[DFLGS_V_HIGHWIDE]
+			 THEN .dbl_scale ELSE .scale));
+		IF .status
+		THEN status = add_book_text(	!Add text to the book display
+				context, out_line, .row, .col, .flags);
+		STR$FREE1_DX(out_line);
+		END;				!End of book text subpart
+	    [1]:	;			!Ignore
+	    [OTHERWISE]:
+		BEGIN
+		dbg_fao(context[BOOK_L_DBGCTX],
+			'Unexpected book subpart : type = !UL, len = !UL',
+			.cur_txt[TXTREC_B_TYPE], .cur_txt[TXTREC_B_LEN]);
+		END;				!End of skip this subpart
+	  TES;
+
+	cur_len = .cur_len - .cur_txt[TXTREC_B_LEN];
+	cur_txt = .cur_txt + .cur_txt[TXTREC_B_LEN];
+	END;					!End of subpart loop
+!
+! Point the last Y position to just after this section.  Need to update
+! CURROW also, so that get_term_row calls within subpart_figure will work.
+!
+    context[BOOK_L_CURROW] = get_term_row(context, .context[BOOK_L_LASTY] +
+						.kbooksub[KBOOKSUB_L_HEIGHT]);
+    context[BOOK_L_CURY] = .context[BOOK_L_LASTY] +
+				.kbooksub[KBOOKSUB_L_HEIGHT];
+    SS$_NORMAL
+END;						!End of subpart_booktext
+
+
+%SBTTL 'TXTREC_TO_TEXT'
+ROUTINE txtrec_to_text(context_a, out_line_a, txt_ptr : REF $BBLOCK,
+			txt_len, scale) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine converts a txtrec to a line of properly spaced text.
+!	The result is appended to out_line_a.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	out_line	= .out_line_a			: $BBLOCK;
+
+LOCAL
+	temp_desc	: $BBLOCK[DSC$C_S_BLN],
+	status		: INITIAL(SS$_NORMAL),
+	cur_len,
+	space_count;
+
+BUILTIN
+	ADDF,
+	CVTFL,
+	CVTLF,
+	MULF;
+
+    temp_desc[DSC$B_CLASS] = DSC$K_CLASS_S;
+    temp_desc[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+
+    WHILE .txt_len GTR 0
+    DO BEGIN
+	temp_desc[DSC$W_LENGTH] = cur_len = .txt_ptr[0,0,8,0];
+	temp_desc[DSC$A_POINTER] = txt_ptr[1,0,0,0];
+	status = STR$APPEND(out_line,		!Add a word
+				temp_desc);
+	IF NOT .status THEN EXITLOOP;
+
+	txt_len = .txt_len - 1 - .cur_len - 1;
+	txt_ptr = .txt_ptr + 1 + .txt_ptr[0,0,8,0];
+
+	IF .txt_len GEQ 0
+	THEN BEGIN
+	    cur_len = .txt_ptr[0,0,8,0];
+	    space_count = get_term_col(context, .cur_len, .scale);
+	    IF .space_count LSS 1
+	    THEN space_count = 1;		!Minimum of 1 space
+	    status = add_whitespace(context,	!Add between-word spacing
+				out_line, .space_count);
+	    IF NOT .status THEN EXITLOOP;
+
+	    txt_ptr = .txt_ptr + 1;		!Point to the next word
+	    END;				!End of add some whitespace
+	END;					!End of line display loop
+
+    .status
+END;						!End of txtrec_to_text
+
+
+%SBTTL 'ADD_WHITESPACE'
+ROUTINE add_whitespace(context_a, out_line_a, spaces) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds the specified number of spaces to the end of
+!	out_line_a.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a	: BOOKDEF,
+	out_line	= .out_line_a	: $BBLOCK,
+	space_buf	= UPLIT(%ASCII'                             ');
+
+LOCAL
+	temp_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= .spaces,
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= space_buf);
+
+    STR$APPEND(out_line, temp_desc)		!Add requested # spaces
+						!...assume no more than 30
+END;						!End of add_whitespace
+
+
+%SBTTL 'ADD_BOOK_TEXT'
+ROUTINE add_book_text(context_a, out_line_a, row, col, flags) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds the specified number of spaces to the end of
+!	out_line_a.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	sinfo		= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	book_len	= sinfo[SINFO_L_LEN]		: LONG,
+	out_line	= .out_line_a			: $BBLOCK;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	dflgs		: DFLGSDEF PRESET(
+			[DFLGS_L_FLAGS] = (IF NULLPARAMETER(flags)
+					   THEN 0 ELSE .flags)),
+	temp;
+
+    IF .row GTR .context[BOOK_L_LOWEST]
+    THEN context[BOOK_L_LOWEST] = .row;
+
+    IF .row + 10 GEQ .book_len
+    THEN extend_scrolling_region(sinfo, .row + 100);
+
+    IF .col LSS .context[BOOK_L_LEFTMOST]
+    THEN context[BOOK_L_LEFTMOST] = .col;
+
+    temp = .col +
+	(IF .dflgs[DFLGS_V_HIGHWIDE]
+	 THEN .out_line[DSC$W_LENGTH] + .out_line[DSC$W_LENGTH]
+	 ELSE .out_line[DSC$W_LENGTH]);
+
+    IF .temp GTR .context[BOOK_L_RIGHTMOST]
+    THEN context[BOOK_L_RIGHTMOST] = .temp;
+
+dbg_fao(context[BOOK_L_DBGCTX], 'Book text = /!AS/', out_line);
+    put_chars(sinfo, out_line, .row, .col, .dflgs)
+END;						!End of add_book_text
+
+%SBTTL 'ADD_SUBENT'
+ROUTINE add_subent(menu_info_a, title_a, level, sect) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds an entry to a submenu.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	title		= .title_a	: $BBLOCK;
+
+LOCAL
+	new_ent	: REF SUBMENENTDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(SUBMENENT_S_SUBMENENTDEF), new_ent);
+    IF .status
+    THEN BEGIN
+	$INIT_DYNDESC(new_ent[SUBMENENT_Q_TITLE]);
+	new_ent[SUBMENENT_L_REND] = (IF .sect EQL 0 THEN SMG$M_BOLD ELSE 0);
+	new_ent[SUBMENENT_L_LEVEL] = .level;
+	new_ent[SUBMENENT_L_SECT] = .sect;
+	status = STR$COPY_DX(new_ent[SUBMENENT_Q_TITLE], title);
+	IF .status
+	THEN add_entry(menu_info, .new_ent)	!Update the menu stats
+	ELSE delete_subent(.new_ent);		!Clean up
+	END;					!End of entry allocated
+
+    .status
+END;						!End of add_subent
+
+
+%SBTTL 'DELETE_SUBMENU'
+ROUTINE delete_submenu(menu_info_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to deallocate all submenu entries.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF;
+
+LOCAL
+	cur_ent	: REF SUBMENENTDEF;
+
+    WHILE NOT REMQUE(.menu_info[MINFO_L_ENTHEAD], cur_ent)
+    DO delete_subent(.cur_ent);
+END;						!End of delete_submenu
+
+
+%SBTTL 'DELETE_SUBENT'
+ROUTINE delete_subent(subent_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to deallocate a submenu entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	subent	= .subent_a	: SUBMENENTDEF;
+
+    STR$FREE1_DX(subent[SUBMENENT_Q_TITLE]);
+    LIB$FREE_VM(%REF(SUBMENENT_S_SUBMENENTDEF), subent_a);
+END;						!End of delete_subent
+
+
+%SBTTL 'GET_TERM_ROW'
+ROUTINE get_term_row(context_a, book_pos) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a terminal row that best corresponds to the
+!	book position given.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	rowque	= context[BOOK_Q_ROWQUE]	: QUEDEF;
+
+LOCAL
+	cur_row	: REF ROWDEF,
+	temp,
+	status;
+
+    cur_row = .rowque[QUE_L_HEAD];		!Point to the first row
+    WHILE .cur_row NEQA rowque AND .cur_row[ROW_L_BOOKPOS] GTR .book_pos
+    DO cur_row = .cur_row[ROW_L_FLINK];
+
+    IF .cur_row NEQA rowque AND .cur_row[ROW_L_BOOKPOS] EQL .book_pos
+    THEN temp = .cur_row[ROW_L_ROW]		!Found a match, use it
+    ELSE BEGIN
+	temp = convert_row(context, .book_pos - .context[BOOK_L_CURY]) +
+		.context[BOOK_L_CURROW];
+	status = add_row(context, .book_pos, .temp, .cur_row[ROW_L_BLINK]);
+dbg_fao(context[BOOK_L_DBGCTX], 'get_term_row: added (!UL, !UL), status = !UL',
+	.book_pos, .temp, .status);
+	END;
+
+dbg_fao(context[BOOK_L_DBGCTX],
+	'get_term_row : bookpos = !UL, row = !UL',
+	.book_pos, .temp);
+    .temp
+END;						!End of get_term_row
+
+
+%SBTTL 'CONVERT_ROW'
+ROUTINE convert_row(context_a, book_pos) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a terminal row that best corresponds to the
+!	book position given.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF;
+
+LOCAL
+	temp;
+
+BUILTIN
+	ADDF,
+	CVTFL,
+	CVTLF,
+	DIVF;
+
+    divide(char_height, .book_pos, temp);
+    round(temp, temp);
+
+    .temp
+END;						!End of convert_row
+
+
+%SBTTL 'GET_TERM_COL'
+ROUTINE get_term_col(context_a, book_pos, scale) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a terminal column that best corresponds to the
+!	give book position.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF;
+
+LOCAL
+	temp;
+
+BUILTIN
+	ADDF,
+	CVTFL,
+	CVTLF,
+	MULF;
+
+    multiply(.book_pos, scale, temp);
+    round(temp, temp);
+
+    .temp
+END;						!End of get_term_col
+
+
+%SBTTL 'SUBPART_FIGURE'
+ROUTINE subpart_figure(context_a, cur_key_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a type_sb_figure subpart.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	cur_key		= .cur_key_a			: KEYHEADDEF,
+	kbooksub	= cur_key[KEYHEAD_T_REST]	: KBOOKSUBDEF;
+
+LOCAL
+	row,
+	col;
+
+dbg_fao(context[BOOK_L_DBGCTX], 'subpart_figure');
+
+    row = get_term_row(context, .kbooksub[KBOOKSUB_L_VERPOS] +
+			.context[BOOK_L_LASTY]);
+    col = get_term_col(context, .kbooksub[KBOOKSUB_L_HORPOS],
+			.context[BOOK_F_NORMSCALE]);
+    add_book_text(context, %ASCID'This figure could not be displayed',
+		.row, .col)
+END;						!End of subpart_figure
+
+
+%SBTTL 'SUBPART_HOTSPOT'
+ROUTINE subpart_hotspot(context_a, cur_key_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a type_sb_hotspot subpart.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	cur_key	= .cur_key_a			: KEYHEADDEF,
+	hotspot	= cur_key[KEYHEAD_T_REST]	: KBOOKSUBDEF;
+
+LOCAL
+	row,
+	col,
+	lines,
+	chars,
+	status;
+
+    row = find_row(context, .hotspot[KBOOKSUB_L_VERPOS] +
+				.hotspot[KBOOKSUB_L_HEIGHT] +
+				.context[BOOK_L_LASTY]);
+    col = get_term_col(context, .hotspot[KBOOKSUB_L_HORPOS],
+			.context[BOOK_F_NORMSCALE]);
+    lines = convert_row(context, .hotspot[KBOOKSUB_L_HEIGHT]);
+    chars = get_term_col(context, .hotspot[KBOOKSUB_L_WIDTH],
+			.context[BOOK_F_NORMSCALE]);
+    status = add_hotspot(context, .row, .col, .lines, .chars,
+			.hotspot[KBOOKSUB_L_SECT]);
+    IF .status
+    THEN status = hilight(			!Hilight the hotspot text
+		context[BOOK_T_SCROLLINFO], .row, .col, .lines, .chars,
+		SMG$M_REVERSE);
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__HSERR, 0, .status);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of subpart_hotspot
+
+
+%SBTTL 'ADD_HOTSPOT'
+ROUTINE add_hotspot(context_a, row, col, num_rows, num_cols, sect) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds a hotspot to the hotspot queue.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a		: BOOKDEF,
+	hsque	= context[BOOK_Q_HSQUE]	: QUEDEF;
+
+LOCAL
+	new_hs	: REF HOTSPOTDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(HOTSPOT_S_HOTSPOTDEF), new_hs);
+    IF .status
+    THEN BEGIN
+	new_hs[HOTSPOT_L_ROW] = .row;		!Save hotspot info
+	new_hs[HOTSPOT_L_COL] = .col;
+	new_hs[HOTSPOT_L_LINES] = .num_rows;
+	new_hs[HOTSPOT_L_CHARS] = .num_cols;
+	new_hs[HOTSPOT_L_SECT] = .sect;
+	INSQUE(.new_hs, .hsque[QUE_L_TAIL]);	!Add to hotspot queue
+	END;					!End of hotspot allocated
+
+    .status
+END;						!End of add_hotspot
+
+
+%SBTTL 'SCRAP_HOTSPOTS'
+ROUTINE scrap_hotspots(hsque_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates the current queue of hotspots.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	hsque	= .hsque_a	: QUEDEF;
+
+LOCAL
+	cur_hs	: REF HOTSPOTDEF;
+
+    WHILE NOT REMQUE(.hsque[QUE_L_HEAD], cur_hs)
+    DO LIB$FREE_VM(%REF(HOTSPOT_S_HOTSPOTDEF),	!Deallocate this hotspot
+			cur_hs);
+END;						!End of scrap_hotspota
+
+
+%SBTTL 'BUILD_SECTION_MAP'
+ROUTINE build_section_map(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a record containing section information.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	sectvec	= .context[BOOK_L_SECTVEC]	: SECTVECDEF();
+
+LOCAL
+	cur_key	: REF $BBLOCK,
+	len,
+	max_sect;
+
+OWN
+	next_sect;
+
+    part_start(context, .keyvec_a, .length, .continued, cur_key, len);
+
+    IF NOT .continued
+    THEN next_sect = 0;
+
+    max_sect = .next_sect + .len / 4 - 1;
+    dbg_fao(context[BOOK_L_DBGCTX], 'build_section_map: got !UL sections',
+		.len/4);
+
+    INCR i FROM .next_sect TO .max_sect
+    DO BEGIN
+	BIND sect = sectvec[.i, 0, 0, 0, 0]	: SECTDEF;
+
+	sect[SECT_L_PARTNO] = .cur_key[0, 0, 32, 0];
+	sect[SECT_L_VPOS] = 0;
+	cur_key = .cur_key + 4;
+	END;					!End of section copy loop
+
+    next_sect = .max_sect + 1;			!Set up for next time
+    len = .len MOD 4;
+    part_end(context, .cur_key, .len);
+
+    SS$_NORMAL
+END;						!End of build_section_map
+
+
+%SBTTL 'PROCESS_FONT'
+ROUTINE process_font(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine handles a record containing font information.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	fontvec	= .context[BOOK_L_FONTVEC]	: FONTVECDEF(max_fonts),
+	delim	= %ASCID'-';
+
+LOCAL
+	cur_key		: REF KEYHEADDEF,
+	font_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T),
+	temp_desc	: $BBLOCK[DSC$C_S_BLN],
+	charsize,
+	len,
+	cur_len,
+	status;
+
+BUILTIN
+	CVTLF,
+	DIVF;
+
+EXTERNAL ROUTINE
+	g_hat(OTS$CVT_TU_L, STR$COMPARE_EQL, STR$ELEMENT);
+
+    part_start(context, .keyvec_a, .length, .continued, cur_key, len);
+    $INIT_DYNDESC(temp_desc);
+
+    WHILE (copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+	   .len GTR KEYHEAD_S_KEYHEADDEF AND .len GEQ .cur_len)
+    DO BEGIN
+	BIND
+	    flags	= fontvec[.context[BOOK_L_CURFONT], DFLGS_L_FLAGS]
+							: DFLGSDEF,
+	    kfont	= cur_key[KEYHEAD_T_REST]	: KFONTDEF;
+
+	flags = 0;
+	font_desc[DSC$A_POINTER] = kfont[KFONT_T_FONTTXT];
+	font_desc[DSC$W_LENGTH] = length_asciz(kfont[KFONT_T_FONTTXT],
+						.len - KEYHEAD_S_KEYHEADDEF -
+						KFONT_S_KFONTDEF);
+	status = STR$ELEMENT(temp_desc, %REF(2), delim, font_desc);
+	dbg_fao(context[BOOK_L_DBGCTX], 'Font = !AS', temp_desc);
+	flags[DFLGS_V_SYMBOL] = .status AND
+		(STR$COMPARE_EQL(temp_desc, %ASCID'Symbol') EQL 0 OR
+		 STR$COMPARE_EQL(temp_desc, %ASCID'Interim DM') EQL 0);
+
+	status = STR$ELEMENT(temp_desc, %REF(3), delim, font_desc);
+	dbg_fao(context[BOOK_L_DBGCTX], 'Weight = !AS', temp_desc);
+	flags[DFLGS_V_BOLD] = .status AND
+		STR$COMPARE_EQL(temp_desc, %ASCID'Bold') EQL 0;
+
+	status = STR$ELEMENT(temp_desc, %REF(8), delim, font_desc);
+	IF .status
+	THEN status = OTS$CVT_TU_L(temp_desc, charsize);
+	IF NOT .status
+	THEN charsize = def_charsize;
+	dbg_fao(context[BOOK_L_DBGCTX], 'Charsize = !UL', .charsize);
+	flags[DFLGS_V_HIGHWIDE] = .charsize GEQ highwide_min;
+
+	len = .len - .cur_len;
+	cur_key = .cur_key + .cur_len;
+	context[BOOK_L_CURFONT] = .context[BOOK_L_CURFONT] + 1;
+
+	IF NOT .status
+	THEN SIGNAL(MGBOOK__FONTERR, 1, font_desc, .status);
+	END;					!End of key loop
+
+    STR$FREE1_DX(temp_desc);
+    part_end(context, .cur_key, .len);
+
+    SS$_NORMAL
+END;						!End of process_font
+
+
+%SBTTL 'SKIP_DESC'
+ROUTINE skip_desc(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine skips over a type_desc record.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a	: BOOKDEF;
+
+LOCAL
+	cur_key	: REF KEYHEADDEF,
+	cur_len,
+	len;
+
+    part_start(context, .keyvec_a, .length, .continued, cur_key, len);
+
+    WHILE (copyl(cur_key[KEYHEAD_L_LENGTH], cur_len);
+	   .len GEQ KEYHEAD_S_KEYHEADDEF AND
+	   .len  GEQ .cur_len)
+    DO BEGIN
+	len = .len - .cur_len;
+	cur_key = .cur_key + .cur_len;
+	END;					!End of key skip loop
+
+    part_end(context, .cur_key, .len);
+
+    SS$_NORMAL
+END;						!End of skip_desc
+
+
+%SBTTL 'SKIP_AZ32'
+ROUTINE skip_az32(context_a, keyvec_a, length, continued) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine skips over a type_asciz_32 record.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a	: BOOKDEF;
+
+LOCAL
+	cur_key	: REF KEYHEADDEF,
+	len,
+	left;
+
+    part_start(context, .keyvec_a, .length, .continued, cur_key, len);
+
+    left = .len MOD 32;				!Calculate the partial str len
+
+    part_end(context, .cur_key + .len - .left, .left);
+
+    SS$_NORMAL
+END;						!End of skip_az32
+
+
+%SBTTL 'MAKE_MAINMENU'
+ROUTINE make_mainmenu(context_a) : NOVALUE=
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine controls the main menu of a book, i.e., the menu with
+!	the contents, examples, index, etc.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a			: BOOKDEF,
+	mainmenu	= context[BOOK_T_MAINMENU]	: MINFODEF;
+
+LOCAL
+	selected,
+	status;
+
+    status = create_menu(mainmenu, context[BOOK_Q_TITLE]);
+    IF .status
+    THEN BEGIN
+	LOCAL
+	    mainent	: REF MAINENTDEF;
+
+	DO BEGIN
+	    status = select_from_menu(mainmenu, mainent, selected);
+	    IF .status AND .selected
+	    THEN make_submenu(context,		!Create the menu chosen
+				.mainent);
+	END WHILE .status;
+
+	IF .status EQL RMS$_EOF
+	THEN status = SS$_NORMAL;		!Expected error, ignore it
+
+	delete_menu(mainmenu);			!Clean up
+	END;					!End of menu created
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__MAINMENERR, 1, context[BOOK_Q_TITLE], .status);
+END;						!End of make_mainmenu
+
+
+%SBTTL 'MAKE_SUBMENU'
+ROUTINE make_submenu(context_a, mainent_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine controls the main menu of a book, i.e., the menu with
+!	the contents, examples, index, etc.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	mainent	= .mainent_a			: MAINENTDEF,
+	title	= mainent[MAINENT_Q_TITLE]	: $BBLOCK,
+	submenu	= mainent[MAINENT_T_SUBMENU]	: MINFODEF;
+
+LOCAL
+	selected,
+	status;
+
+    IF .submenu[MINFO_L_NUMENTS] EQL 0
+    THEN BEGIN
+	context[BOOK_L_CURMAINENT] = mainent;	!Where to fill in
+	status = read_part(context, .mainent[MAINENT_L_PARTNO], type_index);
+	IF .mainent[MAINENT_L_KIND] EQL menu_index
+	THEN delete_ndxlvlque(context[BOOK_Q_NDXLVLQUE]);
+	END					!End of fill in the menu
+    ELSE status = SS$_NORMAL;			!Menu already filled in
+    IF .status
+    THEN status = create_menu(submenu, title,
+			(IF .mainent[MAINENT_L_KIND] EQL menu_contents
+			 THEN 2 ELSE 1));	!Start TOC on line 2 (after
+						!...CONTENTS)
+    IF .status
+    THEN BEGIN
+	LOCAL
+	    subent	: REF SUBMENENTDEF;
+
+	DO BEGIN
+	    status = select_from_menu(submenu, subent, selected);
+	    IF .status
+	    THEN IF .subent[SUBMENENT_L_SECT] NEQ 0
+		THEN show_sect(context,		!Show the section chosen
+				.subent[SUBMENENT_L_SECT])
+		ELSE ring_bell(submenu);
+	END WHILE .status;
+
+	IF .status EQL RMS$_EOF
+	THEN status = SS$_NORMAL;		!Expected error, ignore it
+
+	delete_menu(submenu);			!Clean up
+	END;					!End of menu created
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__SUBMENERR, 1, mainent[MAINENT_Q_TITLE], .status);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End make_submenu
+
+
+%SBTTL 'DELETE_NDXLVLQUE'
+ROUTINE delete_ndxlvlque(queue_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates an index-level-queue entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	queue	= .queue_a	: QUEDEF;
+
+LOCAL
+	cur_lvl	: REF NDXLVLDEF;
+
+    WHILE NOT REMQUE(.queue[QUE_L_HEAD], cur_lvl)
+    DO delete_ndxlvl(cur_lvl);			!Delete current level
+END;						!End of delete_ndxlvlque
+
+
+%SBTTL 'DELETE_NDXLVL'
+ROUTINE delete_ndxlvl(ndxlvl_a_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates an index-level-queue entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LIB$FREE_VM(%REF(NDXLVL_S_NDXLVLDEF), .ndxlvl_a_a);
+END;						!End of delete_gbe
+
+
+%SBTTL 'SHOW_SECT'
+ROUTINE show_sect(context_a, sectno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays the contents of a section and reads keystrokes
+!	to move around in the section.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	sectvec	= .context[BOOK_L_SECTVEC]	: SECTVECDEF(),
+	cursect	= sectvec[.sectno, 0, 0, 0, 0]	: SECTDEF,
+	sinfo	= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	partno	= context[BOOK_L_CURPART]	: LONG,
+	gbque	= context[BOOK_Q_GBQUE]		: QUEDEF,
+	hsque	= context[BOOK_Q_HSQUE]		: QUEDEF,
+	curhs	= context[BOOK_L_CURHS]		: REF HOTSPOTDEF;
+
+LOCAL
+	term		: WORD,
+	scroll_amount	: INITIAL(0),
+	nxtpart		: INITIAL(0),
+	nxtsect		: INITIAL(0),
+	last_line	: INITIAL(0),
+	cursor_col,
+	old_top,
+	status;
+
+    status = display_part(context, .cursect[SECT_L_PARTNO], .sectno, 0);
+    IF .status
+    THEN cursor_col = get_cursor_col(context[BOOK_T_SCROLLINFO]);
+    WHILE .status
+    DO BEGIN
+	status = read_key(term);		!Read a keystroke
+	IF .status
+	THEN BEGIN
+	    SELECTONE .term OF
+	      SET
+		[SMG$K_TRM_UP,
+		 SMG$K_TRM_KP5]:	scroll_amount = -1;
+		[SMG$K_TRM_DOWN,
+		 SMG$K_TRM_KP6]:	scroll_amount = 1;
+		[SMG$K_TRM_KP7,
+		 SMG$K_TRM_PREV_SCREEN]: scroll_amount =
+						-.sinfo[SINFO_L_VIEWLEN];
+		[SMG$K_TRM_KP8,
+		 SMG$K_TRM_CR,
+		 SMG$K_TRM_NEXT_SCREEN]: scroll_amount =
+						.sinfo[SINFO_L_VIEWLEN];
+		[SMG$K_TRM_LEFT]:	nxtpart = .context[BOOK_L_PREVPART];
+		[SMG$K_TRM_RIGHT]:	nxtpart = .context[BOOK_L_NEXTPART];
+		[SMG$K_TRM_PERIOD,
+		 SMG$K_TRM_SELECT]:
+			IF .hsque[QUE_L_HEAD] NEQA hsque
+			THEN BEGIN
+			    nxtsect = .curhs[HOTSPOT_L_SECT];
+			    nxtpart = .sectvec[.nxtsect, SECT_L_PARTNO];
+			    END;		!End of go to hotspot sect
+		[SMG$K_TRM_PF3,
+		 SMG$K_TRM_FIND]:
+			IF .hsque[QUE_L_HEAD] NEQA hsque
+			THEN current_hotspot(	!Update the current hotspot
+				context,
+				(IF .curhs[HOTSPOT_L_FLINK] EQLA hsque
+				 THEN .hsque[QUE_L_HEAD]	!Wrap around
+				 ELSE .curhs[HOTSPOT_L_FLINK]),
+				scroll_amount);
+		[SMG$K_TRM_CTRLB]:	status = go_back(context);
+	      TES;				!End of cases
+
+	    IF .scroll_amount NEQ 0
+	    THEN BEGIN
+		old_top = .sinfo[SINFO_L_TOP];	!To determine if we scrolled
+		status = scroll(sinfo,		!Scroll the book display
+				.scroll_amount);
+		IF .status AND .old_top EQL .sinfo[SINFO_L_TOP]
+		THEN BEGIN
+		    last_line = .scroll_amount LSS 0;
+		    nxtpart =
+		    (IF .last_line		!Move to adjacent section
+		     THEN .context[BOOK_L_PREVPART]
+		     ELSE .context[BOOK_L_NEXTPART]);
+		    END				!End of scroll past boundary
+		ELSE IF .status
+		THEN status = set_cursor_pos(sinfo, .sinfo[SINFO_L_TOP],
+						.cursor_col);
+
+		scroll_amount = 0;		!Set up for next time
+		END;				!End of scroll within section
+
+	    IF .nxtpart NEQ 0
+	    THEN BEGIN
+		LOCAL lineno;
+
+		add_gbe(context, .partno,	!Save "go back" information
+			.sinfo[SINFO_L_TOP]);
+		start_batch();
+		lineno =			!The new line #
+		(IF .partno EQL .nxtpart
+		 THEN .sectvec[.nxtsect, SECT_L_VPOS]
+		 ELSE BEGIN
+		    status = change_part(context, .nxtpart, .nxtsect);
+		    IF .status AND .last_line
+		    THEN .context[BOOK_L_LOWEST]
+		    ELSE 0
+		    END);			!End of change parts
+
+		IF .status AND .lineno GTR 0
+		THEN BEGIN
+		    status = scroll(sinfo, .lineno - .sinfo[SINFO_L_TOP]);
+		    IF .status
+		    THEN status = set_cursor_pos(sinfo, .lineno, .cursor_col);
+		    END;			!End of scroll to line
+		end_batch();
+
+		nxtpart = 0;			!Set up for next time
+		nxtsect = 0;			!...
+		last_line = 0;			!...
+		END;				!End of move to new section
+	    END					!End of read a key
+	ELSE IF .status EQL RMS$_EOF
+	THEN BEGIN
+	!
+	! If this is a table or figure, then Ctrl-Z or F10 should work the
+	! same as Ctrl-B.
+	!
+	    IF .context[BOOK_L_NEXTPART] EQL 0 AND
+		.context[BOOK_L_PREVPART] EQL 0 AND
+		.gbque[QUE_L_HEAD] NEQA gbque
+	    THEN status = go_back(context);	!Go back from table or figure
+	    END;				!End of exit key pressed
+	END;					!End of section command loop
+
+    IF .status EQL RMS$_EOF
+    THEN status = SS$_NORMAL;			!Expected error, ignore it
+
+    undisplay_part(context, 0);			!Delete the display
+
+    BEGIN
+    LOCAL cur_gbe : REF GBENTDEF;
+
+    WHILE NOT REMQUE(.gbque[QUE_L_HEAD], cur_gbe)
+    DO delete_gbe(cur_gbe);
+    END;					!End of dealloc go back queue
+
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__SHOWERR, 1, .sectno, .status);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of show_sect
+
+
+%SBTTL 'DISPLAY_PART'
+ROUTINE display_part(context_a, partno, sectno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays the contents of a section.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	sinfo	= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	booklen	= sinfo[SINFO_L_LEN]		: VOLATILE LONG,
+	sectvec	= .context[BOOK_L_SECTVEC]	: SECTVECDEF(),
+	hsque	= context[BOOK_Q_HSQUE]		: QUEDEF,
+	curhs	= context[BOOK_L_CURHS]		: REF HOTSPOTDEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	sect_ptr	: REF VOLATILE SECTDEF,
+	temp_sect	: SECTDEF,
+	start_row,
+	start_col,
+	num_rows,
+	status;
+
+    erase_scrolling_region(sinfo);		!Clear the book display
+    scrap_hotspots(context[BOOK_Q_HSQUE]);	!Deallocate the hotspot queue
+    scrap_rows(context[BOOK_Q_ROWQUE]);		!Deallocate the row queue
+!
+! Initialize the context variables used to keep track of display information.
+!
+    context[BOOK_L_CURROW] = context[BOOK_L_CURY] = context[BOOK_L_LASTY] = 0;
+    context[BOOK_L_LOWEST] = 1;
+    context[BOOK_L_LEFTMOST] = %X'FFFF';
+    context[BOOK_L_RIGHTMOST] = 1;
+    sect_ptr = sectvec[				!Point to the reference section
+	    (IF NOT NULLPARAMETER(sectno)
+	     THEN .sectno
+	     ELSE 0), 0, 0, 0, 0];
+
+    status = read_part(context, .partno);
+    IF .status
+    THEN BEGIN
+	IF .context[BOOK_L_LOWEST] LSS .booklen
+	THEN extend_scrolling_region(sinfo, .context[BOOK_L_LOWEST]);
+
+	num_rows =				!Calculate the viewport len
+	(IF .booklen GTR .pb_rows - 2
+	 THEN .pb_rows - 2
+	 ELSE .booklen);
+	sinfo[SINFO_L_VIEWWID] =
+	(IF .context[BOOK_L_RIGHTMOST] GTR .pb_cols AND
+	    .context[BOOK_L_RIGHTMOST] - .context[BOOK_L_LEFTMOST] LEQ .pb_cols
+	 THEN BEGIN
+	    start_col = .context[BOOK_L_LEFTMOST];
+	    .pb_cols
+	    END					!End of shift display
+	 ELSE BEGIN
+	    start_col = 1;
+	    .context[BOOK_L_RIGHTMOST]
+	    END);
+	IF .sect_ptr[SECT_L_VPOS] EQL 0
+	THEN sect_ptr[SECT_L_VPOS] = 1;		!Fix the pos if no text
+	start_row = .sect_ptr[SECT_L_VPOS];
+	IF .start_row + .num_rows GEQ .booklen
+	THEN start_row = .booklen - .num_rows + 1;
+
+	curhs = .hsque[QUE_L_HEAD];
+	IF .curhs NEQA hsque
+	THEN BEGIN
+	    WHILE .curhs NEQA hsque AND
+		.curhs[HOTSPOT_L_ROW] LSS .sect_ptr[SECT_L_VPOS]
+	    DO curhs = .curhs[HOTSPOT_L_FLINK];	!Select first hotspot after
+						!...this section
+	    IF .curhs EQLA hsque
+	    THEN curhs = .hsque[QUE_L_HEAD];	!Too far down, use the first
+
+	    status = hilight(			!Blink the current hotspot
+			context[BOOK_T_SCROLLINFO], .curhs[HOTSPOT_L_ROW],
+			.curhs[HOTSPOT_L_COL], .curhs[HOTSPOT_L_LINES],
+			.curhs[HOTSPOT_L_CHARS], SMG$M_BLINK);
+	    END;				!End of hotspot queue not empty
+
+	IF .status
+	THEN status = change_viewport(sinfo, .num_rows,
+				.start_row, .start_col, context[BOOK_Q_TITLE]);
+	IF .status
+	THEN status = show_scrolling_region(sinfo);
+	IF .status
+	THEN status = set_cursor_pos(sinfo,	!Point to the current section
+				.sect_ptr[SECT_L_VPOS], .start_col);
+
+	IF .status
+	THEN context[BOOK_L_CURPART] = .partno;	!Save the part #
+	END;					!End of read section info
+    
+    IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+    THEN SIGNAL(MGBOOK__SHOWERR, 1, .partno, .status);
+    
+    .status OR STS$M_INHIB_MSG
+END;						!End of display_part
+
+
+%SBTTL 'UNDISPLAY_PART'
+ROUTINE undisplay_part(context_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine displays the contents of a section.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF;
+
+    hide_scrolling_region(context[BOOK_T_SCROLLINFO]);
+END;						!End of undisplay_part
+
+
+%SBTTL 'CHANGE_PART_AND_LINE'
+ROUTINE change_part_and_line(context_a, partno, lineno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine changes the current part and line of a book being
+!	displayed.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	sinfo	= context[BOOK_T_SCROLLINFO]	: SINFODEF;
+
+LOCAL
+	status;
+
+    start_batch();
+    status = change_part(context, .partno);	!Display the new part
+    IF .status
+    THEN status = scroll(sinfo,			!Move to the requested line
+			.lineno - .sinfo[SINFO_L_TOP]);
+    end_batch();
+
+    .status
+END;						!End of change_part_and_line
+
+
+%SBTTL 'CHANGE_PART'
+ROUTINE change_part(context_a, partno, sectno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine changes the current part and line of a book being
+!	displayed.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	status;
+
+    undisplay_part(context);			!Unpaste current part
+    status = display_part(context, .partno,
+			(IF NULLPARAMETER(sectno) THEN 0 ELSE .sectno));
+
+    .status
+END;						!End of change_part
+
+
+%SBTTL 'GO_BACK'
+ROUTINE go_back(context_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine removes the first "go back" entry and uses it to reset
+!	the current part and line number of the book being displayed.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	gbque	= context[BOOK_Q_GBQUE]		: QUEDEF,
+	sinfo	= context[BOOK_T_SCROLLINFO]	: SINFODEF,
+	curhs	= context[BOOK_L_CURHS]		: REF HOTSPOTDEF,
+	hsque	= context[BOOK_Q_HSQUE]		: QUEDEF;
+
+LOCAL
+	cur_gbe	: REF GBENTDEF,
+	status	: INITIAL(SS$_NORMAL);
+
+    IF NOT REMQUE(.gbque[QUE_L_HEAD], cur_gbe)
+    THEN BEGIN
+	status =
+	(IF .context[BOOK_L_CURPART] EQL .cur_gbe[GBENT_L_PARTNO]
+	 THEN scroll(sinfo,			!Scroll within current part
+		.cur_gbe[GBENT_L_LINENO] - .sinfo[SINFO_L_TOP])
+	 ELSE change_part_and_line(context, .cur_gbe[GBENT_L_PARTNO],
+					.cur_gbe[GBENT_L_LINENO]));
+	IF .status
+	THEN status = set_cursor_pos(		!Reposition the cursor
+			context[BOOK_T_SCROLLINFO], .cur_gbe[GBENT_L_LINENO],
+			get_cursor_col(context[BOOK_T_SCROLLINFO]));
+	IF .status AND .hsque[QUE_L_HEAD] NEQA hsque
+	THEN BEGIN
+	    LOCAL hsptr : REF HOTSPOTDEF;
+
+	    hsptr = hsque;			!Point to the queue head
+	    INCR i FROM 1 TO .cur_gbe[GBENT_L_CURHS]
+	    DO hsptr = .hsptr[HOTSPOT_L_FLINK];	!Move to the next hotspot
+
+	    IF .curhs NEQA .hsptr
+	    THEN current_hotspot(context,	!Set new current hotspot
+				.hsptr);
+	    END;				!End of restore current hotpsot
+
+	delete_gbe(cur_gbe);
+	END;					!End of got a go back entry
+
+    .status
+END;						!End of go_back
+
+
+%SBTTL 'CURRENT_HOTSPOT'
+ROUTINE current_hotspot(context_a, new_hs_a, scroll_amount_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is used to update the current hotspot, i.e., the one that
+!	is blinking.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	curhs	= context[BOOK_L_CURHS]		: REF HOTSPOTDEF,
+	sinfo	= context[BOOK_T_SCROLLINFO]	: SINFODEF;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	status;
+
+    status = hilight(				!Unblink old hotspot
+		context[BOOK_T_SCROLLINFO], .curhs[HOTSPOT_L_ROW],
+		.curhs[HOTSPOT_L_COL], .curhs[HOTSPOT_L_LINES],
+		.curhs[HOTSPOT_L_CHARS], SMG$M_REVERSE);
+    IF .status
+    THEN BEGIN
+	curhs = .new_hs_a;
+	status = hilight(			!Blink new hotspot
+		context[BOOK_T_SCROLLINFO], .curhs[HOTSPOT_L_ROW],
+		.curhs[HOTSPOT_L_COL], 	.curhs[HOTSPOT_L_LINES],
+		.curhs[HOTSPOT_L_CHARS], SMG$M_BLINK);
+	END;
+    IF .status AND NOT NULLPARAMETER(scroll_amount_a)
+    THEN BEGIN
+	BIND scroll_amount = .scroll_amount_a;
+
+	scroll_amount =
+	(IF .curhs[HOTSPOT_L_ROW] LSS .sinfo[SINFO_L_TOP] OR
+		.curhs[HOTSPOT_L_ROW] GTR .sinfo[SINFO_L_TOP] +
+					.sinfo[SINFO_L_VIEWLEN] - 1
+	 THEN .curhs[HOTSPOT_L_ROW] - .sinfo[SINFO_L_TOP]
+	 ELSE 0);
+	END;					!End of return scroll info
+
+    .status
+END;						!End of current_hotspot
+
+
+%SBTTL 'ADD_GBE'
+ROUTINE add_gbe(context_a, partno, lineno) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine allocates and adds a go back entry to the beginning
+!	of the go back queue.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a		: BOOKDEF,
+	gbque	= context[BOOK_Q_GBQUE]	: QUEDEF,
+	curhs	= context[BOOK_L_CURHS]	: REF HOTSPOTDEF,
+	hsque	= context[BOOK_Q_HSQUE]	: QUEDEF;
+
+LOCAL
+	new_gbe	: REF GBENTDEF,
+	hsptr	: REF HOTSPOTDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(GBENT_S_GBENTDEF), new_gbe);
+    IF .status
+    THEN BEGIN
+	new_gbe[GBENT_L_PARTNO] = .partno;	!Save the part and line info
+	new_gbe[GBENT_L_LINENO] = .lineno;
+	new_gbe[GBENT_L_CURHS] = 0;		!Assume no hotspots
+	IF .hsque[QUE_L_HEAD] NEQA hsque
+	THEN BEGIN
+	    hsptr = .curhs;
+	    WHILE .hsptr NEQA hsque
+	    DO BEGIN
+		new_gbe[GBENT_L_CURHS] =	!Count this hotspot
+			.new_gbe[GBENT_L_CURHS] + 1;
+		hsptr = .hsptr[HOTSPOT_L_BLINK];
+		END;				!End of hotspot queue loop
+	    END;				!End of hotspot queue not empty
+
+	INSQUE(.new_gbe, gbque);		!Add to the queue
+	END;					!End of allocated gbe
+
+    .status
+END;						!End of add_gbe
+
+
+%SBTTL 'DELETE_GBE'
+ROUTINE delete_gbe(gbe_a_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates a go back entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LIB$FREE_VM(%REF(GBENT_S_GBENTDEF), .gbe_a_a);
+END;						!End of delete_gbe
+
+
+%SBTTL 'ADD_ROW'
+ROUTINE add_row(context_a, book_pos, row, pred_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine allocates and adds a row-queue entry to the row queue.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a		: BOOKDEF,
+	pred	= .pred_a		: ROWDEF;
+
+LOCAL
+	new_row	: REF ROWDEF,
+	status;
+
+    status = LIB$GET_VM(%REF(ROW_S_ROWDEF), new_row);
+    IF .status
+    THEN BEGIN
+	new_row[ROW_L_BOOKPOS] = .book_pos;	!Save the position info
+	new_row[ROW_L_ROW] = .row;
+	INSQUE(.new_row, pred);			!Add to the queue
+	END;					!End of allocated row
+
+    .status
+END;						!End of add_row
+
+
+%SBTTL 'FIND_ROW'
+ROUTINE find_row(context_a, book_pos) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine searches the row queue for a book position.  It returns
+!	the row corresponding to the position.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a			: BOOKDEF,
+	rowque	= context[BOOK_Q_ROWQUE]	: QUEDEF;
+
+LOCAL
+	cur_row		: REF ROWDEF,
+	last_row	: REF ROWDEF;
+
+    cur_row = .rowque[QUE_L_HEAD];
+    WHILE .cur_row NEQA rowque AND .cur_row[ROW_L_BOOKPOS] GTR .book_pos
+    DO cur_row = .cur_row[ROW_L_FLINK];
+
+    last_row = .cur_row[ROW_L_BLINK];
+    IF .cur_row EQLA rowque OR
+	.last_row NEQA rowque AND
+	.last_row[ROW_L_BOOKPOS] - .book_pos LSS
+		.book_pos - .cur_row[ROW_L_BOOKPOS]
+    THEN cur_row = .last_row;
+
+dbg_fao(context[BOOK_L_DBGCTX],
+	'find_row : bookpos = !UL (row book = !UL), row = !UL',
+	.book_pos, .cur_row[ROW_L_BOOKPOS], .cur_row[ROW_L_ROW]);
+    .cur_row[ROW_L_ROW]				!Return the matching row
+END;						!End of find_row
+
+
+%SBTTL 'SCRAP_ROWS'
+ROUTINE scrap_rows(rowque_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates a row-queue entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	rowque	= .rowque_a	: QUEDEF;
+
+LOCAL
+	cur_row	: REF ROWDEF;
+
+    WHILE NOT REMQUE(.rowque[QUE_L_HEAD], cur_row)
+    DO delete_row(cur_row);			!Delete current row
+END;						!End of scrap_rows
+
+
+%SBTTL 'DELETE_ROW'
+ROUTINE delete_row(row_a_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates a row-queue entry.
+!
+! RETURNS:
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+    LIB$FREE_VM(%REF(ROW_S_ROWDEF), .row_a_a);
+END;						!End of delete_row
+
+END
+ELUDOM

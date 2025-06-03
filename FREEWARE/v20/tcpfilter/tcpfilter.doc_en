@@ -1,0 +1,51 @@
+TCPFILTER is an utility that allows the filtering of outgoing UCX TCP /IP calls
+each attempt to open an outgoing call is verified with a table of addresses,
+and the is allowed or forbidden. 
+The validation of the call can be done with two different mechanisms: 
+with ACL, or with image names. The use of ACL allows controlling each
+user by the means of an identifier.
+
+TCPFILTER.exe reads a configuration file pointed at by the logical name
+TCP_SECURITY$CFG, defaults to SYS$INPUT:, default type: .DAT .
+this configuration file contains lines that can have the following format:
+access xx.xx.xx.xx [mask yy.yy.yy.yy] [port zzz] acl (identifier=theuser, access=outgoing)
+access xx.xx.xx.xx [mask yy.yy.yy.yy] [port zzz] image sys$system:ucx$ftpd [outgoing/none]
+protection [system:o] [owner:o] [group:o] [world:o] ! default: system:O
+owner me	! default: owner system
+loadcode 0	! default: all other values are for the development.
+
+The addresses are scanned sequentially. If several identical
+triplets address/mask/port are encountered, the access information are
+gouped with the first declaration. When a called address matches an
+entry in the table, if the access type is an ACL, the final access
+is determined by the acl. If the entry is an image name and is the image
+name of the caller, the final access is determined by the access in the table.
+If the image name does not match, the entry is skipped, and the next entry
+is checked for matching. If no match is found, the final access is determined
+by the protection and owner fields. The loopback address (127.x.x.x)
+is always allowed. I did not find a way to control incoming access.
+Audit ACLS are allowed, with the standard assembly.
+
+example file:
+
+access 137.194.0.0 mask 255.255.0.0 acl (identifier=*,access=outgoing)
+access 0.0.0.0 mask 0.0.0.0 acl (identifier=ucx$tcp_user, access=outgoing)
+access 0.0.0.0 mask 0.0.0.0 image ucx$ftpd outgoing
+
+the "access image ucx$ftpd outgoing" is necessary to allow the incoming
+ftp accesses !!! this is because the ftp server open an outgoing call
+to allow the client to "get" files !!
+--------------------------------------------------------------------------------
+Use:	after having started UCX, or only loaded BGDRIVER, run tcpfilter
+To change the configuration, re-run TCPFILTER. When BGDRIVER is reloaded,
+with standard assembly options, TCPFILTER is removed.
+--------------------------------------------------------------------------------
+installation:
+	restore the save-set into ddcu:[dir...]
+	relink if necessary, in the subdirectories vax or alpha.
+	make modifications at your own risk
+files:
+	the file AA.FILES contains the explanation for each file in the kit
+--------------------------------------------------------------------------------
+differences between 2.2 and 2.2A: make the 'port' keyword work
+				  make the continuation lines work
