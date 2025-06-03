@@ -1,0 +1,213 @@
+Some System Administration Problems encountered with UNIX/386 System
+V.4.2, and some possible answers.
+
+The following problems are in the format Problem (P:), Explanation
+(E:), Solution (S:) and Workaround (W:).
+
+P: When I load or unload a cartridge tape, the system freezes until
+   the load/unload is complete.
+
+E: This looks like a driver problem. It has been reportted to USL, but
+   as of the time of writing, no solution has been reported.
+
+----------------------------------------------------------------------
+
+P: When compiling big programs, I get the message "no more processes"
+   from the compiler. I don't seem to be out of processes.
+
+E: This message comes from the assembler and seems to indicate an
+   overflow of an internal table. The message itself is incorrect.
+
+----------------------------------------------------------------------
+
+P: When trying to create a big file, I get the message "File too big".
+   What does this mean?
+
+E: This is caused by the ulimit being set to an unrealistically low
+   value. You can check this with the command `ulimit'. Novell, for
+   example, sets this value to 8192 by default, which means that you
+   can't create files larger than 8192 sectors (of 512 bytes, giving a
+   maximum file size of 4194304 bytes.
+
+S: This is documented in the System Performance Administration manual,
+   page 3-25. However, the information presented there is not correct.
+   To raise the limit, you need to be root and enter the following
+   commands:
+
+     /etc/conf/bin/idtune HFSZLIM LIMIT
+     /etc/conf/bin/idtune SFSZLIM LIMIT
+
+   This sets the tunable parameters HFSZLIM (hard file size limit) and
+   SFSZLIM (soft file size limit) to the value LIMIT. This is the
+   maximum number of bytes in a file. To dispense with any limit, set
+   LIMIT to 0x7fffffff. For example, to set the limit to 100
+   Megabytes, you could enter
+
+     /etc/conf/bin/idtune HFSZLIM 100000000
+     /etc/conf/bin/idtune SFSZLIM 100000000
+
+   In addition, you need to modify the ulimit value either in
+   /etc/default/login. For example, to set the limit to 100 Megabytes,
+   you will have to set ulimit to the number of 512 byte blocks in 100
+   Megabytes. Enter the line:
+
+      ulimit 200000
+
+   to set ulimit to 200000 blocks.
+
+   Finally, you need to rebuild the system. Enter
+
+     /etc/conf/bin/idbuild
+
+   and then reboot the system. After rebooting, the limit will be
+   changed.
+
+----------------------------------------------------------------------
+
+P: I have installed NFS on my system and mounted some remote file
+   systems. After reboot, the file systems don't come up again. If I
+   try to get them to come up manually, the system doesn't complain,
+   but I don't get a connection.
+
+E: There are a number of reasons for this. The most serious is that
+   the graphical user interface frequently drops error messages. If
+   you did this in the graphical user interface, start a terminal and
+   enter:
+
+     $ su
+     Password:     (enter the root password)
+     # mount -f nfs remote:/fs /remotefs
+
+   This assumes that the remote system is called `remote', that the
+   name of the file system on the remote system is `/fs', and that you
+   want to mount it under the directory name `/remotefs' on your local
+   system.
+
+   When you do this, there is a good chance that you will get the
+   message
+
+     NFS: mount failed - rpcbind not running
+
+   Round about here, we don't know what's going on either. You should
+   first check whether the message is correct. Enter
+
+     # ps -ef|grep rpcbind
+
+   If rpcbind is running, you should get a reply like
+
+     root   135   131  0  Apr 23  ?        0:44 rpcbind
+
+   If it isn't, you can start it:
+
+     # /etc/inet/rpcbind&
+
+   but in our experience, rpcbind will be running. Sorry, we don't
+   know what's going on here either.
+
+----------------------------------------------------------------------
+
+P: I have uninstalled TCP/IP support from my system and reinstalled
+   it, but now I can't get it to start up.
+
+E: Check whether you still have a network interface:
+
+   # netstat -i
+
+   You should see at least one line (apart from lo0, which is a
+   loopback interface which doesn't require network hardware). We have
+   seen cases where the network interface gets deleted by disinstall,
+   but the only way we have found to get it back again is to install
+   the system from scratch.
+
+W: Installation works fine when it works, but you have to be careful
+   not to have too many special wishes. If something goes wrong, it is
+   frequently easier to re-install the system from scratch than to
+   recover.
+
+----------------------------------------------------------------------
+
+P: I have an SVGA card in my computer, but install still gives me a
+   low-resolution 640x480 display. How do I get it to give me
+   1024x768?
+
+S: Run /usr/X/adm/setvga. It helps to know what chipset your SVGA
+   board has. Frequently this is supplied with the documentation;
+   otherwise you can check the big square chips on the board itself,
+   which may give you something to go by.
+
+   The first thing setvgamode asks you for is which chipset you have;
+   however, the category 0 `misc SVGA' includes some of these too. The
+   final column in the display is an undescribed mnemonic, but seems
+   to be related to the manufacturer. Your guess is as good as ours
+   here. Choose what you think will be a good resolution, and cross
+   your fingers.
+
+   When you next restart the desktop, the new definitions will be in
+   effect. You should do this by rebooting the system: that way, if
+   something goes wrong (and it frequently does), you will be able to
+   return to the character mode interface from the login screen by
+   entering Alt-E. If you start your desktop directly, you may not be
+   able to see enough to stop the desktop again.
+
+   Note that only a few boards are described directly. For example,
+   you can choose a Diamond SpeedStar from the Tseng ET4000 chipset
+   descriptions. If you have a `compatible' board, however, you may
+   find that things don't work. This is because most boards have
+   different dot clocks: under DOS this is covered up for by the
+   drivers supplied with the board, but of course this doesn't work
+   under UNIX. If you really can't find a way to get the board to
+   work, you can always get hold of XFree86, a public domain version
+   of X11R5, which has more configuration capabilities than the
+   standard server.
+
+----------------------------------------------------------------------
+
+P: In the terminal interface, when I enter something like
+
+     $ chmod me *
+
+   I get the message `argument list too long'.
+
+S: This may be due to an unrealistically low maximum argument list
+   length in the kernel (ARG_MAX). According to POSIX.1, it should be
+   20480 bytes, but some standard kernels have as few as 5000 bytes.
+   To change this, need to be root and enter the following commands:
+
+     /etc/conf/bin/idtune ARG_MAX 20480
+     /etc/conf/bin/idbuild
+
+   and then reboot the system. After rebooting, the limit will be
+   changed.
+
+----------------------------------------------------------------------
+
+P: If I try to access files on diskette while reading tapes, the
+   system claims that the diskette is unreadable.
+
+E: You are probably getting overrun errors on the diskette drive.
+   These occur when the system doesn't acknowledge data quickly
+   enough, which can happen if some other part of the system is very
+   busy. If you do this from the console (i.e. not in the Unix
+   Desktop) you should then see error messages stating that an overrun
+   has occurred.
+
+W: Don't access diskettes and tapes at the same time.
+
+----------------------------------------------------------------------
+
+Did you not find your problem here? Then let us know about it - in the
+next edition we might be able to help others through your experience.
+This service is free (though we don't guarantee to be able to do
+anything about it, either). Contact us at:
+
+LEMIS
+Schellnhausen 2
+W-6324 Feldatal
+Germany
+
+Phone:	+49-6637-1488
+Fax:	+49-6637-1489
+Mail:	lemis@lemis.de
+
+Wir sprechen auch deutsch
+On parle franc,ais aussi

@@ -1,0 +1,308 @@
+.\" $Id: mthreads.8,v 1.2 92/01/11 16:29:13 usenet Exp $
+.\" 
+.de Sh
+.br
+.ne 5
+.PP
+\fB\\$1\fR
+.PP
+..
+.de Sp
+.if t .sp .5v
+.if n .sp
+..
+.de Ip
+.br
+.ie \\n.$>=3 .ne \\$3
+.el .ne 3
+.IP "\\$1" \\$2
+..
+.\"
+.\"     Set up \*(-- to give an unbreakable dash;
+.\"
+.tr \(bs-|\(bv\*(Tr
+.ie n \{\
+.ds -- \(bs-
+.if (\n(.H=4u)&(1m=24u) .ds -- \(bs\h'-12u'\(bs\h'-12u'-\" diablo 10 pitch
+.if (\n(.H=4u)&(1m=20u) .ds -- \(bs\h'-12u'\(bs\h'-8u'-\" diablo 12 pitch
+.ds L" ""
+.ds R" ""
+.ds L' '
+.ds R' '
+'br\}
+.el\{\
+.ds -- \(em\|
+.tr \*(Tr
+.ds L" ``
+.ds R" ''
+.ds L' `
+.ds R' '
+'br\}
+.TH MTHREADS 8 LOCAL
+.UC 6
+.SH NAME
+mthreads - threaded database manager for trn
+.SH SYNOPSIS
+.B mthreads [-d[MM]] [-e[HHMM]] [-acDfknstvz] [hierarchy_list]
+.SH DESCRIPTION
+.I Mthreads
+manages the thread files that are used by the
+.IR trn (1)
+newsreader.
+\*(L"Thread files\*(R" are used to store information about the news
+articles and how they are all related to one another.
+.PP
+.I Mthreads
+should be run periodically to update the thread database as new news arrives.
+It can be run in single-pass mode (out of cron), in daemon mode, or in a
+combination of the two.
+A site that gets its news feed during the night may just want to run mthreads
+once a day (trn will handle any local postings that show up between passes).
+If more processing is needed, either run mthreads
+more often or run it in daemon mode.
+In daemon mode, a background process is forked off that wakes up every 10
+minutes (by default) to check if the active file has been updated.
+When the mthreads daemon is sleeping between passes, it is possible
+to run an mthreads single pass.
+This is often useful if you wish to run an enhanced expire pass more than
+once a day (see the \-c and \-e options).
+.SH INSTALLATION
+.I Mthreads
+in installed in the RNLIB directory chosen during configuration.
+When it is run for the first time, it will automatically create a file called
+.I active2
+in the MTLIB directory.
+This file is essentially a copy of the active file that keeps the newsgroup
+totals from the last run in one place.
+It is also used to choose which groups are to be processed into thread files.
+All groups start out as \*(L"unthreaded\*(R" unless they are turned on with
+a command like:
+.IP
+mthreads all
+.PP
+which would create thread file for all the groups.
+For testing purposes it is a good idea to start out small with a command
+like:
+.IP
+mthreads news
+.PP
+which would thread only the news hierarchy.
+Thread processing can be turned on or off for individual groups or entire
+hierarchies by specifying the groups in a syntax very similar to that used
+in the sys file.
+For example, to turn on all of soc and talk except for talk.politics, and
+to turn off news.lists, use the following command once:
+.IP
+mthreads soc,talk,!talk.politics,!news.lists
+.PP
+If mthreads complains that another mthreads process is already running,
+you can use the \-c option to tell it to continue trying to lock instead
+of giving up.
+.PP
+Once all the desired groups are turned on, the hierarchy list should be
+omitted to allow mthreads to process all enabled groups.
+It can be used, however, in conjunction with the \-a option to customize
+which new groups get turned on as they are created.
+.SH LOGGING
+As mthreads executes, some status information (including error messages) 
+is placed in
+the file mt.log in the MTLIB directory, unless you chose to use SYSLOG.
+This file will grow without bounds, and should be scanned periodically for
+errors, and trimmed in size when it grows too large.
+See the shell script
+.I mt.check
+for an mt.log maintainer that will send mail if it finds database errors.
+.SH OPTIONS
+.TP 5
+.B \-a
+is used to automatically turn on thread processing for new news groups as
+they are created.
+When this option is specified, the hierarchy list is used to limit
+which new groups get enabled (omitting the hierarchy list is the same
+as specifying \*(L"all\*(R").
+The default without \-a is to leave new groups unthreaded.
+.TP 5
+.B \-c
+will continue trying to lock the mthreads database for a single pass
+instead of giving up.
+This is useful for running special commands out of cron while an mthreads
+daemon is active.
+.TP 5
+.B \-D
+specifies debug processing.
+Any errors encountered reading a thread file will rename the offending
+file to \*(L"bad.read\*(R".
+Any errors detected while generating a new thread file will rename the
+file to \*(L"bad.write\*(R".
+If more than one 'D' is specified, each group's name is output into
+the log file before it is processed.
+.TP 5
+.B \-d
+is used to specify the daemon mode, where
+.I mthreads
+forks a background task that periodically wakes up and checks for an updated
+active file.
+The number of minutes to wait after the completion of the last pass can
+be specified after the '-d' option (e.g. -d20), otherwise it will default to
+10 minutes.
+.TP 5
+.B \-e
+tells
+.I mthreads
+to run an enhanced expiration check on the database.
+Without this option, only articles below the minimum field in the active
+file are expired.
+With this option, mthreads will periodically list all the article numbers
+to see which ones actually exist.
+In single-pass mode the
+.B -e
+option always affects the current pass \*(-- use it
+at lease once a day after expire has run.
+In daemon mode, the
+.B -e
+option will cause one pass a day to be the enhanced expire pass.
+By default, this is the first time mthreads wakes up after 12:30 am.
+If a different time is desired, it can be specified in the form HHMM 
+(e.g. -e2359).
+.TP 5
+.B -f
+is used to force
+.I mthreads
+to open each and every thread file to see which ones really need to be
+updated, not just the ones that differ in the active/active2 comparison.
+It will also remove any extraneous thread files from unthreaded groups
+(which should only occur if you manually change the active2 file).
+This option should only be used when manipulating the thread files in
+unorthodox ways.
+.TP 5
+.B -k
+can be used to terminate the currently running mthreads daemon, just as if it
+had received a terminate signal.
+When this option is specified, no other activity is performed.
+.TP 5
+.B -n
+tells
+.I mthreads
+that no actual processing of thread files is to be performed.
+This can be used to just adjust which groups are enabled, without
+actually doing any of the processing right away.
+.TP 5
+.B -s<usec>
+tells mthreads to sleep for <usec> microseconds before processing each
+article.
+This is useful if your NNTP server cannot handle mthreads running at
+full speed.
+Using
+.B -s
+by itself will sleep for an entire second to be compatible with older
+versions of mthreads.
+.TP 5
+.B -t
+is used to make mthreads update the active.times file (as specified
+during configuration) with new directory names as they are encountered.
+Don't use this option if your news software maintains this file for
+you (as C news does).
+.TP 5
+.B -v
+selects additional levels of verbosity in the log file.
+The default (without -v) is to log mthread's startup, the totals for each
+pass, and major database errors.
+Add one
+.B -v
+to get extra reference line problems logged into the file.
+Add a second and a third for even more (useless?) information.
+A fourth will cause mthreads to output each group's name into the log file
+before it is processed.
+.TP 5
+.B -z
+tells mthreads to 'zap' any thread file it believes to be corrupt.
+This will allow the file to be regenerated from scratch on the next pass.
+.TP 5
+.B hierarchy_list
+The hierarchy list is used to turn thread processing on or off for the listed
+groups while limiting itself to updating only the listed groups.
+If specified with the \-a option, however, it only limits which new groups
+get enabled.
+The groups are specified in a manner very similar to the news software's
+sys file:  \*(L"news\*(R" matches all groups in news; \*(L"!news\*(R" excludes
+all groups in news; \*(L"comp.all.ibm.pc,!comp.all.ibm.pc.all\*(L" matches both
+comp.sys.ibm.pc and comp.binaries.ibm.pc, but not comp.binaries.ibm.pc.d.
+.SH OUTPUT
+When
+.I mthreads
+is run in single-pass mode it generates a stream a status characters on
+stdout that present a visual display of what is happening.  If 
+single-pass mode is used for regular processing, this output can be
+redirected to /dev/null.
+.Sp
+The output definitions:
+.br
+	\&'.' = group's entry is up to date
+.br
+	\&':' = group processed \*(-- no change
+.br
+	\&'#' = group processed
+.br
+	\&'-' = group processed \*(-- is now empty
+.br
+	\&'x' = group excluded in active
+.br
+	\&'X' = group excluded in active2
+.br
+	\&'*' = unable to access a group
+.br
+	\&'!' = write failed (bad news)
+.br
+	\&'e' = informational error
+.br
+	\&'E' = database-affecting error
+.SH CONFIGURATION
+During the configuration of
+.IR trn ,
+a choice was made about where to place the thread data files.
+They either exist as a .thread file in each group's spool directory, or they
+are each a group.th file in a one-off directory structure on another drive.
+See the THREAD_DIR definition in config.h to review or change this definition.
+.SH REBUILDING
+If the thread files are ever removed, also remove the file db.init in
+the THREAD_DIR.
+This file contains the byte-order of the machine that generated the database,
+and needs to be removed to truly start from scratch.
+An easy way to get
+.I mthreads
+to remove all the files except for db.init is to specify the command:
+.IP
+mthreads !all
+.PP
+This also turns off thread processing for all groups.
+.SH "ERROR HANDLING"
+If the active2 file is removed or corrupted, it will
+be automatically rebuilt in the normal course of operation.
+The record of which groups should be threaded will be lost, however.
+Missing/corrupted thread files are automatically re-built.
+.SH EXAMPLES
+Recommended commands to run on a regular basis are:
+.IP
+mthreads -dave0630
+.PP
+to start up an mthreads daemon in verbose logging mode that automatically
+threads new groups and performs an extended expire at 6:30 am, or:
+.IP
+mthreads -e >/dev/null
+.PP
+to run an mthreads single-pass with extended expire that leaves new groups
+unthreaded.
+.SH FILES
+/usr/lib/news/active
+.br
+$MTLIB/active2
+.br
+$MTLIB/mt.log
+.br
+$THREAD_DIR/db.init
+.br
+$MTLIB/LOCKmthreads
+.br
+Lots of thread data files.
+.SH AUTHOR
+Wayne Davison <davison@borland.com>

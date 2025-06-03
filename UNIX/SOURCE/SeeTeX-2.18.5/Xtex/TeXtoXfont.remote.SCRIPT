@@ -1,0 +1,79 @@
+#!/bin/sh
+#
+# This probably ony works for machines using BDF and the like; I haven't
+# converted it to follow the guidelines of XTeXtoXFont.SCRIPT, which gets
+# editing by the makefile for a specific site.
+#
+
+#
+#   This script file makes a new X/TeX screen font, because one wasn't
+#   found.  It is designed to run on the client machine but produce fonts 
+#   for the server machine.  Parameters are:
+#
+#   name dpi bdpi magnification destdir server user
+#
+#   `name' is the name of the font, such as `cmr10'.  `dpi' is
+#   the resolution the font is needed at.  `bdpi' is the base
+#   resolution, useful for figuring out the mode to make the font
+#   in.  `magnification' is a string to pass to MF as the
+#   magnification.  'destdir' is the directory in which to cache the new
+#   font.  'server' is the name of the X server machine.  'user' is the
+#   user name to use in accessing the server via rsh.
+#
+#   Note that this file must execute Metafont, mftobdf, and then bdftosnf,
+#   and place the result in the correct location for X
+#   to find it subsequently.  
+#
+#   Of course, it needs to be set up for your site.
+#
+# TEMPDIR needs to be unique for each process because of the possibility
+# of simultaneous processes running this script.
+TEMPDIR=/tmp/bdf-snf.$$
+NAME=$1
+DPI=$2
+BDPI=$3
+MAG=$4
+MODE=$5
+DESTDIR=$6
+SERVER=$7
+USER=$8
+umask 0
+
+#  Something like the following is useful at some sites.
+GFNAME=$NAME.$DPI'gf'
+BDFNAME=$NAME.$DPI.'bdf'
+SNFNAME=$NAME.$DPI.'snf'
+
+# Clean up on normal or abnormal exit
+trap "cd /; rm -rf $TEMPDIR" 0 1 2 15
+
+mkdir $TEMPDIR
+cd $TEMPDIR
+
+echo mf "\mode:=$MODE; mag:=$MAG/1000; scrollmode; input $NAME" \\\</dev/null
+mf "\mode=$MODE; mag=$MAG/1000; scrollmode; input $NAME" </dev/null
+if test ! -r $GFNAME
+then
+   echo "Metafont failed for some reason on $GFNAME"
+   exit 1
+fi
+
+echo "mftobdf -dpi" $DPI $NAME
+mftobdf -dpi $DPI $NAME
+if test ! -r $BDFNAME
+then 
+    echo "Mftobdf failed for some reason on $BDFNAME"
+    exit 1
+fi
+
+# Install the BDF files carefully, since others may be doing the same
+# as us simultaneously.
+
+rcp $BDFNAME $USER@$SERVER:$DESTDIR/bdftmp.$$
+rsh $SERVER -l $USER mv $DESTDIR/bdftmp.$$ $DESTDIR/$BDFNAME
+
+
+rsh $SERVER -l $USER mkfontdir $DESTDIR
+xset fp rehash
+
+exit 0

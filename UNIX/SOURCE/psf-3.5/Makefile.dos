@@ -1,0 +1,98 @@
+#		Make psf	(Microsoft C 5.1)
+#		========
+#
+# usage:	make all       		compile psf binaries
+#		make printer		select your printer
+#		make installdos		install to destination directories
+#		make doc		create doc files (with cawf)
+#		make clean		remove binaries and doc file
+
+# (NOTE: This makefile will not run with "make" that comes with
+#	 Microsoft C 5.1.  You must use a "reasonable" make!
+
+NROFF = cawf
+
+
+# Location of binaries and scripts
+# ^^^^^^^^^^^^^^^^^^^^
+BINDIR=c:/bin
+XCOPYBIN=c:\bin\
+
+# Loation of psfprint.def:
+# ^^^^^^^^^^^^^^^^^^^^^^^
+DEFFILE=c:/lib/psfprint.def
+XCOPYDEF=c:\lib\
+
+# Enable CTLDALWAYS if the CTL/D must be generated at the end of a print job.
+CTLD=-DCTLDALWAYS
+CTLD=
+
+
+CFLAGS =-DBINDIR=\"$(BINDIR)\" -DPDEF=\"$(DEFFILE)\" $(CTLD)
+
+all:	psf.exe psfdoub.exe selectde.exe psfbs.exe
+
+psf.obj:	psf.h psf.c ctp.h
+psf.exe:	psf.obj getopt.obj
+	link /NOE /STACK:20000 psf.obj getopt.obj c:\mc\lib\setargv,,,;
+
+psfbs.obj:	psf.h psfbs.c ctp.h
+psfbs.exe:	psfbs.obj getopt.obj
+	link /NOE /STACK:20000 psfbs.obj getopt.obj c:\mc\lib\setargv,,,;
+
+psfdoub.obj:	psf.h psfdoub.c ctp.h
+psfdoub.exe:	psfdoub.obj getopt.obj
+	link /NOE /STACK:20000 psfdoub.obj getopt.obj c:\mc\lib\setargv,,,;
+
+selectde.obj:	psf.h selectde.c ctp.h
+selectde.exe:	selectde.obj getopt.obj
+	link /NOE /STACK:20000 selectde.obj getopt.obj c:\mc\lib\setargv,,,;
+
+getopt.obj:	getopt.c
+
+
+printer:
+	selectde ./defs/*.def
+
+# install system
+# ^^^^^^^^^^^^^^
+install:
+	@echo -
+	@echo      First: 'make printer'
+	@echo		  'make pack    (exepack)'
+	@echo      Then:  'make installdos'
+
+installdos:
+	xcopy psf.exe $(XCOPYBIN)
+	xcopy psfdoub.exe $(XCOPYBIN)
+	xcopy psfprint.def $(XCOPYDEF)
+	xcopy psfbs.exe $(XCOPYBIN)
+	xcopy psfnroff.bat $(XCOPYBIN)
+
+pack:
+	exepack psf.exe  z9901
+	xcopy z9901 psf.exe
+	exepack psfdoub.exe  z9901
+	xcopy  z9901 psfdoub.exe
+	exepack psfbs.exe  z9901
+	xcopy z9901 psfbs.exe
+	exepack selectde.exe  z9901
+	xcopy z9901 selectde.exe
+	rm z9901
+
+
+# Generate formatted document files.
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+doc:
+	$(NROFF) -man man/psf.1 | bsfilt - > man/psf.doc
+	$(NROFF) -man man/psfbs.1 | bsfilt - > man/psfbs.doc
+	$(NROFF) -man man/psfdoub.1 | bsfilt - > man/psfdoub.doc
+	$(NROFF) -man man/psfnroff.1 | bsfilt - > man/psfnroff.doc
+
+# zoo a binary distribution
+# ^^^^^^^^^^^^^^^^^^^^^^^^^
+zoo:
+	zoo a psf.zoo man/*.* defs/*.* *.exe *.bat Readme.dos Install.dos Install.def NOTICE testfile getsizes.ps selectde.exe
+
+clean:
+	rm *.obj *.map *.exe *.bak

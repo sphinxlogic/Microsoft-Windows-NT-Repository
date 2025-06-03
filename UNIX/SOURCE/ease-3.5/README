@@ -1,0 +1,285 @@
+This is release 3.5 of the CFC and Ease programs.
+
+Ease is a compiler for sendmail configuration files.  It reads a high-level
+mail configuration language and produces a sendmail.cf file.  If you've ever
+stared at a sendmail.cf, you know why this is valuable.
+
+Cfc is performs the inverse operation: it converts sendmail.cf files
+into source for ease.  Combined with ease it allows you to convert a
+sendmail.cf file into a more readable format, which you can edit and
+convert back into sendmail.cf for installation.
+
+There is no longer a reason to complain about the syntax of sendmail.cf files.
+
+This is a complete posting of the entire source for 'ease' and "cfc'.
+It incorporates all of the previous netwide posting (version 2.0),
+plus some additional support for new and undocumented sendmail features.
+It supports several vendor-specific versions of Sendmail.
+
+
+
+Ease was originally written by James S. Schoner, 
+	Purdue University Computing Center,
+	West Lafayette, Indiana  47907
+Ease 3.0 was developed by Bruce G. Barnett and has been enhanced and
+maintained by various persons, most notably
+	Arnold D. Robbins (arnold@unix.cc.emory.edu),
+	Stephen Schaefer of Bowling Green State University,
+	Raymond A. Schnitzler of Bellcore,
+	Andrew Partan of the Corporation for Open Systems,
+	Rich Salz of Bolt Beranak, and Newman.
+	bent@lccinc.UUCP (Ben Taylor)
+	"Jonathan I. Kamens" <jik@pit-manager.mit.edu>
+	Matt Heffron <heffron@falstaff.css.beckman.com>
+	William Roberts <liam@cs.qmw.ac.uk>
+	rainer@flyer.uni-duisburg.de (Rainer Bieniek)
+	agq@dstos3.dsto.oz.au (Ashleigh Quick)
+
+Cfc was written by Arnold D. Robbins, and has been enhanced by Bruce Barnett
+(see below).
+
+Notable changes to cfc since release 2.0 are described in the note
+from Bruce Barnett below.
+
+
+	-----------------------------------------------------------
+
+			Ease 3.5 Release Notes:
+		Bruce G. Barnett <barnett@crdgw1.ge.com>
+			November 1991
+
+I sent some patches to the authors of Ease several years ago, but they never 
+released them. I now have their permission to be the current maintainer of 
+Ease and cfc.  Most of the changes to Ease since 2.0 have been mine, with 
+some generous patches sent in from the people described above.
+
+The main enhancement I added to Ease 3.0:
+
+
+	I subjected the Cfc/Ease programs to a test suite
+	that converted *.cf files to ease files, and back again.
+	I compared the input of cfc  (The original .cf file)
+	to the output of ease. The goal was twofold:
+
+		1. To automatically produce an Ease file than can
+		   be used to generate a .cf file identical to the original
+		2. To produce an Ease file that can be used without
+			editing. You will see warnings, and possible errors 
+			that came from the vendor's supplied sendmail.cf
+			file. But in a few minutes time, you should have a 
+			working, and error free, ease version of your 
+			sendmail.cf file.
+
+	In other words, you can start using ease as a high level
+langauge and feel confident that you won't break anything.
+	
+
+Current status of Ease 3.5
+	It will handle 100% of the standard Ultrix, SunOS, HP, and Berkeley
+	versions of sendmail (I hope). It handles 99.5% of the IDA
+	enhancement package. It compiles of dozens of different machines.
+	See the TODO file for problems.
+
+	I don't plan to do any major work maintaining this package,
+but I will gladly accept bug fixes and enhancements.
+
+New features of the Ease grammar at a glance:
+
+Added asm("") command. This can be used to insert something strange into
+	the sendmail file. Or something Ease or cfc is too stupid to
+	translate properly. This is the work-around for the new/fancy
+	stuff.
+
+Example:
+	asm("Dq$?x$!x <$g>$|$g$.");
+
+Added eval()	[$&]
+
+SunOS 4.0 support:
+	Added m_domain
+	Added o_maxempty
+	Added o_maxhops	
+	Added o_nfs	
+	Added o_aliasfile
+	Added ypmap()	[${   $} on RHS]
+
+	Added default definitions of
+		any_in_etc_hosts
+		any_in_mydomainname
+		any_in_myhostname
+
+Ultrix 3.0 support:
+	Added f_mail11
+	Added ypalias()  [${ on LHS]
+	Added yppasswd() [$" on LHS]
+
+HP/UX support:
+	added o_nameserver	OI
+	added program()		$<
+
+IDA support:
+	Added f_relativize
+	Added m_uucpname
+	Added o_envelope
+	Added f_bsmtp
+	Support for Header/Envelope re-write rulesets (S=20/21)
+	alias()			$(@	in RHS
+	quote()			$!	in headers
+
+	resolved():
+	# 	if (resolved( one_or_more ))	/* found one, return it */
+	# 		resolve (mailer ($1));
+	R$#$+	$#$1
+
+	nested rulesets:
+	# 	if ( one_or_more @. one_or_more ? one_or_more )	/* relativize & return */
+	# 		resolve (mailer (TCP),
+	# 				host ($3 ),
+	# 				user (retry (RULESET_28($1@.$2))));
+	R$+@.$+?$+	$#TCP$@$3$:$>28 $1@.$2
+				user (retry (RULESET_28($1@.$2))));
+
+	canon with default value:
+	# 	if ( one_or_more @ exactly_one )	/* host: try name server */
+	# 		return ( $1@ canon ( $2 default (  $2."UUCP ")));
+	R$+@$-	$@$1@$[$2$:$2.UUCP $]
+
+
+
+----------------
+General Improvements to the Ease Program:
+	Improved reporting of syntax errors
+	Built in use of /lib/cpp
+		if et is given a CPP flag, it will call it.
+	If a macro is a single upper case letter, and has not been defined
+	the letter assigned to it will be the same as the macro name.
+	This allows the original input file to be compared to the ease
+	output.
+
+	There have been some substantial changes to the grammar handling.
+	Several improvements have been made to the error reporting.
+	In addition, ease supports the -d flag, which is used to debug
+	the parser.  (See the makefile if you are interested in this.)
+
+	Several bugs were fixed, including a lot of problems with the ifset()
+	construct. It's still not perfect. See the manual page for cfc(local)
+
+----------------------------
+Changes to CFC (Sendmail.cf to ease translator):
+
+	Added new flags to cfc:
+	-s => SunOS
+	-i => IDA sendmail
+	-d => Ultrix
+	-C [..] => add predefined classes 
+		e.g. -C ADG => added classes A, B, and G
+
+See the file CONVERTING on tips to convert your sendmail file into ease.
+I have included some scripts that can compare the original sendmail
+file to the output of ease. If the rules are identical, then you can
+feel comfortable using ease instead of raw cf.
+
+
+--------------
+I have included the document TESTING, along with some
+shellscripts that I use to perform regression testing of sendmail.
+When I make a major change to my sendmail rules, I run a series of
+addresses through sendmail and look at the differences. This way I can
+check for address rewrite errors before I install a new version.
+
+I have also include a document called INTRO, that gives a simple
+introduction to sendmail. You may want to look at the file
+	debug/Makefile
+as this gives you an example how I do it.
+
+This package also includes two more goodies:
+
+	build-new-aliases - this is a shell script I use to 
+		kill sendmail, rebuild the aliases, and restart
+		sendmail. The problem is sometimes a kill -15 won't
+		immediately stop sendmail from running. This gives
+		the daemons a change to clean up first.
+
+Also - see the directory test. This includes a shell script to test
+sendmail files, written by Simon Kenyon. You have two ways to debug
+sendmail files now!
+
+
+Release Notes:
+
+	3.5:	Documentation and Copyright changes, 
+		doc/makefile changed
+	3.4:
+		generate error if the number of positional parameters on 
+		the RHS don't match the LHS, i.e. 
+			if (  <@ any_in_myhostname . "LOCAL">: one_or_more)
+				next ($3); /* should be $2 */
+	3.3:
+		Support for $? $| $. on LHS
+			added warning if $. is missing
+		Support for $? after $#
+		Fix DATA_RW compile option
+		Eliminate warnings about "LOCAL" and "ERROR" 
+			mailers being undefined. Case doesn't matter.
+			but I don't want to convert to lower because the cfdiff
+			might complain
+	3.2:
+	Added better support for IDA sendmail
+	Added better support for unusual values in mailer flags, and options
+	Better BSD/SYSV Portability (See the Makefile)
+	Better support for those machines with read only text areas.
+		(See compile flag DATA_RW in makefile)
+	The cfstrip and cfdiff script was improved
+	The documentation was improved
+
+Release 3.1:
+	Fixed bug with machines that didn't like free(0).
+	Other portability problems
+	Added support for MALLOC_DEBUG flag
+
+Release 3.0:
+	First release of Bruce's changes to the net in alt.sources
+
+
+
+NOTE:
+
+on some systems (e.g. SunOS) , you will get the warning:
+    make: Warning: Infinite loop: Target `lexdefs.h' depends on itself
+This is okay. If the line was removed, Make wouldn't work on other machines.
+Better a warning than an error on other machines.
+
+============================================================================
+
+If you find these programs useful, or if you have suggestions or changes,
+please drop me a line. I would really appreciate any patches to this
+package. I will merge any patches and release new versions, as they
+are sent to me. 
+
+	Bruce Barnett
+	General Electric
+	Corporate Research and Development
+	P. O. Box 8, 1 River Road
+	Schenectady, NY 12301
+
+	barnett@crd.ge.com
+
+
+
+Ease was originally written by
+    James S. Schoner, Purdue University Computing Center,
+		      West Lafayette, Indiana  47907
+and is copyright (c) 1985 by Purdue Research Foundation.
+Redistribution and use in source and binary forms are permitted
+provided that: (1) source distributions retain this entire copyright
+notice and comment, and (2) distributions including binaries display
+the following acknowledgement:  ``This product includes software
+developed by Purdue University, Indiana and its contributors''
+in the documentation or other materials provided with the distribution
+and in all advertising materials mentioning features or use of this
+software. Neither the name of the University nor the names of its
+contributors may be used to endorse or promote products derived
+from this software without specific prior written permission.
+THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.

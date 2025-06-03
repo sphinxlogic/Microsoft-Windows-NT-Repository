@@ -1,0 +1,1227 @@
+This is Info file fontu.info, produced by Makeinfo-1.49 from the input
+file fontu.texi.
+
+  This file documents the GNU font utilities.
+
+  Copyright (C) 1992 Free Software Foundation, Inc.
+
+  Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+  Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided also that the
+sections entitled "Freedom" and "GNU General Public License" are
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+  Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the sections entitled "Freedom" and "GNU General
+Public License" may be included in a translation approved by the Free
+Software Foundation instead of in the original English.
+
+
+File: fontu.info,  Node: Character selection options,  Next: Character manipulation options,  Prev: Fontconvert output options,  Up: Invoking Fontconvert
+
+Character selection options
+---------------------------
+
+  The following table describes the options which affect the set of
+characters Fontconvert writes.
+
+`-concat FONT1,FONT2,...'
+     After processing the main input file (*note Main input file::.),
+     process the additional fonts FONT1, FONT2, etc.  Multiple
+     `-concat' options do combine, e.g., `-concat FONT1 -concat FONT2'
+     is the same as `-concat FONT1,FONT2'.
+
+     If a character appears in more than one font, its first appearance
+     is the one that counts.  Fontconvert issues a warning about such
+     repeated characters.
+
+     The design size, resolution, and other global information in the
+     output font is always taken from the main input font, not from the
+     concatenated fonts.
+
+`-column-split CHARSPEC@COL_1,...,COL_N'
+     Split the input character at position CHARSPEC before each of the
+     N COLUMNs, thus producing N new characters.
+
+     The new characters have codes CHARSPEC, CHARSPEC+1, ...,
+     CHARSPEC+N.  (These character codes are subject to the remapping
+     specified by `-remap'; see below.  Any previous characters at
+     those codes are overwritten.)
+
+     The bitmaps of the new characters are slices from the original
+     character: 0 to column COL_1-1, ..., COL_N to the bitmap width. 
+     You specify the column numbers in bitmap coordinates, i.e., the
+     first column is numbered zero.
+
+     To split more than one character, simply specify `-column-split'
+     for each.
+
+     This option is useful when two different characters in a scanned
+     image of a font were printed so closely together that their images
+     overlap. In this case, Imageto cannot break the characters apart,
+     because they are a single bounding box.  But you can split them
+     with this option; you have to use your best judgement for the
+     exact column at which to split. (Probably judicious hand-editing
+     with XBfe (*note XBfe::.) will be necessary after you do this.)
+
+`-range CHAR1-CHAR2'
+     Only output characters with codes between CHAR1 and CHAR2,
+     inclusive.  (*Note Common options::, and *Note Specifying
+     character codes::.)
+
+`-omit CHARSPEC1,CHARSPEC2,...'
+     Omit the characters with the specified codes (before remapping)
+     from the output.  Multiple `-omit' options combine.
+
+`-remap SRC1:DEST1,SRC2:DEST2,...'
+     For each pair of character specifications SRC/DEST, change the
+     character with code SRC in the input font to have code DEST in the
+     output.
+
+
+File: fontu.info,  Node: Character manipulation options,  Next: Fontwide information options,  Prev: Character selection options,  Up: Invoking Fontconvert
+
+Character manipulation options
+------------------------------
+
+  The following options affect individual characters.
+
+  When any of them are specified, the dimensions of the output character
+are likely to be quite different than those of the input characters;
+therefore, Fontconvert does not copy the TFM information (when writing a
+TFM file) from an existing TFM file.
+
+`-baseline-adjust CODE1:DELTA1,CODE2:DELTA2,...'
+     Adjust the baseline of the output (i.e., after remapping) character
+     CODE by the corresponding DELTA.  A negative DELTA moves the
+     baseline down, a positive one up.  Multiple `-baseline-adjust'
+     options combine.
+
+`-filter-passes PASSES'
+`-filter-size HALF-CELL-SIZE'
+`-filter-threshold INTENSITY'
+     Run each character through an "averaging filter" PASSES times.
+     This tends to smooth rough edges on characters or irregular
+     curves.  By the same token, it tends to shrink or eliminate small
+     features, such as features.  Experimentation is necessary to
+     determine the best values for any particular font.
+
+     For the pixel at coordinate (x,y), Fontconvert looks at its
+     neighbors in rows y - HALF-CELL-SIZE, ..., y-1, y+1, ..., y +
+     HALF-CELL-SIZE, and similarly for the columns.
+
+     Fontconvert computes the average intensity of this square; if the
+     result is greater than INTENSITY, it outputs a black pixel at
+     (x,y); a white one, otherwise.
+
+     This process is repeated for every pixel in every character, and
+     every character is filtered PASSES times.
+
+     The default is to do no filtering, i.e., PASSES is zero.  The
+     default for HALF-CELL-SIZE is one; the default for INTENSITY is .5.
+
+`-random DISTANCE'
+`-random-threshold PROBABILITY'
+     In every character, randomly move each black pixel.  We
+     implemented this as part of our research (to see how much
+     characters could be distorted before they became noticeably harder
+     to read--the answer is a lot), but left it in the program for its
+     amusement value.
+
+     For each black pixel, a first random number between zero and one is
+     compared to PROBABILITY.  If it is greater, nothing happens.
+     Otherwise, a second random number is chosen, this one between
+     -DISTANCE and DISTANCE.  The pixel is "moved" that far
+     horizontally.  Then repeat for the vertical axis.
+
+     The default is to do no randomization, i.e., DISTANCE is zero. The
+     default for PROBABILITY is .2.
+
+
+File: fontu.info,  Node: Fontwide information options,  Next: Miscellaneous options,  Prev: Character manipulation options,  Up: Invoking Fontconvert
+
+Fontwide information options
+----------------------------
+
+  These options provide a way for you to set the global information in
+TFM and GF files.  They override the default values (which are taken
+from the input bitmap or TFM files).
+
+`-designsize REAL'
+     Set the design size in both the TFM and GF output files to REAL.
+     You give REAL in printer's points.
+
+     You might want to use this after seeing the Metafont or PostScript
+     fonts output by BZRto, and deciding they look too small.  For
+     example, the original Garamond type specimen we scanned was
+     (nominally) printed in 30pt.  But when scaled down to 10pt via
+     Metafont, the characters looked too small.  So we ran Fontconvert
+     with `-designsize=26' on the bitmap font made from the original
+     image, and then reran Limn, BZRto, and Metafont to see the result.
+      (We settled on 26 after several trials.)  *Note Creating fonts::,
+     for a description of all the steps in creating fonts from scanned
+     images.
+
+`-fontdimens FD1:VALUE1,FD2:VALUE2,...'
+     *Note TFM fontdimens::.
+
+`-tfm-header NAME1:VALUE1,NAME2:VALUE2,...'
+     Assign each VALUE to the corresponding NAME in the header
+     information written to the TFM file.  The standard TeX names are
+     recognized:
+
+    `checksum'
+          The corresponding VALUE should be an unsigned integer, which
+          should uniquely identify this TFM file.  A checksum of zero
+          disables testing. The default is zero.
+
+    `designsize'
+          The corresponding VALUE should be a real number between 1 and
+          2048 (this limit is in the TFM file format).  This overrides
+          (for the TFM output only) the `-designsize' option, if both
+          are specified.  The default is the design size of the input.
+
+    `codingscheme'
+          The corresponding VALUE should be a string of length less
+          than 40, containing no parentheses or commas.  Again, these
+          restrictions are due to the TFM file format.  This coding
+          scheme declares the font's encoding vector.  *Note Coding
+          scheme map file::.
+
+
+File: fontu.info,  Node: Miscellaneous options,  Prev: Fontwide information options,  Up: Invoking Fontconvert
+
+Miscellaneous options
+---------------------
+
+  These options are the generic ones accepted by most (in some cases,
+all) programs.  *Note Common options::.
+
+`-dpi UNSIGNED'
+     The resolution of the main input font, in pixels per inch.
+
+`-encoding ENC-FILE'
+     The encoding file to read for the mapping between character names
+     and character codes.  *Note Encoding files::.  If ENC-FILE has no
+     suffix, `.enc' is appended.  There is no default.  Without an
+     encoding file, the options listed in *Note Character selection
+     options:: which take character specs will just complain if you
+     supply character names, instead of character codes.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-output-file FILENAME'
+     If FILENAME has a suffix and if only one output file is to be
+     written, write to FILENAME.  If FILENAME has a suffix and you've
+     specified options which imply more than one output file,
+     Fontconvert complains and gives up.
+
+     If FILENAME does not have a suffix, extend FILENAME with whatever
+     is appropriate for the output format(s).  In the case of GF and
+     TFM output, if this would overwrite the input, prepend an `x' to
+     the output name.
+
+     By default, use the name of the main input font for FILENAME.
+
+`-verbose'
+     Output progress reports.
+
+`-version'
+     Print the version number.
+
+
+File: fontu.info,  Node: Charspace,  Next: Limn,  Prev: Fontconvert,  Up: Top
+
+Charspace
+*********
+
+  Charspace lets you add "side bearings" (the blank spaces on either
+side of a character) to a bitmap font.  This is necessary because
+scanned images typically do not include side bearing information, and
+therefore Imageto (*note Imageto::.) cannot determine it.
+
+  The input is a bitmap (GF or PK) font, together with one or more CMI
+files (*note CMI files::.), which specify character metric information.
+ If a corresponding TFM file exists, it is read to get default values
+for the character dimensions (Charspace promptly overwrites the
+widths).  The output is a TFM file and (typically) a revised GF file
+with the new width information.
+
+  The basic idea for Charspace came from Harry Smith, via Walter Tracy's
+book `Letters of Credit'.  See `charspace/README' for the full citation.
+
+* Menu:
+
+* Charspace usage::             Details on improving the character metrics.
+* CMI files::                   You specify the metrics in a separate file.
+* Invoking Charspace::          Command-line options.
+
+
+File: fontu.info,  Node: Charspace usage,  Next: CMI files,  Up: Charspace
+
+Charspace usage
+===============
+
+  Charspace makes no attempt to be intelligent about the side bearings
+it computes; it just follows the instructions in the CMI files.
+
+  The CMI files must be created by human hands, since the information
+they contain usually cannot be determined automatically.  See the next
+section for the details on what CMI files contain.
+
+  We supply one CMI file, `common.cmi' (distributed in the `data'
+directory), which defines more-or-less typeface-independent definitions
+for most common characters.  Charspace reads `common.cmi' before any of
+the CMI files you supply, so your definitions override its.
+
+  `common.cmi' can be used for all typefaces because its definitions
+are entirely symbolic; therefore, your CMI file must define actual
+values for the identifiers it uses.  For example, `common.cmi' defines
+the right side bearing of `K' to be `uc-min-sb'; you yourself must
+define `uc-min-sb'.
+
+  You must also define side bearings for characters not in
+`common.cmi'.  And you can redefine side bearings that *are* in
+`common.cmi', if you find its definitions unsuitable.
+
+  Once you have prepared a CMI file, you can run Charspace, e.g.:
+     charspace -verbose -encoding=ENC-FILE FONTNAME.DPI \
+       -output-file=OUT-FONTNAME
+
+where ENC-FILE specifies the encoding, FONTNAME the input font, DPI the
+resolution, and OUT-FONTNAME the name of the output font.
+
+  With these options, Charspace will write files `OUT-FONTNAME.tfm' and
+`OUT-FONTNAME.DPIgf'. You can then run TeX on `testfont.tex', telling
+TeX to use the font OUT-FONTNAME.  This produces a DVI file which you
+can print or preview as you usually do with TeX documents.
+
+  This will probably reveal problems in your CMI file, e.g., the spacing
+for some characters or character combinations will be poor.  So you need
+to iterate.
+
+  However, if you are planning to eventually run your bitmap font
+through Limn (*note Limn::.) and BZRto (*note BZRto::.) to make an
+outline font, there's little point in excessively fine-tuning the
+spacing of the original bitmap font.  The reason is that the generated
+outline font will inevitably rasterize differently than the original
+bitmaps, and the change in character shapes will almost certainly
+affect the spacing.
+
+
+File: fontu.info,  Node: CMI files,  Next: Invoking Charspace,  Prev: Charspace usage,  Up: Charspace
+
+CMI files
+=========
+
+  "Character metric information" (CMI) files are free-format text files
+which (primarily) describe the side bearings for characters in a font. 
+"Side bearings" are the blank spaces to the left and right of a
+character which makeprinted type easier to read, as well as more
+pleasing visually.
+
+  In addition to side bearing definitions, CMI files can also contain
+"kerns", which insert or remove space between particular letter pairs;
+and font dimensions, global information about the font which is stored
+in the TFM file (*note TFM fontdimens::.).
+
+  If your font is named `FOO.300gf' (or `... pk'), it is customary to
+name the corresponding CMI file `FOO.300cmi'. That is what Charspace
+looks for by default.  If you name it something else, you must use the
+`-cmi-files' option to tell Charspace its name.  It is reasonable to
+use the resolution as part of the CMI filename, since the values
+written in it are (for the most part) in pixels.
+
+  *Note Common file syntax::, for a precise description of syntax
+elements common to all data files processed by these programs, including
+comments.
+
+  In the following sections, we describe the individual commands, the
+tokens that comprise them, and the way Charspace processes them.
+
+* Menu:
+
+* CMI tokens::                  The building blocks of CMI files.
+* char command::                Defining a character's side bearings.
+* char-width command::          Defining side bearings via the set width.
+* define command::              Introducing a new identifier.
+* kern command::                Defining a kerning pair.
+* codingscheme command::        Specifying the font encoding.
+* fontdimen command::           Defining additional font parameters.
+* CMI processing::              How Charspace reads CMI files.
+
+
+File: fontu.info,  Node: CMI tokens,  Next: char command,  Up: CMI files
+
+CMI tokens
+----------
+
+  Tokens in a CMI file are one of the following.
+
+  1. A numeric constant consists of (in order) an optional sign, zero
+     or more digits, an optional decimal point, and zero or more
+     digits--but at least one digit must be present.  For example,
+     `+0', `-0', `0', `.0', and `-0.0' are all valid ways to write the
+     number zero.
+
+  2. A string constant consists of all characters between two
+     double-quote characters `"'.  We made no provision for quoting
+     `"', because our particular uses for string constants never need
+     quote characters.
+
+  3. A comma is a self-terminating token.  It serves merely to separate
+     two expressions.
+
+  4. An identifier is any number of characters starting with a
+     non-whitespace character (whitespace being defined by the C
+     facility `isspace') not listed above, and terminated by a
+     whitespace character.
+
+     In some contexts, an identifier is taken as a "character name"--a
+     name from the encoding file Charspace is using, either the default
+     or one you specified with `-encoding' (*note Invoking
+     Charspace::.). *Note Encoding files::, for the definition of
+     encoding files.
+
+     In all other cases, identifiers are internal to Charspace.  The
+     particular commands describe the semantics which apply to them.
+
+     Some identifiers are "reserved", i.e., they cannot be used in any
+     context except as described in the following sections.  Reserved
+     words are always shown in typewriter type.
+
+
+  An expression in a CMI file is one of: a number, an identifier, or a
+number followed by an identifier.  This last, as in `.75 foo', denotes
+multiplication.
+
+
+File: fontu.info,  Node: char command,  Next: char-width command,  Prev: CMI tokens,  Up: CMI files
+
+`char' command
+--------------
+
+  The `char' command specifies both side bearings for a single
+character.  It has the form:
+
+     char CHARNAME EXPR1 , EXPR2
+
+where:
+
+CHARNAME
+     is a character name from the font encoding.  *Note Invoking
+     Charspace::, for how to specify the encoding file.
+
+EXPR1
+EXPR2
+     specify the left and right side bearings, in pixels, respectively:
+     the character widths in the output TFM and GF files are EXPR1 +
+     EXPR2 + `width' (CHARNAME).  If these expressions contain
+     identifiers, the values of those identifiers are not resolved
+     until after Charspace has read all the CMI files.
+
+  Giving the side bearings symbolically is useful when the character
+definition is intended to be used for more than one typeface.  For
+example, `common.cmi' (*note Charspace usage::.) contains:
+
+     char K H-sb , uc-min-sb
+     char L H-sb , uc-min-sb
+
+  Then the CMI file you write for a particular font can define `H-sb'
+and `uc-min-sb', and not have to redefine the side bearings for `K' and
+`L'.
+
+
+File: fontu.info,  Node: char-width command,  Next: define command,  Prev: char command,  Up: CMI files
+
+`char-width' command
+--------------------
+
+  The `char-width' command specifies the set width and left side
+bearing as a percentage of the total remaining space for a single
+character.  It has the form:
+
+     char-width CHARNAME WIDTH-EXPR , LSB-%-EXPR
+
+where:
+
+CHARNAME
+     is a character name from the font encoding.  *Note Invoking
+     Charspace::, for how to specify the encoding file.
+
+WIDTH-EXPR
+     specifies the set width of the character in pixels.  The "set
+     width" is the sum of the bitmap width, left side bearing, and
+     right side bearing.
+
+LSB-%-EXPR
+     specifies the left side bearing as a percentage of WIDTH-EXPR
+     minus the bitmap width of the character.  Expressing the lsb as a
+     percentage means that you need not think about the width of the
+     character image: if you want to center a character, for example,
+     `.5' for LSB-%-EXPR will always work.
+
+  The `char-width' command is useful when you want a character to have
+a particular set width, since it's much simpler to specify that width
+and the left side bearing (and let the program compute the right side
+bearing) than to somehow estimate the bitmap width and then choose the
+side bearings to add up to the desired set width.
+
+  For example, in most fonts, the numerals all have the same width, to
+ease typesetting of columns of them in tables.  Thus, `common.cmi'
+defines `eight' (the name for the numeral `8') as follows:
+
+     char-width eight numeral-width , eight-lsb-percent
+
+Since the numeral width is traditionally one-half the em width of the
+font, `common.cmi' defines `numeral-width' as `enspace', which in turn
+is defined to be half the `quad' fontdimen.
+
+  `eight-lsb-percent' is defined to be `.5', thus centering the `8'.
+
+  The other numerals are also defined to have width `numeral-width',
+but the `lsb-percent's vary according to the character shapes.
+
+
+File: fontu.info,  Node: define command,  Next: kern command,  Prev: char-width command,  Up: CMI files
+
+`define' command
+----------------
+
+  The `define' command defines an identifier as a number.  This is
+useful to give a symbolic name to a constant used in more than one
+character or fontdimen definition, for ease of change. It has the form:
+
+     define ID EXPR
+
+  The identifier ID is defined to be the expression EXPR.  Any previous
+definition of ID is replaced.  The ID can be used prior to the `define'
+command; Charspace doesn't try to resolve any definitions in the CMI
+files until after all files have been read.
+
+
+File: fontu.info,  Node: kern command,  Next: codingscheme command,  Prev: define command,  Up: CMI files
+
+`kern' command
+--------------
+
+  The `kern' command defines a space to insert or remove between two
+particular characters.  The kerning information is written only to the
+TFM file.  It has the form:
+
+     kern NAME1 NAME2 EXPR
+
+where NAME1 and NAME2 are character names, as in the `char' command
+(*note char command::.), and EXPR is the amount of the kern in pixels.
+
+  For example:
+
+     kern F dot -7.5
+
+would put an entry in the TFM file's kerning table such that when TeX
+typesets a `F' followed by a `.', it inserts an additional space
+equivalent to -7.5 pixels in the resolution of Charspace's input font,
+i.e., it moves the two characters closer together.
+
+
+File: fontu.info,  Node: codingscheme command,  Next: fontdimen command,  Prev: kern command,  Up: CMI files
+
+`codingscheme' command
+----------------------
+
+  The `codingscheme' command defines the encoding scheme to be used for
+the output files.  (*Note Encoding files::, for a full description of
+font encodings.)  It has the form:
+
+     codingscheme STRING-CONSTANT
+
+where STRING-CONSTANT is a coding scheme string; for example, `"GNU
+Latin text"'.  This string is looked up in the data file `encoding.map'
+to find the name of the corresponding encoding file (*note Coding
+scheme map file::.).
+
+
+File: fontu.info,  Node: fontdimen command,  Next: CMI processing,  Prev: codingscheme command,  Up: CMI files
+
+`fontdimen' command
+-------------------
+
+  The `fontdimen' command defines a font parameter to be put in the TFM
+file.  It has the form:
+
+     fontdimen FONTDIMEN-NAME EXPR
+
+where FONTDIMEN-NAME is any of the fontdimen names listed in the
+section below, and EXPR gives the new value of the fontdimen, in pixels.
+
+  For example, `common.cmi' (*note Charspace usage::.) makes the
+following definitions:
+
+     fontdimen quad designsize
+     fontdimen space .333 quad
+
+This defines the fontdimen `quad', which determines the width of the
+`em' dimension in TeX, to be the same as the design size of the font. 
+(This is traditionally the case, although it is not a hard-and-fast
+rule.)  Then it defines the fontdimen `space', which is the normal
+interword space in TeX, to be one-third of the quad.
+
+  Because of the way that Charspace processes the CMI files (*note CMI
+processing::.), if you redefine the `quad' fontdimen in another CMI
+file, the value of `space' will change correspondingly.
+
+  The section below lists all the TFM fontdimen names Charspace
+recognizes, and their meaning to TeX.
+
+* Menu:
+
+* TFM fontdimens::              All the valid fontdimens.
+
+
+File: fontu.info,  Node: TFM fontdimens,  Up: fontdimen command
+
+TFM fontdimens
+..............
+
+  This section lists all the TFM fontdimens recognized by these
+programs: all those recognized by TeX, plus a few others we thought
+would prove useful when writing TeX macros.
+
+  A "fontdimen" is an arbitrary number, in all cases but one (`slant',
+see below) measured in printer's points, which is associated with a
+particular font.  Their values are stored in the TFM file for the font.
+ We also refer, context permitting, to fontdimens as "font parameters",
+or simply "parameters".
+
+  Fontdimens affect many aspects of TeX's behavior: the interword
+spacing, accent placement, and math formula construction.  The math
+fontdimens in particular are fairly obscure; if you don't have a firm
+grasp on how TeX constructs math formulas, the explanations below will
+probably be meaningless to you, and--unless you're making a font for
+math typesetting--can be ignored.
+
+  The `common.cmi' file which Charspace reads sets reasonable defaults
+for the fontdimens relevant to normal text typesetting.
+
+  When TeX (or other programs) scale a font, its fontdimen values are
+scaled proportionally to the design size.  For example, suppose the
+designsize of some font F is 10pt, and some fontdimen in F has the
+value 7.5pt.  Then if the font is used scaled to 20pt, the fontdimen's
+value is scaled to 15pt.
+
+  You can get the table of fontdimen values in a particular TFM file by
+running the standard TeX utility program PLtoTF and inspecting its
+(human-readable text) output.
+
+  In our programs and in PLtoTF, fontdimens are typically shown by their
+names.  But each also has a number, starting at 1.  You can use either
+the number or the name on the command line (in the argument to the
+`-fontdimens' option).  The numbers are given in parentheses after the
+name in the table below.
+
+  In a few cases (fontdimens 8--13), the same number fontdimen has two
+different names, and two different meanings.  This does not cause
+problems in practice, because these fontdimens are used only in the TeX
+math symbol and math extension fonts, which TeX can distinguish via its
+"math families" (see `The TeXbook' for the details).
+
+`slant (1)'
+     Unlike all other fontdimens, the `slant' parameter is not scaled
+     with the font when it is loaded.  It defines the "slant per pt" of
+     the font; for example, a `slant' of 0.2 means a 1pt-high character
+     stem would end 0.2pt to the right of where it began. This value is
+     typical for slanted or italic fonts; for normal upright fonts,
+     `slant' is zero, naturally.  TeX uses this to position accents.
+
+`space (2)'
+     The `space' parameter defines the normal interword space of the
+     font.  This is typically about one-third of the design size, but it
+     varies according to the type design: a narrow, spiky typeface will
+     have a small interword space relative to a wide, regular one.
+     Exception: in math fonts, the interword space is zero.
+
+`stretch (3)'
+     The `stretch' parameter defines the interword stretch of the font.
+     This is typically about one-half of the `space' parameter.  TeX is
+     reluctant to increase interword spacing beyond the width `space' +
+     `stretch'.  In monospaced fonts, the stretch is typically zero.
+
+`shrink (4)'
+     The `shrink' parameter defines the interword shrink of the font.
+     This is typically about one-third of the `space' parameter.  TeX
+     does not decrease interword spacing beyond the width `space' -
+     `shrink'.  In monospaced fonts, the shrink is typically zero.
+
+`xheight (5)'
+     The `xheight' parameter defines the x-height of the font, i.e., the
+     main body size.  The height of the lowercase `x' is often used for
+     this, since neither the top nor the bottom of `x' are curves. 
+     There is no hard-and-fast rule in TeX that the x-height must equal
+     the height of `x', however.
+
+     This fontdimen defines the value of the `ex' dimension in TeX. TeX
+     also uses this to position: it assumes the accents in the font are
+     properly positioned over a character that is exactly 1ex high.
+
+`quad (6)'
+     The `quad' fontdimen defines the value of the `em' dimension in
+     TeX.  This is often the same as the design size of the font, but
+     as usual, that's not an absolute requirement.
+
+     Typesetters often use `em's and `ex's instead of hardwiring
+     dimensions in terms of (say) points; that way, experimenting with
+     different fonts for a particular job does not require changing the
+     dimensions.
+
+`extraspace (7)'
+     The `extraspace' fontdimen defines the space TeX puts at the end
+     of sentence.  (Technically, when the `\spacefactor' is 20000 or
+     more.)  This is typically about one-sixth of the normal interword
+     space.
+
+`num1 (8)'
+     (Sorry, we haven't written a description of the math fontdimens
+     yet.)
+
+`num2 (9)'
+`num3 (10)'
+`denom1 (11)'
+`denom2 (12)'
+`sup1 (13)'
+`sup2 (14)'
+`sup3 (15)'
+`sub1 (16)'
+`sub2 (17)'
+`supdrop (18)'
+`subdrop (19)'
+`delim1 (20)'
+`delim2 (21)'
+`axisheight (22)'
+`defaultrulethickness (8)'
+`bigopspacing1 (9)'
+`bigopspacing2 (10)'
+`bigopspacing3 (11)'
+`bigopspacing4 (12)'
+`bigopspacing5 (13)'
+`leadingheight (23)'
+     The `leadingheight' parameter defines the height component of the
+     recommended leading for this font.  "Leading" is the
+     baseline-to-baseline distance when setting lines of type.
+
+     TeX does not automatically use this fontdimen, and the standard
+     TeX fonts do not define it, but you may wish to include it in new
+     fonts for the benefit of future TeX macro.  This fontdimen is a GNU
+     extension.
+
+`leadingdepth (24)'
+     The `leadingdepth' parameters defines the depth of the recommended
+     leading for this font.  See `leadingheight' directly above.  This
+     fontdimen is a GNU extension.
+
+`fontsize (25)'
+     The `fontsize' parameter is the design size of the font.  This is
+     needed for TeX macros to find the font's design size.  This
+     fontdimen is a GNU extension.
+
+`version (26)'
+     The `version' parameter identifies a particular version of the TFM
+     file.  Whenever the character dimensions, kerns, or ligature table
+     for a font changes, it is good to increment the version number. 
+     It is also good to keep such changes to a minimum, since they can
+     change the line breaks and page breaks in documents typeset with
+     previous versions.  This fontdimen is a GNU extension.
+
+
+File: fontu.info,  Node: CMI processing,  Prev: fontdimen command,  Up: CMI files
+
+CMI processing
+--------------
+
+  Here are some further details on how Charspace processes the CMI
+files:
+
+   * Charspace uses a single "namespace"; i.e., each defined identifier,
+     whether it be a character name, an internal identifier, a fontdimen
+     name, or whatever, is stored in the same table.  Furthermore,
+     Charspace does not complain, or even warn, about redefinition of
+     identifiers: as we build up CMI files to be shared among different
+     fonts, we felt such redefinition would be common.
+
+   * Charspace does not insist that identifiers be used before they are
+     defined.  For example, the following sequence:
+
+          define foo bar
+          define bar 1.0
+          char A foo , bar
+
+     is valid, and defines both side bearings of `A' to be 1.0.  (See
+     the preceding sections for the definition of the various commands
+     allowed in CMI files.)
+
+   * Charspace only tries to resolve the definitions of those
+     identifiers which are actually used to produce the output files
+     (i.e., those in a sidebearing definition, a kern value, or a
+     fontdimen value).  Thus, something like
+
+          define foo bar
+
+     will elicit no complaint, if `foo' is not needed to make the
+     output files.
+
+   * Charspace reads the contents of all the CMI files before
+     attempting to resolve any definitions.  Thus, it is the last
+     definition which counts. For example:
+
+          define bar 100
+          define foo 2 bar
+          define bar 1
+          char A foo , foo
+
+     defines both side bearings of `A' to be 2, not 200.
+
+   * Charspace predefines one identifier, `designsize', to be the
+     design size of the input font (in pixels).  It can be redefined
+     like any other identifier.
+
+  If you can read programs in the C language, you may find it
+instructive to examine the implementation of CMI file processing in the
+source files `charspace/char.c' and `charspace/cmi.y'.  The source
+provides the full details of CMI processing.
+
+
+File: fontu.info,  Node: Invoking Charspace,  Prev: CMI files,  Up: Charspace
+
+Invoking Charspace
+==================
+
+  This section describes the options that Charspace accepts. *Note
+Command-line options::, for general option syntax.
+
+  The root of the main input fontname is called FONT-NAME below.
+
+`-cmi-files FILE1,FILE2,...'
+     read the CMI files `FILE1.DPIcmi', `FILE2.DPIcmi', etc., where DPI
+     is the resolution of the main input font.  Default is to read
+     `FONT-NAME.DPIcmi'.  The `.DPIcmi' is not appended to any of the
+     FILEs which already have a suffix.
+
+     `common.cmi' is read before any of these files.
+
+`-dpi UNSIGNED'
+     The resolution, in pixels per inch.  *Note Common options::.
+
+`-encoding ENC-FILE'
+     The encoding file to read for the mapping between character codes
+     in the input font and character names.  *Note Encoding files::.  If
+     ENC-FILE has no suffix, `.enc' is appended.  The default is to
+     read the encoding file specified via the `codingscheme' command
+     (*note codingscheme command::.).
+
+     If a TFM file `FONT-NAME.tfm' exists, it is also read for default
+     ligature, headerbyte, and fontdimen information.  Definitions in
+     the CMI files override those in such a TFM file.
+
+`-fontdimens FD1:VALUE1,FD2:VALUE2,...'
+     *Note TFM fontdimens::.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-no-gf'
+     Don't output a revised GF file.  This is primarily useful while
+     debugging the TFM output, since without a bitmap font to match the
+     TFM output, you can't actually print anything reliably.
+
+`-output-file FILENAME'
+     If FILENAME does not have a suffix, write the output to
+     `FILENAME.tfm' and (if `-no-gf' was not specified)
+     `FILENAME.DPIgf'.  If this would overwrite an input file, prepend
+     an `x' to the output name.
+
+     If FILENAME has a suffix, and `-no-gf' was not specified,
+     Charspace complains and gives up, since it can't output two files
+     with the same name.
+
+     By default, use the name of the main input font for FILENAME.
+
+`-range CHAR1-CHAR2'
+     Only output characters with codes between CHAR1 and CHAR2,
+     inclusive.  (*Note Common options::, and *Note Specifying
+     character codes::.)
+
+`-verbose'
+     Output progress reports.
+
+`-version'
+     Print the version number.
+
+`-xheight-char CODE'
+     Use the TFM height of CODE for the `xheight' fontdimen (*note TFM
+     fontdimens::.); default is 120 (ASCII `x').  (It is reasonable to
+     use 120 instead of whatever `x' is in the underlying character set
+     because most font encoding schemes are based on ASCII regardless
+     of the host computer's character set.)
+
+
+File: fontu.info,  Node: Limn,  Next: BZRto,  Prev: Charspace,  Up: Top
+
+Limn
+****
+
+  These days, fonts to be used on computers are represented in one of
+two ways: as a "bitmap font", which specifies each individual pixel in
+the image of a character; and/or as an "outline font", which specifies
+the image as a collection of mathematically-specified curves. Each
+method has its own advantages and disadvantages; typesetting programs,
+page description languages, and output devices can generally deal with
+both.
+
+  Limn converts a font from a bitmap to an outline by fitting curves to
+the pixels.  Non-shape-related information in the bitmap font, such as
+that for the side bearings, is preserved in the outline output.
+
+  Specifically, the input is a bitmap (GF or PK) font.  The output is a
+BZR outline font (*note BZR files::.), which can then be converted to
+(for example) Metafont or PostScript with BZRto (*note BZRto::.).
+
+  There is a fair amount of literature on converting bitmaps to
+outlines. We found three particularly helpful: Philip Schneider's
+Master's thesis on his system Phoenix; Michael Plass and Maureen
+Stone's article `Curve-fitting with piecewise parametric cubics'
+published in SIGGRAPH; and Jakob Gonczarowski's article `A fast
+approach to auto-tracing (with parametric cubics)' in the RIDT 91
+conference proceedings.  See the file `limn/README' for the full
+citations.
+
+* Menu:
+
+* Limn algorithm::              How Limn fits outlines to bitmaps.
+* Invoking Limn::               Command-line options.
+
+
+File: fontu.info,  Node: Limn algorithm,  Next: Invoking Limn,  Up: Limn
+
+Limn algorithm
+==============
+
+  Limn can always (barring bugs, of course) fit some sort of outline to
+the bitmap input.  But its default fit is likely to be far from the
+ideal: character features may disappear, curves distorted, straight
+lines turned into curves and curves into straight lines, and on and on.
+
+  To control the fitting process, you must specify options to override
+Limn's defaults.  To describe those options, we must describe the
+algorithm Limn uses to do the fitting, which we do in this section.  We
+mention the options at the appropriate point.
+
+  The next section summarizes all the options, in alphabetical order.
+
+  Here is a schematic of the algorithm.  The subsections below go into
+detail for each step.  Except for the very first step, this is
+implemented in `limn/fit.c'.
+
+     find pixel outlines
+     for each pixel outline:
+       find corners, yielding curve lists
+       for each curve list:
+         remove knees
+         filter
+         if too small:
+           fit with straight line
+         otherwise fit with spline:
+           set initial t values
+           find tangents
+           fit with one spline
+           while error > reparameterize-threshold, reparameterize
+           if error > error-threshold, subdivide and recurse
+           if linearity < line-threshold, change to straight line
+         revert bad lines
+         align endpoints
+
+* Menu:
+
+* Finding pixel outlines::      Extracting the edges from the bitmap.
+* Finding corners::             Finding subsections of each outline.
+* Removing knees::              Removing extraneous points.
+* Filtering curves::            Smoothing the outlines.
+* Fitting the bitmap curve::    Doing the fitting.
+* Changing splines to lines::   Use straight lines where possible.
+* Changing lines to splines::   Sometimes it isn't possible.
+* Aligning endpoints::          If points are close enough, line them out.
+* Displaying fitting online::   Seeing the results as Limn runs.
+
+
+File: fontu.info,  Node: Finding pixel outlines,  Next: Finding corners,  Up: Limn algorithm
+
+Finding pixel outlines
+----------------------
+
+  The first step in the conversion from a character shape represented
+as a bitmap to a list of mathematical curves is to find all the cyclical
+outlines (i.e., closed curves) in the bitmap image.  The resulting list
+is called a "pixel outline list".  Each "pixel outline" in the list
+consists of the pixel coordinates of each edge on the outline.
+
+  For example, the pixel outline list for an `i' has two elements: one
+for the dot, and one for the stem.  The pixel outline list for an `o'
+also has two elements: one for the outside of the shape, and one for
+the inside.
+
+  But we must differentiate between an "outside outline" (whose
+interior is to be filled with black to render the character) and an
+"inside outline" (whose interior is to be filled with white). Limn's
+convention is to write the pixel coordinates for outside outlines in
+counterclockwise order, and those for inside outlines in clockwise
+order.
+
+  This counterclockwise movement of outside outlines is required by the
+Type 1 format used for PostScript fonts, which is why we adopted that
+convention for Limn.
+
+  For example, consider a pixel outline consisting of a single black
+pixel at the origin.  The pixel has four corners, and hence the outline
+will have four coordinates.  Limn looks for starting pixels from top to
+bottom, left to right, within a bitmap image.  Thus, the list of pixel
+coordinates will start at (0,1) and proceed counterclockwise: (0,0)
+(1,0) (1,1).  Here is a picture:
+
+     start => (0,1)<-(1,1)
+                |      ^
+                v      |
+              (0,0)->(0,1)
+
+  Because finding pixel outlines does not involve approximation or
+estimation, there are no options to control the process.  Put another
+way, Limn will always find the correct pixel coordinates for each
+outline.
+
+  Once these pixel outlines have been found, each is then processed
+independently; i.e., all the remaining steps, described in the following
+sections, operate on each pixel outline individually.
+
+  The source code for this is in `limn/pxl-outline.c' and `lib/edge.c'.
+
+
+File: fontu.info,  Node: Finding corners,  Next: Removing knees,  Prev: Finding pixel outlines,  Up: Limn algorithm
+
+Finding corners
+---------------
+
+  Recall that our final goal is to fit splines, i.e., continuous curves,
+to the discrete bitmap image.  To that end, Limn looks for "corners" in
+each pixel outline (see the previous section)--points where the outline
+makes such a sharp turn that a single curve cannot possibly fit well. 
+Two corners mark the endpoints of a "curve".
+
+  We call the result a "curve list", i.e., a list of curves on the
+pixel outline: the first curve begins at that first corner and continues
+through the second corner; and so on, until the last, which begins with
+the last corner found and continues through the first corner.  (Each
+pixel outline is cyclic by definition; again, see the previous section.)
+
+  The corner-finding algorithm described below works fairly well in
+practice, but you will probably need to adjust the parameters it uses.
+Finding good corners is perhaps the most important part of the entire
+fitting algorithm: missing a corner usually leads to a sharp point in
+the original image being rounded off to almost nothing; finding an
+extraneous corner usually leads to an extremely ugly blob.
+
+  Here is Limn's basic strategy for guessing if a given point p is a
+corner: compute the total displacement (in both x and y) for some
+number n of points before p; do the same for n points after p; find the
+angle a between those two vectors; if that angle is less than some
+threshold, p is a corner.
+
+     The number n of points to consider is 4 by default; you can
+     specify a different number with the `-corner-surround' option.  If
+     the resolution of the input font is not 300dpi, `-corner-surround'
+     should almost certainly be changed proportionately.
+
+     The threshold is 100 degrees by default; you can change this with
+     the `-corner-threshold' option.  You can see the angles at the
+     chosen corners via `-log'.
+
+  However, when Limn finds a point P whose angle is below
+`corner-threshold', it won't necessarily take P as the corner. 
+Instead, it continues looking for another `corner-surround' points; if
+it finds another point q whose angle is less than that of p, Q will
+become the corner. (And then Limn looks for another `corner-surround'
+points beyond Q, and so on.)
+
+  This continued searching prevents having two corners near each other,
+which is usually wrong, if the angles at the two would-be corners are
+approximately the same.  On the other hand, sometimes there are
+extremely sharp turns in the outline within `corner-surround' pixels;
+in that case, one does want nearby corners after all.
+
+  So Limn has one more option, `-corner-always-threshold'.  If the
+angle at a point is below this value (60 degrees by default), then that
+point is considered a corner, regardless of how close it is to other
+corners.  The search for another corner within `corner-surround' pixels
+continues, however.
+
+
+File: fontu.info,  Node: Removing knees,  Next: Filtering curves,  Prev: Finding corners,  Up: Limn algorithm
+
+Removing knees
+--------------
+
+  For each curve in the curve list determined by the corners on the
+pixel outline (see the previous section), Limn next removes
+"knees"--points on the inside of the outline that form a "right angle"
+with its predecessor and successor.  That is, either (1) its
+predecessor differs only in x, and its successor only in y; or (2) its
+predecessor differs only in y, and its successor only in x.
+
+  It is hard to describe in words, but here is a picture:
+
+     **
+      X*
+       *
+
+The point `X' is a knee, if we're moving in a clockwise direction.
+
+  Such a "right angle" point can be on either the inside or the outside
+of the outline.  Points on the inside do nothing useful, they just slow
+things down and, more importantly, make the curve being fit less
+accurate.  So we remove them.  But points on the outside help to define
+the shape of the curve, so we keep those.  (For example, if `X' was
+moved up one diagonally, we certainly want it as a part of the curve.)
+
+  Although we haven't found a case where removing knees produces an
+inferior result, there's no theory about it always helping.  Also, you
+may just be curious what difference it makes (as we were when we
+programmed the operation).  So Limn provides an option `-keep-knees';
+if you specify it, Limn simply skips this step.
+
+
+File: fontu.info,  Node: Filtering curves,  Next: Fitting the bitmap curve,  Prev: Removing knees,  Up: Limn algorithm
+
+Filtering curves
+----------------
+
+  After generating the final pixel coordinates for each curve (see the
+previous sections), Limn next "filters" the curves to smooth them.
+Before this step, all the coordinates are on integer boundaries, which
+makes the curves rather bumpy and difficult to fit well.
+
+  To filter a point p, Limn does the following:
+
+  1. Computes the sum of the distances of n neighbors (points before
+     and after p) to p.  These neighbors are always taken from the
+     original curve, since we don't want a newly filtered point to
+     affect subsequent points as we continue along the curve; that
+     leads to strange results.
+
+  2. Multiplies that sum by a weight, and adds the result to p.  The
+     weight is one-third by default; you can change this with the
+     `-filter-percent' option, which takes an integer between zero and
+     100.
+
+
+  Repeatedly filtering a curve leads to even more smoothing, at the
+expense of fidelity to the original.  By default, Limn filters each
+curve 4 times; you can change this with the `-filter-iterations' option.
+
+  If the curve has less than five points, filtering is omitted
+altogether, since such a short curve tends to collapse down to a single
+point.
+
+  The most important filtering parameter is the number n of surrounding
+points which are used to produce the new point.  Limn has two different
+possibilities for this, to keep features from disappearing in the
+original curve.  Let's call these possibilities N and ALT_N; typically
+ALT_N is smaller than N.  Limn computes the total distance along the
+curve both coming into and going out of the point p for both N and
+ALT_N surrounding points.  Then it computes the angles between the in
+and out vectors for both.  If those two angles differ by more than some
+threshold (10 degrees by default; you can change it with the
+`-filter-epsilon' option), then Limn uses ALT_N to compute the new
+point; otherwise, it uses N.
+
+  Geometrically, this means that if using N points would result in a
+much different new point than using ALT_N, use the latter, smaller
+number, thus (hopefully) distorting the curve less.
+
+  Limn uses 2 for N and 1 for ALT_N by default.  You can use the
+options `-filter-surround' and `-filter-alternative-surround' to change
+them.  If the resolution of the input font is not 300dpi, you should
+scale them proportionately.  (For a 1200dpi font, we've had good
+results with `-filter-surround=12' and `filter-alternative-surround=
+6'.)
+
+
+File: fontu.info,  Node: Fitting the bitmap curve,  Next: Changing splines to lines,  Prev: Filtering curves,  Up: Limn algorithm
+
+Fitting the bitmap curve
+------------------------
+
+  The steps in the previous sections are preliminary to the main fitting
+process.  But once we have the final coordinates for each (bitmap)
+curve, we can proceed to fit it with some kind of continuous
+(mathematical) function: Limn uses both straight lines (polynomials of
+degree 1) and Bezier splines (degree 3).
+
+  To begin with, to use a spline the curve must have at least four
+points. If it has fewer, we simply use the line going through its first
+and last points.  (There is no point in doing a fancy "best fit" for
+this case, since the original curve is so short.)
+
+  Otherwise, if the curve has four or more points, we try to fit it with
+a (piece of a) Bezier cubic spline.  This spline is represented as a
+starting point, an ending point, and two "control points".  Limn uses
+the endpoints of the curve as the endpoints of the spline, and adjusts
+the control points to try to match the curve.
+
+  A complete description of the geometric and mathematical properties of
+Bezier cubics is beyond the scope of this document.  See a computer
+graphics textbook for the details.
+
+  We will use the terms "splines", "cubics", "Bezier splines", "cubic
+splines", and so on interchangeably, as is common practice. (Although
+Bezier splines are not the only kind of cubic splines, they are the
+only kind we use.)
+
+  The sections below describe the spline-fitting process in more detail.
+
+* Menu:
+
+* Initializing t::              Initializing the parameter values.
+* Finding tangents::            Computing the direction of the curve at
+                                  the endpoints.
+* Finding the spline::          Where are the control points?
+* Reparameterization::          Changing the parameter values.
+* Subdivision::                 Splitting the curve into pieces.
+
+
+File: fontu.info,  Node: Initializing t,  Next: Finding tangents,  Up: Fitting the bitmap curve
+
+Initializing t
+..............
+
+  Limn must have some way to relate the discrete curve made from the
+original bitmap to the continuous spline being fitted to that curve.
+This is done by associating another number, traditionally called t,
+with each point on the curve.
+
+  Imagine moving along the spline through the points on the curve.  Then
+t for a point p corresponds to how far along the spline you have
+traveled to get to p.  In practice, of course, the spline does not
+perfectly fit all the points, and so Limn adjusts the t values to
+improve the fit (*note Reparameterization::.).  (It also adjusts the
+spline itself, as mentioned above.)
+
+  Limn initializes the t value for each point on the curve using a
+method called "chord-length parameterization".  The details of how this
+works do not affect how you use the program, so we will omit them here.
+ (See the Plass & Stone article cited in `limn/README' if you're
+curious about them.)
+
+

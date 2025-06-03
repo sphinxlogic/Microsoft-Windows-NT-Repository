@@ -1,0 +1,970 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node Limn, BZRto, Charspace, Top
+@chapter Limn
+
+@pindex limn
+@cindex bitmap to outline conversion
+@cindex outline fonts, making from bitmap
+@cindex spline fitting
+
+@cindex outline font, definition of
+@cindex bitmap font, definition of
+These days, fonts to be used on computers are represented in one of two
+ways: as a @dfn{bitmap font}, which specifies each individual pixel in
+the image of a character; and/or as an @dfn{outline font}, which
+specifies the image as a collection of mathematically-specified curves.
+Each method has its own advantages and disadvantages; typesetting
+programs, page description languages, and output devices can generally
+deal with both.
+
+@cindex autotracing
+@cindex tracing outlines on a bitmap
+Limn converts a font from a bitmap to an outline by fitting curves to
+the pixels.  Non-shape-related information in the bitmap font, such as
+that for the side bearings, is preserved in the outline output.
+
+Specifically, the input is a bitmap (GF or PK) font.  The output is a
+BZR outline font (@pxref{BZR files}), which can then be converted to
+(for example) Metafont or PostScript with BZRto (@pxref{BZRto}).
+
+@cindex Schneider, Philip
+@cindex Phoenix
+@cindex Plass, Michael
+@cindex Stone, Maureen
+@cindex Gonczarowski, Jakob
+There is a fair amount of literature on converting bitmaps to outlines.
+We found three particularly helpful: Philip Schneider's Master's thesis
+on his system Phoenix; Michael Plass and Maureen Stone's article
+`Curve-fitting with piecewise parametric cubics' published in SIGGRAPH;
+and Jakob Gonczarowski's article `A fast approach to auto-tracing (with
+parametric cubics)' in the RIDT 91 conference proceedings.  See
+the file @file{limn/README} for the full citations.
+
+@menu
+* Limn algorithm::              How Limn fits outlines to bitmaps.
+* Invoking Limn::               Command-line options.
+@end menu
+
+
+@node Limn algorithm, Invoking Limn,  , Limn
+@section Limn algorithm
+
+@cindex Limn algorithm
+@cindex algorithm for spline fitting
+@cindex spline fitting, algorithm for
+
+Limn can always (barring bugs, of course) fit some sort of outline to
+the bitmap input.  But its default fit is likely to be far from the
+ideal: character features may disappear, curves distorted, straight
+lines turned into curves and curves into straight lines, and on and on.
+
+To control the fitting process, you must specify options to override
+Limn's defaults.  To describe those options, we must describe the
+algorithm Limn uses to do the fitting, which we do in this section.  We
+mention the options at the appropriate point.
+
+The next section summarizes all the options, in alphabetical order.
+
+@flindex fit.c
+Here is a schematic of the algorithm.  The subsections below go into
+detail for each step.  Except for the very first step, this is
+implemented in @file{limn/fit.c}.
+
+@example
+find pixel outlines
+for each pixel outline:
+  find corners, yielding curve lists
+  for each curve list:
+    remove knees
+    filter
+    if too small:
+      fit with straight line
+    otherwise fit with spline:
+      set initial t values
+      find tangents
+      fit with one spline
+      while error > reparameterize-threshold, reparameterize
+      if error > error-threshold, subdivide and recurse
+      if linearity < line-threshold, change to straight line
+    revert bad lines
+    align endpoints
+@end example
+
+@menu
+* Finding pixel outlines::      Extracting the edges from the bitmap.
+* Finding corners::             Finding subsections of each outline.
+* Removing knees::              Removing extraneous points.
+* Filtering curves::            Smoothing the outlines.
+* Fitting the bitmap curve::    Doing the fitting.
+* Changing splines to lines::   Use straight lines where possible.
+* Changing lines to splines::   Sometimes it isn't possible.
+* Aligning endpoints::          If points are close enough, line them out.
+* Displaying fitting online::   Seeing the results as Limn runs.
+@end menu
+
+
+@node Finding pixel outlines, Finding corners,  , Limn algorithm
+@subsection Finding pixel outlines
+
+@cindex pixel outlines, finding in bitmaps
+@cindex cyclic curves
+
+The first step in the conversion from a character shape represented as a
+bitmap to a list of mathematical curves is to find all the cyclical
+outlines (i.e., closed curves) in the bitmap image.  The resulting list
+is called a @dfn{pixel outline list}.  Each @dfn{pixel outline} in the
+list consists of the pixel coordinates of each edge on the outline.
+
+For example, the pixel outline list for an @samp{i} has two elements:
+one for the dot, and one for the stem.  The pixel outline list for an
+@samp{o} also has two elements: one for the outside of the shape, and
+one for the inside.
+
+@cindex outside outlines
+@cindex inside outlines
+@cindex clockwise ordering of outlines
+@cindex filling outlines
+But we must differentiate between an @dfn{outside outline} (whose
+interior is to be filled with black to render the character) and an
+@dfn{inside outline} (whose interior is to be filled with white).
+Limn's convention is to write the pixel coordinates for outside outlines
+in counterclockwise order, and those for inside outlines in clockwise
+order.
+
+@cindex type 1 outlines
+This counterclockwise movement of outside outlines is required by the
+Type 1 format used for PostScript fonts, which is why we adopted that
+convention for Limn.
+
+For example, consider a pixel outline consisting of a single black pixel
+at the origin.  The pixel has four corners, and hence the outline will
+have four coordinates.  Limn looks for starting pixels from top to
+bottom, left to right, within a bitmap image.  Thus, the list of pixel
+coordinates will start at (0,1) and proceed counterclockwise: (0,0)
+(1,0) (1,1).  Here is a picture:
+
+@example
+start => (0,1)<-(1,1)
+           |      ^
+           v      |
+         (0,0)->(0,1)
+@end example
+
+
+Because finding pixel outlines does not involve approximation or
+estimation, there are no options to control the process.  Put another
+way, Limn will always find the correct pixel coordinates for each
+outline.
+
+Once these pixel outlines have been found, each is then processed
+independently; i.e., all the remaining steps, described in the following
+sections, operate on each pixel outline individually.
+
+@flindex pxl-outline.c
+@flindex edge.c
+The source code for this is in @file{limn/pxl-outline.c} and
+@file{lib/edge.c}.
+
+
+@node Finding corners, Removing knees, Finding pixel outlines, Limn algorithm
+@subsection Finding corners
+
+@cindex corners, finding
+
+Recall that our final goal is to fit splines, i.e., continuous curves,
+to the discrete bitmap image.  To that end, Limn looks for @dfn{corners}
+in each pixel outline (see the previous section)---points where the
+outline makes such a sharp turn that a single curve cannot
+possibly fit well.  Two corners mark the endpoints of a @dfn{curve}.
+
+@cindex curve list, definition of
+We call the result a @dfn{curve list}, i.e., a list of curves on the
+pixel outline: the first curve begins at that first corner and continues
+through the second corner; and so on, until the last, which begins with
+the last corner found and continues through the first corner.  (Each
+pixel outline is cyclic by definition; again, see the previous section.)
+
+@cindex fitting algorithm, adjusting
+The corner-finding algorithm described below works fairly well in
+practice, but you will probably need to adjust the parameters it uses.
+Finding good corners is perhaps the most important part of the entire
+fitting algorithm: missing a corner usually leads to a sharp point in
+the original image being rounded off to almost nothing; finding an
+extraneous corner usually leads to an extremely ugly blob.
+
+Here is Limn's basic strategy for guessing if a given point @math{p} is
+a corner: compute the total displacement (in both @math{x} and @math{y})
+for some number @math{n} of points before @math{p}; do the same for
+@math{n} points after @math{p}; find the angle @math{a} between those
+two vectors; if that angle is less than some threshold, @math{p} is a
+corner.
+
+@itemize @bullet
+
+@cindex resolution, dependency of fitting algorithm on
+@opindex -corner-surround
+The number @math{n} of points to consider is 4 by default; you can
+specify a different number with the @samp{-corner-surround} option.  If
+the resolution of the input font is not 300@dmn{dpi},
+@samp{-corner-surround} should almost certainly be changed
+proportionately.
+
+@opindex -corner-threshold
+The threshold is 100 degrees by default; you can change this with the
+@samp{-corner-threshold} option.  You can see the angles at the chosen
+corners via @samp{-log}.
+
+@end itemize
+
+However, when Limn finds a point @var{p} whose angle is below
+@samp{corner-threshold}, it won't necessarily take @var{p} as the
+corner.  Instead, it continues looking for another
+@samp{corner-surround} points; if it finds another point @math{q} whose
+angle is less than that of @math{p}, @var{q} will become the corner.
+(And then Limn looks for another @samp{corner-surround} points beyond
+@var{q}, and so on.)
+
+This continued searching prevents having two corners near each other,
+which is usually wrong, if the angles at the two would-be corners are
+approximately the same.  On the other hand, sometimes there are
+extremely sharp turns in the outline within @samp{corner-surround}
+pixels; in that case, one does want nearby corners after all.
+
+@opindex -corner-always-threshold
+So Limn has one more option, @samp{-corner-always-threshold}.  If the
+angle at a point is below this value (60 degrees by default), then that
+point is considered a corner, regardless of how close it is to other
+corners.  The search for another corner within @samp{corner-surround}
+pixels continues, however.
+
+
+@node Removing knees, Filtering curves, Finding corners, Limn algorithm
+@subsection Removing knees
+
+@cindex knees, removing
+@cindex extra pixels, removing
+
+For each curve in the curve list determined by the corners on the pixel
+outline (see the previous section), Limn next removes
+@dfn{knees}---points on the inside of the outline that form a ``right
+angle'' with its predecessor and successor.  That is, either (1) its
+predecessor differs only in @math{x}, and its successor only in
+@math{y}; or (2) its predecessor differs only in @math{y}, and its
+successor only in @math{x}.
+
+It is hard to describe in words, but here is a picture:
+
+@example
+**
+ X*
+  *
+@end example
+
+@noindent The point @samp{X} is a knee, if we're moving in a clockwise
+direction.
+
+Such a ``right angle'' point can be on either the inside or the outside
+of the outline.  Points on the inside do nothing useful, they just slow
+things down and, more importantly, make the curve being fit less
+accurate.  So we remove them.  But points on the outside help to define
+the shape of the curve, so we keep those.  (For example, if @samp{X} was
+moved up one diagonally, we certainly want it as a part of the curve.)
+
+Although we haven't found a case where removing knees produces an
+inferior result, there's no theory about it always helping.  Also, you
+may just be curious what difference it makes (as we were when we
+programmed the operation).  So Limn provides an option
+@samp{-keep-knees}; if you specify it, Limn simply skips this step.
+
+
+@node Filtering curves, Fitting the bitmap curve, Removing knees, Limn algorithm
+@subsection Filtering curves
+
+@cindex filtering curves
+@cindex curves, filtering
+@cindex smoothing curves
+
+After generating the final pixel coordinates for each curve (see the
+previous sections), Limn next @dfn{filters} the curves to smooth them.
+Before this step, all the coordinates are on integer boundaries, which
+makes the curves rather bumpy and difficult to fit well.
+
+@opindex -filter-percent
+@cindex filtering, weighting
+To filter a point @math{p}, Limn does the following:
+
+@enumerate
+
+@item
+Computes the sum of the distances of @math{n} neighbors (points before
+and after @math{p}) to @math{p}.  These neighbors are always taken from
+the original curve, since we don't want a newly filtered point to affect
+subsequent points as we continue along the curve; that leads to strange
+results.
+
+@item
+Multiplies that sum by a weight, and adds the result to @math{p}.  The
+weight is one-third by default; you can change this with the
+@samp{-filter-percent} option, which takes an integer between zero and
+100.
+
+@end enumerate
+
+@cindex filter iterations
+@opindex -filter-iterations
+Repeatedly filtering a curve leads to even more smoothing, at the
+expense of fidelity to the original.  By default, Limn filters each
+curve 4 times; you can change this with the @samp{-filter-iterations}
+option.
+
+@cindex filtering, minimum size of curve for
+If the curve has less than five points, filtering is omitted altogether,
+since such a short curve tends to collapse down to a single point.
+
+@opindex -filter-alternative-surround
+@opindex -filter-epsilon
+@opindex -filter-surround
+The most important filtering parameter is the number @math{n} of
+surrounding points which are used to produce the new point.  Limn has
+two different possibilities for this, to keep features from disappearing
+in the original curve.  Let's call these possibilities @var{n} and
+@var{alt_n}; typically @var{alt_n} is smaller than @var{n}.  Limn
+computes the total distance along the curve both coming into and going
+out of the point @math{p} for both @var{n} and @var{alt_n} surrounding
+points.  Then it computes the angles between the in and out vectors for
+both.  If those two angles differ by more than some threshold (10
+degrees by default; you can change it with
+@opindex -filter-epsilon
+the @samp{-filter-epsilon} option), then Limn uses @var{alt_n} to
+compute the new point; otherwise, it uses @var{n}.
+
+Geometrically, this means that if using @var{n} points would result in a
+much different new point than using @var{alt_n}, use the latter, smaller
+number, thus (hopefully) distorting the curve less.
+
+@cindex resolution of input, dependency on
+@opindex -filter-alternative-surround
+@opindex -filter-surround
+Limn uses 2 for @var{n} and 1 for @var{alt_n} by default.  You can use
+the options @samp{-filter-surround} and
+@samp{-filter-alternative-surround} to change them.  If the resolution
+of the input font is not 300@dmn{dpi}, you should scale them
+proportionately.  (For a 1200@dmn{dpi} font, we've had good results with
+@samp{-filter-surround=12} and @samp{filter-alternative-surround= 6}.)
+
+
+@node Fitting the bitmap curve, Changing splines to lines, Filtering curves, Limn algorithm
+@subsection Fitting the bitmap curve
+
+@cindex fitting bitmap curves
+
+The steps in the previous sections are preliminary to the main fitting
+process.  But once we have the final coordinates for each (bitmap)
+curve, we can proceed to fit it with some kind of continuous
+(mathematical) function: Limn uses both straight lines (polynomials of
+degree 1) and Bezier splines (degree 3).
+
+@cindex fitting with straight lines
+@cindex lines, fitting with
+To begin with, to use a spline the curve must have at least four points.
+If it has fewer, we simply use the line going through its first and last
+points.  (There is no point in doing a fancy ``best fit'' for this case,
+since the original curve is so short.)
+
+@cindex cubic splines, fitting with
+@cindex Bezier splines, fitting with
+@cindex spline representation
+@cindex representation of splines
+Otherwise, if the curve has four or more points, we try to fit it with
+a (piece of a) Bezier cubic spline.  This spline is represented as a
+starting point, an ending point, and two ``control points''.  Limn uses the
+endpoints of the curve as the endpoints of the spline, and adjusts the
+control points to try to match the curve.
+
+@cindex Bezier cubics, drawing
+A complete description of the geometric and mathematical properties of
+Bezier cubics is beyond the scope of this document.  See a computer
+graphics textbook for the details.
+
+We will use the terms ``splines'', ``cubics'', ``Bezier splines'',
+``cubic splines'', and so on interchangeably, as is common practice.
+(Although Bezier splines are not the only kind of cubic splines, they
+are the only kind we use.)
+
+The sections below describe the spline-fitting process in more detail.
+
+@menu
+* Initializing t::              Initializing the parameter values.
+* Finding tangents::            Computing the direction of the curve at
+                                  the endpoints.
+* Finding the spline::          Where are the control points?
+* Reparameterization::          Changing the parameter values.
+* Subdivision::                 Splitting the curve into pieces.
+@end menu
+
+
+@node Initializing t, Finding tangents,  , Fitting the bitmap curve
+@subsubsection Initializing @math{t}
+
+@cindex initializing t
+@cindex t, initializing
+@cindex curve parameter initialization
+
+Limn must have some way to relate the discrete curve made from the
+original bitmap to the continuous spline being fitted to that curve.
+This is done by associating another number, traditionally called
+@math{t}, with each point on the curve.
+
+@cindex t, meaning of
+Imagine moving along the spline through the points on the curve.  Then
+@math{t} for a point @math{p} corresponds to how far along the spline
+you have traveled to get to @math{p}.  In practice, of course, the
+spline does not perfectly fit all the points, and so Limn adjusts the
+@math{t} values to improve the fit (@pxref{Reparameterization}).  (It
+also adjusts the spline itself, as mentioned above.)
+
+@cindex chord-length parameterization
+Limn initializes the @math{t} value for each point on the curve using a
+method called @dfn{chord-length parameterization}.  The details of how
+this works do not affect how you use the program, so we will omit them
+here.  (See the Plass & Stone article cited in @file{limn/README} if
+you're curious about them.)
+
+
+@node Finding tangents, Finding the spline, Initializing t, Fitting the bitmap curve
+@subsubsection Finding tangents
+
+@cindex blending of adjacent curves
+@cindex adjacent curves, blending
+As mentioned above, Limn moves the control points on the spline
+to optimally fit the bitmap.  But it cannot just move them arbitrarily,
+because it must make sure that the spline fitting one part of the bitmap
+blends smoothly with those fit to adjacent parts.
+
+@cindex continuity of curves
+@cindex zero-order continuity
+@cindex first-order continuity
+@cindex G1 continuity
+Technically, this smooth blending is called @dfn{continuity}, and it
+comes in degrees.  Limn is concerned with the first two degrees: zero-
+and first-order.  Zero-order continuity between two curves simply means
+the curves are connected; first-order geometric (G1) continuity means
+the tangents to each curve at the point of connection have the same
+direction.  (There are other kinds of continuity besides ``geometric'',
+but they are not important for our purposes.)
+
+Informally, this means that the final shape will not abruptly turn at
+the point where two splines meet.  (Any computer graphics textbook will
+discuss the properties of tangents, continuity, and splines, if you're
+unfamiliar with the subject.)
+
+@cindex control points, constraints on
+To achieve G1 continuity, Limn puts the first control point of a spline
+on a line going in the direction of the tangent to the start of the
+spline; and it puts the second control point on a line in the direction
+of the tangent to the end of the spline.  (It would be going far afield
+to prove that this together with the properties of Bezier splines imply
+G1 continuity, but they do.  See Schneider's thesis referenced in
+@file{limn/README} for a complete mathematical treatment.)
+
+@cindex tangents, computing
+@cindex resolution of input, dependency on
+@opindex -tangent-surround
+For the purposes of using Limn, the important thing is that Limn must
+compute the tangents to the spline at the beginning and end, and must do
+so accurately in order to achieve a good fit to the bitmap.  Since Limn
+has available only samples (i.e., the pixel coordinates) of the curve
+being fit, it cannot compute the true tangent.  Instead, it must
+approximate the tangent by looking at some number of coordinates on
+either side of a point.  By default, the number is 3, but you can
+specify a different number with the @samp{-tangent-surround} option.  If
+the resolution of the input font is different than 300@dmn{dpi}, or if
+the outline Limn fits to the bitmap seems off, you will want to scale it
+proportionately.
+
+
+@node Finding the spline, Reparameterization, Finding tangents, Fitting the bitmap curve
+@subsubsection Finding the spline
+
+@cindex error in fitting
+@cindex minimizing error
+At last, after all the preprocessing steps described in the previous
+sections, we can actually fit a spline to the bitmap.  Subject to the
+tangent constraints (see the previous section), Limn finds the spline which
+minimizes the @dfn{error}---the overall distance to the pixel coordinates.
+
+@cindex least-squares error metric
+@cindex sum of squares of distances
+More precisely, Limn uses a @dfn{least-squares error metric} to measure
+the ``goodness'' of the fit.  This metric minimizes the sum of the
+squares of the distance between each point on the bitmap curve and its
+corresponding point on the fitted spline.  (It is appropriate to square
+the distance because it is equally bad for the fitted spline to diverge
+from the curve in a positive or negative direction.)
+
+@cindex t parameter
+The correspondence between the fitted spline and the bitmap curve is
+defined by the @math{t} value that is associated with each point
+(@pxref{Initializing t}).
+
+@cindex formula for best control points
+For a given set of @math{t} values and given endpoints on the spline,
+the control points which minimize the least-squares metric are unique.
+The formula which determines them is derived in Schneider's thesis (see
+the reference in @file{limn/README}); Limn implements that formula.
+
+Once we have the control points, we can ask how well the resulting
+spline actually does fit the bitmap curve.  Limn can do two things to
+improve the fit: change the @math{t} values (reparameterization); or
+break the curve into two pieces and then try to fit each piece
+separately (subdivision).
+
+The following two sections describe these operations in more detail.
+
+
+@node  Reparameterization, Subdivision, Finding the spline, Fitting the bitmap curve
+@subsubsection Reparameterization
+
+@cindex reparameterization
+
+@dfn{Reparameterization} changes the @math{t} value for each point
+@math{p} on the bitmap curve, thus changing the place on the spline
+which corresponds to @math{p}.  Given these new @math{t} values, Limn
+will then fit a new spline (see the previous section) to the bitmap, one
+which presumably matches it more closely.
+
+Reparameterization is almost always a win.  Only if the initial fit
+(@pxref{Initializing t}) was truly terrible will reparameterization be a
+waste of time, and be omitted in favor of immediate subdivision (see the
+next section).
+
+@opindex -reparameterize-threshold
+@cindex threshold for reparameterization
+Limn sets the default threshold for not reparameterizing to be 30
+``square pixels'' (this number is compared to the least-squares error;
+see the previous section).  This is usually only exceeded in cases such
+as that of an outline of @samp{o}, where one spline cannot possibly fit
+the entire more-or-less oval outline.  You can change the threshold with
+the option @samp{-reparameterize-threshold}.
+
+@opindex -reparameterize-improve
+@cindex improvement threshold for reparameterization
+If the error is less than @samp{reparameterize-threshold}, Limn
+reparameterizes and refits the curve until the difference in the error
+from the last iteration is less than some percentage (10 by default; you
+can change this with the option @samp{-reparameterize-improve}).
+
+After Limn has given up reparameterization (either because the initial
+fit was worse than @samp{reparameterize-threshold}, or because the error
+did not change by more than @samp{reparameterize-improve}), the final
+error is compared to another threshold, 2.0 by default.  (You can
+specify this with the option @samp{-error-threshold}.)  If the error is
+larger, Limn subdivides the bitmap curve (see the next section) and fits
+each piece separately.  Otherwise, Limn saves the fitted spline and goes
+on to the next piece of the pixel outline.
+
+
+@node Subdivision,  , Reparameterization, Fitting the bitmap curve
+@subsubsection Subdivision
+
+@cindex subdivision of curves
+@cindex housing developments
+@cindex recursive fitting
+
+When Limn cannot fit a bitmap curve within the @samp{error-threshold}
+(see the previous section), it must subdivide the curve into two pieces
+and fit each independently, applying the fitting algorithm recursively.
+
+@cindex subdivision vs. reparameterization
+@cindex reparameterization vs. subdivision
+
+As a strategy to improve the fit, subdivision is inferior to
+reparameterization, because it increases the number of splines in the
+character definition.  This increases the memory required to store the
+character, and also the time to render it.  However, subdivision is
+unavoidable in some circumstances: for example, the outlines on an
+@samp{o} cannot be fit by a single spline.
+
+@cindex subdivision point, choosing
+@cindex worst fit, in subdivision
+For the initial guess of the point at which to subdivide, Limn chooses
+the point of worst error---the point where the fitted spline is farthest
+from the bitmap curve. Although this is usually a good choice,
+minimizing the chance that further subdivision will be necessary,
+occasionally it is not the best: in order to preserve straight lines,
+it is better to subdivide at the point where a straight becomes a curve
+if that point is close to the worst point.  For example, this happens
+where a serif joins the stem.
+
+Limn has three options to control this process:
+
+@enumerate
+
+@opindex -subdivide-search
+@item
+@samp{-subdivide-search @var{percent}} specifies how far away from the
+worst point to search for a better subdivision point, as a percentage of
+the total number of points in the curve; the default is 10.  If you find
+Limn missing a join as a subdivision point, resulting in a straight line
+becoming a curve, you probably need to increase this.
+
+@opindex -subdivide-threshold
+@item
+@samp{-subdivide-threshold @var{real}}: if the distance between a point
+@math{p} (within the search range) and a straight line is less than
+this, subdivide at @math{p}; default is .03 pixels.
+
+@opindex -subdivide-surround
+@item
+@samp{-subdivide-surround @var{unsigned}}: when calculating the linearity
+of the curve surrounding a potential subdivision, use this many points; 
+default is 4.
+
+@end enumerate
+
+Because fitting a shorter curve is easier, this process will always
+terminate.  (Eventually the curve will be short enough to fit with a
+straight line (@pxref{Fitting the bitmap curve}), if nothing else.)
+
+
+@node Changing splines to lines, Changing lines to splines, Fitting the bitmap curve, Limn algorithm
+@subsection Changing splines to lines
+
+@cindex splines to lines
+@cindex lines, changing splines to
+
+Upon accepting a fitted spline (see the previous sections), Limn checks
+if a straight line would fit the curve as well.  If so, that is
+preferable, since it is much faster to render straight lines than cubic
+splines.
+
+More precisely, after fitting a cubic spline to a particular (segment of
+a) curve, Limn finds the straight line between the spline's endpoints,
+and computes the average distance (@pxref{Finding the spline}) between
+the line and the curve.  If the result is less than some threshold, 1 by
+default, then the spline is provisionally (see the next section) changed
+to a line.
+
+@opindex -line-threshold
+@cindex threshold, for splines to lines
+You can change the theshold with the @samp{-line-threshold} option.
+
+
+@node Changing lines to splines, Aligning endpoints, Changing splines to lines, Limn algorithm
+@subsection Changing lines to splines
+
+@cindex lines to splines
+@cindex splines, changing lines to
+@cindex reversion of lines to splines
+
+Once an entire curve (i.e., the bitmap outline between two corners; see
+@ref{Finding corners}) has been fit, Limn checks for straight lines that
+are adjacent to splines.  Unless such lines fit the bitmap
+@emph{extremely} well, they must be changed to splines.
+
+@cindex join point of lines and splines
+The reason is that the point at which the line and spline meet will be a
+visible ``bump'' in the typeset character unless the two blend smoothly.
+Where two splines meet, the continuity is guaranteed from the way we
+constructed the splines (@pxref{Finding tangents}).  But where a line
+and spline meet, nothing makes the join smooth.
+
+For example, if the outline of a @samp{o} has been subdivided many times
+(as typically happens), a spline may end up fitting just a few
+pixels---so few that a line would fit just as well.  The actions
+described in the previous section will therefore change the spline to a
+line.  But since the adjacent parts of the @samp{o} are being fit with
+curves, that line will result in a noticeable flat spot in the final
+output.  So we must change it back to a spline.
+
+@cindex threshold for line reversion
+We want this reversion to be more likely for short curves than long
+curves, since short curves are more likely to be the result of a small
+piece of a curved shape.  So Limn divides the total distance between the
+fitted line and the bitmap curve by the square of the curve length, and
+compares the result to a threshold, .01 by default.  You can change this
+with the @samp{-line-reversion-threshold} option.
+
+
+@node Aligning endpoints, Displaying fitting online, Changing lines to splines, Limn algorithm
+@subsection Aligning endpoints
+
+@cindex aligning endpoints
+@cindex endpoints, aligning
+
+After fitting a mathematical outline of splines and lines to a pixel
+outline (@pxref{Finding pixel outlines}), Limn aligns the endpoints on
+the fitted outline.  This involves simply checking each spline to see if
+its starting point and ending point (in either axis) are ``close
+enough'' to each other.  If they are, then they are made equal to their
+average.
+
+This is useful because even a slight offset of the endpoints can be
+produce a noticeable result, especially for straight lines and corners.
+
+@opindex -align-threshold
+By default, ``close enough'' is half a pixel.  You can change this with
+the @samp{-align-threshold} option.
+
+
+@node Displaying fitting online,  , Aligning endpoints, Limn algorithm
+@subsection Displaying fitting online
+
+@cindex online display of fitted outline
+@cindex displaying fitted outline online
+@cindex fitted outline, displaying online
+
+@opindex -display
+While experimenting with the various fitting options listed in the
+preceding sections, you may find it useful to see the results of the
+fitting online.  Limn can display the filtered (@pxref{Filtering
+curves}) bitmap and the fitted outline online if it is run under the X
+window system and you specify @samp{-do-display}.
+
+@opindex -display-continue
+Ordinarily, Limn stops at the end of fitting every character for you to
+hit return, so you have a chance to examine the result.  If you just
+want to get a brief glimpse or something, you can specify
+@samp{-display-continue}.  Then Limn won't stop.
+
+@vindex DISPLAY @r{environment variable}
+@cindex X server, specifying
+If you specify @samp{-do-display}, you must set the environment variable
+@code{DISPLAY} to the X server you want Limn to use.  For example, in
+Bourne-compatible shells, you might do:
+
+@example
+DISPLAY=:0 ; export DISPLAY
+@end example
+
+The output is shown on a grid, in which each square represents several
+pixels in the input.  Corners are shown as filled squares; other pixels
+are shown as hollow squares.
+
+Limn has several options that change the appearance of the online
+output:
+
+@itemize @bullet
+
+@opindex -display-grid-size
+@cindex grid lines, space between
+@item @samp{-display-grid-size @var{unsigned}}
+The number of expanded pixels shown between the grid lines; default is 10.
+
+@opindex -display-pixel-size
+@cindex expansion of displayed pixels
+@cindex displayed pixels, expansion of
+@item @samp{-display-pixel-size @var{unsigned}}
+The expansion factor; i.e., each input pixel is expanded to a square
+this many pixels on a side; default is 9.
+
+@opindex -display-rectangle-size
+@item @samp{-display-rectangle-size @var{unsigned}}
+The pixel size; i.e., each pixel shown is a square this many pixels on a
+side; default is 6.  This must be less than the
+@samp{display-pixel-size}, so that black pixels don't merge into each
+other.
+
+@end itemize
+
+@vindex geometry @r{resource}
+@cindex size of Limn window
+@cindex Limn window size
+@flindex .Xdefaults
+@cindex resources for X
+@cindex X resources
+You can change the size of the window Limn creates with the
+@code{geometry} resource in your @file{.Xdefaults} file (see the
+documentation in the file @file{mit/doc/tutorials/resources.txt} in the
+X distribution if you aren't
+familiar with X resources).  The class name is @code{Limn}.  For
+example:
+
+@example
+Limn*geometry: 300x400-0-0
+@end example
+
+@noindent makes the window 300 pixels wide, 400 pixels high, and located
+in the lower right corner of the screen.
+
+
+@node Invoking Limn,  , Limn algorithm, Limn
+@section Invoking Limn
+
+@cindex Limn options
+@cindex invocation of Limn
+@cindex options for Limn
+
+This section lists the options that Limn accepts in alphabetic
+order.  The previous section described many of these options in the
+context of the fitting algorithm.
+
+@xref{Command-line options}, for general option syntax.
+
+The root of the main input fontname is called @var{font-name} below.
+
+@table @samp
+
+@opindex -align-threshold
+@item -align-threshold @var{real}
+If either coordinate of the endpoints on a spline is closer than this,
+make them the same; default is .5.  @xref{Aligning endpoints}.
+
+@opindex -corner-always-threshold
+@item -corner-always-threshold @var{angle-in-degrees}
+If the angle at a pixel is less than this, it is considered a corner,
+even if it is within @samp{corner-surround} pixels of another corner;
+default is 60.  @xref{Finding corners}.
+
+@opindex -corner-surround
+@item -corner-surround @var{unsigned}
+Number of pixels on either side of a point to consider when determining
+if that point is a corner; default is 4.  @xref{Finding corners}.
+
+@opindex -corner-threshold
+@item -corner-threshold @var{angle-in-degrees}
+If a pixel, its predecessor(s), and its successor(s) meet at an angle
+smaller than this, it's a corner; default is 100.  @xref{Finding corners}.
+
+@opindex -display-continue
+@item -display-continue
+If you specified @samp{-do-display}, do not wait for you to hit return
+after displaying each character online.  @xref{Displaying fitting online}.
+
+@opindex -display-grid-size
+@item -display-grid-size @var{unsigned}
+Number of expanded pixels between the grid lines; default is 10.
+@xref{Displaying fitting online}.
+
+@opindex -display-pixel-size
+@item -display-pixel-size @var{unsigned}
+Length of one side of the square that each pixel expands into; default
+is 9.  @xref{Displaying fitting online}.
+
+@opindex -display-rectangle-size
+@item -display-rectangle-size @var{unsigned}
+Length of one side of the square drawn to represent input pixels;
+default is 6.  Must be less than @samp{display-pixel-size}.
+@xref{Displaying fitting online}.
+
+@opindex -do-display
+@item -do-display
+Show the results of the fitting in an X window, if the X server
+specified in the @code{DISPLAY} environment variable can be opened.
+@xref{Displaying fitting online}.
+
+@opindex -dpi
+@item -dpi @var{unsigned}
+The resolution, in pixels per inch.  @xref{Common options}.
+
+@opindex -error-threshold
+@item -error-threshold @var{real}
+Subdivide fitted curves that are off by more pixels than this; default
+is 2.0.  @xref{Reparameterization}.
+
+@opindex -filter-alternative-surround
+@item -filter-alternative-surround @var{unsigned}
+Another choice for filter-surround; default is 1.  @xref{Filtering curves}.
+
+@opindex -filter-epsilon
+@item -filter-epsilon @var{real}
+If the angles using @samp{filter-surround} and
+@samp{filter-alternative-surround} points differ by more than this, use
+the latter; default is 10.0.  @xref{Filtering curves}.
+
+@opindex -filter-iterations
+@item -filter-iterations @var{unsigned}
+Smooth the curve this many times before fitting; default is 4.
+@xref{Filtering curves}.
+
+@opindex -filter-percent
+@item -filter-percent @var{percent}
+When filtering, use the old point plus distance of neighbors multiplied
+by this (as a percentage) to determine the new point; default is 33.
+@xref{Filtering curves}.
+
+@opindex -filter-surround
+@item -filter-surround @var{unsigned}
+Number of pixels on either side of a point to consider when filtering
+that point; default is 2.  @xref{Filtering curves}.
+
+@opindex -help
+@item -help
+Print a usage message.  @xref{Common options}.
+
+@opindex -keep-knees
+@item -keep-knees
+Do not remove ``knees''---points on the inside of the outline that are
+between two others.  @xref{Removing knees}.
+
+@opindex -line-reversion-threshold
+@item -line-reversion-threshold @var{real}
+If a spline is closer to a straight line than this, keep it a straight
+line even if it is a list with curves; default is .01 pixels.
+@xref{Changing lines to splines}.
+
+@opindex -line-threshold
+@item -line-threshold @var{real}
+If a spline is not more than this far away from the straight line
+defined by its endpoints, then output a straight line; default is 1.
+@xref{Changing splines to lines}.
+
+@opindex -log
+@item -log
+Write detailed progress reports to @file{@var{font_name}.log}.
+
+@opindex -output-file
+@cindex output file, naming
+@item -output-file @var{filename}
+Write to @var{filename} if it has a suffix and to
+@file{@var{filename}.bzr} if it doesn't.  Default is
+@file{@var{font-name}.bzr}.
+
+@opindex -range
+@item -range @var{char1}-@var{char2}
+Only output characters with codes between @var{char1} and @var{char2},
+inclusive.  (@xref{Common options}, and @ref{Specifying character codes}.)
+
+@opindex -reparameterize-improve
+@item -reparameterize-improve @var{percent}
+If reparameterization doesn't improve the fit by this much, as a
+percentage, then stop reparameterizing; default is 10.
+@xref{Reparameterization}.
+
+@opindex -reparameterize-threshold
+@item -reparameterize-threshold @var{real}
+If an initial fit is off by more pixels than this, don't bother to
+reparameterize; default is 30.  @xref{Reparameterization}.
+
+@opindex -subdivide-search
+@item -subdivide-search @var{percent}
+Percentage of the curve from the initial guess for a subdivision point
+to look for a better one; default is 10.  @xref{Subdivision}.
+
+@opindex -subdivide-surround
+@item -subdivide-surround @var{unsigned}
+Number of points on either side of a point to consider when looking for
+a subdivision point; default is 4.  @xref{Subdivision}.
+
+@opindex -subdivide-threshold
+@item -subdivide-threshold @var{real}
+If a point is this close or closer to a straight line, subdivide there;
+default is .03 pixels.  @xref{Subdivision}.
+
+@opindex -tangent-surround
+@item -tangent-surround @var{unsigned}
+Number of points on either side of a point to consider when computing
+the tangent at that point; default is 3.  @xref{Finding tangents}.
+
+@opindex -verbose
+@item -verbose
+Output progress reports.
+
+@opindex -version
+@item -version
+Print the version number.
+
+@end table

@@ -1,0 +1,55 @@
+# mklinktree: Make a tree of symbolic links.
+# The directories are real, the files are symlinks.
+#
+# Usage: mklinktree src dest
+#
+# Greg Lehey, LEMIS, 20 January 1994
+if [ $# -lt 2 ]; then
+  echo Usage: mklinktree src dest
+  exit 1
+fi
+src=$1
+dest=$2
+if [ -f $dest ]; then		# bad, must be directory if it exists
+  echo $dest must be a directory if it exists
+  exit 1
+fi
+if [ ! -d $dest ]; then
+  mkdir $dest
+fi
+cd $src
+for i in *; do
+  if [ -d $i ]; then		# directory,
+    if [ ! -d $dest/$i ]; then	# dest doesn't exist,
+      echo mkdir $dest/$i	# create it
+      mkdir $dest/$i
+    fi
+    $0 $src/$i $dest/$i
+    if [ $? -ne 0 ]; then	# abnormal exit,
+      exit 1			# follow suit
+    fi	
+  else				# file,
+    if [ -a $dest/$i -o -L $dest/$i ]; then	# exists already,
+      success=0
+      echo file exists:
+      while [ $success -eq 0 ]; do
+        ls -ld $dest/$i		# show it
+        echo -n "Do you want to overwrite $dest/$i [ynq]? "
+        read choice
+        case $choice in
+	  y) rm $dest/$i
+	     echo ln -s $src/$i $dest/$i
+             ln -s $src/$i $dest/$i
+	     success=1 ;;
+	  n) success=1 ;;
+	  q) exit 1 ;;
+	  *) echo Please enter 'y' or 'n'
+        esac
+      done
+    else
+      echo ln -s $src/$i $dest/$i
+      ln -s $src/$i $dest/$i
+    fi
+  fi
+done
+  

@@ -1,0 +1,1055 @@
+diff -r -c tex3.14/texware/Makefile tex/texware/Makefile
+*** tex3.14/texware/Makefile	Thu Mar 28 19:16:16 1991
+--- tex/texware/Makefile	Thu Jul 16 14:18:37 1992
+***************
+*** 2,11 ****
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=-lcposix
+  SHELL=/bin/sh
+  
+  .SUFFIXES:
+--- 2,11 ----
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -O -D_POSIX_SOURCE -DBSD386
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=
+  SHELL=/bin/sh
+  
+  .SUFFIXES:
+diff -r -c tex3.14/web2c/Makefile tex/web2c/Makefile
+*** tex3.14/web2c/Makefile	Fri Mar 22 14:58:36 1991
+--- tex/web2c/Makefile	Thu Jul 16 14:40:23 1992
+***************
+*** 2,18 ****
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g
+  CFLAGS=$(OPT) -I$(SITEDIR) -I../common
+  LDFLAGS=
+! LOADLIBES=-lcposix
+  SHELL=/bin/sh
+  
+  # Unix yacc works, too.
+  YACC=bison -y
+  
+! LEX=lex
+! LEXLIB=-ll
+  
+  all:		web2c fixwrites splitup regfix
+  
+--- 2,18 ----
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -O -D_POSIX_SOURCE -DBSD386
+  CFLAGS=$(OPT) -I$(SITEDIR) -I../common
+  LDFLAGS=
+! LOADLIBES=
+  SHELL=/bin/sh
+  
+  # Unix yacc works, too.
+  YACC=bison -y
+  
+! LEX=flex
+! LEXLIB=-lfl
+  
+  all:		web2c fixwrites splitup regfix
+  
+diff -r -c tex3.14/web2c/web2c.c tex/web2c/web2c.c
+*** tex3.14/web2c/web2c.c	Tue Apr  2 15:57:15 1991
+--- tex/web2c/web2c.c	Thu Jul 16 01:57:16 1992
+***************
+*** 75,89 ****
+  int mark_sym_free, mark_string_free;
+  
+  extern int yyleng;
+  #ifdef FLEX
+  extern char *yytext;
+! #else  /* LEX */
+  #ifdef HP
+  extern unsigned char yytext[];
+! #else /* not HP */
+  extern char yytext[];
+! #endif  /* not HP */
+! #endif	/* LEX */
+  
+  void find_next_temp()
+  {
+--- 75,91 ----
+  int mark_sym_free, mark_string_free;
+  
+  extern int yyleng;
++ /*
+  #ifdef FLEX
+  extern char *yytext;
+! #else
+  #ifdef HP
+  extern unsigned char yytext[];
+! #else
+  extern char yytext[];
+! #endif
+! #endif
+! */
+  
+  void find_next_temp()
+  {
+diff -r -c tex3.14/web2c/web2c.h tex/web2c/web2c.h
+*** tex3.14/web2c/web2c.h	Fri Mar 22 15:55:48 1991
+--- tex/web2c/web2c.h	Thu Jul 16 01:55:27 1992
+***************
+*** 4,9 ****
+--- 4,18 ----
+  #include "site.h"
+  #include "common.h"
+  
++ #define TRACE_YYTEXT( where ) \
++   fprintf( stderr, "--- %s ---\t yytext[%x](%x)=\"%s\"\n", \
++ 	   where, (long)&yytext, (long)yytext, yytext ); 
++ 
++ extern char *yytext, *saved_yytext;
++ 
++ #define SAVE_YYTEXT saved_yytext=yytext;
++ #define CORRECT_YYTEXT yytext=saved_yytext;
++ 
+  #ifdef SYSV
+  #define bcopy(s,d,n)	memcpy((d),(s),(n))
+  #define bcmp(s1,s2,n)	memcmp((s1),(s2),(n))
+***************
+*** 58,67 ****
+  extern int next_sym_free, next_string_free;
+  extern int mark_sym_free, mark_string_free;
+  
+! #ifdef	FLEX_SCANNER
+! extern char *yytext;
+  
+! #else	/* LEX */
+  #ifdef	HP
+  extern unsigned char yytext[];
+  #else
+--- 67,76 ----
+  extern int next_sym_free, next_string_free;
+  extern int mark_sym_free, mark_string_free;
+  
+! /* #ifdef	FLEX_SCANNER
+! extern char *yytext; 
+  
+! #else	
+  #ifdef	HP
+  extern unsigned char yytext[];
+  #else
+***************
+*** 68,74 ****
+  extern char yytext[];
+  #endif
+  
+! #endif	/* LEX */
+  
+  #ifdef	ANSI
+  extern void exit(int);
+--- 77,84 ----
+  extern char yytext[];
+  #endif
+  
+! #endif
+! */
+  
+  #ifdef	ANSI
+  extern void exit(int);
+diff -r -c tex3.14/web2c/web2c.lex tex/web2c/web2c.lex
+*** tex3.14/web2c/web2c.lex	Sun May 20 20:38:27 1990
+--- tex/web2c/web2c.lex	Thu Jul 16 02:02:47 1992
+***************
+*** 119,126 ****
+  				  negbuf[0] = '\0';
+  				  return(last_tok=i_num_tok) ;
+  				}
+! ("'"([^']|"''")"'")		return(last_tok=single_char_tok) ;
+! ("'"([^']|"''")*"'")		return(last_tok=string_literal_tok) ;
+  "+"				{ if ((last_tok>=undef_id_tok &&
+  				      last_tok<=field_id_tok) ||
+  				      last_tok==i_num_tok ||
+--- 119,138 ----
+  				  negbuf[0] = '\0';
+  				  return(last_tok=i_num_tok) ;
+  				}
+! ("'"([^']|"''")"'")		{
+! 				/* debugging
+! 				TRACE_YYTEXT( "lex:single_char_tok" );
+! 				SAVE_YYTEXT;
+! 				*/
+! 				return(last_tok=single_char_tok) ;
+! 				}
+! ("'"([^']|"''")*"'")		{
+! 				/* debugging
+! 				TRACE_YYTEXT( "lex:string_literal_tok" );
+! 				SAVE_YYTEXT;
+! 				*/
+! 				return(last_tok=string_literal_tok) ;
+! 				}
+  "+"				{ if ((last_tok>=undef_id_tok &&
+  				      last_tok<=field_id_tok) ||
+  				      last_tok==i_num_tok ||
+diff -r -c tex3.14/web2c/web2c.yacc tex/web2c/web2c.yacc
+*** tex3.14/web2c/web2c.yacc	Sun Jan 13 21:33:02 1991
+--- tex/web2c/web2c.yacc	Thu Jul 16 02:02:47 1992
+***************
+*** 64,69 ****
+--- 64,72 ----
+  #define UNSIGNED_SHORT_STRING "unsigned short"
+  #endif
+  
++ /* debugging 
++ char *saved_yytext;
++ */
+  %}
+  
+  %start PROGRAM
+***************
+*** 256,261 ****
+--- 259,269 ----
+  				{ int i, j; char s[132];
+  	  			  j = 1;
+  				  s[0] = '"';
++ /* debugging
++ TRACE_YYTEXT( "yacc:string_literal_tok" );
++ CORRECT_YYTEXT;
++ TRACE_YYTEXT( "yacc:s_l_t, after correction" );
++ */
+  	  			  for (i=1; yytext[i-1]!=0; i++) {
+  	  			    if (yytext[i] == '\\' || yytext[i] == '"')
+  					s[j++]='\\';
+***************
+*** 268,273 ****
+--- 276,286 ----
+  				}
+  		|	single_char_tok
+  	  			{ char s[5];
++ /* debugging
++ TRACE_YYTEXT( "yacc:single_char_tok" );
++ CORRECT_YYTEXT;
++ TRACE_YYTEXT( "yacc:s_c_t, after correction" );
++ */
+  				  s[0]='\'';
+  	    			  if (yytext[1] == '\\' || yytext[1] == '\'') {
+  	  				s[2] = yytext[1];
+diff -r -c tex3.14/site.h tex/site.h
+*** tex3.14/site.h	Fri Aug 30 07:08:32 1991
+--- tex/site.h	Thu Jul 16 12:09:50 1992
+***************
+*** 12,18 ****
+  
+  /* Define if you're on 4.2 or 4.3 BSD-based system.  */
+  #ifndef BSD
+! #undef	BSD
+  #endif
+  
+  /* Define if you're on an HP-based system (also define SYSV).  */
+--- 12,18 ----
+  
+  /* Define if you're on 4.2 or 4.3 BSD-based system.  */
+  #ifndef BSD
+! #define	BSD
+  #endif
+  
+  /* Define if you're on an HP-based system (also define SYSV).  */
+***************
+*** 22,28 ****
+  
+  /* Define if you're on a POSIX-based system.  */
+  #ifndef _POSIX_SOURCE
+! #undef _POSIX_SOURCE
+  #endif
+  
+  /* Define if you're on System V-based system.  */
+--- 22,28 ----
+  
+  /* Define if you're on a POSIX-based system.  */
+  #ifndef _POSIX_SOURCE
+! #define _POSIX_SOURCE
+  #endif
+  
+  /* Define if you're on System V-based system.  */
+***************
+*** 37,49 ****
+     it.  If you do define this, you must also have a declaration for
+     sprintf(3) in <stdio.h>.  */ 
+  #ifndef ANSI
+! #undef	ANSI
+  #endif
+  
+  /* Default editor command string: `%d' expands to the line number where
+     TeX or Metafont found an error and `%s' expands to the name of the
+     file.  The environment variables TEXEDIT and MFEDIT override this.  */
+! #define	EDITOR	"/usr/ucb/vi +%d %s"
+  
+  /* Define these according to your local setup.  It doesn't hurt anything
+     to have `.' in all the paths, but since most users do not have their
+--- 37,49 ----
+     it.  If you do define this, you must also have a declaration for
+     sprintf(3) in <stdio.h>.  */ 
+  #ifndef ANSI
+! #define	ANSI
+  #endif
+  
+  /* Default editor command string: `%d' expands to the line number where
+     TeX or Metafont found an error and `%s' expands to the name of the
+     file.  The environment variables TEXEDIT and MFEDIT override this.  */
+! #define	EDITOR	"/usr/local/bin/emacs +%d %s"
+  
+  /* Define these according to your local setup.  It doesn't hurt anything
+     to have `.' in all the paths, but since most users do not have their
+***************
+*** 95,101 ****
+  #undef	TEKTRONIXWIN		/* Tektronix 4014. */
+  #undef	UNITERMWIN		/* Uniterm Tektronix.  */
+  #undef	X10WIN			/* X Version 10. */
+! #define	X11WIN			/* X Version 11. */
+  
+  #if defined(X10WIN) && defined(X11WIN)
+  sorry
+--- 95,101 ----
+  #undef	TEKTRONIXWIN		/* Tektronix 4014. */
+  #undef	UNITERMWIN		/* Uniterm Tektronix.  */
+  #undef	X10WIN			/* X Version 10. */
+! #undef	X11WIN			/* X Version 11. */
+  
+  #if defined(X10WIN) && defined(X11WIN)
+  sorry
+diff -r -c tex3.14/tex/Makefile tex/tex/Makefile
+*** tex3.14/tex/Makefile	Thu Mar 28 19:16:16 1991
+--- tex/tex/Makefile	Thu Jul 16 14:33:43 1992
+***************
+*** 6,15 ****
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g
+  CFLAGS=$(OPT) -I$(SITEDIR) -DTeX
+  LDFLAGS=
+! LOADLIBES=-lcposix
+  SHELL=/bin/sh
+  LN=ln
+  
+--- 6,15 ----
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -O -D_POSIX_SOURCE -DBSD386
+  CFLAGS=$(OPT) -I$(SITEDIR) -DTeX
+  LDFLAGS=
+! LOADLIBES=
+  SHELL=/bin/sh
+  LN=ln
+  
+diff -r -c tex3.14/tex/ctex.ch tex/tex/ctex.ch
+*** tex3.14/tex/ctex.ch	Wed May 15 09:00:23 1991
+--- tex/tex/ctex.ch	Tue Jul 14 20:03:52 1992
+***************
+*** 41,52 ****
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+! % [1.2] banner (changed to show trie extension version)
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  @x
+  @d banner=='This is TeX, Version 3.14' {printed when \TeX\ starts}
+  @y
+! @d banner=='This is TeX, C Version 3.14t3' {printed when \TeX\ starts}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 41,52 ----
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+! % [1.2] banner
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  @x
+  @d banner=='This is TeX, Version 3.14' {printed when \TeX\ starts}
+  @y
+! @d banner=='This is TeX, C Version 3.14' {printed when \TeX\ starts}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 238,253 ****
+  @d hash_size=2100 {maximum number of control sequences; it should be at most
+    about |(mem_max-mem_min)/10|}
+  @d hash_prime=1777 {a prime number equal to about 85\pct! of |hash_size|}
+- @d hyph_size=307 {another prime; the number of \.{\\hyphenation} exceptions}
+  @y
+  @d mem_bot=0 {smallest index in the |mem| array dumped by \.{INITEX};
+    must not be less than |mem_min|}
+  @d font_base=0 {smallest internal font number; must not be less
+    than |min_quarterword|}
+! @d hash_size=9500 {maximum number of control sequences; it should be at most
+    about |(mem_max-mem_min)/10|}
+! @d hash_prime=7919 {a prime number equal to about 85\pct! of |hash_size|}
+! @d hyph_size=607 {another prime; the number of \.{\\hyphenation} exceptions}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 238,251 ----
+  @d hash_size=2100 {maximum number of control sequences; it should be at most
+    about |(mem_max-mem_min)/10|}
+  @d hash_prime=1777 {a prime number equal to about 85\pct! of |hash_size|}
+  @y
+  @d mem_bot=0 {smallest index in the |mem| array dumped by \.{INITEX};
+    must not be less than |mem_min|}
+  @d font_base=0 {smallest internal font number; must not be less
+    than |min_quarterword|}
+! @d hash_size=3000 {maximum number of control sequences; it should be at most
+    about |(mem_max-mem_min)/10|}
+! @d hash_prime=2551 {a prime number equal to about 85\pct! of |hash_size|}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+***************
+*** 1169,1258 ****
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- % [42.920,921,923,924] Allow larger hyphenation tries.
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- @x
+- Comparatively few different number sequences $n_0\ldots n_k$ actually occur,
+- since most of the |n|'s are generally zero. Therefore the number sequences
+- are encoded in such a way that |trie_op|$(z_k)$ is only one byte long.
+- If |trie_op(@t$z_k$@>)<>min_quarterword|, when $p_1\ldots p_k$ has matched
+- the letters in |hc[(l-k+1)..l@,]| of language |t|,
+- we perform all of the required operations
+- for this pattern by carrying out the following little program: Set
+- |v:=trie_op(@t$z_k$@>)|. Then set |v:=v+op_start[t]|,
+- |hyf[l-hyf_distance[v]]:=@tmax@>(hyf[l-hyf_distance[v]], hyf_num[v])|,
+- and |v:=hyf_next[v]|; repeat, if necessary, until |v=min_quarterword|.
+- @y
+- The theory that comparatively few different number sequences $n_0\ldots n_k$
+- actually occur, since most of the |n|'s are generally zero, seems to fail
+- at least for the large German hyphenation patterns.
+- Therefore the number sequences cannot any longer be encoded in such a way
+- that |trie_op|$(z_k)$ is only one byte long.
+- We have introduced a new constant |max_trie_op| for the maximum allowable
+- hyphenation operation code value; |max_trie_op| might be different for
+- \TeX\ and \.{INITEX} and must not exceed |max_halfword|.
+- An opcode will occupy a halfword if |max_trie_op| exceeds |max_quarterword|
+- or a quarterword otherwise.
+- @^system dependencies@>
+- If |trie_op(@t$z_k$@>)<>min_trie_op|, when $p_1\ldots p_k$ has matched
+- the letters in |hc[(l-k+1)..l@,]| of language |t|,
+- we perform all of the required operations
+- for this pattern by carrying out the following little program: Set
+- |v:=trie_op(@t$z_k$@>)|. Then set |v:=v+op_start[t]|,
+- |hyf[l-hyf_distance[v]]:=@tmax@>(hyf[l-hyf_distance[v]], hyf_num[v])|,
+- and |v:=hyf_next[v]|; repeat, if necessary, until |v=min_trie_op|.
+- @z
+- @x
+- @!trie_pointer=0..trie_size; {an index into |trie|}
+- @y
+- @!trie_opcode=min_trie_op..max_trie_op;  {a trie opcode}
+- @!trie_pointer=0..trie_size; {an index into |trie|}
+- @z
+- @x
+- @ @d trie_link(#)==trie[#].rh {``downward'' link in a trie}
+- @d trie_char(#)==trie[#].b1 {character matched at this trie location}
+- @d trie_op(#)==trie[#].b0 {program for hyphenation at this trie location}
+- @y
+- @ For more than 255 trie op codes, the three fields |trie_link|, |trie_char|,
+- and |trie_op| will no longer fit into one memory word; thus using web2c
+- we define |trie| as three array instead of an array of records.
+- The variant will be implented by reusing the opcode field later on with
+- another macro.
+- @d trie_link(#)==trie_trl[#] {``downward'' link in a trie}
+- @d trie_char(#)==trie_trc[#] {character matched at this trie location}
+- @d trie_op(#)==trie_tro[#] {program for hyphenation at this trie location}
+- @z
+- @x
+- @!trie:array[trie_pointer] of two_halves; {|trie_link|, |trie_char|, |trie_op|}
+- @y
+- @!trie_trl:array[trie_pointer] of halfword; {|trie_link|}
+- @!trie_tro:array[trie_pointer] of halfword; {|trie_op| and |trie_link|}
+- @!trie_trc:array[trie_pointer] of quarterword; {|trie_char|}
+- @z
+- @x
+-     begin if trie_op(z)<>min_quarterword then
+- @y
+-     begin if trie_op(z)<>min_trie_op then
+- @z
+- @x
+- until v=min_quarterword;
+- @y
+- until v=min_trie_op;
+- @z
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- % [43.943] Larger tries, also in documentation parts.
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- @x
+- |hyf_next[@t$v^\prime$@>]=min_quarterword|.
+- @y
+- |hyf_next[@t$v^\prime$@>]=min_trie_op|.
+- @z
+- @x
+- $$\hbox{|@t$v^\prime$@>:=new_trie_op(0,1,min_quarterword)|,\qquad
+- @y
+- $$\hbox{|@t$v^\prime$@>:=new_trie_op(0,1,min_trie_op)|,\qquad
+- @z
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  % [43.?] Hack around the negative lower bound here.
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  @x
+--- 1167,1172 ----
+***************
+*** 1269,1309 ****
+  @!init@! trie_op_hash:array[neg_trie_op_size..trie_op_size] of 0..trie_op_size;
+  @z
+  
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- % [43.943,944] Larger hyphenation tries.
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- @x
+- @!trie_used:array[ASCII_code] of quarterword;
+- @y
+- @!trie_used:array[ASCII_code] of trie_opcode;
+- @z
+  @x
+- @!trie_op_val:array[1..trie_op_size] of quarterword;
+- @y
+- @!trie_op_val:array[1..trie_op_size] of trie_opcode;
+- @z
+- @x
+- tini
+- @y
+- tini@;
+- @!max_op_used:trie_opcode; {largest opcode used for any language}
+- @!small_op:boolean; {flag used while dumping or undumping}
+- @z
+- @x
+- |new_trie_op| could return |min_quarterword| (thereby simply ignoring
+- @y
+- |new_trie_op| could return |min_trie_op| (thereby simply ignoring
+- @z
+- @x
+- function new_trie_op(@!d,@!n:small_number;@!v:quarterword):quarterword;
+- label exit;
+  var h:-trie_op_size..trie_op_size; {trial hash location}
+- @!u:quarterword; {trial op code}
+  @y
+- function new_trie_op(@!d,@!n:small_number;@!v:trie_opcode):trie_opcode;
+- label exit;
+  var h:neg_trie_op_size..trie_op_size; {trial hash location}
+- @!u:trie_opcode; {trial op code}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 1183,1192 ----
+***************
+*** 1317,1358 ****
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- % [43.944,945,946] And larger tries again.
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- @x
+-     if u=max_quarterword then
+-       overflow("pattern memory ops per language",
+-         max_quarterword-min_quarterword);
+-     incr(trie_op_ptr); incr(u); trie_used[cur_lang]:=u;
+- @y
+-     if u=max_trie_op then
+-       overflow("pattern memory ops per language",
+-       max_trie_op-min_trie_op);
+-     incr(trie_op_ptr); incr(u); trie_used[cur_lang]:=u;
+-     if u>max_op_used then max_op_used:=u;
+- @z
+- @x
+- op_start[0]:=-min_quarterword;
+- @y
+- op_start[0]:=-min_trie_op;
+- @z
+- @x
+- for k:=0 to 255 do trie_used[k]:=min_quarterword;
+- @y
+- for k:=0 to 255 do trie_used[k]:=min_trie_op;
+- @z
+- @x
+- trie_op_ptr:=0;
+- @y
+- max_op_used:=min_trie_op;
+- trie_op_ptr:=0;
+- @z
+- @x
+- @t\hskip10pt@>@!trie_o:packed array[trie_pointer] of quarterword;
+- @y
+- @t\hskip10pt@>@!trie_o:packed array[trie_pointer] of trie_opcode;
+- @z
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  % [43.947] And another.
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  @x
+--- 1200,1205 ----
+***************
+*** 1364,1422 ****
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- % [43.950,958,960,963] Larger tries.
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+- @x
+- @d trie_back(#)==trie[#].lh {backward links in |trie| holes}
+- @y
+- @d trie_back(#)==trie_tro[#] {use the opcode field now for backward links}
+- @z
+- @x
+- @<Move the data into |trie|@>=
+- h.rh:=0; h.b0:=min_quarterword; h.b1:=min_quarterword; {|trie_link:=0|,
+-   |trie_op:=min_quarterword|, |trie_char:=qi(0)|}
+- if trie_root=0 then {no patterns were given}
+-   begin for r:=0 to 256 do trie[r]:=h;
+- @y
+- @d clear_trie == {clear |trie[r]|}
+-   begin trie_link(r):=0;
+-   trie_op(r):=min_trie_op;
+-   trie_char(r):=min_quarterword; {|trie_char:=qi(0)|}
+-   end
+- @<Move the data into |trie|@>=
+- if trie_root=0 then {no patterns were given}
+-   begin for r:=0 to 256 do clear_trie;
+- @z
+- @x
+-   repeat s:=trie_link(r); trie[r]:=h; r:=s;
+- @y
+-   repeat s:=trie_link(r); clear_trie; r:=s;
+- @z
+- @x
+- @!v:quarterword; {trie op code}
+- @y
+- @!v:trie_opcode; {trie op code}
+- @z
+- @x
+- if trie_o[q]<>min_quarterword then
+- @y
+- if trie_o[q]<>min_trie_op then
+- @z
+- @x
+- trie_c[p]:=si(c); trie_o[p]:=min_quarterword;
+- @y
+- trie_c[p]:=si(c); trie_o[p]:=min_trie_op;
+- @z
+- @x
+- l:=k; v:=min_quarterword;
+- @y
+- l:=k; v:=min_trie_op;
+- @z
+- @x
+- @!h:two_halves; {template used to zero out |trie|'s holes}
+- @y
+- @z
+- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  % [49.1275] Same stuff as for \input, this time for \openin.
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  @x
+--- 1211,1216 ----
+***************
+*** 1761,1769 ****
+    dump_int(hyf_next[k]);
+    end;
+  @y
+! dump_things(trie_trl[0], trie_max+1);
+! dump_things(trie_tro[0], trie_max+1);
+! dump_things(trie_trc[0], trie_max+1);
+  dump_int(trie_op_ptr);
+  dump_things(hyf_distance[1], trie_op_ptr);
+  dump_things(hyf_num[1], trie_op_ptr);
+--- 1555,1561 ----
+    dump_int(hyf_next[k]);
+    end;
+  @y
+! dump_things(trie[0], trie_max+1);
+  dump_int(trie_op_ptr);
+  dump_things(hyf_distance[1], trie_op_ptr);
+  dump_things(hyf_num[1], trie_op_ptr);
+***************
+*** 1779,1787 ****
+    undump(min_quarterword)(max_quarterword)(hyf_next[k]);
+    end;
+  @y
+! undump_things(trie_trl[0], j+1);
+! undump_things(trie_tro[0], j+1);
+! undump_things(trie_trc[0], j+1);
+  undump_size(0)(trie_op_size)('trie op size')(j); @+init trie_op_ptr:=j;@+tini
+  undump_things(hyf_distance[1], j);
+  undump_things(hyf_num[1], j);
+--- 1571,1577 ----
+    undump(min_quarterword)(max_quarterword)(hyf_next[k]);
+    end;
+  @y
+! undump_things(trie[0], j+1);
+  undump_size(0)(trie_op_size)('trie op size')(j); @+init trie_op_ptr:=j;@+tini
+  undump_things(hyf_distance[1], j);
+  undump_things(hyf_num[1], j);
+diff -r -c tex3.14/tex/ini_to_trip tex/tex/ini_to_trip
+*** tex3.14/tex/ini_to_trip	Sun May 13 16:40:50 1990
+--- tex/tex/ini_to_trip	Tue Jul 14 20:03:53 1992
+***************
+*** 12,18 ****
+  
+  cp $1 $1.bak
+  
+! ed - $1 <<edscriptend
+  /undef	TRIP/
+  s/undef/define/p
+  /memmax/
+--- 12,18 ----
+  
+  cp $1 $1.bak
+  
+! ex - $1 <<edscriptend
+  /undef	TRIP/
+  s/undef/define/p
+  /memmax/
+***************
+*** 41,45 ****
+  s/[0-9][0-9]*/600/p
+  /memtop/
+  s/[0-9][0-9]*/2999/p
+! w
+  edscriptend
+--- 41,45 ----
+  s/[0-9][0-9]*/600/p
+  /memtop/
+  s/[0-9][0-9]*/2999/p
+! wq
+  edscriptend
+diff -r -c tex3.14/Makefile tex/Makefile
+*** tex3.14/Makefile	Fri Aug 30 06:45:25 1991
+--- tex/Makefile	Thu Jul 16 02:23:05 1992
+***************
+*** 30,41 ****
+  YACC=bison -y
+  
+  # The lex program to use on web2c/web2c.lex.
+! LEX=lex
+  # -ll for lex, -lfl for flex.
+! LEXLIB=-ll
+  
+  # Need -D_POSIX_SOURCE here, perhaps, if on a POSIX system.
+! LEXCFLAGS=
+  
+  # How to make a link.
+  LN=ln -s
+--- 30,41 ----
+  YACC=bison -y
+  
+  # The lex program to use on web2c/web2c.lex.
+! LEX=flex
+  # -ll for lex, -lfl for flex.
+! LEXLIB=-lfl
+  
+  # Need -D_POSIX_SOURCE here, perhaps, if on a POSIX system.
+! LEXCFLAGS=-D_POSIX_SOURCE
+  
+  # How to make a link.
+  LN=ln -s
+***************
+*** 76,86 ****
+  # These pathnames are used to customize the manual pages with local
+  # directory names; some of them are used in `make install'.  They should
+  # match the system directories in the paths defined in `./site.h'.
+! manext=l
+! mandir=/usr/man/man$(manext)
+  
+  texlibdir=/usr/local/lib/tex
+! texbindir=$(texlibdir)/bin
+  texpooldir=$(texlibdir)/formats
+  texinputdir=$(texlibdir)/inputs
+  texfontdir=$(texlibdir)/fonts
+--- 76,86 ----
+  # These pathnames are used to customize the manual pages with local
+  # directory names; some of them are used in `make install'.  They should
+  # match the system directories in the paths defined in `./site.h'.
+! manext=1
+! mandir=/usr/local/man$(manext)
+  
+  texlibdir=/usr/local/lib/tex
+! texbindir=/usr/local/bin
+  texpooldir=$(texlibdir)/formats
+  texinputdir=$(texlibdir)/inputs
+  texfontdir=$(texlibdir)/fonts
+***************
+*** 87,93 ****
+  formatdir=$(texlibdir)/formats
+  
+  mflibdir=/usr/local/lib/mf
+! mfbindir=$(mflibdir)/bin
+  mfpooldir=$(mflibdir)/bases
+  mfinputdir=$(mflibdir)/inputs
+  basedir=$(mflibdir)/bases
+--- 87,93 ----
+  formatdir=$(texlibdir)/formats
+  
+  mflibdir=/usr/local/lib/mf
+! mfbindir=/usr/local/bin
+  mfpooldir=$(mflibdir)/bases
+  mfinputdir=$(mflibdir)/inputs
+  basedir=$(mflibdir)/bases
+diff -r -c tex3.14/common/Makefile tex/common/Makefile
+*** tex3.14/common/Makefile	Thu Mar 28 19:16:21 1991
+--- tex/common/Makefile	Thu Jul 16 11:26:01 1992
+***************
+*** 2,11 ****
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=-lcposix
+  SHELL=/bin/sh
+  
+  .SUFFIXES:
+--- 2,11 ----
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -D_POSIX_SOURCE -DBSD386
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=
+  SHELL=/bin/sh
+  
+  .SUFFIXES:
+diff -r -c tex3.14/mf/Makefile tex/mf/Makefile
+*** tex3.14/mf/Makefile	Thu Mar 28 19:51:28 1991
+--- tex/mf/Makefile	Thu Jul 16 14:07:08 1992
+***************
+*** 2,11 ****
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -O
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=-lcposix
+  SHELL=/bin/sh
+  LN=ln
+  
+--- 2,11 ----
+  
+  SITEDIR=..
+  CC=gcc
+! OPT=-g -O -D_POSIX_SOURCE -DBSD386
+  CFLAGS=$(OPT) -I$(SITEDIR)
+  LDFLAGS=
+! LOADLIBES=
+  SHELL=/bin/sh
+  LN=ln
+  
+diff -r -c tex3.14/mf/cmf.ch tex/mf/cmf.ch
+*** tex3.14/mf/cmf.ch	Wed May 15 09:02:11 1991
+--- tex/mf/cmf.ch	Thu Jul 16 13:40:35 1992
+***************
+*** 144,154 ****
+  @d file_name_size == FILENAMESIZE {Get value from \.{site.h}.}
+  
+  @<Constants...@>=
+! @!mem_max=262140; {greatest index in \MF's internal |mem| array;
+    must be strictly less than |max_halfword|;
+    must be equal to |mem_top| in \.{INIMF}, otherwise |>=mem_top|}
+! @!max_internal=300; {maximum number of internal quantities}
+! @!buf_size=3000; {maximum number of characters simultaneously present in
+    current lines of open files; must not exceed |max_halfword|}
+  @!error_line=79; {width of context lines on terminal error messages}
+  @!half_error_line=50; {width of first lines of contexts in terminal
+--- 144,154 ----
+  @d file_name_size == FILENAMESIZE {Get value from \.{site.h}.}
+  
+  @<Constants...@>=
+! @!mem_max=60000; {greatest index in \MF's internal |mem| array;
+    must be strictly less than |max_halfword|;
+    must be equal to |mem_top| in \.{INIMF}, otherwise |>=mem_top|}
+! @!max_internal=100; {maximum number of internal quantities}
+! @!buf_size=500; {maximum number of characters simultaneously present in
+    current lines of open files; must not exceed |max_halfword|}
+  @!error_line=79; {width of context lines on terminal error messages}
+  @!half_error_line=50; {width of first lines of contexts in terminal
+***************
+*** 156,184 ****
+  @!max_print_line=79; {width of longest text lines output; should be at least 60}
+  @!screen_width=1664; {number of pixels in each row of screen display}
+  @!screen_depth=1200; {number of pixels in each column of screen display}
+! @!stack_size=300; {maximum number of simultaneous input sources}
+! @!max_strings=7500; {maximum number of strings; must not exceed |max_halfword|}
+! @!string_vacancies=74000; {the minimum number of characters that should be
+    available for the user's identifier names and strings,
+    after \MF's own error messages are stored}
+! @!pool_size=100000; {maximum number of characters in strings, including all
+    error messages and help texts, and the names of all identifiers;
+    must exceed |string_vacancies| by the total
+    length of \MF's own strings, which is currently about 22000}
+! @!move_size=20000; {space for storing moves in a single octant}
+! @!max_wiggle=1000; {number of autorounded points per cycle}
+  @!gf_buf_size=16384; {size of the output buffer, must be a multiple of 8}
+  @!pool_name='mf.pool';
+    {string of length |file_name_size|; tells where the string pool appears}
+! @!path_size=1000; {maximum number of knots between breakpoints of a path}
+! @!bistack_size=1500; {size of stack for bisection algorithms;
+    should probably be left at this value}
+  @!header_size=100; {maximum number of \.{TFM} header words, times~4}
+! @!lig_table_size=15000; {maximum number of ligature/kern steps, must be
+    at least 255 and at most 32510}
+! @!max_kerns=2500; {maximum number of distinct kern amounts}
+  @!max_font_dimen=50; {maximum number of \&{fontdimen} parameters}
+! @!mem_top=262140; {largest index in the |mem| array dumped by \.{INIMF};
+    must be substantially larger than |mem_min|
+    and not greater than |mem_max|}
+  @z
+--- 156,184 ----
+  @!max_print_line=79; {width of longest text lines output; should be at least 60}
+  @!screen_width=1664; {number of pixels in each row of screen display}
+  @!screen_depth=1200; {number of pixels in each column of screen display}
+! @!stack_size=30; {maximum number of simultaneous input sources}
+! @!max_strings=2000; {maximum number of strings; must not exceed |max_halfword|}
+! @!string_vacancies=8000; {the minimum number of characters that should be
+    available for the user's identifier names and strings,
+    after \MF's own error messages are stored}
+! @!pool_size=32000; {maximum number of characters in strings, including all
+    error messages and help texts, and the names of all identifiers;
+    must exceed |string_vacancies| by the total
+    length of \MF's own strings, which is currently about 22000}
+! @!move_size=5000; {space for storing moves in a single octant}
+! @!max_wiggle=300; {number of autorounded points per cycle}
+  @!gf_buf_size=16384; {size of the output buffer, must be a multiple of 8}
+  @!pool_name='mf.pool';
+    {string of length |file_name_size|; tells where the string pool appears}
+! @!path_size=300; {maximum number of knots between breakpoints of a path}
+! @!bistack_size=785; {size of stack for bisection algorithms;
+    should probably be left at this value}
+  @!header_size=100; {maximum number of \.{TFM} header words, times~4}
+! @!lig_table_size=5000; {maximum number of ligature/kern steps, must be
+    at least 255 and at most 32510}
+! @!max_kerns=500; {maximum number of distinct kern amounts}
+  @!max_font_dimen=50; {maximum number of \&{fontdimen} parameters}
+! @!mem_top=60000; {largest index in the |mem| array dumped by \.{INIMF};
+    must be substantially larger than |mem_min|
+    and not greater than |mem_max|}
+  @z
+***************
+*** 202,210 ****
+  @y
+  @d mem_min=0 {smallest index in the |mem| array, must not be less
+    than |min_halfword|}
+! @d hash_size=9500 {maximum number of symbolic tokens,
+    must be less than |max_halfword-3*param_size|}
+! @d hash_prime=7919 {a prime number equal to about 85\pct! of |hash_size|}
+  @d max_in_open=15 {maximum number of input files and error insertions that
+    can be going on simultaneously}
+  @d param_size=150 {maximum number of simultaneous macro parameters}
+--- 202,210 ----
+  @y
+  @d mem_min=0 {smallest index in the |mem| array, must not be less
+    than |min_halfword|}
+! @d hash_size=2100 {maximum number of symbolic tokens,
+    must be less than |max_halfword-3*param_size|}
+! @d hash_prime=1777 {a prime number equal to about 85\pct! of |hash_size|}
+  @d max_in_open=15 {maximum number of input files and error insertions that
+    can be going on simultaneously}
+  @d param_size=150 {maximum number of simultaneous macro parameters}
+***************
+*** 663,669 ****
+  @d min_quarterword=0 {smallest allowable value in a |quarterword|}
+  @d max_quarterword=255 {largest allowable value in a |quarterword|}
+  @d min_halfword==0 {smallest allowable value in a |halfword|}
+! @d max_halfword==262143 {largest allowable value in a |halfword|}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+--- 663,669 ----
+  @d min_quarterword=0 {smallest allowable value in a |quarterword|}
+  @d max_quarterword=255 {largest allowable value in a |quarterword|}
+  @d min_halfword==0 {smallest allowable value in a |halfword|}
+! @d max_halfword==65535 {largest allowable value in a |halfword|}
+  @z
+  
+  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+diff -r -c tex3.14/mf/convert tex/mf/convert
+*** tex3.14/mf/convert	Fri Mar 15 20:33:36 1991
+--- tex/mf/convert	Thu Jul 16 13:54:49 1992
+***************
+*** 1,30 ****
+  #!/bin/sh
+! # Convert Metafont to C.
+! # 
+! sed=/bin/sed
+! 
+! $sed -e '
+! 	: again
+! 	/\.$/{
+! 		N
+! 		s/\.\n/\
+! ./
+! 		t again
+! 	}
+! 	s/\.hh/.hhfield/g
+! 	s/\.lh/.lhfield/g
+! ' ../common/common.defines ../common/texmf.defines mf.p \
+! 	| ../web2c/web2c -h../common/texmf.h -m \
+! 	| $sed -e '
+!     s/else write/else\
+!     write/
+!     s/ maxcoef\( *[^( ]\)/ lmaxcoef\1/g
+!     s/ b1/ lb1/g
+!     s/ b2/ lb2/g
+!     s/ b3/ lb3/g
+! ' \
+! 	| ../web2c/fixwrites \
+! 	| ../web2c/splitup mf
+! 
+! cat coerce.h fixcoerce.h > xcoerce.h
+! mv xcoerce.h coerce.h
+--- 1,4 ----
+  #!/bin/sh
+! ./cnv.on.sun.0
+! ./cnv.on.sun.1
+! ./cnv.on.sun.2
+diff -r -c tex3.14/mf/ini_to_trap tex/mf/ini_to_trap
+*** tex3.14/mf/ini_to_trap	Tue Mar 13 13:09:53 1990
+--- tex/mf/ini_to_trap	Thu Jul 16 13:40:35 1992
+***************
+*** 12,18 ****
+  
+  cp $1 $1.bak
+  
+! ed - $1 <<edscriptend
+  /undef	TRAP/
+  s/undef/define/p
+  /memmax/
+--- 12,18 ----
+  
+  cp $1 $1.bak
+  
+! ex - $1 <<edscriptend
+  /undef	TRAP/
+  s/undef/define/p
+  /memmax/
+***************
+*** 31,35 ****
+  s/[0-9][0-9]*/8/p
+  /memtop/
+  s/[0-9][0-9]*/3000/p
+! w
+  edscriptend
+--- 31,35 ----
+  s/[0-9][0-9]*/8/p
+  /memtop/
+  s/[0-9][0-9]*/3000/p
+! wq
+  edscriptend
+

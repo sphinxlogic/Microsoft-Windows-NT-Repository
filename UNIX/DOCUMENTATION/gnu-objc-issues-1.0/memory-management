@@ -1,0 +1,692 @@
+Date: Wed, 30 Sep 92 15:23:14 -0400
+From: Kurt D. Starsinic <kstar@medequity.com>
+To: gnu-objc@prep.ai.mit.edu
+Subject: Automatic object variables (Was: Objective-C + C++ -> ObjC++)
+
+Andrew writes:
+
+> Begin forwarded message:
+>
+> Date: Wed, 30 Sep 92 11:25:14 -0400
+> From: athan@object.com (Andrew Athan)
+> To: gnu-objc@prep.ai.mit.edu
+> Subject: Re: Automatic object variables (Was: Objective-C + C++ -> ObjC++)
+>
+>
+>
+> Begin forwarded message:
+>
+> Date: Wed, 30 Sep 92 11:22:53 -0400
+> From: athan@object.com (Andrew Athan)
+> To: athan
+> Subject: Re: Objective-C + C++ -> ObjC++
+>
+> Bill Burcham writes:
+> >NeXT Object class provides allocFromZone:.  I think an allocFromAutomatic >would be an elegant approach.  allocFromAutomatic would use alloca() (see >MALLOC(3)) to allocate memory from the stack.
+>
+> This would solve the problem only in the case of objects that do not have out-of-line storage associated with them.  E.g.,
+>
+> @interface MyString:Object
+> {
+>   char *theBuffer;
+> }
+> @end
+>
+> would end up leaving whatever "theBuffer" points to unfreed on function return.
+>
+> The "problem" with automatic object allocation is that it introduces the need for constructor & destructor syntax/semantics.
+>
+> Andrew Athan
+> Objective Technologies, Inc.
+>
+
+	I, personally, am going on the assumption that, on exit from the stack frame, all of your automatic objects would be sent -free.
+	
+	All that this requires to work is that -free deallocates any allocated memory, which it's supposed to do anyway.  You can do without writing a -free method, in which case you're open to memory leaks.
+	
+	- Kurt
+
+Kurt Starsinic                  #   kstar@medequity.com
+Director of Systems             #     (NeXTmail preferred)
+MedEquity, Inc.                 #
+555 North Lane, Suite 6183      #     (215) 397-0201 voice
+Conshohocken, PA  19428         #           397-0203 fax
+
+The opinions expressed by me just might be those of MedEquity, Inc.
+
+   "What we think, or what we know, or what we believe is, in the end,
+    of little consequence.  The only consequence is what we do."
+      - John Rushin
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Mon, 22 Feb 93 17:59:19 -0600
+From: burchard@geom.umn.edu
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Cleanup of basic Obj-C memory management protocol
+
+I would like to propose some very slight and simple changes to the  
+basic memory management methods of the Object class in the GNU Obj-C  
+runtime.  These changes will make the GNU runtime MORE compatible  
+with both NeXT and Stepstone; moreover, they will enable cleaner  
+subclassing of these basic operations.
+
+These changes are very simple and complete source code is given  
+below.
+
+The basic principle is to allow memory allocation and initialization  
+to be performed by separate methods.  This is necessary for proper  
+subclassing, because the object which is performing the allocation is  
+NOT the same as the one which is subsequently initialized!
+
+NeXT has already made this split for +new.  I propose to do the same  
+with -copy, which is currently a bit ugly to subclass.  Thus, in the  
+Object class, there should be two analogous divisions of labor:
+
+	(+new)  = (+alloc)       + (-init)
+	(-copy) = (-shallowCopy) + (-deep)
+
+Note that this is completely compatible with "old style" code---both  
++new and -copy may still be overridden directly, by software that  
+assumes they are the basic runtime methods, without any adverse  
+effect.
+
+However, savvy programs will almost always override only -init and  
+-deep, which provide a cleaner way for subclasses to modify these  
+operations.  To be absolutely clear, let me spell out what each  
+method's responsibility is:
+
+-copy
+	This method should "do the right thing" for each class, to
+	produce a working copy of the object.
+	
+	One problem encountered by this method is that after a
+	shallow copy of the receiver is made, the remaining 
+
+	operations take place in the new object, not the one being
+	copied.  In order for this to work well with subclassing, 
+
+	there needs to be a separate, subclassable method to handle 
+
+	the operations which "deepen" the copy.  This is the purpose
+	of the -deep method below.  The only job of -copy is to
+	allocate a new shallow copy and then call -deep on it.
+	
+	The Object class should define this method as a combination
+	of -shallowCopy and -deep.  This does not conflict with 
+
+	existing classes on the NeXT, which don't define -deep.
+	
+-deep
+	This method allows subclasses to extend the way in which a
+	copy is deepened.  It is normally not necessary to override
+	the -copy method at all (unless you really want to change
+	the allocation procedures).
+	
+	For example:
+	
+	@implementation MyClass : MySuperclass
+	{
+	    int *thang;
+	    int thangSize;
+	}
+	
+	- deep
+	{
+	    int *oldThang;
+	
+	    if(![super deep]) return nil;
+	    
+
+	    oldThang = thang;
+	    if(!MALLOC(thang, int, thangSize))
+	        { [self free]; return nil; }
+	    bcopy(oldThang, thang, thangSize*sizeof(int));
+	    return self;
+	}	
+
+-shallowCopy
+	This method is simply a wrapper for object_copy(), and should
+	not be overridden.  It allocates space for a new object and
+	fills that space with an exact binary duplicate of the 
+
+	receiver's direct instance variables.
+
+###-deepCopy###
+	This method should not really exist, except for compatibility
+	with Stepstone's Obj-C.  If this method doesn't perform the
+	same operation as -copy, described above, it's probably
+	the wrong thing to do.
+
+The +new, +alloc, and -init methods have been already described well  
+by NeXT, so I won't repeat that.  Here is the complete source code:
+
+
+---------------------- changes to Object.m ----------------------
+
+- copy
+{
+    return [[self shallowCopy] deep];
+}
+
+- shallowCopy
+{
+    return object_copy(self);
+}
+
+- deep
+{
+    // Subclasses extend this.
+    return self;
+}
+
+- deepCopy
+{
+    // For Stepstone compatibility only.
+    // Does not actually guarantee literal "deep copy".
+    return [self copy];
+}
+
++ new
+{
+    return [[self alloc] init];
+}
+
++ alloc
+{
+    return class_createInstance((Class_t)self);
+}
+
+- init
+{
+    // Subclasses extend this.
+    return self;
+}
+
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Tue, 23 Feb 1993 05:58:20 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: burchard@geom.umn.edu
+In-Reply-To: <9302222359.AA14782@mobius.geom.umn.edu>
+Subject: Cleanup of basic Obj-C memory management protocol
+Cc: krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+
+burchard@geom.umn.edu writes:
+>I would like to propose some very slight and simple changes to the  
+>basic memory management methods of the Object class in the GNU Obj-C  
+>runtime.  These changes will make the GNU runtime MORE compatible  
+>with both NeXT and Stepstone; moreover, they will enable cleaner  
+>subclassing of these basic operations.
+
+In my opinion -- install it rightaway!  There is simply no reason not
+to do it.  I have been thinking of suggesting this, but I've been too
+buzy exploring the issues of the runtime.  
+
+/Kresten
+
+
+Return-Path: <a3bee2!seltd!lerman@mercury.hsi.com>
+From: Kenneth Lerman <seltd!lerman@uunet.UU.NET>
+X-Mailer: SCO System V Mail (version 3.2)
+To: burchard@geom.umn.edu, gnu-objc@gnu.ai.mit.edu
+Subject: Re: Cleanup of basic Obj-C memory management protocol
+Date: Tue, 23 Feb 93 16:28:21 EST
+
+Paul Burchard	<burchard@geom.umn.edu> wrote (as part of a long posting):
+
+###-deepCopy###
+	This method should not really exist, except for compatibility
+	with Stepstone's Obj-C.  If this method doesn't perform the
+	same operation as -copy, described above, it's probably
+	the wrong thing to do.
+
+(IMHO) No.  Copy and deep copy are NOT the same.
+
+Copy produces a normally functioning object.  If you do:
+    bar = [foo copy]; [bar free]; 
+there will be no leaked memory.
+
+Deep copy recursively copies the object and everything it points to.
+For instance,
+    gag = [anOrdCltn deepcopy];
+will copy the OrdCltn, its contents, and everything it contains.  Thus,
+    [gag free];
+will leave a lot of garbage around (because freeing an OrdCltn does
+not free the elements of the OrdCltn.
+
+Deepcopy works by generating the transitive closure of the object and
+using shallowCopy on each object in the graph.
+
+To recap.  There are three copy methods:
+
+- shallowCopy
+   returns a bitwise copy of the receiver
+
+- copy
+   returns a "useful" copy of the receiver
+   The meaning of useful is subject to the interpretation of the
+   implementor.  A file object, for instance, might (or might not)
+   dup the fd, or might use the same fd.
+
+- deepcopy
+   returns an independent copy of the receiver and its components.
+   Messages sent to the copy will have NO effect on the receiver.
+
+The above is how Stepstone's copy methods work.  I have found both
+deepcopy and copy to be usefull.  It is not clear that shallowCopy is
+of much use except for implementing the other copy methods.
+
+Ken
+--
+Kenneth Lerman                  ...!uunet!casey!gaboon!seltd!lerman
+Systems Essentials Limited                            (203)426-4430
+55 Main Street
+Newtown, CT 06470
+   
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Tue, 23 Feb 93 16:51:34 -0600
+From: burchard@geom.umn.edu
+To: Kenneth Lerman <seltd!lerman@uunet.UU.NET>
+Subject: Re: Cleanup of basic Obj-C memory management protocol
+Cc: gnu-objc@gnu.ai.mit.edu
+
+> Paul Burchard	<burchard@geom.umn.edu> wrote (as part of a long  
+posting):
+> > 
+
+> > ###-deepCopy###
+> > 	This method should not really exist, except for compatibility
+> > 	with Stepstone's Obj-C.  If this method doesn't perform the
+> > 	same operation as -copy, described above, it's probably
+> > 	the wrong thing to do.
+> > 
+
+> 
+
+> (IMHO) No.  Copy and deep copy are NOT the same.
+> 
+
+[...] 
+
+> - deepcopy
+>    returns an independent copy of the receiver and its components.
+>    Messages sent to the copy will have NO effect on the receiver.
+> 
+
+> The above is how Stepstone's copy methods work.  I have found both
+> deepcopy and copy to be usefull.  It is not clear that shallowCopy 
+
+> is of much use except for implementing the other copy methods.
+
+I like your summary of the methods, and I agree: the -deepCopy method  
+should get some respect, and at least eventually, a proper  
+implementation.
+
+At the moment, it is defined in the release to be equivalent to  
+Object's +new (!!).  I felt that making work like -copy would be at  
+least a step in the right direction.  But your point is well taken.
+
+Implementing -deepCopy is not a complete triviality like the other  
+methods I discussed, so I'd like to register those changes before  
+-deepCopy is tackled.  (Doing -deepCopy right would seem to depend on  
+the outcome of the encoding discussion...).
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+
+Return-Path: <bungi@omnigroup.com>
+Date: Tue, 23 Feb 93 23:55:32 -0800
+From: Timothy J. Wood <bungi@omnigroup.com>
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Cleanup of basic Obj-C memory management protocol
+
+  Some thoughts about memory management and -copy/-deepCopy...  Say we have:
+
+@interface Blorf : Object
+{
+	id blegga;
+}
+@end
+
+
+  Then if
+
+    aBlorf = [[Blorf alloc] init];
+    ...
+    copyOfBlorf = [aBlorf copy];
+    ...
+    [copyOfBlorf free];
+
+
+  we need to resolve the question of ownership of blegga.  Does aBlorf or  
+copyOfBlorf own it?  Obviously the compiler can't resolve this question for  
+us; the programmer must do so.
+  One obvious solution is to have two types of -free (called -free and  
+-shallowFree), just as we have two types of copy.  For this class they might  
+be implemented something like this:
+
+- free { [blegga free]; return [super free]; }
+- shallowFree { return [super free]; }
+
+  (The reason for not naming them -free and -deepFree is that existing code  
+assumes -free == -deepFree)
+
+  An alternative approach would be to implement reference counting of objects  
+in the Object class and have -copy increment the ref count of the instance  
+variable objects in the copied object while -deepCopy would just make new  
+instances with a refCount of one.  -free could then decrement the refCount  
+and the really free the object if the refCount hits zero.
+
+  I guess what I am proposing is that one or the other (or some other)  
+approach to handling this sort of thing is standardized in the GNU ObjC  
+runtime/class hierarchy.  This is something that NeXT has sadly neglected in  
+their implementation.
+
+
+Timothy J. Wood
+The Omni Group
+
+
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Wed, 24 Feb 93 10:48:41 -0600
+From: burchard@geom.umn.edu
+To: Timothy J. Wood <bungi@omnigroup.com>
+Subject: Re: Cleanup of basic Obj-C memory management protocol
+Cc: gnu-objc@gnu.ai.mit.edu
+
+>     aBlorf = [[Blorf alloc] init];
+>     ...
+>     copyOfBlorf = [aBlorf copy];
+>     ...
+>     [copyOfBlorf free];
+> 
+
+> 
+
+>   we need to resolve the question of ownership of [id
+> instance var] blegga.  Does aBlorf or copyOfBlorf own it?    
+
+
+This issue is supposed to be resolved by -copy (in collaboration with  
+-deep).  Recall that -copy is supposed to produce a *working*  
+duplicate of the receiver, in a way appropriate to the class.
+
+Usually, this means that -deep will simply apply -copy to all its id  
+instance vars (like blegga); in this case there is no ownership  
+dispute:
+
+	@implementation NormalClass
+	// Don't have to override -copy.
+	- deep
+	{
+	    if(![super deep]) return nil;
+	    blegga = [blegga copy];
+	    return self;
+	}
+	@end
+
+However, if you want to implement some sort of sharing strategy (such  
+as copy-on-write), then -copy simply sets up something to keep track  
+of that.  For example:
+
+	@implementation CopyOnWriteClass
+	{
+	    id sharedFrom, sharedTo; // linked list
+	    id huge;
+	}
+	- (BOOL)isShared { return(sharedFrom || sharedTo); }
+	- copy
+	{
+	    // -deep will be performed on the copy later, lazily...
+	    id rtn, from = sharedFrom;
+	    sharedFrom = self;
+	    rtn = [self shallowCopy];
+	    sharedFrom = from; sharedTo = rtn;
+	    return (rtn);
+	}
+	- deep
+	{
+	    [self _unlink];
+	    huge = [huge copy]; // get our own personal copy
+	    return self;
+	}
+	- free
+	{
+	    if([self isShared]) [self _unlink];
+	    else [huge free];
+	    return [super free];
+	}
+	- destructivelyChangeSomething:(void *)data
+	{
+	    if([self isShared]) [self deep]; // here is lazy -deep
+	    [huge destructivelyChangeSomething:data];
+	    return self;
+	}
+
+	- _unlink
+	{
+	    ((CopyOnWriteClass *)sharedFrom)->sharedTo = sharedTo;
+	    ((CopyOnWriteClass *)sharedTo)->sharedFrom = sharedFrom;
+	    return self;
+	}
+	@end
+
+>   I guess what I am proposing is that one or the other (or some
+> other) approach to handling this sort of thing is
+> standardized in the GNU ObjC runtime/class hierarchy. 
+
+> This is something that NeXT has sadly neglected in their
+> implementation. 
+
+
+I don't think standardization would be helpful since there are a  
+whole variety of memory management schemes that you might want to  
+implement for various classes; the standard one and copy-on-write are  
+just two.  There's also reference counting and recycling, for  
+example.  Not to mention real garbage collection (dreaming...).
+
+Instead there should be some standard protocols and guidelines for  
+classes that want to implement various such strategies.  Once they  
+have been thought through, they are all basically trivial to  
+implement; the main problem is setting up good guidelines that work  
+smoothly with all the features of the runtime.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Return-Path: <a3bee2!seltd!lerman@mercury.hsi.com>
+From: Kenneth Lerman <seltd!lerman@uunet.UU.NET>
+X-Mailer: SCO System V Mail (version 3.2)
+To: bungi@omnigroup.com, gnu-objc@gnu.ai.mit.edu
+Subject: Re: Cleanup of basic Obj-C memory management protocol
+Date: Wed, 24 Feb 93 16:11:20 EST
+
+
+Timothy J. Wood <uunet!omnigroup.com!bungi@gaboon.UUCP> wrote:
+...
+>@interface Blorf : Object
+>{
+>	id blegga;
+>}
+>@end
+>
+>
+>  Then if
+>
+>    aBlorf = [[Blorf alloc] init];
+>    ...
+>    copyOfBlorf = [aBlorf copy];
+>    ...
+>    [copyOfBlorf free];
+...
+
+>
+>- free { [blegga free]; return [super free]; }
+>- shallowFree { return [super free]; }
+>
+>  (The reason for not naming them -free and -deepFree is that existing code  
+>assumes -free == -deepFree)
+...
+
+IMHO, this is not correct.  [anOrdCltn free] does NOT free the
+elements of the OC.
+
+The present philosophy (my understanding of Stepstone's
+implementations) is that new and free complement one another in the
+sense that free frees all of the memory allocated by new.  The same is
+true of the copy and free.
+
+So, [copyOfBlorf free] will free the copy of blorf.  blegga will be
+freed by this if and only if [aBlorf copy] made a copy of  blegga.
+...
+>
+> An alternative approach would be to implement reference counting of objects  
+>in the Object class and have -copy increment the ref count of the instance  
+>variable objects in the copied object while -deepCopy would just make new  
+>instances with a refCount of one.  -free could then decrement the refCount  
+>and the really free the object if the refCount hits zero.
+
+Stepstone's class SharObject implements this type of reference
+counting.  It  is sometimes useful.
+...
+
+>Timothy J. Wood
+>The Omni Group
+
+Ken
+--
+Kenneth Lerman                  ...!uunet!casey!gaboon!seltd!lerman
+Systems Essentials Limited                            (203)426-4430
+55 Main Street
+Newtown, CT 06470
+
+Return-Path: <wiltel!bshirley@uunet.uu.net>
+From: Bill Shirley <wiltel!bshirley@uunet.uu.net>
+Date: Wed, 24 Feb 93 17:39:00 -0600
+To: GNUObjC@uunet.uu.net
+Subject: Cleanup of basic Obj-C memory management protocol
+
+> From: Timothy J. Wood <uunet!omnigroup.com!bungi>
+> 
+
+>   Some thoughts about memory management and -copy/-deepCopy...  Say we have:
+> 
+
+> @interface Blorf : Object
+> {
+> 	id blegga;
+> }
+> @end
+> 
+
+> 
+
+>   Then if
+> 
+
+>     aBlorf = [[Blorf alloc] init];
+>     ...
+>     copyOfBlorf = [aBlorf copy];
+>     ...
+>     [copyOfBlorf free];
+> 
+
+> 
+
+>   we need to resolve the question of ownership of blegga.  Does aBlorf or
+> copyOfBlorf own it?  Obviously the compiler can't resolve this question
+> for us; the programmer must do so.
+
+(I believe that I'm about to agree w/ what Paul B said)
+PB > I don't think standardization would be helpful since there are a whole
+PB > variety of memory management schemes that you might want to implement for
+PB > various classes; the standard one and copy-on-write are just two.  There's
+PB > also reference counting and recycling, for example.  Not to mention real
+PB > garbage collection (dreaming...). 
+
+
+
+I think it must be determined on a class by class basis.
+
+And copy should be implemented in a many that would allow the returned
+instance to be freed.  To force a programmer into on pigeon hole
+when he may want another is not good.  He may want his copy to up the 
+
+reference count in the instance variable, or create a new one.  Who's
+to say which is better?  (A: the programmer is, not the language implementer)
+
+>   One obvious solution is to have two types of -free (called -free and
+> -shallowFree), just as we have two types of copy.  For this class they might
+> be implemented something like this: 
+
+> 
+
+> - free { [blegga free]; return [super free]; }
+> - shallowFree { return [super free]; }
+> 
+
+>   (The reason for not naming them -free and -deepFree is that existing code
+> assumes -free == -deepFree) 
+
+> 
+
+>   An alternative approach would be to implement reference counting of
+> objects in the Object class and have -copy increment the ref count of the
+> instance variable objects in the copied object while -deepCopy would just
+> make new instances with a refCount of one.  -free could then decrement the
+> refCount and the really free the object if the refCount hits zero. 
+
+> 
+
+>   I guess what I am proposing is that one or the other (or some other) approach
+> to handling this sort of thing is standardized in the GNU ObjC
+> runtime/class hierarchy.  This is something that NeXT has sadly neglected
+> in their implementation. 
+
+> 
+
+> 
+
+> Timothy J. Wood
+> The Omni Group
+> 
+
+> 
+
+> 
+
+> 
+
+
+-Bill Shirley
+
+Date: Sat, 27 Feb 93 21:48:11 -0600
+From: burchard@geom.umn.edu
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Re: Cleanup of basic Obj-C memory management protocol
+Cc: Steve_Naroff@NeXT.COM
+
+I just wanted to let folks know that (thanks to advice from Linus) I changed the name of the message  -deep  to  -deepen  in the actual submission I made to GNU.  The name  -deepen  has the advantage of being a verb, and it also more clearly describes the purpose of the message.  Thus, the default  -copy  in Object is implemented as
+
+  - copy { return [[self shallowCopy] deepen]; }  // override -deepen
+
+Sorry for belaboring such trivialities....but they are fundamental trivialities :-)
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+  ********** Global variables: the ``GOTO'' of the 90's **********
+--------------------------------------------------------------------
+

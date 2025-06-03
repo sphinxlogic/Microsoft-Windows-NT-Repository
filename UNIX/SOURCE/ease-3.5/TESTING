@@ -1,0 +1,59 @@
+	Testing Sendmail Configuration files
+
+I have written some shell scripts called "showhow" and "showwhere"
+that can be used to test your sendmail configuration file.
+
+You create an input file with a set of addresses to test.  You run the
+script and it generates an output file, showing the results of each
+address. When I make a major change to a sendmail file, I run the test
+suite on it, comparing the results with the last time I tested the
+address. I can use this to see in any of the 400 addresses in my test
+suite will behave differently with the new configuration file. My
+addresses won't help you, so you have to be creative and add your own.
+Here are some guidelines.
+
+The format or the input file debug.in is:
+		rulesets	address
+	or
+		rulesets		address comment
+
+Use the second if ruleset does not start with a '0'. I'll explain this later.
+
+	Example:
+
+		0	user@some.do.main
+		0	site!user%site2@site3.com
+		22,4	user@localsite	Sender_via_UUCP
+
+where 22 is a mailer rewrite ruleset for a mailer (i.e. UUCP).
+
+Ruleset 0 must be avoided when testing the re-write rules for mailers
+because ruleset 0 outputs a triple (user, host, mailer), and only one
+part (user) passed to the mailers. Therefore you would typically have
+ruleset 0 when testing resolution decisions, and omit it when testing
+for mailer re-writes like UUCP and TCP final delivery.
+
+Some newer versions of sendmail do not automatically run ruleset 3 when
+in debugging mode. You will have to add '3,' before each rule.
+
+The makefile generates a file in tbl(1) format that 
+lists the following:
+
+	ruleset		address	  mailer hostname user
+
+Showing the resolved triplet for each address
+
+I think the scripts I have will work on IDA, SunOS 4.0, and Ultrix 3.0
+sendmail executables. The problem is that older sendmails output debug
+info using ^V, etc. instead of $#.  The script is set up to work with
+Ultrix 3.0.  The sendmail with SunOS used a different set of
+characters to indicate the results of a rule (^W instead of ^V).
+
+I have set up a makefile in the debug directory that you can use
+	
+	make	 - tests your sendmail file against a known good file
+		good.out. Once you have a working set of rules, copy
+		debug.out to good.out
+
+	make report 	will print a table of all of the addresses				resolved to the address, mailer, and hostname
+

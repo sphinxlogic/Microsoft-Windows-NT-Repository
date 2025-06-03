@@ -1,0 +1,45 @@
+#!/bin/sh
+# First, check if the directory /opt exists
+NEEDED=130000			# need 100 MB for all of /opt
+optdir=/opt
+if [ ! -d $optdir ]; then		# no directory there yet
+  echo To install this package, I will need to create a directory $optdir.
+  echo In order to install all packages, I will need $NEEDED kilobytes.
+  echo You have the option to install only some files.
+  echo
+  created=0
+  while [ $created -eq 0 ]; do
+    echo Your system has the following space available:
+    df -k
+    echo Please specify the name of the directory in which $optdir
+    echo will really reside. If you call it $optdir, it will be a
+    echo real directory, otherwise $optdir will point to the directory
+    echo you specify. The directory you specify will reside on the
+    echo file system whose name contains the largest part of the
+    echo pathname.
+    echo
+    echo -n "Please enter the name of the directory for $optdir: "
+    read optname
+    mkdir $optname
+    if [ $? -eq 0 ]; then		# created OK
+      if [ "$optname" != "$optdir" ]; then 	# need symlink
+        ln -s $optname $optdir
+        if [ $? -eq 0 ]; then	# made it,
+          created=1
+	fi
+      else			# no symlink,
+        created=1
+      fi
+    else
+      echo Try again.
+      echo
+    fi
+  done
+  echo $PATH | grep $optdir/bin >/dev/null
+  if [ $? -ne 0 ]; then
+    echo Updating environment information to include $optdir
+    echo >>/etc/profile "PATH=$optdir/bin:\$PATH" \# 
+  fi
+  echo >>/etc/profile "MANPATH=$optdir/man:\$MANPATH"
+fi
+  

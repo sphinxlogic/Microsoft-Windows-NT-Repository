@@ -1,0 +1,70 @@
+@(#)PATCHES_TO_SAS-1.25	1.1 (13 Oct 1993)
+
+Patch to sas-1.25 serial port driver
+------------------------------------
+
+SAS (Streams Async Solution) is a popular freeware serial port driver for
+SVR4 which supports reliable operation using 16550A UARTs at high speeds
+(57600 and 115200 baud).  However, there is a bug (in sas-1.25) which 
+sometimes causes kernel panics, particularly when receiving at high speeds.  
+
+If you are using sas-1.25, be sure to apply the following patch.
+
+-Jim Avera (jima@netcom.com) 9/9/93
+
+
+Index: sas.c
+Prereq:  1.25 
+*** ../sas-1.25/sas.c	Thu May  7 10:59:10 1992
+--- sas.c	Thu Sep  9 11:10:26 1993
+***************
+*** 629,635 ****
+  			if (port = sas_int_ack_port [fip->vec])
+  				(void) outb (port, sas_int_ack [fip->vec]);
+  
+! 			/* do we want to use 57600 bps ? */
+  			if (sas_port [unit] & HIGH_SPEED) {
+  				fip->device_flags.s |= DF_HIGH_SPEED;
+  				sas_speeds[B1800] = 1;
+--- 651,657 ----
+  			if (port = sas_int_ack_port [fip->vec])
+  				(void) outb (port, sas_int_ack [fip->vec]);
+  
+! 			/* Map B1800 to 115200 */
+  			if (sas_port [unit] & HIGH_SPEED) {
+  				fip->device_flags.s |= DF_HIGH_SPEED;
+  				sas_speeds[B1800] = 1;
+***************
+*** 3062,3068 ****
+  				/* we take a short-cut if only one character
+  				   has to be put into the receiver buffer
+  				*/
+! 				if (fip->recv_cnt < RECV_BUFF_SIZE)
+  				{
+  					if (!fip->recv) {
+  						if ((fip->recv = fip->free) 
+--- 3085,3091 ----
+  				/* we take a short-cut if only one character
+  				   has to be put into the receiver buffer
+  				*/
+! 				if (fip->recv_cnt < fip->alloc_size)
+  				{
+  					if (!fip->recv) {
+  						if ((fip->recv = fip->free) 
+***************
+*** 3088,3094 ****
+  		}
+  		if (!csize)
+  			continue;	/* nothing to put into recv buffer */
+! 		if (fip->recv_cnt + csize > RECV_BUFF_SIZE) {
+  			sas_link(&fip->filled, fip->recv);
+  			fip->recv = NULL;
+  			fip->recv_cnt = 0;
+--- 3111,3117 ----
+  		}
+  		if (!csize)
+  			continue;	/* nothing to put into recv buffer */
+! 		if (fip->recv_cnt + csize > fip->alloc_size) {
+  			sas_link(&fip->filled, fip->recv);
+  			fip->recv = NULL;
+  			fip->recv_cnt = 0;

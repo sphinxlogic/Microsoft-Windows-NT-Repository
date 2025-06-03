@@ -1,0 +1,176 @@
+From: Patrick Rusk <rusk@marble.com>
+Date: Thu, 12 Nov 92 16:43:46 -0500
+To: gsk@marble.com
+Subject: GNU Objective-C suggestion
+
+Geoffrey,
+
+I just spent a good bit of time looking up a bug that resulted from a
+message being passed to "nil" and not causing an error. I would like
+to recommend that the GNU Objective-C runtime work differently. It
+should have a nil object that has methods to respond to errors like
+this. Perhaps the default error handler should be to ignore the errors
+like NeXT Objective-C does, but the opportunity to bomb out should be
+given.
+
+-- Pat
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Tue, 16 Feb 93 16:48:00 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: krab@iesd.auc.dk
+Cc: krab@iesd.auc.dk, gsk@marble.com
+In-Reply-To: <199302162120.AA03198@iesd.auc.dk> (message from Kresten Krab Thorup on Tue, 16 Feb 1993 22:20:23 +0100)
+Subject: gnu objc runtime
+
+    a considerably number of bugs, and introduced some features like
+    optional handling of messages send to nil, and much better
+    initialization of the system.
+
+It occurs to me that this feature might interfere with the goal of making
+method lookup faster and open-coding it.  If so, then it is important
+*not* to have this feature.  If people start using it, they will be unhappy
+when it is taken out.  And it is not a very important feature.
+
+Have you read the file of ideas that comes with the runtime?
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 17 Feb 1993 01:19:29 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu, gsk@marble.com
+Subject: gnu objc runtime
+
+Stallman writes:
+
+  [Concerning sending messages to nil i guess...] 
+  It occurs to me that this feature might interfere with the goal of making
+  method lookup faster and open-coding it.  If so, then it is important
+  *not* to have this feature.  If people start using it, they will be unhappy
+  when it is taken out.  And it is not a very important feature.
+   
+  Have you read the file of ideas that comes with the runtime?
+
+Yes I did read the file of ideas, and most of the ideas are
+incorporated into my runtime system.  The handling of messages to nil
+isn't expensive, actually my objc_msgSend looks like this:
+
+    extern Class_t nilClass;
+  
+    if(receiver != nil)			/* send msg to reciever */
+      return get_imp(receiver->class_pointer, sel);
+
+    else				/* otherwise send it to nil */
+      return get_imp(nilClass, sel);
+
+Now, if the message happens to be send to `Nil' it is caught by
+-doesNotRecognize: in that class, which can then choose to ignore the
+message or issue an error.  OK, This is a bit more expensive if
+someone sends a terrible lot of messages to NULL pointers, but who
+would ever call that good programming style anyway?
+
+[...moved...the matter of initialization...]
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Wed, 17 Feb 93 00:22:01 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: krab@iesd.auc.dk
+Cc: gsk@marble.com
+In-Reply-To: <199302170019.AA04534@iesd.auc.dk> (message from Kresten Krab Thorup on Wed, 17 Feb 1993 01:19:29 +0100)
+Subject: gnu objc runtime
+
+      The handling of messages to nil
+    isn't expensive, actually my objc_msgSend looks like this:
+
+	extern Class_t nilClass;
+
+	if(receiver != nil)			/* send msg to reciever */
+	  return get_imp(receiver->class_pointer, sel);
+
+	else				/* otherwise send it to nil */
+	  return get_imp(nilClass, sel);
+
+
+Please take this out.
+
+It is clear that you didn't get the point.  I want this function to be
+*open-coded*.  That means we have to eliminate almost everything now
+in it.
+
+Adding a new statement, even something that seems simple,
+is going in EXACTLY the wrong direction.
+
+Just because something sounds like a feature DOES NOT mean
+it is a good idea!
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Wed, 17 Feb 93 14:15:16 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: gsk@marble.com
+To: krab@iesd.auc.dk
+In-Reply-To: <199302171615.AA00184@carrara> (gsk@marble.com)
+Subject: gnu objc runtime
+
+It is possible that there is some really important reason not to open-code
+the dispatcher.  For example, there could be a feature that *users want
+very much* that is incompatible with open-coding.  I could easily not know
+about it, since I am not an Objective C user.
+
+However, a feature added just because it seems possibly neat is not enough
+of a reason.  Neither is something used for internal purposes if there is
+a way to avoid the need for it.
+
+This is because open-coding will make dispatch significantly faster,
+and I know users will like that.  It will make it feasible to use
+messages for smaller things.
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 17 Feb 1993 21:27:59 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gsk@marble.com, rms@gnu.ai.mit.edu
+Subject: gnu objc runtime
+Cc: krab.It.is.possible.that.there.is.some.really.important.reason.not.to.open-code.the.dispatcher.For.example@iesd.auc.dk,
+        there.could.be.a.feature.that.*users.want.very.much*.that.is.incompatible.with.open-coding.I.could.easily.not.know.about.it@iesd.auc.dk,
+        since.I.am.not.an.Objective.C.user.However@iesd.auc.dk,
+        a.feature.added.just.because.it.seems.possibly.neat.is.not.enough.of.a.reason.Neither.is.something.used.for.internal.purposes.if.there.is.a.way.to.avoid.the.need.for.it.@iesd.auc.dk
+
+The only good reason I could think of was for having a special
+messenger used during initialization, but if forwarding is possible it
+should not be needed as far as I can see.
+
+   This is because open-coding will make dispatch significantly faster,
+   and I know users will like that.  It will make it feasible to use
+   messages for smaller things.
+
+Another approach than the forwarding one I just send you, is to have
+the messenger look like this:
+
+   IMP
+   objc_msgSend(id receiver, SEL selector)
+   {
+     if (__objc_alternative_msgSend != 0)
+       return (*__objc_alternative_msgSend)(receiver, selector);
+     else
+      <do normal selector here>
+   }  
+
+This will only cost a single fetch/branch instruction to perform, and
+it could easily be inlined by hardcoding it into gcc (I assume that is
+what open-coding means?).  
+
+/Kresten
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Wed, 17 Feb 93 15:40:35 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: krab@iesd.auc.dk
+Cc: gsk@marble.com
+In-Reply-To: <199302172027.AA14400@iesd.auc.dk> (message from Kresten Krab Thorup on Wed, 17 Feb 1993 21:27:59 +0100)
+Subject: gnu objc runtime
+
+Each additional thing that the message lookup has to do means a few
+additional instructions for *every* message send.
+
+It may be *possible* to open-code it with the extra indirection.  I
+don't want to!  Stop exploring that possibility and look for a way to
+*get rid* of the extra indirection.
+

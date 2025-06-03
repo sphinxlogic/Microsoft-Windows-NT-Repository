@@ -1,0 +1,116 @@
+Date: Fri, 26 Feb 93 14:56:31 CST
+From: liberte@ncsa.uiuc.edu (Daniel LaLiberte)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Separating Use and Subclass interfaces
+
+I would like to encourage the idea of separating the use and subclass
+interfaces, as Bill Burcham has suggested.  
+
+Users (not subclasses) of a class need only know that it is a class and
+it has a set of methods associated with it, which is essentially a
+protocol.  These two facts need to be associated so I suggest extending
+the @class notation to include the protocol.  This way, two interface
+files could be written for each class (see example below).  We should
+come up with different names for them; interface and protocol mean
+about the same thing.  We need a different name for the file that
+declares the instance vars.
+
+One extra concern is @public instance vars.  Perhaps it would be best
+to just require that the instance var file be imported when @public
+instance vars are used.
+
+For example, here are two interface files for MyClass and another file
+that uses MyClass:
+
+//===========================================
+// MyClassProtocol.h
+// Declaration of MyClassProtocol
+// This is for users of MyClass
+
+// Import headers it depends on, etc
+...
+
+-thisMethod;
+-thatMethod;
+
+// Declaration that MyClass is a class with MyClassProtocol
+@class MyClass <MyClassProtocol>     // <<<<<< new notation
+
+
+//===========================================
+// MyClass.h
+// Declaration of MyClass
+// This is for subclasses of MyClass.
+
+#import "MyClassProtocol.h"
+
+// Import protocol files for classes of statically declared instance vars.
+...
+
+@interface MyClass:Object
+{
+id thing1,thing2;
+...
+}
+
+
+//===========================================
+// Foo.m
+
+// Users of MyClass would say simply:
+#import "MyClassProtocol.h"
+
+MyClass *foo;
+
+=======================================================
+
+Since users of a class will usually only import the protocol file,
+the naming convention for files should probably change so that the
+protocol file is the name of the class, e.g. MyClassProtocol.h should
+be named just MyClass.h.  Then what is the new name for "MyClass.h"?
+
+dan
+
+From: Steve_Naroff@NeXT.COM (Steve Naroff)
+Date: Sat, 27 Feb 93 08:46:49 -0800
+To: athan@object.com (Andrew Athan)
+Subject: Use/Subclass Interface distinction
+Cc: billb@jupiter.fnbc.com (Bill Burcham), lupson@geom.umn.edu,
+        gnu-objc@gnu.ai.mit.edu
+
+
+I agree with you. Requiring multiple interface files per class is a bad idea. Developers have enough of a burden managing changes between the .h and the .m, lets not *require* a third file.
+
+Bill's goal of hiding implementation details is worthwhile, however I don't believe it should be limited to the "use" case. Encapsulation and modularity are important for both users and subclassers. Granting  subclassers special access rights is often a premature optimization that "ties the hands" of library writers.
+
+This isn't solely a language issue, development environments must share in the "blame". For example, you could imagine a tool that provides different "views" of an interface...implementors of a kit would see one view, users of a kit would see another view. The .h files would provide the "lowest level" view for constructing other views. In the NeXT environment, we have a tool called HeaderViewer for integrating access to headers and documentation...this is where we could provide filtered views (omit ivar declarations, etc).
+
+On the language side, protocols provide support for clearly separating interface from implementation. Andrew, could you send me any feedback you have on protocols? I am really interested in seeing this feature flushed out...
+
+To summarize, we should resist complicating the language if the problem is a lack of support from the software development environment. Unfortunately, it is often easier the change the language (given the diversity of environments we all work with).
+
+Oh well,
+
+snaroff.
+
+btw...does "don't dislike" evaluate into "like" (or something less)?
+
+From: greg@sce.carleton.ca (Greg Franks)
+Date: Sat, 27 Feb 93 18:05:37 EST
+To: gnu-objc@gnu.ai.mit.edu
+In-Reply-To: Steve Naroff's message of Sat, 27 Feb 93 08:46:49 -0800 <9302271647.AA09458@oz.NeXT.COM>
+Subject: Use/Subclass Interface distinction
+
+Steve_Naroff@NeXT.COM (Steve Naroff) writes:
+
+> I agree with you. Requiring multiple interface files per class is a  
+> bad idea. Developers have enough of a burden managing changes between  
+> the .h and the .m, lets not *require* a third file. 
+
+However, the .h file can be generated automatically from the .m file.,
+so an '.if' file (or whatever) can be too.
+
+We here at Carleton already have a simple shell script to manage
+changes to the method names.
+  ..greg
+

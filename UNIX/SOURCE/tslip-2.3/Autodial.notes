@@ -1,0 +1,39 @@
+AUTO-DIAL ON DEMAND SUPPORT (uses modified Taylor UUCP "cu" program)
+--------------------------------------------------------------------
+
+The slip driver was significantly modified to communicate with a new 
+supervisory daemon process which can dial up remote systems on demand and 
+disconnect links when they remain idle for a specified period, all 
+transparent to ip.
+
+The slip driver (driver/io/slp.c) can now be linked under ip without any
+serial device linked below it.  When traffic appears for the non-existent
+device, slip queues it and notifies the daemon (if it is registered).  
+The daemon uses parts of Taylor UUCP to open the appropriate serial 
+device, dial out, and log in to a slip server.  After logging in, slipd
+links the driver under the slip module.  Slip then releases the 
+queued traffic.
+
+The daemon is also notified if a link remains idle for a specified period.
+The daemon can unlink a device from slip at any time, and subsequent
+traffic will result in another auto-dial request.  Linking and unlinking
+of drivers is transparent to IP except for delays.
+
+The functionality of the old slhangupd daemon is included in the new daemon,
+although the protocol is different (the old daemon and new slip driver are
+not compatible).
+
+DIAL-OUT CONTROL:
+    A Taylor "cu" argument string is installed in each slip interface by the
+    slattach program.  This string may contain any arguments accepted by "cu",
+    typically just "systemname", but possibly something like 
+    "-ltty00 -s19200 dir" for a direct connection without dialing.
+
+    An idle timeout interval can also be specified via slattach.  The timeout
+    is handed to the driver along with the dialout string.
+
+Please read the man pages!
+
+-Jim Avera (jima@netcom.com)
+
+@(#)Autodial.notes	1.1 (30 Sep 1993)

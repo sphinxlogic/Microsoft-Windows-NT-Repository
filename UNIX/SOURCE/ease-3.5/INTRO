@@ -1,0 +1,206 @@
+		An introduction to Sendmail Rules
+		Copyright 1991, All rights reserved
+		Bruce Barnett
+
+	First of all, sendmail is easy to learn, once you learned all
+about electronic mail. Figuring out how to handle the address
+
+	bigvax::a!b!another.domain!c%d%domain.com@another.domain
+
+is much more challenging. Here's the scoop.
+
+	When sendmail gets an address, it always passes it to rule 3.
+
+	Rule 3 with transform the address, and eventually sent it to
+	rule 0.
+
+	Rule 0 makes the final decision, and selects three things:
+
+			The address
+			The Machine to send the address to
+			The mailer to use.
+				This could be UUCP, ethernet, DECNet,
+				a local user, a program, etc.
+
+	Once the above has been decided on, the address is transformed
+	in the following way:
+
+	Ruleset 1 is applied to the From: line
+	Ruleset 2 is applied to the To: and Cc: line
+	
+	Each mailer then applies a rule. These rules are other unique
+	for each mailer.
+
+	Finally ruleset 4 is applied.
+
+
+Now let's go through an example in detail.
+
+grymoire% /usr/lib/sendmail -bt -C/etc/sendmail.cf
+ADDRESS TEST MODE
+Enter <ruleset> <address>
+> 0 user@crdgw1.crd		# <---- I typed this line here 
+rewrite: ruleset  3   input: "user" "@" "crdgw1" "." "crd"
+rewrite: ruleset  6   input: "user" "<" "@" "crdgw1" "." "crd" ">"
+rewrite: ruleset  6 returns: "user" "<" "@" "crdgw1" "." "LOCAL" ">"
+rewrite: ruleset  3 returns: "user" "<" "@" "crdgw1" "." "LOCAL" ">"
+rewrite: ruleset  0   input: "user" "<" "@" "crdgw1" "." "LOCAL" ">"
+rewrite: ruleset  0 returns: $# "ether" $@ "crdgw1" $: "user" "<" "@" "crdgw1" ">"
+> 
+
+Rule 3 can be given any address at all. It must determine the machine
+and domain which corresponds to the address. Determining the machine
+can be tricky, because it depends o the address. What it uses to
+specify the address is to surround the hostname and @ sign with angle brackets.
+It also added a imaginary domain to the hostname to indicate the type
+of network it is on. The set of angle brackets is used to "focus" on a machine.
+
+Some typical values are:
+
+	< @ machine . LOCAL > 	=> a local host
+	< @ machine >		=> same as above
+	< @ machine . UUCP >	=> a machine on the UUCP network
+
+The angle brackets indicate the important part - the machine and
+perhaps what mail agent to use. However, the username isn't included
+in the set of charatcers surrounded by angle brackets. The problem is,
+different mailers have the username in a different format. In some
+casess, the host is the first word, in others it's the last word.
+
+Here is an example of an address going into rule 3 and the expected
+output:
+
+	Input		Output
+	a!b!c!d!user		<@a.UUCP>!b!c!d!user    or
+				b!c!d!user<@a.UUCP>
+	user@a.uucp		user<@a.uucp>
+	bigvax::user		user<@bigvax.DECNET>
+	user%a.com@b.edu	user%a.com<@b.edu> or - it you are agressive
+				user<@a.com>
+	a!b!user@abc.edu	a!b!user<@abc.edu>
+	@a:user@b.com		<@a>:user@b.com
+	"Bruce" <barnett@local>	barnett<@local>
+
+As you can see, the machine that will accept the message will be
+different depending on the address. Ruleset 3 must find the right
+machine, and also clean up any addresses if appropriate.
+It does it's work by looking for a pattern, and transforming the
+address when it matches the pattern. 
+
+The cleaning up part can be confusing, but typically ruleset 3 calls
+other rules to do this. One rule is used to clean up addresses before
+the < and > are added. Another rule is used to clean up addresses
+after it has been converted into the < @ machine > format.
+
+Here is the ease version of the rule that transforms a UUCP address:
+
+	if ( exactly_one ! one_or_more )	/* uucphost!user */
+		return (RULESET_6 ($2<@$1."uucp">));
+
+This transforms the address, but calls ruleset 6, which cleans up the
+addresses with < and >. The variables "exactly_one" and "one_or_more"
+match that number of tokens, and are replaced by the $1 or $2 on the 
+returned rule. ($1 is exactly_one, $2 is one_or_more).
+
+Here is a rule in ruleset 6 that looks for an address to the local
+domain, and replaces the domain with "LOCAL":
+
+	if ( zero_or_more <@ zero_or_more  any_in_mydomainname > zero_or_more )	/* convert local domain */
+		retry ($1<@$2"LOCAL">$4);
+
+zero_or_more is a pattern, which matches $1, $2, or $4.
+any_in_mydomain is a special pattern that matches the domain. It is
+not necessary to have a $3 because the domain is known.
+So the test of the address user@crdgw1.crd reports this:
+
+rewrite: ruleset  3   input: "user" "@" "crdgw1" "." "crd"
+rewrite: ruleset  6   input: "user" "<" "@" "crdgw1" "." "crd" ">"
+rewrite: ruleset  6 returns: "user" "<" "@" "crdgw1" "." "LOCAL" ">"
+rewrite: ruleset  3 returns: "user" "<" "@" "crdgw1" "." "LOCAL" ">"
+
+Once ruleset 3 is down, it passes the address to 0.
+This eventually gets to the rule:
+
+/* deliver to known ethernet hosts explicitly specified in our domain */
+	if ( zero_or_more <@ any_in_etc_hosts."LOCAL"> zero_or_more )	/* user@host.sun.com */
+		resolve (mailer (ether),
+				host ($2 ),
+				user ($1<@$2>$3));
+
+This matches, so the ether mailer is used, and the address is
+$1<@2>$3, or in this case:
+
+
+rewrite: ruleset  0 returns: $# "ether" $@ "crdgw1" $: "user" "<" "@" "crdgw1" ">"
+
+The $#, $@, and $: are sendmail talk for the mailer, machine, and
+address. 
+
+Still more to come. The specificalion of the mailer is:
+
+mailer
+	ether {
+		Path = "[TCP]",
+		Flags = { f_mult, f_strip, f_date, f_from, f_mesg, f_upperu, f_addrw, f_dot },
+		Sender = RULESET_11,
+		Recipient = RULESET_21,
+		Argv = "TCP ${m_rhost}"
+	};
+
+
+This says the sender's address must go thru rule 11, which means rules
+1, 11, and 4. The recipient's address goes through 2, 21, and 4.
+
+To test this, type the address from ruleset 0 and specify either 1,
+11, and 4 or perhaps 2, 21, and 4:
+
+> 1,11,4 user@crdgw1
+rewrite: ruleset  3   input: "user" "@" "crdgw1"
+rewrite: ruleset  6   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  6 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  3 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  1   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  1 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset 11   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset 11 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  4   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  9   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  9 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  4 returns: "user" "@" "crdgw1"
+
+As you can see, ruleset 3 is always applied first, which calls 6, 
+Then rule 1 is applied, followed by rule 11, and then followed by
+rule 4. The end result tells me the From: line would look like
+user@crdgw1
+
+
+The uucp mailer has a diffent set of rewrite rules.
+In sun's sendmail.main.cf, it uses 13 and 23. To test this address,
+I typed 1,13,4 and got this:
+
+> 1,13,4 user@crdgw1
+rewrite: ruleset  3   input: "user" "@" "crdgw1"
+rewrite: ruleset  6   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  6 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  3 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  1   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  1 returns: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset 13   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  5   input: "user" "<" "@" "crdgw1" ">"
+rewrite: ruleset  5 returns: "crdgw1" "!" "user"
+rewrite: ruleset 13 returns: "grymoire" "!" "crdgw1" "!" "user"
+rewrite: ruleset  4   input: "grymoire" "!" "crdgw1" "!" "user"
+rewrite: ruleset  9   input: "grymoire" "!" "crdgw1" "!" "user"
+rewrite: ruleset  9 returns: "grymoire" "!" "crdgw1" "!" "user"
+rewrite: ruleset  4 returns: "grymoire" "!" "crdgw1" "!" "user"
+> 
+
+As you can see, it converted the address into a uucp path relative to
+my machine.
+
+To test these three cases, add the following to your debug.in file:
+
+0	user@crdgw1
+1,11,4	user@crdgw1	From_Ethernet_to_Ethernet
+1,13,4	user@crdgw1	From_Ethernet_to_UUCP
+

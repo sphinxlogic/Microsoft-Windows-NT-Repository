@@ -1,0 +1,147 @@
+# Generated automatically from Makefile.in by configure.
+# driver/io Makefile for TSLIP.	-*- Indented-Text -*-
+# @(#)Makefile.in	1.4 (13 Oct 1993)
+
+# ..........................................................................
+#  Copyright 1993, Jim Avera.  All Rights Reserved.
+#  
+#  This program contains new material owned by the above copyright holder,
+#  and may also contain portions derived from existing works used according
+#  to permission granted by the owners of those works.
+# 
+#  You are prohibited from copying, distributing, modifying, or using this
+#  file (or the portions owned by the above copyright holder) except as 
+#  described in the file "COPYRIGHT" which accompanies this program.
+# ..........................................................................
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# COPYRIGHT file for details.
+
+# NOTE: You must first build Taylor UUCP 1.04 (with the patches in
+# PATCHES_TO_STOCK_TAYLOR1.04).  Several .o and .a files built in the
+# Taylor source tree are linked into the slip dialing daemon (see util/slipd).
+
+#### Start of system configuration section. ####
+
+srcdir = .
+VPATH = .
+
+# CC = gcc
+
+#DVRCC is used only to compile the driver, to avoid gcc compatibility problems
+DVRCC=/usr/bin/cc
+
+CFLAGS = -g -O3
+LDFLAGS = -g
+
+DRIVER_NAME = tslip
+DRIVER_NAME_STR = \"$(DRIVER_NAME)\"
+SLIP_HEADER = <sys/$(DRIVER_NAME).h>
+COMP_HEADER = <sys/$(DRIVER_NAME)_comp.h>
+
+#### End of system configuration section. ####
+
+CONFDIR=/etc/conf
+IDINSTALL=$(CONFDIR)/bin/idinstall
+IDBUILD=$(CONFDIR)/bin/idbuild
+
+SHELL = /bin/sh
+
+# Note: If DRIVER_NAME changes, you must manually rename *.c, ../sys/*.h,
+#       and change the include in ../sys/tslip.h and ../ID/Space.c
+OBJS = $(DRIVER_NAME).o $(DRIVER_NAME)_comp.o
+
+#DEFINES = -DDEBUG -D_KERNEL \
+	  -DDRIVER_NAME_STR=\"$(DRIVER_NAME)\" \
+	  '-DSLIP_HEADER=$(SLIP_HEADER)' '-DCOMP_HEADER=$(COMP_HEADER)'
+DEFINES = -D_KERNEL \
+	  -DDRIVER_NAME_STR=$(DRIVER_NAME_STR) \
+	  '-DSLIP_HEADER=$(SLIP_HEADER)' '-DCOMP_HEADER=$(COMP_HEADER)'
+.c.o:
+	$(DVRCC) -c -I$(srcdir)/.. -I$(srcdir) $(CPPFLAGS) $(DEFINES) $(CFLAGS) $<
+
+all: Driver.o
+
+Driver.o: $(OBJS)
+	$(LD) -r -o $@ $(OBJS)
+
+lint:
+	lint -x -m -D_KERNEL $(INCLUDES) $(OBJS:.o=.c)
+
+clean:
+	rm -rf *.o ../ID/Driver.o
+
+install: all remove_old_tslip check_for_other_slips
+	cd ../ID; cp ../io/Driver.o .
+	cd ../ID; $(SHELL) mk_idfiles.sh
+	cd ../ID; $(IDINSTALL) -u -k -mnso $(DRIVER_NAME)
+	cp ../sys/$(DRIVER_NAME).h /usr/include/sys
+	cp ../sys/$(DRIVER_NAME)_comp.h /usr/include/sys
+	@echo 
+	@echo 'NOTE: You must rebuild your kernel to incorporate the driver.'
+	@echo '(use $(IDBUILD))'
+	@echo
+
+installman:
+
+# Remove previously installed tslip, with special check for old slp names.
+remove_old_tslip:
+	@PATH=$$PATH:/usr/bin; export PATH; \
+	 for n in slp $(DRIVER_NAME) ; do \
+	   if test -f $(CONFDIR)/pack.d/$$n/Driver.o ; then \
+	     if strings $(CONFDIR)/pack.d/$$n/Driver.o \
+	     | egrep -l '(NO RESPONSE FROM DAEMON|TSLIP)' >/dev/null ; then \
+	       echo "Removing tslip previously installed as \"$$n\""; \
+	       (set -x; $(IDINSTALL) -d $$n); \
+	       headers="$$n.h $$n_comp.h"; \
+	       test $$n = "slp" && headers="$headers slcompress.h" ; \
+	       (set -x; cd /usr/include/sys; rm -f $$headers); \
+	       echo; \
+	     fi; \
+	   fi; \
+	 done
+
+check_for_other_slips:
+	@PATH=$$PATH:/usr/bin; export PATH; \
+	 for n in slip SLIP Slip SLP Slp slp tsl TSL ; do \
+	   test $$n = $DRIVER_NAME && continue; \
+	   if test -f $(CONFDIR)/pack.d/$$n/Driver.o ; then \
+	     if strings $(CONFDIR)/pack.d/$$n/Driver.o \
+	     | egrep -l '(NO RESPONSE FROM DAEMON|TSLIP)' >/dev/null ; then \
+	       echo "*** WARNING *** Another slip driver named \"$$n\" exists, and it";\
+	       echo "appears to be an older version of TSLIP.  If so, it should be removed";\
+	       echo "with \"$(IDINSTALL) -d $$n\""; \
+	    else \
+	       echo "*** NOTE *** A driver named \"$$n\" exists, and from the name it sounds";\
+	       echo "like it might be another SLIP driver.  This is not harmful, but if you";\
+	       echo "want to delete it permanently, use \"$(IDINSTALL) -d $$n\""; \
+	     fi; \
+	     echo; \
+	     if test -r /usr/include/sys/$$n.h ; then \
+	       echo "(Also remove /usr/include/sys/$$n.h,etc.,if appropriate)";\
+	     fi; \
+	   fi; \
+	 done
+
+Makefile: Makefile.in
+	(cd ../..; $(SHELL) config.status)
+
+distclean: clean
+	rm -f Makefile
+	cd ../ID; rm -f mk_idfiles.sh Master System Node
+
+mostlyclean:: clean
+
+realclean:: mostlyclean distclean
+	rm -f TAGS
+
+uninstall: force
+	cd ../ID; $(IDINSTALL) -d $(DRIVER_NAME)
+	cd /usr/include/sys; rm -f $(DRIVER_NAME).h $(DRIVER_NAME)_comp.h
+
+force:
+
+# Prevent GNU make v3 from overflowing arg limit on SysV.
+.NOEXPORT:

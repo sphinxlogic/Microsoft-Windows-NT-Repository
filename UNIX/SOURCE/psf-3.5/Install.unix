@@ -1,0 +1,404 @@
+                   P S F     I N S T A L L A T I O N
+                   =================================
+
+     The following installation process should work with various forms
+     of unix using lpr/lpd and with System V r3 unix lp/lpsched
+     spoolers. The documented spooler installation process is not
+     compatible for System V r4: the printer spool scripts must be
+     manually installed (and possibly modified).
+
+     If spooler support is installed, any file sent to the spooler
+     is examined: if the file is already in postscript form, then
+     the file is simply copied to the printer without any re-processing.
+     Only unprocessed text files will be filtered into postscript form.
+     As a result, 'any' file may be passed to the spooler for correct
+     processing.  (If postscript sources is to be printed, the "-z"
+     option must be used for force the printing.)
+
+     INSTALLATION
+     ^^^^^^^^^^^^
+     1.	Edit the Makefile, changing the various configuration parameters.
+	The general install steps are:
+
+		make all
+		make printer
+		make scripts
+		make install
+		make installman   (or installcat or installdoc)
+
+	If nroff is not available, pre-formatted man pages are in
+	/man/*.doc.
+
+     2.	Build the binaries with:
+
+		make all
+
+     3.	Select a printer:
+
+		make printer
+   
+	If your printer is not specified, select the nearest
+	approximation and/or read the "Install.def" file.
+
+	"make printer" can be run any number of times.  It simply copies
+	your selected printer definition from the ./defs directory
+	to file "psfprint.def" in the current directory and generates 
+	an associated "psizes.ps".
+	
+	If you are using a serial printer and using lp/lpsched, examine
+	the "stty" command to set port characteristics in psfunix.LP
+	(which is the prototype for the printer model "psf" when used
+	with lp/lpsched).
+
+     4.	Make shell scripts:
+     
+	Some man systems may require additional options before the shell
+	script "psfman" can successfully process man pages through the
+	psf filters system. Examine and modify the file "psfman.SH" for
+	additional man options needed.  On some systems, you may
+	need to specify the full path to the "man" programme and/or
+	force the option "-Tlp".
+	
+	Each of the prototype scripts assumes that /bin/sh is the
+	desired shell for execution.  If /bin/ksh is desired
+	(as in the case of most Aplllo versions of unix), then
+	edit each *.SH file to reflect the desired shell.
+	
+	Now build the shell scripts.
+
+		make scripts
+
+	(NOTE: script psfdouble is created as an example of setting
+	       up a double sided print script, however is not
+	       installed by any install process.)
+
+     5. Iff nroff is available, make nroff'd man pages. The resulting 
+        *.doc files are written to the man/ directory.
+     
+     		make doc
+    
+	If nroff is not available, pre-formatted documentation is
+	provided in various *.doc files.  These may be moved to
+	the catman or man directories with "make installdoc".  The
+	target directory for the preformatted pages is set in the
+	makefile (MANDIR).
+	
+     6. A "user" installation copies only those modules that are 
+	necessary for command line use. It does not copy spooler support
+	binaries and scripts.
+
+	A "user" installation is complete after (as root):
+
+		make installuser
+     
+     7. A "full" installation copies all necessary spooler support
+	as well as user binaries and scripts to the target directories.
+     	As root:
+     	
+     		make install
+
+     8. Install man pages if desired. Depending upon the type of system
+	being used, select from the following:
+	
+	   make installman	Install unformatted pages into the man
+				directory. This assumes that a complete 
+				man system is available with nroff.
+
+	   make installcat	Install formatted man pages into the 
+	   			catman directory. Nroff must be available 
+	   			to format the text.
+
+	   make installdoc	Install pre-formatted man pages into 
+	   			the catman (or selected man) directory. 
+	   			This copies various *.doc files into 
+	   			the catman directory: nroff is not needed.
+
+	   make doc		Build .doc formatted files from .1
+				unformatted man page with nroff.
+	
+     9.	Three versions of psf are compiled by "make all":
+
+	   psf	   	is normally used at the command line.
+			If the input is already in postscript, then it is
+			re-processed. I.e. you can print a postscript
+			programme. Input is accepted from stdin or from
+			file names.
+
+	   psffilter	is used by the lp/lpsched spooling system.
+			It accepts input only on stdin and arguments
+			passed with the "-o" option. If the input is
+			already in postscript, the input is simply copied
+			to stdout (the printer).  If the -v option
+			is used, postscript sources may be printed.
+
+	   psflpd	is used by the lpr/lpd spooling system. It
+			accepts input only on stdin and cannot accept any
+			run-time arguments, not even those passed by lpd.
+			If the input is already in postscript, it is
+			simply copied to stdout (the printer).  If
+			the -v option is used, postscript sources
+			may be printed.
+
+			Printcap entries should use this binary or links
+			to this binary. If psflpd is executed with
+			different names, then different default page
+			conditions apply (see Install.lpd).
+	
+	Only the appropriate binary versions are copied with "make install".
+
+     CUSTOMIZATION
+     ^^^^^^^^^^^^^
+        The following scripts or control files might be candidates
+        for modification if you do not like the default conditions.
+        Each file has a "prototype" that is edited into a runnable
+        file or script.
+        
+        prototype	install name	edit to change features
+        -------------   --------------  ----------------------------------
+        printcap.ETC	printcap	set up various printer options
+        printcap.NET	not installed	set up various printer options
+        language.PSF	not installed	add non-English language support
+        psfdouble.SH	not installed	sample usage of doublesided print
+        psflpd.DEF	psfprint.def	basic lpd filter options
+        psfman.SH	psfman		change for 2up or 1up printing
+        psfmbox.SH	psfmbox		change for 2up or 4up printing
+        psfnroff.SH	psfnroff	change default man options (-Tlp??)
+        psfunix.LP	psf.model	add accounting support
+        psfxen.ix.LP	psf.model	add accounting support
+
+        
+     ACCOUNTING (for lp/lpsched)
+     ^^^^^^^^^^
+        Paper usage accounting is not configured by default for
+        lp/lpsched systems.  If this feature is desired, the printer
+        script "psf.model" should be modified to include the
+        options "-A account.fil", "-y user" and "-Y host" options.
+        (Examine psf.model and modify to suit).  Also, see below
+        for use with a serial printer.
+
+     SERIAL PRINTER READ/WRITE ACCESS (for lp/lpsched)
+     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+	The default setup for psf used as a filter for the lp/lpsched
+	spooler assumes that a parallel printer is being used.
+
+	Serial (and possibly ethernet) postscript printers usually echo
+	control characters and information messages to the filter. This
+	is not possible on parallel port printers. If you are using a
+	serial printer, these messages should be handled by the filter
+	with the "-a" option in the printer script.
+
+	If an accounting file is specified with "-A acct.fil",
+	printer-generated page usage is written to the specified file.
+	If the "-A" option is not provided, then page usage is ignored.
+
+	All other "informative" text generated by the printer is written
+	to stderr and may be redirected to an error log file.
+
+	The sample printer model file "psf.model" does not handle any
+	information generated by the printer (i.e. it assumes that a
+	parallel printer is used). You may wish to add the options "-a",
+	"-A acct.fil", "-y user" and "-Y host" to your printer model for
+	serial/ethernet printers and redirect stderr to a log file.
+	
+	If a serial printer is used and accounting is not desired,
+	the "-a" option should be used:  -A, -y and -Y are not needed.
+	
+	A sample setup is illustrated as a comment line in psfunix.LP
+	and the generated "psf.model" printer script.
+
+
+     PRINING TO A PIPE
+     ^^^^^^^^^^^^^^^^^
+   	If the spooler should print to a pipe rather than stdout
+   	(such as printing to the "papif" daemon for apple network
+   	printing), the option "-O pipe-cmd" may be inserted into
+   	the link options:
+   	
+   		-O "nextfilter -a -b -c 'text string' -d"
+
+	Rather than passing the filtered output to stdout, the output is
+	piped to "nextfilter" which may process to a foreigh network
+	printing. Often, an alternate printer file is specified (-u =
+	apple.def) to define the printer configuration for the foreign
+	printer.
+	
+	If the spooler is lp/lpsched, this option could be
+	added to the printer script.  If the spooler is lpr/lpd,
+	read Install.lpd for further notes.
+
+
+     CONFIGURE PRINTER (for lp/lpsched on SysV R3)
+     ^^^^^^^^^^^^^^^^^
+	The printer model defined for psf is copied during the install
+	process to:
+
+		/usr/spool/lp/model/psf
+   
+	Printer installation is usually be done with lpadmin. If you
+	install the printer with lpadmin, be sure to specify the 
+	"-m psf" option to select the psf printer model. E.g.:
+
+		/usr/lib/lpadmin -p printer -v /dev/lp -m psf -o nobanner
+
+	If you are using Interactive Unix 2.2, the you might wish
+	to use "sysadm lpmgmt".  This can be done if you first
+	inform sysadm that psf exists:
+
+
+		edit /usr/admin/menu/packagemgmt/lpmgmt/lpsetup
+						- to have psf as a 
+						  valid printer choice.
+
+		sysadm lpmgmt			- add psf printer
+
+		/usr/lib/lpadmin -d printer     - set default printer
+
+		enable printer.
+   
+
+     CONFIGURE PRINTER (for lpr/lpd)
+     ^^^^^^^^^^^^^^^^^
+	After "make install" is completed, the printcap must be
+	configured. See "Install.lpd" for suggestions.
+
+
+     CONFIGURE PRINTER (for use with lp/lpsched over UUCP)
+     ^^^^^^^^^^^^^^^^^
+	A sample printer model "nlsdumb" is provided if you wish to use
+	remote printing over uucp (either by serial line or over the
+	tcp/ip+TLI interface). It must be manually installed if it is
+	needed.
+
+
+     MAN PAGES
+     ^^^^^^^^^
+	The man pages are all the man/*.1 files. These may be formatted
+	with nroff or cawf.  Pre-formatted man pages are man/*.doc.
+	
+
+     AFTER INSTALLATION
+     ^^^^^^^^^^^^^^^^^^
+     0. Print the man pages:
+     
+     		psfnroff -man *.1
+
+     1. Verify that the imageable area of your printer actually
+	corresponds to the printer definition that you selected during
+	the install process. Send the postscript file "psizes.ps" (or
+	getsizes.ps) to the line printer by some method:
+
+		lp psizes.ps
+	    -or-
+		cat getsizes.ps > /dev/lp
+
+	This programme prints the actual imageable area for each page
+	size known to your printer.
+
+	The printed imageable area (the last 4 numbers of each page
+	type) should match the corresponding numbers in psfprint.def. If
+	they do not, edit psfprint.def to use the printed numbers. (Even
+	Adobe information does not necessarily reflect the real nature
+	of your printer. My own Nec LC890 had a different letter
+	imageable area than indicated by the original .ppd file from
+	Adobe...).
+
+	Read "Install.def" if the editing process in not transparent!
+
+	Copy the new psfprint.def file to it's target location as
+	set with "DEFFILE" in the Makefile.
+
+     2.	Edit the file "Testfile" with sed (as below). This file is an
+	example of how escape sequences can be imbedded in a text file
+	to allow direct font control within a text editor (See psf.1 for
+	details).
+
+	The "Testfile" should contain many ^E characters (octal \005).
+	Since mail system may change the ^E character into the text
+	string "005" You will have to edit the testfile and replace all
+	"005" strings with true ctrl-E character.
+
+	One easy way to correct this is with sed (Bourne shell only??)
+
+		sed 's@005@<CTRL-E>@g' Testfile > example
+			   +------+
+				actually type the CTRL-E character
+				to generate the octal character \005
+
+	After editing, do the following:
+
+		psf example | lp
+    
+	to see how font control can work in a text file.
+
+
+     LP OPTIONS	(for lp/lpsched)
+     ^^^^^^^^^^
+	The provided printer model (/usr/spool/lp/model/psf and it's
+	associated prototype file psfunix.LP) allows the use of the "-o"
+	to pass options to psf. Two additional non-standard banner page
+	options may be passed to the printer script:
+
+		banner		= print banner page
+		nobanner	= do not print banner page
+
+	For example:
+
+		lp -o"nobanner -4xh" my.text.file
+		lp -o"banner" another.file
+
+	The psf printer model examines the printer configuration file
+	in:
+
+		/usr/spool/lp/admins/lp/printers
+			/<printer name>/configuration
+
+	to determine if banners are required. The first line of this
+	script normally contains one of the following (and can be set by
+	lpadmin):
+
+		Banner: on:Always
+		Banner: on
+
+	An additional option is recognized (and cannot be set by
+	lpadmin: it must be manually edited into the configuration
+	file):
+
+		Banner: off
+
+	"Banner: on:Always" forces banners to be printed, even if the
+	user specified "nobanner".
+
+	"Banner: on" prints a banner page unless the user specifies
+	"nobanner". If "nobanner" is provided, then the banner is not
+	printed.
+
+	"Banner: off" will not print the banner page unless the user
+	provides "banner", in which case the banner page is printed.
+
+
+     MULTIPLE PRINTERS
+     ^^^^^^^^^^^^^^^^^
+	If multiple different postscript printers are used with psf,
+	then either separate versions of psf and friends must be
+	constructed or the "-u alt.def" option of psf and psffilter
+	should be used. In any case, each back end printer script used
+	by lpsched, psnroff or psmbox must reference the appropriate
+	version of psf or have the -u option set.
+
+	See Install.lpd for considerations when using lpr/lpd.
+
+     PSF notes.
+     ^^^^^^^^^^ 
+	The printer definitions in defs/* are derived from the Adobe
+	".ppd" files. These are available from the Adobe file server via
+	email. The .ppd files describe each know printer characteristics
+	- but are not always perfectly accurate.
+	
+	The programme "table" is used to translate the ".ppd" files into
+	".def" printer definition files used by psf. Documentation for
+	"table" is not provided - other than the comments in "table.c"
+	and a brief comment in Install.def.
+
+	-------------------
+	Tony Field
+		(tony@ajfcal.cuc.ab.ca)

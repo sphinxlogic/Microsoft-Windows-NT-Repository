@@ -1,0 +1,183 @@
+--- /pub/home/gnu/new/volume25/ease3.5/./cfc/Makefile	Thu Aug 19 16:37:57 1993
++++ ./cfc/Makefile	Thu Aug 19 15:59:38 1993
+@@ -1,6 +1,6 @@
+-CC	      =	cc
+-CFLAGS	      = -g 
+-BINDIR		= ../bin
++CC	      =	gcc
++CFLAGS	      = -g -O3
++BINDIR	      = ../bin
+ EXTHDRS	      = /usr/include/ctype.h \
+ 		/usr/include/stdio.h
+ HDRS	      =
+--- /pub/home/gnu/new/volume25/ease3.5/./doc/Makefile	Thu Aug 19 16:37:59 1993
++++ ./doc/Makefile	Thu Aug 19 17:09:24 1993
+@@ -20,7 +20,7 @@
+ 
+ EXT=l
+ MANDEST = /usr/man/man${EXT}
+-ROFF=ptroff
++ROFF=groff -t
+ 
+ DOCS = cover ease.paper ap1 ap2 ap3 ap4
+ MANS = ease.man et.man cfc.man
+@@ -33,10 +33,14 @@
+ 	install -c cfc.man $(MANDEST)/cfc.${EXT}
+ 
+ printpaper: ${DOCS} FRC
+-	tbl ${DOCS} | ${ROFF} -ms
++	${ROFF} -ms ${DOCS} >crap
++	gs -q -sOUTPUTFILE=/dev/lp0 -sDEVICE=ljetplus crap
++	rm crap
+ 
+ printman: ${MANS} FRC
+-	tbl ${MANS} | ${ROFF} -man
++	${ROFF} -man ${MANS} >crap
++	gs -q -sOUTPUTFILE=/dev/lp0 -sDEVICE=ljetplus crap
++	rm crap
+ 
+ clean:
+ 
+--- /pub/home/gnu/new/volume25/ease3.5/./src/Makefile	Thu Aug 19 16:38:08 1993
++++ ./src/Makefile	Thu Aug 19 17:15:33 1993
+@@ -57,9 +57,9 @@
+ DEFS = ${OFLAGS}
+ LIBS = -ll
+ # some people must remove the -O
+-CFLAGS = -O ${DEFS} ${INCLUDE}
+-CC = cc
+-#CC = gcc
++CFLAGS = -O3 -g ${DEFS} ${INCLUDE}
++#CC = cc
++CC = gcc
+ YACC = yacc 
+ #YACC = bison -y
+ 
+@@ -77,7 +77,7 @@
+ # The following two lines are used with the SunOS malloc() debug package.
+ #DEFS = -DMALLOC_DEBUG	#  Part of the SunOS malloc package
+ #LIBS = /usr/lib/debug/malloc.o -ll
+-CFLAGS = -g  ${DEFS} ${INCLUDE}
++CFLAGS = -g  ${DEFS} ${INCLUDE} -DUSE_FLEX
+ 
+ 
+ HDR = symtab.h
+@@ -140,6 +140,7 @@
+ 	-(cmp -s y.tab.h lexdefs.h || cp y.tab.h lexdefs.h)
+ 
+ lexan.c: lexan.l
++	flex  -t lexan.l > lexan.c
+ 
+ parser.o: y.tok.h
+ y.tok.h:	y.tab.h
+--- /pub/home/gnu/new/volume25/ease3.5/./src/errors.c	Thu Aug 19 16:38:09 1993
++++ ./src/errors.c	Thu Aug 19 17:15:10 1993
+@@ -40,7 +40,9 @@
+ FILE *DIAGf = {stderr};  /* file for diagnostic output */
+ extern char yytext[];	/* current token */
+ extern int yyleng;	/* and it's length */
++#ifndef USE_FLEX
+ extern int	yylineno;	/* current input line number */
++#endif
+ extern char *infile;		/* input file name */
+ static char *source;
+ 
+@@ -67,6 +69,7 @@
+ 	  fprintf(DIAGf, "\"%s\"",infile);
+ 	  colon = 1;
+       }
++#ifndef USE_FLEX					    /* Flex can't do this (Greg Lehey, LEMIS, 19 August 1993 */
+     if (yylineno > 0 ) {
+ 	if (colon)
+ 	  fputs(", ",DIAGf);
+@@ -76,6 +79,7 @@
+ /*	if ((yylineno - (*yytext == '\n' || ! *yytext)) != Lcount)
+ 	  fprintf(DIAGf, "?%d:?", Lcount); */
+     }
++#endif
+     if (*yytext) {
+ 	register int i;
+ 	for (i=0;i<20;++i)
+@@ -104,8 +108,13 @@
+ yymark()	/* retreive from '# digit text' */
+ {
+     if (source)
++#ifdef __bsdi__						    /* and possibly others (Grog, LEMIS, 19 August 1993) */
++      free(source); 
++#else
+       cfree(source); 
++#endif
+     source = (char *) calloc(yyleng,sizeof(char));
++#ifndef USE_FLEX					    /* no yylineno in Flex (Grog, LEMIS, 19 August 1993 */
+     if (source) {
+       sscanf(yytext, "# %d%s",&yylineno, source);
+ /*      fprintf(stderr,"source = '%s' on %s",source,yytext); */
+@@ -117,6 +126,7 @@
+ /*      fprintf(stderr,"FNbuf = '%s', infile = '%s'\n",FNbuf,infile); */
+ 	       
+   }
++#endif
+ }
+ 
+ 
+--- /pub/home/gnu/new/volume25/ease3.5/./src/lexan.l	Thu Aug 19 16:38:12 1993
++++ ./src/lexan.l	Thu Aug 19 17:10:16 1993
+@@ -62,7 +62,9 @@
+ extern void	  ErrorReport ();
+ extern void	  yymark();
+ extern void	  PrintError();
+-extern char *	  malloc ();
++#ifndef FLEX_SCANNER					    /* Flex defines this (differently) */
++extern char *	  malloc ();				    /* Greg Lehey, LEMIS, 19 August 1993 */
++#endif
+ 
+ int  Lcount;				/* line counter		    */
+ char FNbuf[MaxFN];			/* file name buffer	    */
+@@ -74,9 +76,10 @@
+ int   yychar;
+ #endif
+ 
++#ifndef FLEX_SCANNER
+ #undef input
+ # define input() (((yytchar=yychar=yysptr>yysbuf?U(*--yysptr):Getc(yyin,yyout))==10?(yylineno++,yytchar):yytchar)==EOF?0:yytchar)
+-
++#endif
+ int
+ Getc (yyin, yyout)
+ 	FILE *yyin, *yyout;
+--- /pub/home/gnu/new/volume25/ease3.5/./src/main.c	Thu Aug 19 16:38:13 1993
++++ ./src/main.c	Thu Aug 19 16:16:07 1993
+@@ -246,6 +246,10 @@
+       i = 0;	/* all's well */
+     else
+       i = -1;	/* no preprocessor */
++#ifdef __bsdi__						    /* and possibly others */
++    free(cmd);
++#else
+     cfree(cmd);
++#endif
+     return i;
+ }
+--- /pub/home/gnu/new/volume25/ease3.5/./Makefile	Thu Aug 19 16:38:07 1993
++++ ./Makefile	Thu Aug 19 16:47:57 1993
+@@ -22,8 +22,8 @@
+ BINDIR=`pwd`/bin
+ 
+ #where is your original sendmail file?
+-#ORIGINAL=/etc/sendmail.cf
+-ORIGINAL=/usr/lib/sendmail.cf
++ORIGINAL=/etc/sendmail.cf
++#ORIGINAL=/usr/lib/sendmail.cf
+ #ORIGINAL=/usr/lib/sendmail.main.cf
+ #ORIGINAL=/usr/lib/sendmail.subsidiary.cf
+ 
+@@ -36,7 +36,8 @@
+ #what extenstion do you want for the manual pages?
+ #EXT=1
+ #EXT=l
+-EXT=n
++#EXT=n
++EXT=0
+ SHELL=/bin/sh
+ MAKE=make
+ 

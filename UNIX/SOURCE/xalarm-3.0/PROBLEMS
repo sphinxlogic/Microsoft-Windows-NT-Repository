@@ -1,0 +1,146 @@
+COMPILATION
+~~~~~~~~~~~
+
+    1.  Make dies a death.  Some vendor's "make" are brain dead.  One solution
+	is to use GNU make, the other is to do some of it by hand.  Try "make
+	MADE=test" or "make config" (or both), then "make xalarm" if necessary.
+	Then shout at your vendor.
+
+    2.	Make says something like "xrdb: Can't open display" or "Command failed
+	for target `config'".  When you first make, make attempts to merge the
+	resources necessary to use xalarm for the current session, without the
+	resources properly installed.  What has happened is that the DISPLAY
+	variable is not set to be your display, so xrdb cannot know which
+	display the resources are for.
+
+	To fix, set the DISPLAY variable.  It should be set to the name of the
+	host that the display is running on.  If you are compiling on the same
+	machine as the display is on, it should probably be something like
+	"`hostname`:0.0", where hostname returns the name of the host.
+
+    3.	Both 3 and 4 may be caused by you using the supplied Makefile, rather
+	than generating your own by "xmkmf".
+
+	When using the Makefile generated from the Imakefile, compiler says
+	things like, "Don't know how to make target `lib/Xaw/libXaw.a'".  You
+	are not building in the contrib directory, so try removing $(DEPLIBS)
+	from the xalarm target in the Makefile.
+
+    4.	When using the Makefile generated from the Imakefile, the loader says
+	things like, "ld: ./lib/Xaw/libXaw.a: No such file or directory".  You
+	are not building in the contrib directory, so try re-defining
+	LOCAL_LIBRARIES to be "-lXaw -lXmu -lXt -lXext -lX11" in the Makefile.
+
+    5.	Compiler complains about non-existent fns.h.  Try "make config" first.
+	If this does not work, hack config.1st to put the correct definitions
+	for GETXALARMPIDS and KILLPATH in fns.h, and create the xfortune & xyow
+	shell scripts (if you can be bothered).  None of this is essential for
+	xalarm, but something has to be defined in fns.h.
+
+	If you don't have "kill", "ps", "grep" or "colrm", you can compile
+	xalarm, but you won't be able to use -kill, -reset or -list options.
+
+	The command ps(1) lists processes.  The command grep(1) is a pattern
+	matcher.  The command colrm(1) removes everything from its input after
+	the sixth column.  Look at the file config.1st.
+
+    6.	Compiler complains about gethostname(2), uname(2), getpwuid(3),
+	getuid(2), pwd.h, getlogin(3) or cuserid(3).  These are the different
+	ways in which xalarm gets the host name, and the user's name and home
+	directory.  See the Imakefile or Makefile.alt on how to control which
+	of these calls are used using compiler symbol defines.
+
+    7.	Compiler complains about flock(2), lockf(3) or fcntl(2).  This is how
+	xalarm locks an alarm file before writing to it.  See the Imakefile or
+	Makefile.alt on how to control which of these calls are used using
+	compiler symbol defines.
+
+    8.	Compiler complains about fseek(3).  See the Imakefile or Makefile.alt
+	on how to xalarm use lseek(2) instead, using compiler symbol defines.
+
+    9.	Compiler complains about rename(2).  See the Imakefile or Makefile.alt
+	on how to make xalarm use link(2)/unlink(2) instead, using compiler
+	symbol defines.
+
+   10.	Compiler complains about the type declaration of fork(2).  See the
+	Imakefile or Makefile.alt on how to control how it is defined, using
+	compiler symbol defines.
+
+   11.	If you don't have "fortune" or "yow", you can't have "xfortune" or
+	"xyow".
+
+	What about other programs, along with xyow and xfortune, can I make
+	these too?  To make the executable shell script "xyourprogram" in the
+	current directory, do:
+
+		% config.1st [-quick] yourprogram
+
+	You will be asked about "ps" etc. again, but persevere.  You will have
+	to install both the executable and manual page yourself.  The manual
+	page would be an exact copy of xmemo.man.  If xmemo.man is not made:
+
+		% make xmemo.man
+
+
+RUNNING
+~~~~~~~
+
+    1.	The alarm comes up with buttons overlayed etc., it's a mess.  The
+	resources aren't around and xalarm is almost completely controlled by
+	them.  Either install the resources (so others can also use xalarm), or
+	include them in your ~/.xresources file.  When xalarm is first made,
+	the resources are merged automatically so that you need not do this, at
+	least for that current session.
+
+    2.	Xalarm does not use your user name as the alarm popup name, and
+	complains about not being able to open your alarm file, on some
+	systems.  This may be because xalarm is using getpwuid() et al to get
+	the user name and home directory, but no /etc/passwd file exists on the
+	local host.  You could compile xalarm so that it uses a different
+	method; see 6 under COMPILATION.
+
+    3.	You want to layout the alarm buttons differently, don't you?  Mine not
+	good enough?  The buttons are within a Form widget, so have a look at
+	the Xaw man page for this.  Each button has the placement resources
+	fromHoriz, fromVert, horizDistance & vertDistance.  There are some
+	suggestions in the xalarm man page too.
+
+	The button box and message label are also in a (higher level) Form
+	widget, so you can also change the relationship of button box to
+	message text.  See the man page too.
+
+	Note that the ordering of resources are important; you can't refer to a
+	widget in a resource before it's created by xalarm.  The order of
+	creation is:
+
+	    Parent	Widget(s)
+	    ---------------------
+	    alarm	buttons
+	    buttons	quit snooze snooze1 snooze5 snooze15 snoozetime
+	    alarm	message
+
+    4.	A good font alternative to the "-times-" family (for something slightly
+	more readable) is "-new century schoolbook-".  See the EXAMPLE RESOURCE
+	section of the man page.
+
+    5.  When using the -kill, -reset or -list options, weird text appears and
+	the command fails.  This may be due to your ~/.cshrc file, or
+	equivalent, doing some output.  It shouldn't be.
+
+    6.	Occasionally, an xalarm process appears not to save its alarm when the
+	X session is terminated.  This may actually be due to the fact that
+	other xalarm processes over-wrote the information.  You may need to
+	specify that xalarm use a different method of locking files (see 7
+	under COMPILATION) and/or moving to the end of the file (see 8 under
+	COMPILATION), using compiler symbol defines.  You must then rebuild
+	xalarm.
+
+
+BUGS
+~~~~
+
+	If you have any bugs, comments, suggestions, code, fixes, please let me
+	know and I will make an attempt to include them.  A few ``things'' are
+	mentioned in the bugs section of the manual.  Don't forget to include
+	the xalarm version number ("xalarm -version" gives it you), machine/OS,
+	X11 release & patch, WM used, etc.

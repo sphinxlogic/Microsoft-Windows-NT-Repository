@@ -1,0 +1,62 @@
+PKGINST=xlock
+ORIG=/tmp/xlock.man
+DEST=xlock.1
+
+echo "\nDo you want to install the online manual page (y/n) ? \c"
+read cmd
+if [ "$cmd" = "y" -o "$cmd" = "Y" ]
+then
+	echo "Enter the destination for the manual page: [default is /opt/man/man1] \c"
+	read dir
+	if [ "$dir" = "" ]
+	then
+		dir=/opt/man/man1
+	fi
+	if [ -d $dir ]
+	then
+		if [ -d $dir/man1 ]
+		then
+			dir=$dir/man1
+		else
+			if [ "`basename $dir`" = "man1" ]
+			then 
+				:
+			else
+				dir=$dir/man1
+				mkdir $dir >/dev/null 2>&1
+				chmod 755 $dir >/dev/null 2>&1
+				chown bin $dir >/dev/null 2>&1
+				chgrp bin $dir >/dev/null 2>&1
+			fi
+		fi
+		cp ${ORIG} ${dir}/${DEST}
+		chmod 444 ${dir}/${DEST}
+		echo "Manual page installed in $dir "
+		/usr/sbin/installf $PKGINST ${dir}
+		/usr/sbin/installf $PKGINST ${dir}/${DEST}
+		/usr/sbin/installf -f $PKGINST
+	else
+		echo "Invalid directory selected."
+		echo "The manual page is left in ${ORIG}"
+		# remove temporary files
+		echo "Removing package association with temporary installation files from /tmp"
+		/usr/sbin/removef $PKGINST ${ORIG}  >/dev/null
+		/usr/sbin/removef $PKGINST /tmp >/dev/null
+		/usr/sbin/removef -f $PKGINST
+		exit 0
+	fi
+
+	if [ -x /usr/ucb/catman ]
+	then
+		echo "Updating the whatis file for the addon manual pages ...\c"
+		/usr/ucb/catman -w -M /opt/man
+		echo "completed."
+	fi
+fi
+
+# remove temporary files
+echo "Removing package association with temporary installation files from /tmp"
+/usr/sbin/removef $PKGINST ${ORIG}  >/dev/null
+/usr/sbin/removef $PKGINST /tmp >/dev/null
+/usr/sbin/removef -f $PKGINST
+exit 0

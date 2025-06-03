@@ -1,0 +1,265 @@
+Date: Thu, 28 Jan 93 20:13:49 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: liberte@cs.uiuc.edu
+Subject: How to do better than Multiple Inheritance
+Cc: gnu-objc-ibex@prep.ai.mit.edu, gnu-objc@prep.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+[Since this is an important issue I am forwarding this to a couple of
+the GNU mailing lists...]
+
+Dan LaLiberte <liberte@cs.uiuc.edu> writes:
+> What do you think about the possibility of adding
+> multiple inheritance to GNU Objective-C?
+
+I understand this temptation, arising from the deficiencies of
+delegation, but I don't think MI is the answer you're looking for.  MI
+is actually a fairly crude tool for inheriting different pieces of
+implementation from different classes:
+
+(1) MI can't handle the situation where several instances want to
+share a "parent" object to which substantial implementation should be
+delegated.
+
+For example, if you have a document object supports multiple "views"
+of itself, you may want each document-view to respond to most of the
+messages that the document object itself would respond to.  MI doesn't
+address this because it assumes that the "parent" must always be
+imbedded in the "child".
+
+(2) In cases of conflicting inheritance, you lose all but the coarsest
+control over what comes from where.  While fully explicit inheritance
+rules can sometimes help, there will still be plenty of situations
+where you'll get boxed in by MI.
+
+For example, in an intertwined MI hierarchy of Controls and Cells,
+GlorpButton might want to inherit from Button and GlorpCell.  Let's
+suppose that GlorpCell acts much like ButtonCell, but is implemented
+completely differently.  Now MI is hosed!  Button would already have
+multi-inherited most Cell methods from ButtonCell.  Thus, even if MI
+allowed us to choose a "preferred" parent class, it would provide no
+way for GlorpButton to inherit just Cell functionality from GlorpCell.
+We're back to explicit delegation.
+
+(3) One of Obj-C's hallmarks is that each of its small number of
+features is very poweful and flexible for the amount of complexity it
+adds to the language.  For example, Protocols are a great addition
+because, despite their utter simplicity, they directly support the
+correct basis for typing in OOP---functionality, rather than
+implementation.  MI, by contrast, is only a partial solution to the
+problem it tries to address---reuse of implementation.
+
+
+I'd really like to see a good solution to the implementation re-use
+problem.  Explicit delegation is flexible enough, but as you know
+suffers from several problems:
+
+* It generates lots of boilerplate which becomes a maintenance
+headache (when you're overriding to inherit from the "other
+parent")...or maybe a C preprocessor headache.
+
+* It's up to twice as slow as ordinary messaging due to the extra
+message call overhead.  Penalties go even higher if you try to make
+things more compact by using general runtime delegation mechanisms
+like forward::.
+
+
+Here's one possible solution (sadly, not compatible with the current
+GNU Obj-C run-time).  It provides a concise, but flexible @super
+notation to support inheritance of implementation from different parts
+of the class hierarchy.  It is transparent to implementation code,
+affecting only interface declarations.  In particular, overriding and
+modification of inherited implementations looks just like it always
+did.
+
+The idea is that we can designate Protocols for which the meaning of
+"super" in overridden methods---and the meaning of "self" in
+non-overridden methods---is modified.  For example, here is how I
+imagine the GlorpButton example above being implemented:
+
+	@interface GlorpButton : Button
+	{
+	    // Inherit <Cells> methods from GlorpCell class.
+	    // Make inherited implementations act on state in "cell".	   
+
+	    @super<Cells> GlorpCell *cell;
+	    ...
+	}
+	...
+	@end
+
+Normally "super" invokes a fixed implementation of the method on a
+parent object which lives parasitically inside the child.  But by
+designating an associated object to be "@super" for some protocol, an
+appropriate fixed implementation can be invoked on a different,
+external "parent" object (the designated instance var) instead.
+
+In the same way, if a method in the protocol was not overridden, it
+would be dispatched by default to the object designated as @super for
+that protocol, using the same implementation that would be obtained if
+"self" were equal to that associated object.
+
+So the intended effect of the above example is that:
+
+* All <Cells> methods sent to a GlorpButton would, by default, really
+be sent the GlorpButton's "cell" instance variable.  Just as with
+ordinary dispatch, the implementation would be chosen at run-time,
+depending on the actual sublclass of GlorpCell occupied by "cell".
+
+* If GlorpButton overrode a <Cells> method, then any message to
+"super" within such an implementation would invoke GlorpCell's
+implementation of that message on "cell" (indepedent of the real class
+of "cell").  For example:
+
+	@implementation GlorpButton
+	
+	- (int)intValue
+	{
+	    // Compute value using the *inherited* intValue.
+	    // (This comes from "cell", considered as a GlorpCell.)
+	   
+	    return ([super intValue] + 1);
+	}
+	...
+	@end
+
+(To get the intValue of cell according to its runtime class, [cell
+intValue] would work as always.)
+
+Based on the above example we see that it would have to be permissible
+to make stricter redeclarations of existing instance variables, at
+least for the purpose of @super designation.  This shouldn't be a big
+problem because it doesn't require any retroactive changes to
+previously compiled code in superclasses.  Also, note that any @super
+variables would have to be statically typed, since the purpose is to
+inherit implementation from somewhere.
+
+This proposal is not (portably) compatible with the current GNU
+Objective-C run-time because the "self" argument to method
+implementation calls is hard-compiled in.  If the current message-call
+conventions are kept, it also seems that any implementation of @super
+would have to be equivalent to explicit delegation or forwarding, and
+would thereby incur the corresponding penalties in execution time.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+
+From: billb@jupiter.fnbc.com (Bill Burcham)
+Date: Fri, 29 Jan 93 09:34:19 -0600
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: How to do better than Multiple Inheritance
+Cc: burchard@geom.umn.edu
+
+Cool ideas!  I like the idea of using protocols for conflict
+resolution in MI.  What I don't see is the need for:
+
+	@interface GlorpButton : Button
+	{
+	    // Inherit <Cells> methods from GlorpCell class.
+	    // Make inherited implementations act on state in "cell".	  
+
+	    @super<Cells> GlorpCell *cell;
+	    ...
+	}
+	...
+	@end
+
+the cell instance variable to be visible to an instance of GlorpButton
+(or maybe visible, but the implementer of GlorpCell shouldn't have to
+think up a name for that instance).  Also, are you insinuating that I
+would have to alloc a GlorpCell myself in - init?  Would the runtime
+do it for me?  Let's say that the runtime _will_ alloc objects and
+init all @super outlets with instances of the proper class -- then how
+is the better than the runtime alloc'ing a single object with the
+superset of all the ivars?  In asking that last question I start to
+think maybe there _are_ advantages: maybe it would be nice to have an
+ivar in GlorpButton with a name the same as one in Button, but with a
+different meaning (this would be nice, so I wouldn't have to worry
+about ivar name conflicts in my new subclass: GlorpButton).  I can see
+arguments for having seperate objects, but I don't see the need for
+the cell ivar in the .h file.  Would this do:
+
+	@interface GlorpButton : Button, <Cells> GlorpCell
+	{
+	    ...
+	}
+	...
+	@end
+
+You could still have the runtime actually create a GlorpButton(as a
+subclass of Button -- just like it works now) and a GlorpCell.  The
+GlorpButton would not usually need direct access to the instance of
+GlorpCell.  When GlorpButton needs to get at the id of one of these
+superclass objects, we could have an Object method to do so perhaps:
+	- superclassInstance:(id)aClassObject;
+
+So we could write something like:
+
+	[self superclassInstance:GlorpCell];
+
+Just some random thoughts.  I also am very intrigued with
+prototype-instance languages like (I think) GemStone, and Self, where
+there is no distinction between Class objects and "instance" objects.
+Any object can be used as a prototype for other objects.  Methods and
+ivars can be added/removed/changed at runtime, and objects that
+inherit those things dynamically get the altered behavior.  I realize
+this is beyond the scope of the GNU Objective-C project but it is
+really cool to think about anyhow.
+
+---
++--------------------------------+----------------------------------+
+|          Bill Burcham          | "Make no small plans; they have  |
+| First National Bank of Chicago | no magic to stir men's souls"    |
+|    billb@fnbc.com  (NeXTmail)  |      Daniel J. Burnham           |
++--------------------------------+----------------------------------+
+
+Date: Fri, 29 Jan 93 12:19:34 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: billb@jupiter.fnbc.com (Bill Burcham)
+Subject: Re: How to do better than Multiple Inheritance
+Cc: gnu-objc@prep.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+> Cool ideas!  I like the idea of using protocols for conflict
+> resolution in MI.  What I don't see is the need for:
+> [...]
+> the cell instance variable to be visible to an instance of
+> GlorpButton
+
+Yes, this is the difficult part of how to do notation for this scheme.
+Because of the examples I gave, I think it's important to be able to
+use instance variables to hold state for implementations culled from
+other parts of the hierarchy, rather than always using imbedded parent
+objects.
+
+The problem is that the appropriate instance variables are often
+already inside some other parent object, and therefore syntactically
+inaccessible (for good reason, to be sure).  So there needs to be some
+notational system which lets the compiler resolve this.
+
+> Would this do:
+> 	@interface GlorpButton : Button, <Cells> GlorpCell
+> 	{
+> 	    ...
+> 	}
+> 	...
+> 	@end
+
+This could work if the compiler can figure out where to put the state
+for <Cells> methods.  If Control had already set its "cell" instance
+var to be a parent object for <Cells> methods, for example, then
+perhaps that could imply an interpretation of the above.  Unless such
+resolution is possible, maybe use of parent vars for MI should not be
+allowed?
+
+I appreciate your thoughts...
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+

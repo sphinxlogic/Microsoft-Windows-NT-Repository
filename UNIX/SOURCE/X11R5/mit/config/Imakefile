@@ -1,0 +1,103 @@
+XCOMM $XFree86: mit/config/Imakefile,v 2.5 1994/03/03 12:40:20 dawes Exp $
+XCOMM $XConsortium: Imakefile,v 1.14 91/12/02 11:24:14 rws Exp $
+
+/*
+ * This is used to recreate imake.  Makefile.ini is used to generate imake
+ * the first time.
+ */
+
+DEPLIBS = 
+HEADERS = imakemdep.h 
+CFFILES = $(HEADERS) *.rules *.tmpl *.def *.bac *.cf
+CPP_PROGRAM = CppCmd
+INCLUDES = -I$(BUILDINCDIR)
+#ifdef CrossCompiling
+BOOTSTRAPCFLAGS = -DCROSS_COMPILE
+#endif
+DEFINES = $(SIGNAL_DEFINES) $(BOOTSTRAPCFLAGS) -DCPP_PROGRAM=\"$(CPP_PROGRAM)\"
+
+#ifdef MacIIArchitecture
+XBSDLIB = /**/
+#endif
+
+#ifdef NeedBerklib
+XBSDLIB = /**/
+#endif
+
+#if NeedInetEmulLib
+XINETLIB = /**/
+#endif
+
+#ifdef XFree86Version
+
+/*
+ * This is so we don't have to change the toplevel Imakefile
+ * We let make 'Makefiles' regenerate X386Conf.tmpl and the updated Makefile
+ */
+
+IMAKE_CMD=$(IMAKE)
+
+Makefiles::
+	$(RM) Makefile.x386
+	$(IMAKE) -DMakefileX386 -s Makefile.x386
+	$(MAKE) $(MFLAGS) -f Makefile.x386 X386Conf.tmpl
+	$(MAKE) $(MFLAGS) Makefile
+	$(RM) Makefile.x386
+
+#ifdef MakefileX386
+#if XF86MonoServer
+#define X386Vga2Args VGA2DRIVER X386Vga2Drivers
+#define X386Hga2Args HGA2DRIVER X386Hga2Drivers
+#define X386Bdm2Args BDM2DRIVER X386Bdm2Drivers
+#else
+#define X386Vga2Args
+#define X386Hga2Args
+#define X386Bdm2Args
+#endif
+#if XF86VGA16Server
+#define X386Vga16Args VGA16DRIVER X386Vga16Drivers
+#else
+#define X386Vga16Args
+#endif
+#if XF86SVGAServer
+#define X386VgaArgs VGADRIVER X386Vga256Drivers
+#else
+#define X386VgaArgs
+#endif
+#if XF86S3Server
+#define XF86S3Args S3DRIVER XF86S3Drivers
+#else
+#define XF86S3Args
+#endif
+X386Conf.tmpl::
+	$(RM) $@
+	$(SHELL) x386config.sh \
+	  X386VgaArgs X386Vga16Args X386Vga2Args X386Hga2Args X386Bdm2Args \
+	  XF86S3Args RENDERER FontRenderers
+#endif
+
+#endif
+
+#ifdef CrossCompiling
+#define INoCrossCompilation
+#undef ImakeDependency
+#define ImakeDependency(dummy) @@\
+Makefile::  imake
+
+OBJS=imake.o
+SRCS=imake.c
+
+ComplexCrossProgramTarget(imake)
+#else
+SimpleProgramTarget(imake)
+#endif
+
+BuildIncludes($(HEADERS),config,..)
+
+InstallMultipleDestFlags(install,$(CFFILES),$(CONFIGDIR),$(INSTDATFLAGS))
+InstallNonExecFile(README,$(CONFIGDIR))
+
+depend::
+
+clean::
+	$(RM) ccimake

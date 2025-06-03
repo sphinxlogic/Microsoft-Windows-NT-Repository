@@ -1,0 +1,303 @@
+Newsgroups: comp.sys.next.programmer
+From: mauriti@cs.tu-berlin.de (Frank Hartlep)
+Subject: Re: Loading classes at run-time: How?
+Organization: Technical University of Berlin, Germany
+Date: Mon, 21 Sep 1992 13:14:22 GMT
+
+Here's the promised code for loading/unloading classes in a
+random order. This means that sets of classes loaded
+with objc_loadModules() do not need to be unloaded in reverse
+order - unload them as you like. Just take care not to unload
+a class if subclasses are still around. Two notes on loading:
+when loading a set of classes the name of a class must
+precede the names of its subclasses in the file list,
+otherwise the load will fail; objc_loadModules will also load
+non-class object files.
+
+The C code is a snippet of my original code. I hope I haven't
+introduced any errors (I haven't tested it, but it compiled well).
+LoadModules() loads all the object or archive files in alphabetic
+order in a directory of your choice. It just uses plain old
+objc_loadModules. UnloadClasses() unloads the class set associated
+with a given mach header. If you're wondering why I'm giving you
+assembler code: The code is a patched version of objc_unloadModules().
+I only changed two things: 1. Instead of obtaining a mach header by
+calling rld_current_header it now uses the one passed as argument,
+and 2. it doesn't call rld_unload anymore before finishing.
+After trying many things this is still the best solution
+I could think of.
+I've tried the code quite a few times, and so far no errors
+showed up. What I don't know is if the code handles categories
+correctly. If you find any bugs, please let me know.
+Btw, NextAnswers misc.567 was of great help. Read it, if you haven't.
+
+
+Frank
+
+
+__________
+
+
+
+#include <libc.h>
+#include <objc/objc-load.h>
+#include <cthreads.h>
+#include <rld.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/dir.h>
+#include <sys/param.h>
+
+
+extern int UnloadClasses (
+        struct mach_header *, NXStream *, void (*) (Class, Category));
+
+
+static void ToSeeIsToBelieve(
+        Class           LoadedClass,
+        Category        LoadedCategory)
+{
+        if (LoadedCategory != NULL)
+                printf (
+                        "class = %s, category = %s\n",
+                        LoadedCategory->class_name,
+                        LoadedCategory->category_name);
+        else
+                printf ("class = %s\n", LoadedClass->name);
+        return;
+}
+
+
+static int IsObjectOrArchiveFile (
+        struct direct   *File)
+{
+        char            *Extension;
+
+        Extension = rindex (File->d_name, '.');
+        return Extension != NULL && (! strcmp (Extension, ".o") ||
+                                     ! strcmp (Extension, ".a"));
+}
+
+
+int LoadModules (
+        char            *WhereToLoadFrom,
+        struct mach_header      **MachHeader,
+        vm_size_t       *RegionSize)
+{
+        NXStream        *ErrorStream;
+        char            *OutputFile = "rld.gdb";
+        boolean_t       Shared;
+        char            Cwd [MAXPATHLEN + 1],
+                        **LoadFiles;
+        int             IsBadLoad, Files, i;
+        port_t          ObjectName;
+        struct direct   **ToBeLoaded;
+        vm_address_t    Region;
+        vm_inherit_t    Inheritance;
+        vm_offset_t     Offset;
+        vm_prot_t       Protection, MaxProtection;
+
+        ErrorStream = NXOpenFile (fileno (stderr), NX_WRITEONLY);
+        getwd (Cwd);
+        if (chdir (WhereToLoadFrom) == -1) {
+                NXPrintf (ErrorStream, "no such directory\n");
+                goto Error;
+        }
+        LoadFiles = (char **) malloc (1);
+        Files = scandir (".", &ToBeLoaded, IsObjectOrArchiveFile, alphasort);
+        for (i = 0; i < Files; i ++) {
+                LoadFiles = (char **) realloc (
+                                        LoadFiles, (i + 2) * sizeof (char *));
+                LoadFiles [i] = ToBeLoaded [i]->d_name;
+        }
+        LoadFiles [i] = NULL;
+        printf ("Loading ...\n");
+        IsBadLoad = objc_loadModules (
+                        LoadFiles, ErrorStream, ToSeeIsToBelieve,
+                        MachHeader,OutputFile);
+        for (i = 0; i < Files; i ++)
+                free (ToBeLoaded [i]);
+        free (ToBeLoaded);
+        chdir (Cwd);
+        if (IsBadLoad)
+                goto Error;
+        Region = (vm_address_t) *MachHeader;
+        vm_region (
+                task_self (), &Region, RegionSize,
+                &Protection, &MaxProtection, &Inheritance,
+                &Shared, &ObjectName, &Offset);
+        if (! rld_unload_all (ErrorStream, 0))
+                goto Error;
+        NXClose (ErrorStream);
+        return 0;
+Error:
+        NXClose (ErrorStream);
+        return -1;
+}
+
+
+void UnloadClassesAndFree (
+        struct mach_header      *MachHeader,
+        vm_size_t       RegionSize)
+{
+        printf ("Unloading ...\n");
+        UnloadClasses (MachHeader, NULL, ToSeeIsToBelieve);
+        vm_deallocate (
+                task_self (),(vm_address_t) MachHeader,RegionSize);
+        return;
+}
+
+
+__________
+
+
+
+#NO_APP
+
+.set _send_unload_message_to_category,0x05033c76
+.set _send_unload_message_to_class,0x05033cbe
+.set __objc_remove_category,0x050322cc
+.set __sel_unloadSelectors,0x5032534
+
+.cstring
+LC0:
+        .ascii  "__OBJC\0"
+LC1:
+        .ascii  "__module_info\0"
+LC2:
+        .ascii  "__selector_strs\0"
+
+.text
+        .even
+.globl _UnloadClasses
+_UnloadClasses:
+        linkw a6,#-8
+        moveml d2/d3/d4/d5/d6/d7/a2/a3/a4,sp@-
+        movel a6@(12),a4
+        movel a6@(16),a3
+        movel a6@(8),d5
+        pea a6@(-4)
+        pea LC1:l
+        pea LC0:l
+        movel d5,sp@-
+        jsr _getsectdatafromheader
+        movel d0,a2
+        movel a2,d7
+        movel a6@(-4),d6
+        addw #16,sp
+        tstl a2
+        jeq L2
+        tstl d6
+        jeq L2
+        clrl d4
+L10:    movel a2@(12),a0
+        movew a0@(8),d4
+        movel d4,d2
+        clrl d3
+        bras L3
+L5:     tstl a3
+        beqs L4
+        movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        movel a0@(12:b,d2:l:4),a0
+        movel a0@(4),sp@-
+        jsr _objc_getClass
+        addqw #4,sp
+        movel d0,sp@-
+        jsr a3@
+        addqw #8,sp
+L4:     movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        jsr _send_unload_message_to_category
+        addqw #4,sp
+        addql #1,d2
+L3:     movel a2@(12),a0
+        movew a0@(8),d3
+        movew a0@(10),d4
+        movel d3,d0
+        addl d4,d0
+        cmpl d2,d0
+        bgts L5
+        clrl d2
+        clrl d3
+        bras L6
+L8:     tstl a3
+        beqs L7
+        clrl sp@-
+        movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        jsr a3@
+        addqw #8,sp
+L7:     movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        jsr _send_unload_message_to_class
+        addqw #4,sp
+        addql #1,d2
+L6:     movel a2@(12),a0
+        movew a0@(8),d3
+        cmpl d2,d3
+        bgts L8
+        movel a6@(-4),d0
+        subl a2@(4),d0
+        movel d0,a6@(-4)
+        beqs L9
+        addl a2@(4),a2
+L9:     tstl a6@(-4)
+        jne L10
+        movel d7,a2
+        movel d6,a6@(-4)
+L16:    movel a2@(12),a0
+        clrl d0
+        movew a0@(8),d0
+        movel d0,d2
+        clrl d4
+        clrl d3
+        bras L11
+L12:    movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        jsr __objc_remove_category
+        addqw #4,sp
+        addql #1,d2
+L11:    movel a2@(12),a0
+        movew a0@(8),d4
+        movew a0@(10),d3
+        movel d4,d0
+        addl d3,d0
+        cmpl d2,d0
+        bgts L12
+        clrl d2
+        clrl d3
+        bras L13
+L14:    movel a2@(12),a0
+        movel a0@(12:b,d2:l:4),sp@-
+        jsr _objc_getClasses
+        movel d0,sp@-
+        jsr _NXHashRemove
+        addqw #8,sp
+        addql #1,d2
+L13:    movel a2@(12),a0
+        movew a0@(8),d3
+        cmpl d2,d3
+        bgts L14
+        movel a6@(-4),d0
+        subl a2@(4),d0
+        movel d0,a6@(-4)
+        beqs L15
+        addl a2@(4),a2
+L15:    tstl a6@(-4)
+        bnes L16
+        pea a6@(-8)
+        pea LC2:l
+        pea LC0:l
+        movel d5,sp@-
+        jsr _getsectdatafromheader
+        movel d0,d1
+        addl a6@(-8),d1
+        movel d1,sp@-
+        movel d0,sp@-
+        jsr __sel_unloadSelectors
+        clrl d0
+L2:     moveml a6@(-44),d2/d3/d4/d5/d6/d7/a2/a3/a4
+        unlk a6
+        rts
+

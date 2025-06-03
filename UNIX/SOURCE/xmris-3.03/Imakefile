@@ -1,0 +1,643 @@
+# xmris 3.03 Imakefile, modified by Greg Lehey, LEMIS, 11 May 1993, 
+# to comply with "standard" UNIX System V.4.2.
+# Files:
+SCORE = /opt/lib/xmris
+BINDIR = /opt/bin
+MANDIR = /opt/man/cat1
+# For full details of the switches herein, read the COMPILATION file
+# Imake file for xmris V3.03 19 January 1993
+# I need special include directories for gcc, if you don't
+# the comment it out
+#STD_INCLUDES = -I/inmos/arch/lib/gcc-ansi
+# DEC station 5000 appears to require these includes
+#STD_INCLUDES = -I/usr/include/mit
+# and they require these two libraries changed
+# (I think it is xmkmf's job to get this right)
+#XLIB = -lXext-mit -lX11-mit
+# select your compiler (comment out if you want the default)
+#CC = gcc -ansi -pedantic -nostdinc -Wall -Wpointer-arith -Wwrite-strings -Wconversion
+#CC = gcc -traditional -nostdinc -Wall -Wpointer-arith -Wwrite-strings -Wconversion -fno-builtin
+# uncomment and fiddle with the following lines if you want
+# is your ANSI compiler confused about functions returning pointers to functions?
+#BROKEN = -DBROKEN_FPTRS
+# do you not use 2's complement?
+#TOOS = -DNOT2SCOMP
+# are you sysv flavour?
+#SYSV = -DSYSV
+# default game gender False = male, True = female
+#GENDER = -DGAME_GENDER=True
+# You must specify a fixed width font that exists.
+#FONT = '-DFONT_NAME="-*-courier-*-r-*-*-18-*-*-*-*-*-*-*"'
+# where is the high score file
+#SCORE = /home/elberton/users/nathan/games/xmris
+# do you want random apples?
+#RANDOM = -DRANDOM_APPLES
+# don't you have gettimeofday?
+#TIME = -DUSETIME
+# don't you have lockf?
+# beware, SunOS 4.1 rpc.lockd grows and grows with lockf (4.1.1 is ok)
+#LOCK = -DNOLOCKF
+# do you trust the code?
+#NDEBUG = -DNDEBUG
+# Allow debugging?
+#CDEBUGFLAGS = -g
+# force static libraries?
+#EXTRA_LOAD_FLAGS = -static
+# does the X library require maths lib (mit seems to)
+#MATHSLIB = -lm
+# I bung the executables else where
+#BINDIR = /u/nathan/bin/sun4
+# I bung the manual page elsewhere too
+#MANDIR = /inmos/arch/man
+# who owns the executable & score directories
+#OWNER = -o nathan
+# access rights on these things (these are set for a setuid xmris)
+# for open access you want 777, 666 and INSTBINFLAGS respectively for NOLOCKF,
+# or 755, 666 and INSTBINFLAGS, and the personal score files go in users' home dirs
+INSTSCOREDIRFLAGS = $(OWNER) -m 755
+INSTSCOREFILEFLAGS = $(OWNER) -m 644
+INSTPGMFLAGS = $(OWNER) $(INSTUIDFLAGS)
+
+DEFINES = $(GENDER) $(FONT) $(NDEBUG) -DSCORE_DIR='"$(SCORE)"' $(COPY) \
+	$(SYSV) $(LOCK) $(RANDOM) $(BROKEN) $(TOOS) $(TIME)
+SRCS = apple.c create.c declare.c demo.c draw.c monster.c move.c player.c timer.c xmris.c
+OBJS = apple.o create.o declare.o demo.o draw.o monster.o move.o player.o timer.o xmris.o
+LOCAL_LIBRARIES = $(XAWLIB) $(XTOOLLIB) $(XMULIB) $(XLIB) $(MATHSLIB) -L/usr/ucblib -lucb
+DEPLIBS = $(DEPXLIB)
+
+all :: xmris xmsit README
+
+ComplexProgramTarget(xmris)
+
+install :: install.score
+
+#install.score won't destroy an existing score file
+install.score :
+	$(INSTALL) -d $(INSTSCOREDIRFLAGS) $(SCORE)
+	mkdirhier $(SCORE)
+	-cp $(SCORE)/xmris.score .
+	touch xmris.score
+	$(INSTALL) -c $(INSTSCOREFILEFLAGS) xmris.score $(SCORE)
+	$(RM) xmris.score
+
+install :: $(BINDIR)/xmsit
+
+$(BINDIR)/xmsit : $(BINDIR)/xmris
+	rm -f $(BINDIR)/xmsit
+	ln -s $(BINDIR)/xmris $(BINDIR)/xmsit
+
+README: xmris.man
+	$(RM) README
+	tbl xmris.man | nroff -man > README
+
+# target added by Greg Lehey, LEMIS, 11 May 1993
+# why is this a symlink?
+xmsit:	xmris
+	rm -f xmsit
+	ln -s xmris xmsit
+
+NormalProgramTarget(scram, scram.o, $(DEPXLIB), $(XLIB), )
+
+# these are the object dependencies
+apple.o : xmris.h patchlevel.h apple.c
+
+create.o : xmris.h patchlevel.h create.c declare.h
+
+declare.o : xmris.h patchlevel.h declare.c declare.h
+
+demo.o : xmris.h patchlevel.h demo.c
+
+draw.o : xmris.h patchlevel.h draw.c
+
+monster.o : xmris.h patchlevel.h monster.c
+
+move.o : xmris.h patchlevel.h move.c
+
+player.o : xmris.h patchlevel.h player.c
+
+timer.o : xmris.h patchlevel.h timer.c
+
+xmris.o : xmris.h patchlevel.h xmris.c
+
+tar :
+	tar cf xmris.3.03.tar README CHANGES CHANGES.3.02 CHANGES.3.03 \
+	  COMPILATION COPYRIGHT Imakefile Makefile.std \
+	  patchlevel.h xmris.h declare.h apple.c create.c \
+	  declare.c demo.c draw.c monster.c move.c player.c timer.c xmris.c \
+	  Xmris*.ad xmris.man scram.c \
+	  bitmaps/apple\/*.mono bitmaps/apple\/*.color \
+	  bitmaps/board\/*.mono bitmaps/board\/*.color \
+	  bitmaps/chomp\/*.mono bitmaps/chomp\/*.color \
+	  bitmaps/drone\/*.mono bitmaps/drone\/*.color \
+	  bitmaps/icon\/*.mono bitmaps/icon\/*.color \
+	  bitmaps/munch\/*.mono bitmaps/munch\/*.color \
+	  bitmaps/normal\/*.mono bitmaps/normal\/*.color \
+	  bitmaps/player\/*.mono bitmaps/player\/*.color \
+	  bitmaps/prize\/*.mono bitmaps/prize\/*.color \
+	  bitmaps/xtra\/*.mono bitmaps/xtra\/*.color \
+	  bitmaps/board/fill*.h bitmaps/board/edge*.h \
+	  bitmaps/board/rect.h bitmaps/board/oblong.h \
+	  bitmaps/icon/mris.h bitmaps/icon/msit.h
+	rm -f xmris.3.03.tar.Z
+	compress xmris.3.03.tar
+	shar -L50 -oxmris -b xmris.3.03.tar.Z
+
+clean.sprites::
+	$(RM) bitmaps/apple\/*.h
+	$(RM) bitmaps/board/cherry.h bitmaps/board/digits.h bitmaps/board/seat.h
+	$(RM) bitmaps/chomp\/*.h
+	$(RM) bitmaps/drone\/*.h
+	$(RM) bitmaps/icon/shell*.h bitmaps/icon/solid*.h
+	$(RM) bitmaps/munch\/*.h
+	$(RM) bitmaps/normal\/*.h
+	$(RM) bitmaps/player\/*.h
+	$(RM) bitmaps/prize\/*.h
+	$(RM) bitmaps/xtra\/*.h
+
+# makes the sprites from the color and mono images
+# must have made scram beforehand
+SCRAM = ./scram
+
+sprites : apple_sprites board_sprites icon_sprites player_sprites \
+	normal_sprites munch_sprites xtra_sprites drone_sprites \
+	chomp_sprites prize_sprites
+
+apple_sprites : bitmaps/apple/apldcy.h bitmaps/apple/aplnorm.h \
+	bitmaps/apple/aplrock.h bitmaps/apple/aplrot.h \
+	bitmaps/apple/aplspl.h bitmaps/apple/gstnorm.h \
+	bitmaps/apple/gstrock.h
+
+board_sprites : bitmaps/board/cherry.h bitmaps/board/digits.h \
+	bitmaps/board/seat.h
+
+chomp_sprites : bitmaps/chomp/hchmpc.h bitmaps/chomp/hchmpo.h \
+	bitmaps/chomp/schmpc.h bitmaps/chomp/schmpo.h
+
+drone_sprites : bitmaps/drone/hdronw1.h bitmaps/drone/hdronw2.h \
+	bitmaps/drone/hdronf.h \
+	bitmaps/drone/sdronw1.h bitmaps/drone/sdronw2.h \
+	bitmaps/drone/sdronf.h
+
+icon_sprites :	bitmaps/icon/solidi.h bitmaps/icon/shelli.h \
+	bitmaps/icon/solidm.h bitmaps/icon/shellm.h \
+	bitmaps/icon/solidr.h bitmaps/icon/shellr.h \
+	bitmaps/icon/solids.h bitmaps/icon/shells.h \
+	bitmaps/icon/solidt.h bitmaps/icon/shellt.h
+
+munch_sprites : bitmaps/munch/hmnchw1.h bitmaps/munch/hmnchw2.h \
+	bitmaps/munch/hmnchf.h \
+	bitmaps/munch/smnchw1.h bitmaps/munch/smnchw2.h \
+	bitmaps/munch/smnchf.h
+
+normal_sprites : bitmaps/normal/hnormw1.h bitmaps/normal/hnormw2.h \
+	bitmaps/normal/hnormf.h bitmaps/normal/hden.h \
+	bitmaps/normal/snormw1.h bitmaps/normal/snormw2.h \
+	bitmaps/normal/snormf.h bitmaps/normal/sden.h
+
+player_sprites : bitmaps/player/hplyrf.h bitmaps/player/ball.h \
+	bitmaps/player/hplyrh1.h bitmaps/player/hplyrh2.h \
+	bitmaps/player/hplyrp1.h bitmaps/player/hplyrp2.h \
+	bitmaps/player/hplyrs1.h bitmaps/player/hplyrs2.h \
+	bitmaps/player/hplyrw1.h bitmaps/player/hplyrw2.h \
+	bitmaps/player/splyrf.h \
+	bitmaps/player/splyrp1.h bitmaps/player/splyrp2.h \
+	bitmaps/player/splyrs1.h bitmaps/player/splyrs2.h \
+	bitmaps/player/splyrw1.h bitmaps/player/splyrw2.h \
+	bitmaps/player/splyrd1.h bitmaps/player/splyrd2.h \
+	bitmaps/player/splyrh1.h bitmaps/player/splyrh2.h
+
+prize_sprites : bitmaps/prize/cake.h bitmaps/prize/spanner.h \
+	bitmaps/prize/brolly.h bitmaps/prize/mushrm.h \
+	bitmaps/prize/clock.h \
+	bitmaps/prize/gem1.h bitmaps/prize/gem2.h bitmaps/prize/gem3.h
+
+xtra_sprites : bitmaps/xtra/hxtraf.h \
+	bitmaps/xtra/hxtraw1.h bitmaps/xtra/hxtraw2.h \
+	bitmaps/xtra/sxtraf.h \
+	bitmaps/xtra/sxtraw1.h bitmaps/xtra/sxtraw2.h \
+	bitmaps/xtra/xtrbold.h bitmaps/xtra/xtrfaint.h
+
+bitmaps/apple/apldcy.h : bitmaps/apple/apldcy.color bitmaps/apple/apldcy.mono
+	$(SCRAM) bitmaps/apple/apldcy \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/apple/aplnorm.h : bitmaps/apple/aplnorm.color bitmaps/apple/aplnorm.mono
+	$(SCRAM) bitmaps/apple/aplnorm \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/apple/aplrock.h : bitmaps/apple/aplrock.color bitmaps/apple/aplrock.mono
+	$(SCRAM) bitmaps/apple/aplrock \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/apple/aplrot.h : bitmaps/apple/aplrot.color bitmaps/apple/aplrot.mono
+	$(SCRAM) bitmaps/apple/aplrot \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/apple/aplspl.h : bitmaps/apple/aplspl.color bitmaps/apple/aplspl.mono
+	$(SCRAM) bitmaps/apple/aplspl \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/apple/gstnorm.h : bitmaps/apple/gstnorm.color bitmaps/apple/gstnorm.mono
+	$(SCRAM) bitmaps/apple/gstnorm \
+	  COLOR_APPLE_FAINT COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE + \
+	  COLOR_BACKGROUND COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE + \
+	  COLOR_APPLE_FAINT
+
+bitmaps/apple/gstrock.h : bitmaps/apple/gstrock.color bitmaps/apple/gstrock.mono
+	$(SCRAM) bitmaps/apple/gstrock \
+	  COLOR_APPLE_FAINT COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE + \
+	  COLOR_BACKGROUND COLOR_APPLE_1 COLOR_APPLE_2 COLOR_WHITE + \
+	  COLOR_APPLE_FAINT
+
+bitmaps/board/cherry.h : bitmaps/board/cherry.color bitmaps/board/cherry.mono
+	$(SCRAM) bitmaps/board/cherry +s \
+	  COLOR_WHITE COLOR_CHERRY COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_CHERRY COLOR_BLACK COLOR_CHERRY_STALK + \
+	  COLOR_BLACK
+
+bitmaps/board/digits.h : bitmaps/board/digits.color bitmaps/board/digits.mono
+	$(SCRAM) bitmaps/board/digits -s \
+	  COLOR_BACKGROUND COLOR_BLACK + \
+	  COLOR_BACKGROUND COLOR_WHITE +
+
+bitmaps/board/seat.h : bitmaps/board/seat.color bitmaps/board/seat.mono
+	$(SCRAM) bitmaps/board/seat -s \
+	  COLOR_SEAT COLOR_BLACK + \
+	  COLOR_SEAT COLOR_WHITE +
+
+bitmaps/chomp/hchmpc.h : bitmaps/chomp/hchmpc.color bitmaps/chomp/hchmpc.mono
+	$(SCRAM) bitmaps/chomp/hchmpc \
+	  COLOR_CHOMP COLOR_BLACK COLOR_WHITE COLOR_CHOMP_LIP COLOR_BLACK COLOR_BLACK + \
+	  COLOR_CHOMP COLOR_CHOMP COLOR_BLACK COLOR_CHOMP_LIP COLOR_BLACK COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/chomp/hchmpo.h : bitmaps/chomp/hchmpo.color bitmaps/chomp/hchmpo.mono
+	$(SCRAM) bitmaps/chomp/hchmpo \
+	  COLOR_CHOMP COLOR_BLACK COLOR_WHITE COLOR_CHOMP_LIP COLOR_BLACK COLOR_BLACK + \
+	  COLOR_CHOMP COLOR_CHOMP COLOR_BLACK COLOR_CHOMP_LIP COLOR_BLACK COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/chomp/schmpc.h : bitmaps/chomp/schmpc.color bitmaps/chomp/schmpc.mono
+	$(SCRAM) bitmaps/chomp/schmpc \
+	  COLOR_WHITE COLOR_CHOMP COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_CHOMP COLOR_CHOMP COLOR_BLACK +
+
+bitmaps/chomp/schmpo.h : bitmaps/chomp/schmpo.color bitmaps/chomp/schmpo.mono
+	$(SCRAM) bitmaps/chomp/schmpo \
+	  COLOR_WHITE COLOR_CHOMP COLOR_CHOMP_TONGUE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_CHOMP COLOR_CHOMP_TONGUE COLOR_CHOMP COLOR_BLACK +
+
+bitmaps/drone/hdronf.h : bitmaps/drone/hdronf.color bitmaps/drone/hdronf.mono
+	$(SCRAM) bitmaps/drone/hdronf \
+	  COLOR_WHITE COLOR_DRONE COLOR_BLACK COLOR_WHITE + \
+	  COLOR_BLACK COLOR_DRONE COLOR_WHITE COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/drone/hdronw1.h : bitmaps/drone/hdronw1.color bitmaps/drone/hdronw1.mono
+	$(SCRAM) bitmaps/drone/hdronw1 \
+	  COLOR_WHITE COLOR_DRONE COLOR_BLACK COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK COLOR_DRONE COLOR_WHITE COLOR_WHITE COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/drone/hdronw2.h : bitmaps/drone/hdronw2.color bitmaps/drone/hdronw2.mono
+	$(SCRAM) bitmaps/drone/hdronw2 \
+	  COLOR_WHITE COLOR_DRONE COLOR_BLACK COLOR_WHITE COLOR_BLACK + \
+	  COLOR_BLACK COLOR_DRONE COLOR_WHITE COLOR_WHITE COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/drone/sdronf.h : bitmaps/drone/sdronf.color bitmaps/drone/sdronf.mono
+	$(SCRAM) bitmaps/drone/sdronf \
+	  COLOR_DRONE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_DRONE COLOR_DRONE COLOR_BLACK +
+
+bitmaps/drone/sdronw1.h : bitmaps/drone/sdronw1.color bitmaps/drone/sdronw1.mono
+	$(SCRAM) bitmaps/drone/sdronw1 \
+	  COLOR_WHITE COLOR_DRONE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_DRONE COLOR_DRONE COLOR_BLACK +
+
+bitmaps/drone/sdronw2.h : bitmaps/drone/sdronw2.color bitmaps/drone/sdronw2.mono
+	$(SCRAM) bitmaps/drone/sdronw2 \
+	  COLOR_WHITE COLOR_DRONE COLOR_DRONE_TONGUE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_DRONE COLOR_DRONE_TONGUE COLOR_DRONE COLOR_BLACK +
+
+bitmaps/icon/solidi.h : bitmaps/icon/solidi.color bitmaps/icon/solidi.mono
+	$(SCRAM) bitmaps/icon/solidi -s \
+	  COLOR_LETTER_GOT + COLOR_LETTER_GOT +
+
+bitmaps/icon/solidm.h : bitmaps/icon/solidm.color bitmaps/icon/solidm.mono
+	$(SCRAM) bitmaps/icon/solidm -s \
+	  COLOR_LETTER_GOT + COLOR_LETTER_GOT +
+
+bitmaps/icon/solidr.h : bitmaps/icon/solidr.color bitmaps/icon/solidr.mono
+	$(SCRAM) bitmaps/icon/solidr -s \
+	  COLOR_LETTER_GOT + COLOR_LETTER_GOT +
+
+bitmaps/icon/solids.h : bitmaps/icon/solids.color bitmaps/icon/solids.mono
+	$(SCRAM) bitmaps/icon/solids -s \
+	  COLOR_LETTER_GOT + COLOR_LETTER_GOT +
+
+bitmaps/icon/solidt.h : bitmaps/icon/solidt.color bitmaps/icon/solidt.mono
+	$(SCRAM) bitmaps/icon/solidt -s \
+	  COLOR_LETTER_GOT + COLOR_LETTER_GOT +
+
+bitmaps/icon/shelli.h : bitmaps/icon/shelli.color bitmaps/icon/shelli.mono
+	$(SCRAM) bitmaps/icon/shelli -s \
+	  COLOR_LETTER_NOT_GOT + COLOR_LETTER_NOT_GOT +
+
+bitmaps/icon/shellm.h : bitmaps/icon/shellm.color bitmaps/icon/shellm.mono
+	$(SCRAM) bitmaps/icon/shellm -s \
+	  COLOR_LETTER_NOT_GOT + COLOR_LETTER_NOT_GOT +
+
+bitmaps/icon/shellr.h : bitmaps/icon/shellr.color bitmaps/icon/shellr.mono
+	$(SCRAM) bitmaps/icon/shellr -s \
+	  COLOR_LETTER_NOT_GOT + COLOR_LETTER_NOT_GOT +
+
+bitmaps/icon/shells.h : bitmaps/icon/shells.color bitmaps/icon/shells.mono
+	$(SCRAM) bitmaps/icon/shells -s \
+	  COLOR_LETTER_NOT_GOT + COLOR_LETTER_NOT_GOT +
+
+bitmaps/icon/shellt.h : bitmaps/icon/shellt.color bitmaps/icon/shellt.mono
+	$(SCRAM) bitmaps/icon/shellt -s \
+	  COLOR_LETTER_NOT_GOT + COLOR_LETTER_NOT_GOT +
+
+bitmaps/munch/hmnchf.h : bitmaps/munch/hmnchf.color bitmaps/munch/hmnchf.mono
+	$(SCRAM) bitmaps/munch/hmnchf \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_WHITE COLOR_BLACK + \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_WHITE COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/munch/hmnchw1.h : bitmaps/munch/hmnchw1.color bitmaps/munch/hmnchw1.mono
+	$(SCRAM) bitmaps/munch/hmnchw1 \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_WHITE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_MUNCH_2 COLOR_WHITE COLOR_BLACK  COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/munch/hmnchw2.h : bitmaps/munch/hmnchw2.color bitmaps/munch/hmnchw2.mono
+	$(SCRAM) bitmaps/munch/hmnchw2 \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_WHITE COLOR_BLACK COLOR_BLACK + \
+	  COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_MUNCH_2 COLOR_WHITE COLOR_BLACK  COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/munch/smnchf.h : bitmaps/munch/smnchf.color bitmaps/munch/smnchf.mono
+	$(SCRAM) bitmaps/munch/smnchf \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK +
+
+bitmaps/munch/smnchw1.h : bitmaps/munch/smnchw1.color bitmaps/munch/smnchw1.mono
+	$(SCRAM) bitmaps/munch/smnchw1 \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK +
+
+bitmaps/munch/smnchw2.h : bitmaps/munch/smnchw2.color bitmaps/munch/smnchw2.mono
+	$(SCRAM) bitmaps/munch/smnchw2 \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_MUNCH_1 COLOR_MUNCH_2 COLOR_BLACK +
+
+bitmaps/normal/hden.h : bitmaps/normal/hden.color bitmaps/normal/hden.mono
+	$(SCRAM) bitmaps/normal/hden -s \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_WHITE COLOR_BLACK + \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_BLACK COLOR_WHITE +
+
+bitmaps/normal/hnormf.h : bitmaps/normal/hnormf.color bitmaps/normal/hnormf.mono
+	$(SCRAM) bitmaps/normal/hnormf -s \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_WHITE COLOR_BLACK + \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_BLACK COLOR_WHITE +
+
+bitmaps/normal/hnormw1.h : bitmaps/normal/hnormw1.color bitmaps/normal/hnormw1.mono
+	$(SCRAM) bitmaps/normal/hnormw1 -s \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_WHITE COLOR_BLACK + \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_BLACK COLOR_WHITE +
+
+bitmaps/normal/hnormw2.h : bitmaps/normal/hnormw2.color bitmaps/normal/hnormw2.mono
+	$(SCRAM) bitmaps/normal/hnormw2 -s \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_WHITE COLOR_BLACK + \
+	  COLOR_NORMAL COLOR_NORMAL COLOR_BLACK COLOR_WHITE +
+
+bitmaps/normal/sden.h : bitmaps/normal/sden.color bitmaps/normal/sden.mono
+	$(SCRAM) bitmaps/normal/sden \
+	  COLOR_WHITE COLOR_NORMAL COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_NORMAL COLOR_WHITE COLOR_BLACK +
+
+bitmaps/normal/snormf.h : bitmaps/normal/snormf.color bitmaps/normal/snormf.mono
+	$(SCRAM) bitmaps/normal/snormf \
+	  COLOR_WHITE COLOR_NORMAL COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_NORMAL COLOR_NORMAL COLOR_BLACK +
+
+bitmaps/normal/snormw1.h : bitmaps/normal/snormw1.color bitmaps/normal/snormw1.mono
+	$(SCRAM) bitmaps/normal/snormw1 \
+	  COLOR_WHITE COLOR_NORMAL COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_NORMAL COLOR_NORMAL COLOR_BLACK +
+
+bitmaps/normal/snormw2.h : bitmaps/normal/snormw2.color bitmaps/normal/snormw2.mono
+	$(SCRAM) bitmaps/normal/snormw2 \
+	  COLOR_WHITE COLOR_NORMAL COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_NORMAL COLOR_NORMAL COLOR_BLACK +
+
+bitmaps/player/hplyrf.h : bitmaps/player/hplyrf.color bitmaps/player/hplyrf.mono
+	$(SCRAM) bitmaps/player/hplyrf \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrh1.h : bitmaps/player/hplyrh1.color bitmaps/player/hplyrh1.mono
+	$(SCRAM) bitmaps/player/hplyrh1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrh2.h : bitmaps/player/hplyrh2.color bitmaps/player/hplyrh2.mono
+	$(SCRAM) bitmaps/player/hplyrh2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrp1.h : bitmaps/player/hplyrp1.color bitmaps/player/hplyrp1.mono
+	$(SCRAM) bitmaps/player/hplyrp1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND COLOR_BLACK + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrp2.h : bitmaps/player/hplyrp2.color bitmaps/player/hplyrp2.mono
+	$(SCRAM) bitmaps/player/hplyrp2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND COLOR_BLACK + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrs1.h : bitmaps/player/hplyrs1.color bitmaps/player/hplyrs1.mono
+	$(SCRAM) bitmaps/player/hplyrs1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrs2.h : bitmaps/player/hplyrs2.color bitmaps/player/hplyrs2.mono
+	$(SCRAM) bitmaps/player/hplyrs2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrw1.h : bitmaps/player/hplyrw1.color bitmaps/player/hplyrw1.mono
+	$(SCRAM) bitmaps/player/hplyrw1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/hplyrw2.h : bitmaps/player/hplyrw2.color bitmaps/player/hplyrw2.mono
+	$(SCRAM) bitmaps/player/hplyrw2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BACKGROUND + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOOT COLOR_BACKGROUND + \
+	  COLOR_BLACK
+
+bitmaps/player/splyrf.h : bitmaps/player/splyrf.color bitmaps/player/splyrf.mono
+	$(SCRAM) bitmaps/player/splyrf \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrp1.h : bitmaps/player/splyrp1.color bitmaps/player/splyrp1.mono
+	$(SCRAM) bitmaps/player/splyrp1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrp2.h : bitmaps/player/splyrp2.color bitmaps/player/splyrp2.mono
+	$(SCRAM) bitmaps/player/splyrp2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrs1.h : bitmaps/player/splyrs1.color bitmaps/player/splyrs1.mono
+	$(SCRAM) bitmaps/player/splyrs1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrs2.h : bitmaps/player/splyrs2.color bitmaps/player/splyrs2.mono
+	$(SCRAM) bitmaps/player/splyrs2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrw1.h : bitmaps/player/splyrw1.color bitmaps/player/splyrw1.mono
+	$(SCRAM) bitmaps/player/splyrw1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrw2.h : bitmaps/player/splyrw2.color bitmaps/player/splyrw2.mono
+	$(SCRAM) bitmaps/player/splyrw2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrd1.h : bitmaps/player/splyrd1.color bitmaps/player/splyrd1.mono
+	$(SCRAM) bitmaps/player/splyrd1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrd2.h : bitmaps/player/splyrd2.color bitmaps/player/splyrd2.mono
+	$(SCRAM) bitmaps/player/splyrd2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrh1.h : bitmaps/player/splyrh1.color bitmaps/player/splyrh1.mono
+	$(SCRAM) bitmaps/player/splyrh1 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/player/splyrh2.h : bitmaps/player/splyrh2.color bitmaps/player/splyrh2.mono
+	$(SCRAM) bitmaps/player/splyrh2 \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_PLAYER_BOOT + \
+	  COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_BLACK COLOR_PLAYER_BOBBLE COLOR_PLAYER COLOR_PLAYER_FACE COLOR_PLAYER_BOOT +
+
+bitmaps/prize/cake.h : bitmaps/prize/cake.color bitmaps/prize/cake.mono
+	$(SCRAM) bitmaps/prize/cake +s \
+	  COLOR_CAKE_ICING COLOR_CAKE COLOR_BLACK COLOR_CAKE_JAM + \
+	  COLOR_CAKE_ICING COLOR_CAKE COLOR_BLACK COLOR_CAKE_JAM + \
+	  COLOR_BLACK
+
+bitmaps/prize/spanner.h : bitmaps/prize/spanner.color bitmaps/prize/spanner.mono
+	$(SCRAM) bitmaps/prize/spanner +s \
+	  COLOR_SPANNER_SHADOW COLOR_SPANNER + \
+	  COLOR_SPANNER_SHADOW COLOR_SPANNER + \
+	  COLOR_BLACK
+
+bitmaps/prize/brolly.h : bitmaps/prize/brolly.color bitmaps/prize/brolly.mono
+	$(SCRAM) bitmaps/prize/brolly +s \
+	  COLOR_BROLLY_1 COLOR_BROLLY_2 COLOR_BROLLY_HANDLE COLOR_BLACK + \
+	  COLOR_BROLLY_1 COLOR_BROLLY_2 COLOR_BROLLY_HANDLE COLOR_BLACK + \
+	  COLOR_BLACK
+
+bitmaps/prize/mushrm.h : bitmaps/prize/mushrm.color bitmaps/prize/mushrm.mono
+	$(SCRAM) bitmaps/prize/mushrm +s \
+	  COLOR_MUSHROOM_STALK COLOR_MUSHROOM_CAP COLOR_BLACK COLOR_WHITE + \
+	  COLOR_MUSHROOM_STALK COLOR_MUSHROOM_CAP COLOR_BLACK COLOR_WHITE + \
+	  COLOR_BLACK
+
+bitmaps/prize/clock.h : bitmaps/prize/clock.color bitmaps/prize/clock.mono
+	$(SCRAM) bitmaps/prize/clock +s \
+	  COLOR_CLOCK_FACE COLOR_BLACK COLOR_CLOCK_BELL COLOR_CLOCK_EDGE + \
+	  COLOR_CLOCK_FACE COLOR_BLACK COLOR_CLOCK_BELL COLOR_CLOCK_EDGE + \
+	  COLOR_BLACK
+
+bitmaps/prize/gem1.h : bitmaps/prize/gem1.color bitmaps/prize/gem1.mono
+	$(SCRAM) bitmaps/prize/gem1 \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK +
+
+bitmaps/prize/gem2.h : bitmaps/prize/gem2.color bitmaps/prize/gem2.mono
+	$(SCRAM) bitmaps/prize/gem2 \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK +
+
+bitmaps/prize/gem3.h : bitmaps/prize/gem3.color bitmaps/prize/gem3.mono
+	$(SCRAM) bitmaps/prize/gem3 \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_WHITE COLOR_GEM_1 COLOR_GEM_2 COLOR_BLACK +
+
+bitmaps/xtra/sxtraf.h : bitmaps/xtra/sxtraf.color bitmaps/xtra/sxtraf.mono
+	$(SCRAM) bitmaps/xtra/sxtraf \
+	  COLOR_WHITE COLOR_XTRA COLOR_BLACK + \
+	  COLOR_BLACK COLOR_XTRA COLOR_XTRA +
+
+bitmaps/xtra/sxtraw1.h : bitmaps/xtra/sxtraw1.color bitmaps/xtra/sxtraw1.mono
+	$(SCRAM) bitmaps/xtra/sxtraw1 \
+	  COLOR_WHITE COLOR_XTRA COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_XTRA COLOR_WHITE COLOR_XTRA COLOR_BLACK +
+
+bitmaps/xtra/sxtraw2.h : bitmaps/xtra/sxtraw2.color bitmaps/xtra/sxtraw2.mono
+	$(SCRAM) bitmaps/xtra/sxtraw2 \
+	  COLOR_WHITE COLOR_XTRA COLOR_BLACK COLOR_BLACK COLOR_BLACK + \
+	  COLOR_WHITE COLOR_XTRA COLOR_WHITE COLOR_XTRA COLOR_BLACK +
+
+bitmaps/xtra/hxtraf.h : bitmaps/xtra/hxtraf.color bitmaps/xtra/hxtraf.mono
+	$(SCRAM) bitmaps/xtra/hxtraf -s \
+	  COLOR_XTRA COLOR_WHITE COLOR_BLACK + \
+	  COLOR_XTRA COLOR_BLACK COLOR_WHITE +
+
+bitmaps/xtra/hxtraw1.h : bitmaps/xtra/hxtraw1.color bitmaps/xtra/hxtraw1.mono
+	$(SCRAM) bitmaps/xtra/hxtraw1 -s \
+	  COLOR_XTRA COLOR_WHITE COLOR_BLACK + \
+	  COLOR_XTRA COLOR_BLACK COLOR_WHITE +
+
+bitmaps/xtra/hxtraw2.h : bitmaps/xtra/hxtraw2.color bitmaps/xtra/hxtraw2.mono
+	$(SCRAM) bitmaps/xtra/hxtraw2 -s \
+	  COLOR_XTRA COLOR_WHITE COLOR_BLACK + \
+	  COLOR_XTRA COLOR_BLACK COLOR_WHITE +
+
+bitmaps/xtra/xtrbold.h : bitmaps/xtra/xtrbold.color bitmaps/xtra/xtrbold.mono
+	$(SCRAM) bitmaps/xtra/xtrbold -s \
+	  - COLOR_LETTER_GOT + \
+	  - COLOR_LETTER_GOT +
+
+bitmaps/xtra/xtrfaint.h : bitmaps/xtra/xtrfaint.color bitmaps/xtra/xtrfaint.mono
+	$(SCRAM) bitmaps/xtra/xtrfaint -s \
+	  - COLOR_LETTER_NOT_GOT + \
+	  - COLOR_LETTER_NOT_GOT +
+
+bitmaps/player/ball.h : bitmaps/player/ball.color bitmaps/player/ball.mono
+	$(SCRAM) bitmaps/player/ball +n \
+	  COLOR_BALL + COLOR_BALL + \
+	  COLOR_BLACK

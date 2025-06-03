@@ -1,0 +1,88 @@
+		Information for Amoeba Users
+		----------------------------
+
+Contents
+--------
+	1)  Amoeba version required for XFree86
+	2)  Installing the Binaries and Libraries
+	3)  Cross compiling Xfree86 for Amoeba
+
+
+1 - Amoeba version required for XFree86
+---------------------------------------
+
+The necessary support for Xfree86 is available in Amoeba 5.1 "i80386/ibm_at"
+workstation kernels.  Amoeba 5.0 kernels have a different iop-server
+interface, so they will not work.
+
+It is possible to add a TCP/IP server to a workstation (or other) kernel,
+but not required.  Under native Amoeba the standard transaction primitives
+are used for X11.  You only need a TCP/IP server if you also want to run
+Unix clients on your Amoeba X server.
+
+
+2 - Installing the Binaries and Libraries
+-----------------------------------------
+
+Under Amoeba, the X binaries should be installed in /super/module/x11/bin.
+Note that users will start the binaries from /public/module/x11/bin,
+which is a link to /super/module/x11/bin without write privileges.
+The libraries (application defaults, fonts, bitmaps and the Xconfig file)
+should be installed in directory /super/module/x11/lib.
+
+If the cross compilation facility described below is used, the
+cross-installation from Unix to Amoeba can be done by means of a
+simple "make install" in the top of the X11R5 configuration tree.
+
+The Amoeba boot server can be instructed to start an X server and a
+"xlogin" session on the workstation, but is wise first to test the
+X server and an xterm client by starting them manually.
+Example boot server entries telling how to start the X server are
+included in the Amoeba 5.1 distribution.
+
+
+3 - Cross compiling Xfree86 for Amoeba 5.1
+------------------------------------------
+
+It is possible to cross compile Xfree86 for Amoeba 5.1, using either
+	- ACK (the Amsterdam Compiler Kit) and support utils
+or	- GCC-2.3.3 together with GNU "ld" and "ar" from binutils-2.0.
+
+This may be useful if you maintain the Xfree sources on another (Unix)
+system, with more free disk resources.
+
+To do this, proceed as follows:
+- Create a parallel, symbolically linked "shadow" X configuration tree,
+  containing links to the X source tree (with Xfree patches installed)
+  Let's say your top level Amoeba config tree is $AMOEBACONF.
+  Then this tree will reside in "$AMOEBACONF/i80386.<compiler>/X11R5/mit",
+  where <compiler> is either "ack" or "gcc-2".
+
+- Create a file "$AMOEBACONF/i80386.gnu-2/X11R5/mit/config/platform.def"
+  containing the following defines required for the cross compilation
+  (replacing the $variables with the appropriate values, of course):
+
+-----------
+#define AmoebaTop	  $AMOEBA_TOP
+#define AmoebaBin	  $(ATOP)/bin.sun4
+#define AmoebaConf	  $AMOEBA_CONF
+#define MacroFile	  ack_ux_i386.cf	/* or gnu_am_i386.cf */
+#define MacroIncludeFile  <ack_ux_i386.cf>	/* or <gnu_am_i386.cf> */
+-----------
+
+- Directory "$AMOEBACONF/i80386.<compiler>/toolset" should already contain
+  the shell scripts "do_gcc", "do_ld" and "do_ar", which are included in
+  the Amoeba 5.1 distribution.
+  They will be used to call the ACK or GNU i80386 cross compiler,
+  loader and archiver respectively.
+
+- Start the X build in the X11R5/mit config tree with the following command:
+
+	make World BOOTSTRAPCFLAGS='-DCROSS_COMPILE' >BuildX.i80386 2>&1 &
+
+- When this has finished successfully, the client and server binaries,
+  scripts, and other support files can be installed from Unix to Amoeba
+  by means of the command "make install" in the X11R5/mit config tree.
+
+
+$XFree86: mit/server/ddx/x386/README.Amoeba,v 2.1 1994/03/08 08:07:05 dawes Exp $

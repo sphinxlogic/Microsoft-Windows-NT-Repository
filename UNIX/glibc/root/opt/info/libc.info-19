@@ -1,0 +1,1217 @@
+This is Info file libc.info, produced by Makeinfo-1.55 from the input
+file libc.texinfo.
+
+   This file documents the GNU C library.
+
+   This is Edition 0.05, last updated 30 August 1993, of `The GNU C
+Library Reference Manual', for Version 1.07 Beta.
+
+   Copyright (C) 1993 Free Software Foundation, Inc.
+
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the section entitled "GNU Library General Public License" is
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the text of the translations of the section
+entitled "GNU Library General Public License" must be approved for
+accuracy by the Foundation.
+
+
+File: libc.info,  Node: Signal Messages,  Prev: Nonstandard Signals,  Up: Standard Signals
+
+Signal Messages
+---------------
+
+   We mentioned above that the shell prints a message describing the
+signal that terminated a child process.  The clean way to print a
+message describing a signal is to use the functions `strsignal' and
+`psignal'.  These functions use a signal number to specify which kind
+of signal to describe.  The signal number may come from the termination
+status of a child process (*note Process Completion::.) or it may come
+from a signal handler in the same process.
+
+ - Function: char * strsignal (int SIGNUM)
+     This function returns a pointer to a statically-allocated string
+     containing a message describing the signal SIGNUM.  You should not
+     modify the contents of this string; and, since it can be rewritten
+     on subsequent calls, you should save a copy of it if you need to
+     reference it later.
+
+     This function is a GNU extension, declared in the header file
+     `string.h'.
+
+ - Function: void psignal (int SIGNUM, const char *MESSAGE)
+     This function prints a message describing the signal SIGNUM to the
+     standard error output stream `stderr'; see *Note Standard
+     Streams::.
+
+     If you call `psignal' with a MESSAGE that is either a null pointer
+     or an empty string, `psignal' just prints the message
+     corresponding to SIGNUM, adding a trailing newline.
+
+     If you supply a non-null MESSAGE argument, then `psignal' prefixes
+     its output with this string.  It adds a colon and a space
+     character to separate the MESSAGE from the string corresponding to
+     SIGNUM.
+
+     This function is a BSD feature, declared in the header file
+     `stdio.h'.
+
+   There is also an array `sys_siglist' which contains the messages for
+the various signal codes.  This array exists on BSD systems, unlike
+`strsignal'.
+
+
+File: libc.info,  Node: Signal Actions,  Next: Defining Handlers,  Prev: Standard Signals,  Up: Signal Handling
+
+Specifying Signal Actions
+=========================
+
+   The simplest way to change the action for a signal is to use the
+`signal' function.  You can specify a built-in action (such as to
+ignore the signal), or you can "establish a handler".
+
+   The GNU library also implements the more versatile `sigaction'
+facility.  This section describes both facilities and gives suggestions
+on which to use when.
+
+* Menu:
+
+* Basic Signal Handling::       The simple `signal' function.
+* Advanced Signal Handling::    The more powerful `sigaction' function.
+* Signal and Sigaction::        How those two functions interact.
+* Sigaction Function Example::  An example of using the sigaction function.
+* Flags for Sigaction::         Specifying options for signal handling.
+* Initial Signal Actions::      How programs inherit signal actions.
+
+
+File: libc.info,  Node: Basic Signal Handling,  Next: Advanced Signal Handling,  Up: Signal Actions
+
+Basic Signal Handling
+---------------------
+
+   The `signal' function provides a simple interface for establishing
+an action for a particular signal.  The function and associated macros
+are declared in the header file `signal.h'.
+
+ - Data Type: sighandler_t
+     This is the type of signal handler functions.  Signal handlers
+     take one integer argument specifying the signal number, and have
+     return type `void'.  So, you should define handler functions like
+     this:
+
+          void HANDLER (int `signum') { ... }
+
+     The name `sighandler_t' for this data type is a GNU extension.
+
+ - Function: sighandler_t signal (int SIGNUM, sighandler_t ACTION)
+     The `signal' function establishes ACTION as the action for the
+     signal SIGNUM.
+
+     The first argument, SIGNUM, identifies the signal whose behavior
+     you want to control, and should be a signal number.  The proper
+     way to specify a signal number is with one of the symbolic signal
+     names described in *Note Standard Signals::--don't use an explicit
+     number, because the numerical code for a given kind of signal may
+     vary from operating system to operating system.
+
+     The second argument, ACTION, specifies the action to use for the
+     signal SIGNUM.  This can be one of the following:
+
+    `SIG_DFL'
+          `SIG_DFL' specifies the default action for the particular
+          signal.  The default actions for various kinds of signals are
+          stated in *Note Standard Signals::.
+
+    `SIG_IGN'
+          `SIG_IGN' specifies that the signal should be ignored.
+
+          Your program generally should not ignore signals that
+          represent serious events or that are normally used to request
+          termination.  You cannot ignore the `SIGKILL' or `SIGSTOP'
+          signals at all.  You can ignore program error signals like
+          `SIGSEGV', but ignoring the error won't enable the program to
+          continue executing meaningfully.  Ignoring user requests such
+          as `SIGINT', `SIGQUIT', and `SIGTSTP' is unfriendly.
+
+          When you do not wish signals to be delivered during a certain
+          part of the program, the thing to do is to block them, not
+          ignore them.  *Note Blocking Signals::.
+
+    `HANDLER'
+          Supply the address of a handler function in your program, to
+          specify running this handler as the way to deliver the signal.
+
+          For more information about defining signal handler functions,
+          see *Note Defining Handlers::.
+
+     If you set the action for a signal to `SIG_IGN', or if you set it
+     to `SIG_DFL' and the default action is to ignore that signal, then
+     any pending signals of that type are discarded (even if they are
+     blocked).  Discarding the pending signals means that they will
+     never be delivered, not even if you subsequently specify another
+     action and unblock this kind of signal.
+
+     The `signal' function returns the action that was previously in
+     effect for the specified SIGNUM.  You can save this value and
+     restore it later by calling `signal' again.
+
+     If `signal' can't honor the request, it returns `SIG_ERR' instead.
+     The following `errno' error conditions are defined for this
+     function:
+
+    `EINVAL'
+          You specified an invalid SIGNUM; or you tried to ignore or
+          provide a handler for `SIGKILL' or `SIGSTOP'.
+
+   Here is a simple example of setting up a handler to delete temporary
+files when certain fatal signals happen:
+
+     #include <signal.h>
+     
+     void
+     termination_handler (int signum)
+     {
+       struct temp_file *p;
+     
+       for (p = temp_file_list; p; p = p->next)
+         unlink (p->name);
+     }
+     
+     int
+     main (void)
+     {
+       ...
+       if (signal (SIGINT, termination_handler) == SIG_IGN)
+         signal (SIGINT, SIG_IGN);
+       if (signal (SIGHUP, termination_handler) == SIG_IGN)
+         signal (SIGHUP, SIG_IGN);
+       if (signal (SIGTERM, termination_handler) == SIG_IGN)
+         signal (SIGTERM, SIG_IGN);
+       ...
+     }
+
+Note how if a given signal was previously set to be ignored, this code
+avoids altering that setting.  This is because non-job-control shells
+often ignore certain signals when starting children, and it is important
+for the children to respect this.
+
+   We do not handle `SIGQUIT' or the program error signals in this
+example because these are designed to provide information for debugging
+(a core dump), and the temporary files may give useful information.
+
+ - Function: sighandler_t ssignal (int SIGNUM, sighandler_t ACTION)
+     The `ssignal' function does the same thing as `signal'; it is
+     provided only for compatibility with SVID.
+
+ - Macro: sighandler_t SIG_ERR
+     The value of this macro is used as the return value from `signal'
+     to indicate an error.
+
+
+File: libc.info,  Node: Advanced Signal Handling,  Next: Signal and Sigaction,  Prev: Basic Signal Handling,  Up: Signal Actions
+
+Advanced Signal Handling
+------------------------
+
+   The `sigaction' function has the same basic effect as `signal': to
+specify how a signal should be handled by the process.  However,
+`sigaction' offers more control, at the expense of more complexity.  In
+particular, `sigaction' allows you to specify additional flags to
+control when the signal is generated and how the handler is invoked.
+
+   The `sigaction' function is declared in `signal.h'.
+
+ - Data Type: struct sigaction
+     Structures of type `struct sigaction' are used in the `sigaction'
+     function to specify all the information about how to handle a
+     particular signal.  This structure contains at least the following
+     members:
+
+    `sighandler_t sa_handler'
+          This is used in the same way as the ACTION argument to the
+          `signal' function.  The value can be `SIG_DFL', `SIG_IGN', or
+          a function pointer.  *Note Basic Signal Handling::.
+
+    `sigset_t sa_mask'
+          This specifies a set of signals to be blocked while the
+          handler runs.  Blocking is explained in *Note Blocking for
+          Handler::.  Note that the signal that was delivered is
+          automatically blocked by default before its handler is
+          started; this is true regardless of the value in `sa_mask'.
+          If you want that signal not to be blocked within its handler,
+          you must write code in the handler to unblock it.
+
+    `int sa_flags'
+          This specifies various flags which can affect the behavior of
+          the signal.  These are described in more detail in *Note
+          Flags for Sigaction::.
+
+ - Function: int sigaction (int SIGNUM, const struct sigaction *ACTION,
+          struct sigaction *OLD_ACTION)
+     The ACTION argument is used to set up a new action for the signal
+     SIGNUM, while the OLD_ACTION argument is used to return
+     information about the action previously associated with this
+     symbol.  (In other words, OLD_ACTION has the same purpose as the
+     `signal' function's return value--you can check to see what the
+     old action in effect for the signal was, and restore it later if
+     you want.)
+
+     Either ACTION or OLD_ACTION can be a null pointer.  If OLD_ACTION
+     is a null pointer, this simply suppresses the return of
+     information about the old action.  If ACTION is a null pointer,
+     the action associated with the signal SIGNUM is unchanged; this
+     allows you to inquire about how a signal is being handled without
+     changing that handling.
+
+     The return value from `sigaction' is zero if it succeeds, and `-1'
+     on failure.  The following `errno' error conditions are defined
+     for this function:
+
+    `EINVAL'
+          The SIGNUM argument is not valid, or you are trying to trap
+          or ignore `SIGKILL' or `SIGSTOP'.
+
+
+File: libc.info,  Node: Signal and Sigaction,  Next: Sigaction Function Example,  Prev: Advanced Signal Handling,  Up: Signal Actions
+
+Interaction of `signal' and `sigaction'
+---------------------------------------
+
+   It's possible to use both the `signal' and `sigaction' functions
+within a single program, but you have to be careful because they can
+interact in slightly strange ways.
+
+   The `sigaction' function specifies more information than the
+`signal' function, so the return value from `signal' cannot express the
+full range of `sigaction' possibilities.  Therefore, if you use
+`signal' to save and later reestablish an action, it may not be able to
+reestablish properly a handler that was established with `sigaction'.
+
+   To avoid having problems as a result, always use `sigaction' to save
+and restore a handler if your program uses `sigaction' at all.  Since
+`sigaction' is more general, it can properly save and reestablish any
+action, regardless of whether it was established originally with
+`signal' or `sigaction'.
+
+   If you establish an action with `signal' and then examine it with
+`sigaction', the handler address that you get may not be the same as
+what you specified with `signal'.  It may not even be suitable for use
+as an action argument with `signal'.  But you can rely on using it as
+an argument to `sigaction'.
+
+   So, you're better off using one or the other of the mechanisms
+consistently within a single program.
+
+   *Portability Note:* The basic `signal' function is a feature of ANSI
+C, while `sigaction' is part of the POSIX.1 standard.  If you are
+concerned about portability to non-POSIX systems, then you should use
+the `signal' function instead.
+
+
+File: libc.info,  Node: Sigaction Function Example,  Next: Flags for Sigaction,  Prev: Signal and Sigaction,  Up: Signal Actions
+
+`sigaction' Function Example
+----------------------------
+
+   In *Note Basic Signal Handling::, we gave an example of establishing
+a simple handler for termination signals using `signal'.  Here is an
+equivalent example using `sigaction':
+
+     #include <signal.h>
+     
+     void
+     termination_handler (int signum)
+     {
+       struct temp_file *p;
+     
+       for (p = temp_file_list; p; p = p->next)
+         unlink (p->name);
+     }
+     
+     int
+     main (void)
+     {
+       ...
+       struct sigaction new_action, old_action;
+     
+       /* Set up the structure to specify the new action. */
+       new_action.sa_handler = termination_handler;
+       sigemptyset (&new_action.sa_mask);
+       new_action.sa_flags = 0;
+     
+       sigaction (SIGINT, NULL, &old_action);
+       if (old_action.sa_handler != SIG_IGN)
+         sigaction (SIGINT, &new_action, NULL);
+       sigaction (SIGHUP, NULL, &old_action);
+       if (old_action.sa_handler != SIG_IGN)
+         sigaction (SIGHUP, &new_action, NULL);
+       sigaction (SIGTERM, NULL, &old_action);
+       if (old_action.sa_handler != SIG_IGN)
+         sigaction (SIGTERM, &new_action, NULL);
+       ...
+     }
+
+   The program just loads the `new_action' structure with the desired
+parameters and passes it in the `sigaction' call.  The usage of
+`sigemptyset' is described later; see *Note Blocking Signals::.
+
+   As in the example using `signal', we avoid handling signals
+previously set to be ignored.  Here we can avoid altering the signal
+handler even momentarily, by using the feature of `sigaction' that lets
+us examine the current action without specifying a new one.
+
+   Here is another example.  It retrieves information about the current
+action for `SIGINT' without changing that action.
+
+     struct sigaction query_action;
+     
+     if (sigaction (SIGINT, NULL, &query_action) < 0)
+       /* `sigaction' returns -1 in case of error. */
+     else if (query_action.sa_handler == SIG_DFL)
+       /* `SIGINT' is handled in the default, fatal manner. */
+     else if (query_action.sa_handler == SIG_IGN)
+       /* `SIGINT' is ignored. */
+     else
+       /* A programmer-defined signal handler is in effect. */
+
+
+File: libc.info,  Node: Flags for Sigaction,  Next: Initial Signal Actions,  Prev: Sigaction Function Example,  Up: Signal Actions
+
+Flags for `sigaction'
+---------------------
+
+   The `sa_flags' member of the `sigaction' structure is a catch-all
+for special features.  Most of the time, `SA_RESTART' is a good value
+to use for this field.
+
+   The value of `sa_flags' is interpreted as a bit mask.  Thus, you
+should choose the flags you want to set, OR those flags together, and
+store the result in the `sa_flags' member of your `sigaction' structure.
+
+   Each signal number has its own set of flags.  Each call to
+`sigaction' affects one particular signal number, and the flags that
+you specify apply only to that particular signal.
+
+   In the GNU C library, establishing a handler with `signal' sets all
+the flags to zero except for `SA_RESTART', whose value depends on the
+settings you have made with `siginterrupt'.  *Note Interrupted
+Primitives::, to see what this is about.
+
+   These macros are defined in the header file `signal.h'.
+
+ - Macro: int SA_NOCLDSTOP
+     This flag is meaningful only for the `SIGCHLD' signal.  When the
+     flag is set, the system delivers the signal for a terminated child
+     process but not for one that is stopped.  By default, `SIGCHLD' is
+     delivered for both terminated children and stopped children.
+
+     Setting this flag for a signal other than `SIGCHLD' has no effect.
+
+ - Macro: int SA_ONSTACK
+     If this flag is set for a particular signal number, the system
+     uses the signal stack when delivering that kind of signal.  *Note
+     BSD Signal Handling::.
+
+ - Macro: int SA_RESTART
+     This flag controls what happens when a signal is delivered during
+     certain primitives (such as `open', `read' or `write'), and the
+     signal handler returns normally.  There are two alternatives: the
+     library function can resume, or it can return failure with error
+     code `EINTR'.
+
+     The choice is controlled by the `SA_RESTART' flag for the
+     particular kind of signal that was delivered.  If the flag is set,
+     returning from a handler resumes the library function.  If the
+     flag is clear, returning from a handler makes the function fail.
+     *Note Interrupted Primitives::.
+
+
+File: libc.info,  Node: Initial Signal Actions,  Prev: Flags for Sigaction,  Up: Signal Actions
+
+Initial Signal Actions
+----------------------
+
+   When a new process is created (*note Creating a Process::.), it
+inherits handling of signals from its parent process.  However, when
+you load a new process image using the `exec' function (*note Executing
+a File::.), any signals that you've defined your own handlers for
+revert to their `SIG_DFL' handling.  (If you think about it a little,
+this makes sense; the handler functions from the old program are
+specific to that program, and aren't even present in the address space
+of the new program image.)  Of course, the new program can establish
+its own handlers.
+
+   When a program is run by a shell, the shell normally sets the initial
+actions for the child process to `SIG_DFL' or `SIG_IGN', as
+appropriate.  It's a good idea to check to make sure that the shell has
+not set up an initial action of `SIG_IGN' before you establish your own
+signal handlers.
+
+   Here is an example of how to establish a handler for `SIGHUP', but
+not if `SIGHUP' is currently ignored:
+
+     ...
+     struct sigaction temp;
+     
+     sigaction (SIGHUP, NULL, &temp);
+     
+     if (temp.sa_handler != SIG_IGN)
+       {
+         temp.sa_handler = handle_sighup;
+         sigemptyset (&temp.sa_mask);
+         sigaction (SIGHUP, &temp, NULL);
+       }
+
+
+File: libc.info,  Node: Defining Handlers,  Next: Interrupted Primitives,  Prev: Signal Actions,  Up: Signal Handling
+
+Defining Signal Handlers
+========================
+
+   This section describes how to write a signal handler function that
+can be established with the `signal' or `sigaction' functions.
+
+   A signal handler is just a function that you compile together with
+the rest of the program.  Instead of directly invoking the function,
+you use `signal' or `sigaction' to tell the operating system to call it
+when a signal arrives.  This is known as "establishing" the handler.
+*Note Signal Actions::.
+
+   There are two basic strategies you can use in signal handler
+functions:
+
+   * You can have the handler function note that the signal arrived by
+     tweaking some global data structures, and then return normally.
+
+   * You can have the handler function terminate the program or transfer
+     control to a point where it can recover from the situation that
+     caused the signal.
+
+   You need to take special care in writing handler functions because
+they can be called asynchronously.  That is, a handler might be called
+at any point in the program, unpredictably.  If two signals arrive
+during a very short interval, one handler can run within another.  This
+section describes what your handler should do, and what you should
+avoid.
+
+* Menu:
+
+* Handler Returns::             Handlers that return normally, and what
+                                 this means.
+* Termination in Handler::      How handler functions terminate a program.
+* Longjmp in Handler::          Nonlocal transfer of control out of a
+                                 signal handler.
+* Signals in Handler::          What happens when signals arrive while
+                                 the handler is already occupied.
+* Merged Signals::		When a second signal arrives before the
+				 first is handled.
+* Nonreentrancy::               Do not call any functions unless you know they
+                                 are reentrant with respect to signals.
+* Atomic Data Access::          A single handler can run in the middle of
+                                 reading or writing a single object.
+
+
+File: libc.info,  Node: Handler Returns,  Next: Termination in Handler,  Up: Defining Handlers
+
+Signal Handlers That Return
+---------------------------
+
+   Handlers which return normally are usually used for signals such as
+`SIGALRM' and the I/O and interprocess communication signals.  But a
+handler for `SIGINT' might also return normally after setting a flag
+that tells the program to exit at a convenient time.
+
+   It is not safe to return normally from the handler for a program
+error signal, because the behavior of the program when the handler
+function returns is not defined after a program error.  *Note Program
+Error Signals::.
+
+   Handlers that return normally must modify some global variable in
+order to have any effect.  Typically, the variable is one that is
+examined periodically by the program during normal operation.  Its data
+type should be `sig_atomic_t' for reasons described in *Note Atomic
+Data Access::.
+
+   Here is a simple example of such a program.  It executes the body of
+the loop until it has noticed that a `SIGALRM' signal has arrived.
+This technique is useful because it allows the iteration in progress
+when the signal arrives to complete before the loop exits.
+
+     #include <signal.h>
+     #include <stdio.h>
+     #include <stdlib.h>
+     
+     /* This flag controls termination of the main loop. */
+     volatile sig_atomic_t keep_going = 1;
+     
+     /* The signal handler just clears the flag and re-enables itself. */
+     void
+     catch_alarm (int sig)
+     {
+       keep_going = 0;
+       signal (sig, catch_alarm);
+     }
+     
+     void
+     do_stuff (void)
+     {
+       puts ("Doing stuff while waiting for alarm....");
+     }
+     
+     int
+     main (void)
+     {
+       /* Establish a handler for SIGALRM signals. */
+       signal (SIGALRM, catch_alarm);
+     
+       /* Set an alarm to go off in a little while. */
+       alarm (2);
+     
+       /* Check the flag once in a while to see when to quit. */
+       while (keep_going)
+         do_stuff ();
+     
+       return EXIT_SUCCESS;
+     }
+
+
+File: libc.info,  Node: Termination in Handler,  Next: Longjmp in Handler,  Prev: Handler Returns,  Up: Defining Handlers
+
+Handlers That Terminate the Process
+-----------------------------------
+
+   Handler functions that terminate the program are typically used to
+cause orderly cleanup or recovery from program error signals and
+interactive interrupts.
+
+   The cleanest way for a handler to terminate the process is to raise
+the same signal that ran the handler in the first place.  Here is how
+to do this:
+
+     volatile sig_atomic_t fatal_error_in_progress = 0;
+     
+     void
+     fatal_error_signal (int sig)
+     {
+     /* Since this handler is established for more than one kind of signal, 
+          it might still get invoked recursively by delivery of some other kind
+          of signal.  Use a static variable to keep track of that. */
+       if (fatal_error_in_progress)
+         raise (sig);
+       fatal_error_in_progress = 1;
+
+     /* Now do the clean up actions:
+          - reset terminal modes
+          - kill child processes
+          - remove lock files */
+       ...
+
+     /* Now reraise the signal.  Since the signal is blocked,
+          it will receive its default handling, which is
+          to terminate the process.  We could just call
+          `exit' or `abort', but reraising the signal
+          sets the return status from the process correctly. */
+       raise (sig);
+     }
+
+
+File: libc.info,  Node: Longjmp in Handler,  Next: Signals in Handler,  Prev: Termination in Handler,  Up: Defining Handlers
+
+Nonlocal Control Transfer in Handlers
+-------------------------------------
+
+   You can do a nonlocal transfer of control out of a signal handler
+using the `setjmp' and `longjmp' facilities (*note Non-Local Exits::.).
+
+   When the handler does a nonlocal control transfer, the part of the
+program that was running will not continue.  If this part of the program
+was in the middle of updating an important data structure, the data
+structure will remain inconsistent.  Since the program does not
+terminate, the inconsistency is likely to be noticed later on.
+
+   There are two ways to avoid this problem.  One is to block the signal
+for the parts of the program that update important data structures.
+Blocking the signal delays its delivery until it is unblocked, once the
+critical updating is finished.  *Note Blocking Signals::.
+
+   The other way to re-initialize the crucial data structures in the
+signal handler, or make their values consistent.
+
+   Here is a rather schematic example showing the reinitialization of
+one global variable.
+
+     #include <signal.h>
+     #include <setjmp.h>
+     
+     jmp_buf return_to_top_level;
+     
+     volatile sig_atomic_t waiting_for_input;
+     
+     void
+     handle_sigint (int signum)
+     {
+       /* We may have been waiting for input when the signal arrived,
+          but we are no longer waiting once we transfer control. */
+       waiting_for_input = 0;
+       longjmp (return_to_top_level, 1);
+     }
+
+     int
+     main (void)
+     {
+       ...
+       signal (SIGINT, sigint_handler);
+       ...
+       while (1) {
+         prepare_for_command ();
+         if (setjmp (return_to_top_level) == 0)
+           read_and_execute_command ();
+       }
+     }
+
+     /* Imagine this is a subroutine used by various commands. */
+     char *
+     read_data ()
+     {
+       if (input_from_terminal) {
+         waiting_for_input = 1;
+         ...
+         waiting_for_input = 0;
+       } else {
+         ...
+       }
+     }
+
+
+File: libc.info,  Node: Signals in Handler,  Next: Merged Signals,  Prev: Longjmp in Handler,  Up: Defining Handlers
+
+Signals Arriving While a Handler Runs
+-------------------------------------
+
+   What happens if another signal arrives when your signal handler
+function is running?
+
+   When the handler for a particular signal is invoked, that signal is
+normally blocked until the handler returns.  That means that if two
+signals of the same kind arrive close together, the second one will be
+held until the first has been handled.  (The handler can explicitly
+unblock the signal using `sigprocmask', if you want to allow more
+signals of this type to arrive; see *Note Process Signal Mask::.)
+
+   However, your handler can still be interrupted by delivery of another
+kind of signal.  To avoid this, you can use the `sa_mask' member of the
+action structure passed to `sigaction' to explicitly specify which
+signals should be blocked while the signal handler runs.  These signals
+are in addition to the signal for which the handler was invoked, and
+any other signals that are normally blocked by the process.  *Note
+Blocking for Handler::.
+
+   *Portability Note:* Always use `sigaction' to establish a handler
+for a signal that you expect to receive asynchronously, if you want
+your program to work properly on System V Unix.  On this system, the
+handling of a signal whose handler was established with `signal'
+automatically sets the signal's action back to `SIG_DFL', and the
+handler must re-establish itself each time it runs.  This practice,
+while inconvenient, does work when signals cannot arrive in succession.
+However, if another signal can arrive right away, it may arrive before
+the handler can re-establish itself.  Then the second signal would
+receive the default handling, which could terminate the process.
+
+
+File: libc.info,  Node: Merged Signals,  Next: Nonreentrancy,  Prev: Signals in Handler,  Up: Defining Handlers
+
+Signals Close Together Merge into One
+-------------------------------------
+
+   If multiple signals of the same type are delivered to your process
+before your signal handler has a chance to be invoked at all, the
+handler may only be invoked once, as if only a single signal had
+arrived.  In effect, the signals merge into one.  This situation can
+arise when the signal is blocked, or in a multiprocessing environment
+where the system is busy running some other processes while the signals
+are delivered.  This means, for example, that you cannot reliably use a
+signal handler to count signals.  The only distinction you can reliably
+make is whether at least one signal has arrived since a given time in
+the past.
+
+   Here is an example of a handler for `SIGCHLD' that compensates for
+the fact that the number of signals recieved may not equal the number of
+child processes generate them.  It assumes that the program keeps track
+of all the child processes with a chain of structures as follows:
+
+     struct process
+     {
+       struct process *next;
+       /* The process ID of this child.  */
+       int pid;
+       /* The descriptor of the pipe or pseudo terminal
+          on which output comes from this child.  */
+       int input_descriptor;
+       /* Nonzero if this process has stopped or terminated.  */
+       sig_atomic_t have_status;
+       /* The status of this child; 0 if running,
+          otherwise a status value from `waitpid'.  */
+       int status;
+     };
+     
+     struct process *process_list;
+
+   This example also uses a flag to indicate whether signals have
+arrived since some time in the past--whenever the program last cleared
+it to zero.
+
+     /* Nonzero means some child's status has changed
+        so look at `process_list' for the details.  */
+     int process_status_change;
+
+   Here is the handler itself:
+
+     void
+     sigchld_handler (int signo)
+     {
+       int old_errno = errno;
+     
+       while (1) {
+         register int pid;
+         int w;
+         struct process *p;
+     
+         /* Keep asking for a status until we get a definitive result.  */
+         do
+           {
+             errno = 0;
+             pid = waitpid (WAIT_ANY, &w, WNOHANG | WUNTRACED);
+           }
+         while (pid <= 0 && errno == EINTR);
+     
+         if (pid <= 0) {
+           /* A real failure means there are no more
+              stopped or terminated child processes, so return.  */
+           errno = old_errno;
+           return;
+         }
+     
+         /* Find the process that signaled us, and record its status.  */
+     
+         for (p = process_list; p; p = p->next)
+           if (p->pid == pid) {
+             p->status = w;
+             /* Indicate that the `status' field
+                has data to look at.  We do this only after storing it.  */
+             p->have_status = 1;
+     
+             /* If process has terminated, stop waiting for its output.  */
+             if (WIFSIGNALED (w) || WIFEXITED (w))
+               if (p->input_descriptor)
+                 FD_CLR (p->input_descriptor, &input_wait_mask);
+     
+             /* The program should check this flag from time to time
+                to see if there is any news in `process_list'.  */
+             ++process_status_change;
+           }
+     
+         /* Loop around to handle all the processes
+            that have something to tell us.  */
+       }
+     }
+
+   Here is the proper way to check the flag `process_status_change':
+
+     if (process_status_change) {
+       struct process *p;
+       process_status_change = 0;
+       for (p = process_list; p; p = p->next)
+         if (p->have_status) {
+           ... Examine `p->status' ...
+         }
+     }
+
+It is vital to clear the flag before examining the list; otherwise, if a
+signal were delivered just before the clearing of the flag, and after
+the appropriate element of the process list had been checked, the status
+change would go unnoticed until the next signal arrived to set the flag
+again.  You could, of course, avoid this problem by blocking the signal
+while scanning the list, but it is much more elegant to guarantee
+correctness by doing things in the right order.
+
+   The loop which checks process status avoids examining `p->status'
+until it sees that status has been validly stored.  This is to make sure
+that the status cannot change in the middle of accessing it.  Once
+`p->have_status' is set, it means that the child process is stopped or
+terminated, and in either case, it cannot stop or terminate again until
+the program has taken notice.  *Note Atomic Usage::, for more
+information about coping with interruptions during accessings of a
+variable.
+
+   Here is another way you can test whether the handler has run since
+the last time you checked.  This technique uses a counter which is never
+changed outside the handler.  Instead of clearing the count, the program
+remembers the previous value and sees whether it has changed since the
+previous check.  The advantage of this method is that different parts of
+the program can check independently, each part checking whether there
+has been a signal since that part last checked.
+
+     sig_atomic_t process_status_change;
+     
+     sig_atomic_t last_process_status_change;
+     
+     ...
+     {
+       sig_atomic_t prev = last_process_status_change;
+       last_process_status_change = process_status_change;
+       if (last_process_status_change != prev) {
+         struct process *p;
+         for (p = process_list; p; p = p->next)
+           if (p->have_status) {
+             ... Examine `p->status' ...
+           }
+       }
+     }
+
+
+File: libc.info,  Node: Nonreentrancy,  Next: Atomic Data Access,  Prev: Merged Signals,  Up: Defining Handlers
+
+Signal Handling and Nonreentrant Functions
+------------------------------------------
+
+   Handler functions usually don't do very much.  The best practice is
+to write a handler that does nothing but set an external variable that
+the program checks regularly, and leave all serious work to the program.
+This is best because the handler can be called at asynchronously, at
+unpredictable times--perhaps in the middle of a system call, or even
+between the beginning and the end of a C operator that requires multiple
+instructions.  The data structures being manipulated might therefore be
+in an inconsistent state when the handler function is invoked.  Even
+copying one `int' variable into another can take two instructions on
+most machines.
+
+   This means you have to be very careful about what you do in a signal
+handler.
+
+   * If your handler needs to access any global variables from your
+     program, declare those variables `volatile'.  This tells the
+     compiler that the value of the variable might change
+     asynchronously, and inhibits certain optimizations that would be
+     invalidated by such modifications.
+
+   * If you call a function in the handler, make sure it is "reentrant"
+     with respect to signals, or else make sure that the signal cannot
+     interrupt a call to a related function.
+
+   A function can be non-reentrant if it uses memory that is not on the
+stack.
+
+   * If a function uses a static variable or a global variable, or a
+     dynamically-allocated object that it finds for itself, then it is
+     non-reentrant and any two calls to the function can interfere.
+
+     For example, suppose that the signal handler uses `gethostbyname'.
+     This function returns its value in a static object, reusing the
+     same object each time.  If the signal happens to arrive during a
+     call to `gethostbyname', or even after one (while the program is
+     still using the value), it will clobber the value that the program
+     asked for.
+
+     However, if the program does not use `gethostbyname' or any other
+     function that returns information in the same object, or if it
+     always blocks signals around each use, then you are safe.
+
+     There are a large number of library functions that return values
+     in a fixed object, always reusing the same object in this fashion,
+     and all of them cause the same problem.  The description of a
+     function in this manual always mentions this behavior.
+
+   * If a function uses and modifies an object that you supply, then it
+     is potentially non-reentrant; two calls can interfere if they use
+     the same object.
+
+     This case arises when you do I/O using streams.  Suppose that the
+     signal handler prints a message with `fprintf'.  Suppose that the
+     program was in the middle of an `fprintf' call using the same
+     stream when the signal was delivered.  Both the signal handler's
+     message and the program's data could be corrupted, because both
+     calls operate on the same data structure--the stream itself.
+
+     However, if you know that the stream that the handler uses cannot
+     possibly be used by the program at a time when signals can arrive,
+     then you are safe.  It is no problem if the program uses some
+     other stream.
+
+   * On most systems, `malloc' and `free' are not reentrant, because
+     they use a static data structure which records what memory blocks
+     are free.  As a result, no library functions that allocate or free
+     memory are reentrant.  This includes functions that allocate space
+     to store a result.
+
+     The best way to avoid the need to allocate memory in a handler is
+     to allocate in advance space for signal handlers to use.
+
+     The best way to avoid freeing memory in a handler is to flag or
+     record the objects to be freed, and have the program check from
+     time to time whether anything is waiting to be freed.  But this
+     must be done with care, because placing an object on a chain is
+     not atomic, and if it is interrupted by another signal handler
+     that does the same thing, you could "lose" one of the objects.
+
+     On the GNU system, `malloc' and `free' are safe to use in signal
+     handlers because it blocks signals.  As a result, the library
+     functions that allocate space for a result are also safe in signal
+     handlers.  The obstack allocation functions are safe as long as you
+     don't use the same obstack both inside and outside of a signal
+     handler.
+
+     The relocating allocation functions (*note Relocating Allocator::.)
+     are certainly not safe to use in a signal handler.
+
+   * Any function that modifies `errno' is non-reentrant, but you can
+     correct for this: in the handler, save the original value of
+     `errno' and restore it before returning normally.  This prevents
+     errors that occur within the signal handler from being confused
+     with errors from system calls at the point the program is
+     interrupted to run the handler.
+
+     This technique is generally applicable; if you want to call in a
+     handler a function that modifies a particular object in memory,
+     you can make this safe by saving and restoring that object.
+
+   * Merely reading from a memory object is safe provided that you can
+     deal with any of the values that might appear in the object at a
+     time when the signal can be delivered.  Keep in mind that
+     assignment to some data types requires more than one instruction,
+     which means that the handler could run "in the middle of" an
+     assignment to the variable if its type is not atomic.  *Note
+     Atomic Data Access::.
+
+   * Merely writing into a memory object is safe as long as a sudden
+     change in the value, at any time when the handler might run, will
+     not disturb anything.
+
+
+File: libc.info,  Node: Atomic Data Access,  Prev: Nonreentrancy,  Up: Defining Handlers
+
+Atomic Data Access and Signal Handling
+--------------------------------------
+
+   Whether the data in your application concerns atoms, or mere text,
+you have to be careful about the fact that access to a single datum is
+not necessarily "atomic".  This means that it can take more than one
+instruction to read or write a single object.  In such cases, a signal
+handler can run in the middle of reading or writing the object.
+
+   There are three ways you can cope with this problem.  You can use
+data types that are always accessed atomically; you can carefully
+arrange that nothing untoward happens if an access is interrupted, or
+you can block all signals around any access that had better not be
+interrupted (*note Blocking Signals::.).
+
+* Menu:
+
+* Non-atomic Example::		A program illustrating interrupted access.
+* Types: Atomic Types.		Data types that guarantee no interruption.
+* Usage: Atomic Usage.		Proving that interruption is harmless.
+
+
+File: libc.info,  Node: Non-atomic Example,  Next: Atomic Types,  Up: Atomic Data Access
+
+Problems with Non-Atomic Access
+...............................
+
+   Here is an example which shows what can happen if a signal handler
+runs in the middle of modifying a variable.  (Interrupting the reading
+of a variable can also lead to paradoxical results, but here we only
+show writing.)
+
+     #include <signal.h>
+     #include <stdio.h>
+     
+     struct two_words { int a, b; } memory;
+     
+     void
+     handler(int signum)
+     {
+        printf ("%d,%d\n", memory.a, memory.b);
+        alarm (1);
+     }
+     int
+     main (void)
+     {
+        static struct two_words zeros = { 0, 0 }, ones = { 1, 1 };
+        signal (SIGALRM, handler);
+        memory = zeros;
+        alarm (1);
+        while (1)
+          {
+            memory = zeros;
+            memory = ones;
+          }
+     }
+
+   This program fills `memory' with zeros, ones, zeros, ones,
+alternating forever; meanwhile, once per second, the alarm signal
+handler prints the current contents.  (Calling `printf' in the handler
+is safe in this program because it is certainly not being called outside
+the handler when the signal happens.)
+
+   Clearly, this program can print a pair of zeros or a pair of ones.
+But that's not all it can do!  On most machines, it takes several
+instructions to store a new value in `memory', and the value is stored
+one word at a time.  If the signal is delivered in between these
+instructions, the handler might find that `memory.a' is zero and
+`memory.b' is one (or vice versa).
+
+   On some machines it may be possible to store a new value in `memory'
+with just one instruction that cannot be interrupted.  On these
+machines, the handler will always print two zeros or two ones.
+
+
+File: libc.info,  Node: Atomic Types,  Next: Atomic Usage,  Prev: Non-atomic Example,  Up: Atomic Data Access
+
+Atomic Types
+............
+
+   To avoid uncertainty about interrupting access to a variable, you can
+use a particular data type for which access is always atomic:
+`sig_atomic_t'.  Reading and writing this data type is guaranteed to
+happen in a single instruction, so there's no way for a handler to run
+"in the middle" of an access.
+
+   The type `sig_atomic_t' is always an integer data type, but which
+one it is, and how many bits it contains, may vary from machine to
+machine.
+
+ - Data Type: sig_atomic_t
+     This is an integer data type.  Objects of this type are always
+     accessed atomically.
+
+   In practice, you can assume that `int' and other integer types no
+longer than `int' are atomic.  You can also assume that pointer types
+are atomic; that is very convenient.  Both of these are true on all of
+the machines that the GNU C library supports, and on all POSIX systems
+we know of.
+
+
+File: libc.info,  Node: Atomic Usage,  Prev: Atomic Types,  Up: Atomic Data Access
+
+Atomic Usage Patterns
+.....................
+
+   Certain patterns of access avoid any problem even if an access is
+interrupted.  For example, a flag which is set by the handler, and
+tested and cleared by the main program from time to time, is always safe
+even if access actually requires two instructions.  To show that this is
+so, we must consider each access that could be interrupted, and show
+that there is no problem if it is interrupted.
+
+   An interrupt in the middle of testing the flag is safe because
+either it's recognized to be nonzero, in which case the precise value
+doesn't matter, or it will be seen to be nonzero the next time it's
+tested.
+
+   An interrupt in the middle of clearing the flag is no problem because
+either the value ends up zero, which is what happens if a signal comes
+in just before the flag is cleared, or the value ends up nonzero, and
+subsequent events occur as if the signal had come in just after the flag
+was cleared.  As long as the code handles both of these cases properly,
+it can also handle a signal in the middle of clearing the flag.  (This
+is an example of the sort of reasoning you need to do to figure out
+whether non-atomic usage is safe.)
+
+   Sometimes you can insure uninterrupted access to one object by
+protecting its use with another object, perhaps one whose type
+guarantees atomicity.  *Note Merged Signals::, for an example.
+
+
+File: libc.info,  Node: Interrupted Primitives,  Next: Generating Signals,  Prev: Defining Handlers,  Up: Signal Handling
+
+Primitives Interrupted by Signals
+=================================
+
+   A signal can arrive and be handled while an I/O primitive such as
+`open' or `read' is waiting for an I/O device.  If the signal handler
+returns, the system faces the question: what should happen next?
+
+   POSIX specifies one approach: make the primitive fail right away.
+The error code for this kind of failure is `EINTR'.  This is flexible,
+but usually inconvenient.  Typically, POSIX applications that use signal
+handlers must check for `EINTR' after each library function that can
+return it, in order to try the call again.  Often programmers forget to
+check, which is a common source of error.
+
+   The GNU library provides a convenient way to retry a call after a
+temporary failure, with the macro `TEMP_FAILURE_RETRY':
+
+ - Macro: TEMP_FAILURE_RETRY (EXPRESSION)
+     This macro evaluates EXPRESSION once.  If it fails and reports
+     error code `EINTR', `TEMP_FAILURE_RETRY' evaluates it again, and
+     over and over until the result is not a temporary failure.
+
+     The value returned by `TEMP_FAILURE_RETRY' is whatever value
+     EXPRESSION produced.
+
+   BSD avoids `EINTR' entirely and provides a more convenient approach:
+to restart the interrupted primitive, instead of making it fail.  If
+you choose this approach, you need not be concerned with `EINTR'.
+
+   You can choose either approach with the GNU library.  If you use
+`sigaction' to establish a signal handler, you can specify how that
+handler should behave.  If you specify the `SA_RESTART' flag, return
+from that handler will resume a primitive; otherwise, return from that
+handler will cause `EINTR'.  *Note Flags for Sigaction::.
+
+   Another way to specify the choice is with the `siginterrupt'
+function.  *Note POSIX vs BSD::.
+
+   When you don't specify with `sigaction' or `siginterrupt' what a
+particular handler should do, it uses a default choice.  The default
+choice in the GNU library depends on the feature test macros you have
+defined.  If you define `_BSD_SOURCE' or `_GNU_SOURCE' before calling
+`signal', the default is to resume primitives; otherwise, the default
+is to make them fail with `EINTR'.  (The library contains alternate
+versions of the `signal' function, and the feature test macros
+determine which one you really call.)  *Note Feature Test Macros::.
+
+   The primitives affected by this issue are `close', `fcntl'
+(operation `F_SETLK'), `open', `read', `recv', `recvfrom', `select',
+`send', `sendto', `tcdrain', `waitpid', `wait', and `write'.
+
+   There is one situation where resumption never happens no matter which
+choice you make: when a data-transfer function such as `read' or
+`write' is interrupted by a signal after transferring part of the data.
+In this case, the function returns the number of bytes already
+transferred, indicating partial success.
+
+   This might at first appear to cause unreliable behavior on
+record-oriented devices (including datagram sockets; *note
+Datagrams::.), where splitting one `read' or `write' into two would
+read or write two records.  Actually, there is no problem, because
+interruption after a partial transfer cannot happen on such devices;
+they always transfer an entire record in one burst, with no waiting
+once data transfer has started.
+
+
+File: libc.info,  Node: Generating Signals,  Next: Blocking Signals,  Prev: Interrupted Primitives,  Up: Signal Handling
+
+Generating Signals
+==================
+
+   Besides signals that are generated as a result of a hardware trap or
+interrupt, your program can explicitly send signals to itself or to
+another process.
+
+* Menu:
+
+* Signaling Yourself::          A process can send a signal to itself.
+* Signaling Another Process::   Send a signal to another process.
+* Permission for kill::         Permission for using `kill'.
+* Kill Example::                Using `kill' for Communication.
+

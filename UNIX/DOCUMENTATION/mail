@@ -1,0 +1,282 @@
+Newsgroups: comp.mail.misc,comp.mail.uucp,comp.unix.sysv386
+Subject: Re: What's the best selection on setting up a UUCP node with 486/33MHz PC?
+Message-ID: <1992Jan17.213612.10686@cbnewsl.cb.att.com>
+Date: 17 Jan 92 21:36:12 GMT
+References: <RIKITAKE.92Jan8105613@jrdzzz.jrd.dec.com> <RIKITAKE.92Jan10125727@jrdzzz.jrd.dec.com>
+Organization: AT&T Bell Laboratories
+Lines: 36
+
+In article <RIKITAKE.92Jan10125727@jrdzzz.jrd.dec.com>, rikitake@jrd.dec.com (Kenji Rikitake) writes:
+> Isn't there a big difference between BSD sendmail and SVR4 sendmail?
+> Does SVR4 sendmail really handle BIND and MX well?
+
+the svr4 mail situation is a little unusual, so let me try to clarify:
+svr4 comes with *two* completely different mail systems:
+
+1. the "native" mailer (for lack of a better name), is a completely new
+   implementation of /bin/mail (transport and user agent) based on prior
+   work done at bell labs research (upas) and attmail code (pmx).  it uses
+   a regular-expression based parser (/etc/mail/mailsurr) to route mail.
+   it also has, as a separate subsystem, an smtp queuer and receiver.
+   this smtp implementation is from research as well, and it interfaces
+   to the mail system proper in a way very similar to uux.  this smtp
+   queuer does handle mx records.  at&t easylink services (former attmail)
+   develops this for unix system laboratories (usl).  this is considered
+   the "real" mailer of svr4, and has no relation whatsoever to sendmail.
+
+2. "sendmail" exists in the "berkeley compatibility section" of svr4.
+   it is based on the latest sun os sendmail; there is really no difference
+   at all between bsd sendmail and svr4 sendmail.  it does everything
+   the usual sendmail way: smtp built in, mx handling, etc.  nobody is
+   actively developing sendmail; it is only in svr4 to satisfy those
+   who need to transition from bsd.
+
+there's also an enhanced mailx (aka berkeley mail) which merges the
+system v and sun os variants plus adds some new features and bug fixes.
+this is also developed by easylink.
+
+so there are two mailers: the native one, which does lots of new and
+different stuff, is radically different from sendmail, and is being actively
+developed and enhanced; and then there's sendmail, which is just a port
+of the sun os version, and nobody much cares about it.
+
+----
+Newsgroups: comp.mail.headers,comp.mail.misc,comp.unix.sysv386,comp.unix.admin
+Subject: Re: Need help setting up mail on System V.
+Summary: Overview of SVR4 mail (Longish)
+References: <1991Dec23.131213.6892@husc3.harvard.edu>
+Sender: andrew@uel.co.uk
+Organization: Unix System Laboratories, Europe Ltd.
+Keywords: mail(1)/rmail(1), SVR4, mailsurr, mailcnfg
+
+In article <1991Dec23.131213.6892@husc3.harvard.edu> utterbac@husc9.harvard.edu (Margot Utterback) writes:
+>I am in the process of setting up E-Mail on a group of System V based
+>machines.  These machines use the Mailsurr system to accomplish
+>the same thing as sendmail.
+
+Presence of the mailsurr file would indicate that this is either SVR4
+mail or some other derivative of attmail. 
+I have posted an overview of setting things up for SVR4 mail(1)/rmail(1),
+I hope this may be useful for folks new to the SVR4 mailer.
+
+>Has anyone else set up a mail domain with mailsurr? What we have is
+>something like this:
+>
+>outside world <---> gateway <----> internal domain
+>
+Yes, we have the same here in London. We use an SVR3.2 machine as our
+gateway running UNIX SVR4.1 Mail (has mailsurr and mailcnfg in /etc/mail).
+Internally we have various machines running SVR4 , SVR4.1 and SVR3.
+The internal hosts are hidden from the outside world.
+
+There are two directories used by the SVR4 mailer
+/etc/mail - contains configuration files 
+/usr/lib/mail - contains utility programmes used by the mail subsystem
+
+The following notes concentrate on /etc/mail.
+
+1) /etc/mail
+A typical contents listing of /etc/mail follows:
+binarsys        fullnames       groups          lists           localiases 
+mailcnfg        mailsurr        mailx.rc        namefiles       
+
+The key files for use are mailcnfg and mailsurr:
+/etc/mail/mailcnfg:
+
+This is used to initialise the mail(1) and rmail(1) commands
+the fields CLUSTER, DOMAIN and SMARTERHOST are of particular importance.
+
+CLUSTER - can be used to name a group of machines. The string supplied
+          is used instead of the domain name when mail supplies the
+          remote from line.
+DOMAIN  - string used to supply the domain name for the From: line
+SMARTERHOST - can be set to a machine that has better routing information
+            in case the local machine does not understand the address
+
+Some other useful fields
+
+FAILSAFE - can be used to denote a machine to which delivery should
+           be made in case local delivery fails - useful when using
+           mail in a networked environment
+DEL_EMPTY_FILE - if value set to no empty mailfiles are not deleted by
+                 mail or mailx
+
+# -----example /etc/mail/mailcnfg -------
+# the combination of CLUSTER and DOMAIN make mailx give the From: 
+# line as CLUSTER@DOMAIN, in this example usr@foo.dom.co.uk
+CLUSTER=foo	
+DOMAIN=dom.co.uk
+
+# Setting SMARTERHOST lets the system send mail to a host
+# that can handle the routing if it does not understand the
+# address
+# for internal hosts SMARTERHOST should be the name of the gateway
+# for the gateway, SMARTERHOST could be the nearest backbone
+SMARTERHOST=backbone	
+
+# If for some reason we can't deliver the mail locally, pass
+# it internally to another FAILSAFE machine
+FAILSAFE=olim386
+# ------end example-------
+
+/etc/mail/mailsurr:
+
+This file contains a set of rules for routing and transport of mail.
+Each entry in the file consists of three fields.
+
+'sender'	  'recipient'	'command'
+
+The sender and recipient fields are regular expressions.  If
+these first two fields match those of the mail message being
+processed, the associated command is ran.
+
+Examples of mailsurr entries follow, for a full explanation
+you should refer to the SVR4 man page for mailsurr(4).
+
+#    Prevent all shell meta-characters
+'.+'	'.*[`;&|^()].*'		'Deny'
+'.+'	'!*#.*'			'Deny'
+
+# sysabc can only handle mail less than 35K
+'.+'     'sysabc!.+'              '<S=0; /bin/sh -c "[ %l -gt 35000 ] && /%w/maildenial \"%R\" \"%n\" \"%S\" \"%l\"'
+
+#    Map all names of	the form local-machine!user -> user
+'.+' '%L!(.+)'	       'Translate R=\\1'
+
+#    Map all names of	the form uname!user -> user
+#    Must be turned on when using mail in a cluster environment.
+'.+'	    '%U!(.+)'		    'Translate R=\\1'
+
+## The %-hack
+'.+'	'([^!].*)%%(.+)@(.+)'	'Translate R=!\\3!\\2!\\1'
+
+#    Map all names of	the form user@host -> host!user
+'.+' '([^!@]+)@(.+)'	       'Translate R=\\2!\\1'
+
+#    Map all names of	the form host.uucp!user	-> host!user
+'.+' '([^!@]+)\.uucp!(.+)'  'Translate R=\\1!\\2'
+
+#    Map all names of	the form host.local-domain!user	-> host!user
+'.+' '([^!@]+)%D!(.+)'       'Translate R=\\1!\\2'
+
+#    Send mail for `laser' to	attached laser printer
+#    Make certain that failures are reported via return mail.
+'.+' 'laser'	 '< S=0;F=*; lp	-dlaser'
+
+#    Run all local names through the mail alias processor
+#
+'.+' '[^!@]+'		'Translate R=|/usr/bin/mailalias %n'
+
+# On Gateway use a router, in this case smail
+'.+'	'.*[!@].*'		'Translate R=|/usr/lib/mail/surrcmd/smail -A %n'
+
+#    For remote mail via uucp
+'.+' '([^!@]+)!(.+)'	 '< /usr/bin/uux - \\1!rmail (\\2)'
+
+#    For remote mail via smtp
+#    To enable remove the comment
+#'.+'	    '([^!@]+)!(.+)'	    '< /usr/lib/mail/surrcmd/smtpqer %R	%n'
+
+#    If none of the above work, then ship remote mail	off to a smarter host.
+#    Make certain that SMARTERHOST= is defined within	/etc/mail/mailcnfg.
+'.+'	    '.*[!@].*'		    'Translate R=%X!%n'
+
+#    Log successful message deliveries
+'(.+)' '(.+)'	'>/usr/lib/mail/surrcmd/logger \\1 \\2'
+
+/etc/mail/namefiles:
+SVR4 mail has a convenient method of alias processing, and the
+mailer calls a utility called mailalias. The mailalias utility if
+it cannot find a user locally or a mailbox (SVR4 mail delivers to
+mailfiles as well as user) looks for a list of alias files in
+/etc/mail/namefiles
+
+The default files are /etc/mail/lists and /etc/mail/names. I have
+added a couple of local files, /etc/mail/groups for internal groups,
+/etc/mail/localiases for internal distribution and /etc/mail/fullnames 
+which has long names so this file looks like:
+
+# --- example /etc/mail/namefiles -----
+/etc/mail/lists
+/etc/mail/names
+# Local add-ons
+/etc/mail/groups
+/etc/mail/localiases
+/etc/mail/fullnames
+# -----end example ----
+
+/etc/mail/groups could be:
+
+# ---- example /etc/mail/groups -----
+#	All the local groups within Sitename.This is the definitive copy used by
+#	all the mail interfaces (it's totally transparent to them all).
+#
+
+managers	john fred wendy june
+staff		joan michelle rita \
+		sarah brendan
+all		managers staff
+# --- end example --
+
+/etc/mail/localiases could be:
+
+# ----- example /etc/mail/localiases ----
+#	localiases:
+#		These are purely local, readily changeable aliases for mapping
+#	user@site.domain to internal host!user
+#
+# This file is for the gateway
+
+john		argus!john
+fred		argus!fred
+wendy		woolco!wendy
+june		sun4!june
+rita		olim380!rita
+sarah		olim380!sarah
+brendan		sun4!brendan
+# -- end example --
+
+/etc/mail/fullnames could be:
+
+# --- example /etc/mail/fullnames ---
+j.williams	john
+john.williams	john
+f.jones		fred
+fred.jones	fred
+w.jones		wendy
+wendy.jones	wendy
+r.arnold	rita
+rita.arnold	rita
+# common misspellings can also be included
+sara		sarah
+brendon		brendan
+# --- end example ----
+
+/etc/mail/mailx.rc:
+Same as pre-SVR4 /usr/lib/mailx/mailx.rc. Contains start up
+defaults for mailx(1).
+
+/etc/mail/binarsys:
+A file containing a list of sites to whom it is possible to
+send binary mail. Can be set to default=n , if you don't
+want to send binary mail.
+
+2) /usr/lib/mail:
+The directory contains utilities used by the SVR4 mail system.
+The contents of the top level directory are mainly used for 
+delivery to pipes (mail_pipe) and the /usr/bin/vacation command.
+
+An ls of /usr/lib/mail reveals:
+
+mail_pipe mailsurr notify2 surrcmd vacation2
+
+The /usr/lib/mail/surrcmd contains ancillary commands used by
+the mailsurr file:
+
+ckbinarsys fromsmtp smtp smtpd smtpqer smtpsched tosmtp
+
+The standard utilities provided are for  support of smtp and
+checking binary mail can be sent. Other locally added scripts
+can be placed in this directory.
+----
+Andrew Josey, UNIX System Labs Europe, Ltd. Email: postmaster@uel.co.uk

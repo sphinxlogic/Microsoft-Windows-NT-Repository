@@ -1,0 +1,398 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node Fontconvert, Charspace, IMGrotate, Top
+@chapter Fontconvert
+
+@pindex fontconvert
+@cindex manipulation, of bitmap fonts
+@cindex bitmap font manipulation
+
+Fontconvert performs manipulations on bitmap fonts: conversion to other
+formats, merging multiple fonts, adjusting individual characters, moving
+characters around within a font, @dots{}
+
+The input is either a GF or a PK bitmap font, and in some
+circumstances, a TFM file.  (@xref{File format abbreviations}.)  The
+output varies according to the options specified.
+
+@menu
+* Invoking Fontconvert::        Command-line options.
+@end menu
+
+
+@node Invoking Fontconvert,  ,  , Fontconvert
+@section Invoking Fontconvert
+
+@cindex Fontconvert options
+@cindex invocation of Fontconvert
+@cindex options for Fontconvert
+
+In the following sections we describe all the options Fontconvert
+accepts, grouped according to general function.
+
+@menu
+* Fontconvert output options::  Specifying the output format(s).
+* Character selection options::  What characters to operate on.
+* Character manipulation options::  Changing characters' appearance.
+* Fontwide information options::  Changing global information in a font.
+* Miscellaneous options::       Other options.
+@end menu
+
+
+@node Fontconvert output options, Character selection options,  , Invoking Fontconvert
+@subsection Fontconvert output options
+
+@cindex Fontconvert output formats
+@cindex output formats
+@cindex formats, Fontconvert output
+
+The following table describes the options which affect the output
+file(s) Fontconvert writes.  You can specify as many as you like.  If
+you don't specify any, the default is to write nothing at all.
+
+In the following, @var{font-name} stands for the root part of the main
+input file (@pxref{Main input file}).  The output filenames here are the
+defaults; you can override them with the @samp{-output-file} option
+(@pxref{Miscellaneous options}).
+
+@table @samp
+
+@opindex -epsf
+@cindex EPS
+@cindex Encapsulated PostScript
+@item -epsf
+Output each character as an Encapsulated PostScript (EPS) file named
+@file{@var{font-name}-@var{code}.eps}, where @var{code} is the character
+code (in decimal).  This may be useful if the input ``font'' is actually
+a collection of images.
+
+@opindex -gf
+@cindex GF output
+@flindex x @r{prefix}
+@item -gf
+Output a GF font @file{@var{font-name}.@var{dpi}gf}, where @var{dpi} is
+the resolution of the input font in dots per inch.  If this would
+overwrite the input file (presumably because it, too, is a GF font),
+then prepend @samp{x} to the output name.
+
+This is mainly useful in conjunction with options that change the
+characters in the input font in some way.
+
+@opindex -text
+@cindex text output
+@cindex bitmaps, viewing
+@cindex GFtype
+@cindex PKtype
+@item -text
+Write the output in a human-readable plain text form to standard output.
+The bitmap for each character is shown using @samp{*} and @samp{ }.
+This is an easy way to see what output is being generated, without going
+to the trouble of running @TeX{} and a DVI driver.  (The standard @TeX{}
+programs GFtype and PKtype, which serve a similar purpose, do not always
+write the entire bitmap.)
+
+@opindex -tfm
+@cindex TFM output
+@item -tfm
+Write a TFM file to @file{@var{font-name}.tfm}.  If a TFM file
+@file{@var{font-name}.tfm} can be found, it is read, and an @samp{x} is
+prepended to the output name.
+
+If an existing TFM file is found, then Fontconvert uses it (by default)
+for the TFM header information, and for the ligature and kern
+information.  Unless the @samp{-baseline-adjust}, @samp{-column-split},
+filtering, or randomizing options were specified, Fontconvert also uses
+it for the character dimensions.  (Those options radically change the
+appearance and size of the characters, so using the dimensions of the
+originals would be inappropriate.)
+
+@xref{Fontwide information options}, for how to specify the global TFM
+information yourself, overriding the default.
+
+@end table
+
+
+@node Character selection options, Character manipulation options, Fontconvert output options, Invoking Fontconvert
+@subsection Character selection options
+
+@cindex character selection
+@cindex selection, of characters
+
+The following table describes the options which affect the set of
+characters Fontconvert writes.
+
+@table @samp
+
+@opindex -concat
+@cindex concatenation of bitmap fonts
+@cindex bitmap fonts, concatenating
+@cindex font concatenation
+@item -concat @var{font1},@var{font2},@dots{}
+After processing the main input file (@pxref{Main input file}), process
+the additional fonts @var{font1}, @var{font2}, etc.  Multiple
+@samp{-concat} options do combine, e.g., @samp{-concat @var{font1}
+-concat @var{font2}} is the same as @samp{-concat
+@var{font1},@var{font2}}.
+
+@cindex duplicated characters
+@cindex repeated characters
+@cindex characters, duplicated
+@cindex characters, repeated
+If a character appears in more than one font, its first appearance is
+the one that counts.  Fontconvert issues a warning about such repeated
+characters.
+
+The design size, resolution, and other global information in the output
+font is always taken from the main input font, not from the concatenated
+fonts.
+
+@opindex -column-split
+@cindex splitting characters
+@cindex characters, splitting
+@cindex muddy images
+@item -column-split @var{charspec}@@@var{col_1},@dots{},@var{col_n}
+Split the input character at position @var{charspec} before each of the
+@var{N} @var{column}s, thus producing @var{n} new characters.  
+
+The new characters have codes @var{charspec}, @math{@var{charspec}+1},
+@dots{}, @math{@var{charspec}+@var{n}}.  (These character codes are
+subject to the remapping specified by @samp{-remap}; see below.  Any
+previous characters at those codes are overwritten.)
+
+The bitmaps of the new characters are slices from the original
+character: 0 to column @math{@var{col_1}-1}, @dots{}, @var{col_n} to the
+bitmap width.  You specify the column numbers in bitmap coordinates,
+i.e., the first column is numbered zero.
+
+To split more than one character, simply specify @samp{-column-split}
+for each.
+
+This option is useful when two different characters in a scanned image
+of a font were printed so closely together that their images overlap.
+In this case, Imageto cannot break the characters apart, because they
+are a single bounding box.  But you can split them with this option; you
+have to use your best judgement for the exact column at which to split.
+(Probably judicious hand-editing with XBfe (@pxref{XBfe}) will be
+necessary after you do this.)
+
+@opindex -range
+@item -range @var{char1}-@var{char2}
+Only output characters with codes between @var{char1} and @var{char2},
+inclusive.  (@xref{Common options}, and @ref{Specifying character codes}.)
+
+@opindex -omit
+@cindex omitting characters
+@cindex characters, omitting
+@cindex deleting characters
+@cindex characters, deleting
+@item -omit @var{charspec1},@var{charspec2},@dots{}
+Omit the characters with the specified codes (before remapping) from the
+output.  Multiple @samp{-omit} options combine.
+
+@opindex -remap
+@cindex remapping characters
+@cindex characters, remapping
+@cindex translating characters
+@cindex characters, translating
+@item -remap @var{src1}:@var{dest1},@var{src2}:@var{dest2},@dots{}
+For each pair of character specifications @var{src}/@var{dest}, change
+the character with code @var{src} in the input font to have code
+@var{dest} in the output.
+
+@end table
+
+
+@node Character manipulation options, Fontwide information options, Character selection options, Invoking Fontconvert
+@subsection Character manipulation options
+
+The following options affect individual characters.  
+
+When any of them are specified, the dimensions of the output character
+are likely to be quite different than those of the input characters;
+therefore, Fontconvert does not copy the TFM information (when writing a
+TFM file) from an existing TFM file.
+
+@table @samp
+
+@opindex -baseline-adjust
+@cindex baseline adjustment
+@cindex adjustment, to baseline
+@item -baseline-adjust @var{code1}:@var{delta1},@var{code2}:@var{delta2},@dots{}
+Adjust the baseline of the output (i.e., after remapping) character
+@var{code} by the corresponding @var{delta}.  A negative @var{delta}
+moves the baseline down, a positive one up.  Multiple
+@samp{-baseline-adjust} options combine.
+
+@opindex -filter-passes
+@opindex -filter-size
+@opindex -filter-threshold
+@cindex smoothing bitmaps
+@cindex filtering bitmaps
+@cindex bitmaps, filtering
+@cindex averaging filter
+@item -filter-passes @var{passes}
+@itemx -filter-size @var{half-cell-size}
+@itemx -filter-threshold @var{intensity}
+Run each character through an ``averaging filter'' @var{passes} times.
+This tends to smooth rough edges on characters or irregular curves.  By
+the same token, it tends to shrink or eliminate small features, such as
+features.  Experimentation is necessary to determine the best values for
+any particular font.
+
+For the pixel at coordinate @math{(x,y)}, Fontconvert looks at its
+neighbors in rows @math{y} @minus{} @var{half-cell-size}, @dots{},
+@math{y-1}, @math{y+1}, @dots{}, @math{y} + @var{half-cell-size}, and
+similarly for the columns.
+
+Fontconvert computes the average intensity of this square; if the result
+is greater than @var{intensity}, it outputs a black pixel at
+@math{(x,y)}; a white one, otherwise. 
+
+This process is repeated for every pixel in every character, and every
+character is filtered @var{passes} times.  
+
+The default is to do no filtering, i.e., @var{passes} is zero.  The
+default for @var{half-cell-size} is one; the default for @var{intensity}
+is @math{.5}.
+
+@opindex -random
+@opindex -random-threshold
+@cindex randomizing bitmaps
+@cindex bitmaps, randomizing
+@cindex distorting characters
+@item -random @var{distance}
+@itemx -random-threshold @var{probability}
+In every character, randomly move each black pixel.  We implemented this
+as part of our research (to see how much characters could be distorted
+before they became noticeably harder to read---the answer is a lot), but
+left it in the program for its amusement value.
+
+For each black pixel, a first random number between zero and one is
+compared to @var{probability}.  If it is greater, nothing happens.
+Otherwise, a second random number is chosen, this one between
+@math{-@var{distance}} and @var{distance}.  The pixel is ``moved'' that
+far horizontally.  Then repeat for the vertical axis.
+
+The default is to do no randomization, i.e., @var{distance} is zero.
+The default for @var{probability} is @math{.2}.
+
+@end table
+
+
+@node Fontwide information options, Miscellaneous options, Character manipulation options, Invoking Fontconvert
+@subsection Fontwide information options
+
+These options provide a way for you to set the global information in TFM
+and GF files.  They override the default values (which are taken from
+the input bitmap or TFM files).
+
+@table @samp
+
+@opindex -designsize
+@cindex designsize
+@cindex font size
+@item -designsize @var{real}
+Set the design size in both the TFM and GF output files to @var{real}.
+You give @var{real} in printer's points.
+
+You might want to use this after seeing the Metafont or PostScript fonts
+output by BZRto, and deciding they look too small.  For example, the
+original Garamond type specimen we scanned was (nominally) printed in
+30@dmn{pt}.  But when scaled down to 10@dmn{pt} via Metafont, the
+characters looked too small.  So we ran Fontconvert with
+@samp{-designsize=26} on the bitmap font made from the original image,
+and then reran Limn, BZRto, and Metafont to see the result.  (We settled
+on 26 after several trials.)  @xref{Creating fonts}, for a description
+of all the steps in creating fonts from scanned images.
+
+@opindex -fontdimens
+@item -fontdimens @var{fd1}:@var{value1},@var{fd2}:@var{value2},@dots{}
+@xref{TFM fontdimens}.
+
+@opindex -tfm-header
+@cindex TFM header bytes
+@cindex header bytes in TFM
+@item -tfm-header @var{name1}:@var{value1},@var{name2}:@var{value2},@dots{}
+Assign each @var{value} to the corresponding @var{name} in the header
+information written to the TFM file.  The standard @TeX{} names are
+recognized:
+
+@table @samp
+
+@cindex checksum, specifying in TFM header
+@item checksum
+The corresponding @var{value} should be an unsigned integer, which should
+uniquely identify this TFM file.  A checksum of zero disables testing.
+The default is zero.
+
+@cindex design size, specifying in TFM header
+@item designsize
+The corresponding @var{value} should be a real number between 1 and 2048
+(this limit is in the TFM file format).  This overrides (for the TFM
+output only) the @samp{-designsize} option, if both are specified.  The
+default is the design size of the input.
+
+@cindex codingscheme, specifying in TFM header
+@item codingscheme
+The corresponding @var{value} should be a string of length less than 40,
+containing no parentheses or commas.  Again, these restrictions are due
+to the TFM file format.  This coding scheme declares the font's
+encoding vector.  @xref{Coding scheme map file}.
+
+@end table
+
+@end table
+
+
+@node Miscellaneous options,  , Fontwide information options, Invoking Fontconvert
+@subsection Miscellaneous options
+
+These options are the generic ones accepted by most (in some cases, all)
+programs.  @xref{Common options}.
+
+@table @samp
+
+@opindex -dpi
+@item -dpi @var{unsigned}
+The resolution of the main input font, in pixels per inch.
+
+@opindex -encoding
+@cindex encoding of input fonts
+@item -encoding @var{enc-file}
+The encoding file to read for the mapping between character names and
+character codes.  @xref{Encoding files}.  If @var{enc-file} has no
+suffix, @samp{.enc} is appended.  There is no default.  Without an
+encoding file, the options listed in @ref{Character selection options}
+which take character specs will just complain if you supply character
+names, instead of character codes.
+
+@opindex -help
+@item -help
+Print a usage message.  @xref{Common options}.
+
+@item -output-file @var{filename}
+@opindex -output-file
+@cindex output file, naming
+If @var{filename} has a suffix and if only one output file is to be
+written, write to @var{filename}.  If @var{filename} has a suffix and
+you've specified options which imply more than one output file,
+Fontconvert complains and gives up.
+
+If @var{filename} does not have a suffix, extend @var{filename} with
+whatever is appropriate for the output format(s).  In the case of GF and
+TFM output, if this would overwrite the input, prepend an @samp{x} to
+the output name.
+
+By default, use the name of the main input font for @var{filename}.
+
+@item -verbose
+@opindex -verbose
+Output progress reports.
+
+@item -version
+@opindex -version
+Print the version number.
+
+@end table

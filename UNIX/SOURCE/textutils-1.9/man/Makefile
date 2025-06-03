@@ -1,0 +1,68 @@
+# Generated automatically from Makefile.in by configure.
+# Makefile for GNU text utilities documentation.
+# Copyright (C) 1991, 1992, 1993 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+SHELL = /bin/sh
+
+srcdir = .
+VPATH = .
+
+prefix = /opt
+exec_prefix = ${prefix}
+mandir = $(prefix)/man/man1
+manprefix =
+manext = 1
+INSTALL = /opt/bin/install -c
+INSTALL_DATA = $(INSTALL) -m 644
+
+MANFILES = cat.1 cksum.1 comm.1 csplit.1 cut.1 expand.1 fold.1 head.1 \
+join.1 nl.1 od.1 paste.1 pr.1 sort.1 split.1 sum.1 tac.1 tail.1 tr.1 \
+unexpand.1 uniq.1 wc.1
+
+DISTFILES = Makefile.in $(MANFILES)
+
+all:
+
+install: all
+	for f in $(MANFILES); do \
+	  $(INSTALL_DATA) $(srcdir)/$$f \
+	    $(mandir)/$(manprefix)`basename $$f 1`$(manext); \
+	done
+
+uninstall:
+	for f in $(MANFILES) su.1; do \
+	  rm -f $(mandir)/$(manprefix)`basename $$f 1`$(manext); \
+	done
+
+TAGS:
+
+clean:
+
+mostlyclean: clean
+
+distclean: clean
+	rm -f Makefile
+
+realclean: distclean
+	rm -f TAGS
+
+dist:
+	ln $(DISTFILES) ../`cat ../.fname`/man
+
+# Tell versions [3.59,3.63) of GNU make not to export all variables.
+# Otherwise a system limit (for SysV at least) may be exceeded.
+.NOEXPORT:

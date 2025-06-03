@@ -1,0 +1,1166 @@
+This is Info file fontu.info, produced by Makeinfo-1.49 from the input
+file fontu.texi.
+
+  This file documents the GNU font utilities.
+
+  Copyright (C) 1992 Free Software Foundation, Inc.
+
+  Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+  Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided also that the
+sections entitled "Freedom" and "GNU General Public License" are
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+  Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the sections entitled "Freedom" and "GNU General
+Public License" may be included in a translation approved by the Free
+Software Foundation instead of in the original English.
+
+
+File: fontu.info,  Node: BPL files,  Next: Invoking BPLtoBZR,  Up: BPLtoBZR
+
+BPL files
+=========
+
+  Bezier property list (BPL) files are free-format text files which
+describe an outline font.  They are a transliteration of the binary BZR
+font format (*note BZR files::.).
+
+  A BPL file is a sequence of entries of the form
+     (PROPERTY-NAME VALUE1 VALUE2 ...)
+
+  The PROPERTY-NAME is one of a small set of keywords understood by
+BPLtoBZR.  The VALUEs vary depending on the property being defined. 
+BPL files have four types of values: unsigned integers, reals, strings
+(enclosed in typewriter double-quote `"' marks), and "real strings"
+("realstr" for short)--a real number in quotes. *Note Editing BPL
+files::, for an explanation of why realstrs are necessary.
+
+  A PROPERTY-NAME of `comment' introduces a comment, which continues
+through the next right parenthesis.  This implies nested comments are
+*not* allowed: `(comment (wrong!))' will get an error at the second `)'.
+
+  BPL files have three parts: a preamble, character definitions, and a
+postamble.  They must appear in that order.  In many cases, the order in
+which you give the properties within a part is also significant.
+
+* Menu:
+
+* Preamble: BPL preamble.       The beginning.
+* Characters: BPL characters.   The middle.
+* Postamble: BPL postamble.     The end.
+
+
+File: fontu.info,  Node: BPL preamble,  Next: BPL characters,  Up: BPL files
+
+BPL preamble
+------------
+
+  The "preamble" of a BPL file consists of the following three
+properties:
+
+  1. `(fontfile STRING)'.  This merely documents the filename of the
+     BZR font from which BZRto made this BPL file.  It is ignored.
+
+  2. `(fontcomment STRING)'.  This is an arbitrary string written as
+     the "comment" in the BZR file.  BZR-reading programs ignore this
+     comment.  It typically identifies the source and time of creation.
+      If STRING is longer than 255 characters, it is truncated (due to
+     limitations of the BZR format).
+
+  3. `(designsize REAL)'.  The design size of the font, in printer's
+     points.
+
+
+File: fontu.info,  Node: BPL characters,  Next: BPL postamble,  Prev: BPL preamble,  Up: BPL files
+
+BPL characters
+--------------
+
+  A BPL file must have one or more "character definitions".  These have
+the following form:
+
+     (char UNSIGNED
+       WIDTH
+       BOUNDING-BOX
+       OUTLINE1
+       OUTLINE2
+       ...
+     )
+
+  The UNSIGNED number directly after the `char' command specifies the
+character code.  If it is larger than 255 (the maximum character code
+in BZR files, and all other font formats the font utilities deal with)
+then BPLtoBZR issues a warning and uses its value modulo 256.
+
+  The other pieces are specified as properties:
+
+   * `(width REALSTR)'.  The set width of the character in printer's
+     points.
+
+   * `(bb LLX LLY URX URY)'.  The bounding box of the character in
+     printer's points, defined by the lower-left x coordinate and the
+     upper-right y coordinate.  Each value is a realstr.  The left side
+     bearing is defined by LLX, and the right side bearing is defined
+     by the difference between the set width and URX.
+
+  Each OUTLINE specifies a geometrical outline, i.e., a closed curve. 
+For example, an `o' would have two OUTLINEs.  If the character is
+entirely blank, the BPL file has no OUTLINEs at all.
+
+  The outline property is somewhat more complex than the rest, so we
+describe it below.
+
+* Menu:
+
+* BPL outlines::                Representation of character outlines.
+
+
+File: fontu.info,  Node: BPL outlines,  Up: BPL characters
+
+BPL outlines
+............
+
+  You specify an "outline" in a BPL file as a sequence of straight
+lines and cubic splines, in any order:
+
+     (outline START-X START-Y
+       PIECE1 PIECE2 ...
+     )
+
+  START-X and START-Y are realstrs which specify the initial position
+for drawing this outline.  Each successive piece of the outline is
+relative to a current point, and also updates the current point.
+
+  At least one PIECE must be present.  Each PIECE can be one of the
+following two properties:
+
+  1. `line x y'.  Draw a straight line from the current point to (x,y).
+      Then set the current point to (x,y). x and y are realstrs.
+
+  2. `spline C1X C1Y C2X C2Y EX EY'. Draw the Bezier cubic using the
+     current point as the starting point, (C1X,C1Y) and (C2X,C2Y) as
+     the control points, and (EX,EY) as the endpoint.  Then set the
+     current point to the endpoint.  All coordinates are realstrs.
+
+
+  If the last point the last piece of the `outline' is not the same as
+the starting point, the result is undefined.
+
+
+File: fontu.info,  Node: BPL postamble,  Prev: BPL characters,  Up: BPL files
+
+BPL postamble
+-------------
+
+  The final piece of a BPL file is the "postamble".  It has two
+components:
+
+  1. `(fontbb LLX LLY URX URY)'.  Defines the bounding box for the
+     entire font in the same way as the `bb' property defines the
+     bounding box for a character.  *Note BPL characters::.
+
+  2. `(nchars UNSIGNED)'.  The number of characters in the BPL file. 
+     This is purely for informational purposes; BPLtoBZR ignores it.
+
+
+
+File: fontu.info,  Node: Invoking BPLtoBZR,  Prev: BPL files,  Up: BPLtoBZR
+
+Invoking BPLtoBZR
+=================
+
+  This section describes the options that BPLtoBZR accepts. *Note
+Command-line options::, for general option syntax.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-output-file FILENAME'
+     Output to FILENAME (if it has a suffix) or to `FILENAME.bzr' (if
+     it doesn't).
+
+`-range CHAR1-CHAR2'
+     Only output characters with codes between CHAR1 and CHAR2,
+     inclusive.  (*Note Common options::, and *Note Specifying
+     character codes::.)
+
+`-verbose'
+     Output progress reports.
+
+`-version'
+     Print the version number of this program.
+
+
+File: fontu.info,  Node: XBfe,  Next: BZRedit,  Prev: BPLtoBZR,  Up: Top
+
+XBfe
+****
+
+  XBfe (X Bitmap Font Editor) allows you to hand-edit a bitmap
+font--both the shapes (i.e., the pixels) and the metric information
+(set widths, side bearings, and kerning tables).
+
+  The input is both a bitmap (GF or PK) font and a corresponding TFM
+file. If you have only a bitmap font for some reason, you can make a
+TFM file with Fontconvert (*note Fontconvert output options::.).  XBfe
+outputs (at your command) the edited files in the current directory
+*with the same name*, thus possibly replacing the input file.
+
+  XBfe is intended to edit existing fonts, not create new ones.  For
+example, it does not provide a way to create new characters in a font.
+(you can add characters to a font using Fontconvert, though; *note
+Character selection options::.).  In terms of its interaction with the
+other font utilities, it is most useful for making character shapes
+more amenable to Limn's outline fitting (*note Limn::.).
+
+* Menu:
+
+* XBfe usage::                  How to edit fonts.
+* Invoking XBfe::               Command-line options.
+
+
+File: fontu.info,  Node: XBfe usage,  Next: Invoking XBfe,  Up: XBfe
+
+XBfe usage
+==========
+
+  XBfe attempts to follow established user interface conventions for X
+programs:
+
+   * The location of the mouse determines where keyboard input goes.
+
+   * In general, it is the release of a mouse button, and not its being
+     pressed, that causes action.
+
+   * When you've finished typing a piece of information in one of the
+     items in the XBfe window, you must hit RET to cause action.
+
+   * The text editing facilities for such information are the defaults
+     for the `AsciiText' widget, which is Emacs-like bindings.
+
+   * You can customize the bindings of all actions described below, the
+     fonts used, window sizes, and so on, via your resource file
+     `.Xdefaults'. See the documentation in the file
+
+          .../mit/doc/tutorials/resources.txt
+
+     in the X distribution if you aren't familiar with X resources.  The
+     class name is `XBfe'.  The font utilities distribution comes with
+     an application resource file `XBfe' (which must be installed for
+     the program to function properly); see that file for possibilities
+     of what you might change.
+
+  The sections below describe the specific operations XBfe provides.
+
+* Menu:
+
+* Controlling XBfe ::           Controlling XBfe
+* Shape: XBfe shape editing.    Changing the pixels.
+* Metrics: XBfe metrics editing.  Changing the side bearings.
+
+
+File: fontu.info,  Node: Controlling XBfe,  Next: XBfe shape editing,  Up: XBfe usage
+
+Controlling XBfe
+----------------
+
+  This section describes a few operations which do not directly involve
+editing, but rather managing of the editing session itself.
+
+  To exit XBfe, click on the `Exit' button.  Any changes made since the
+last save are lost.
+
+  To save changes, click on the `Save' button.  The new files are
+written in the current directory--unless that would overwrite the input
+files, in which case they are written to the directory `/tmp' (or the
+value of the environment variable `TMPDIR', if it's set).  When you
+exit XBfe normally, the files are moved from the temporary directory to
+your current directory, thus possibly overwriting the input.
+
+  To go back to the last saved version of a character you are editing,
+click on the `Revert' button.  This is useful when you've made changes
+you didn't intend.  If you exit without saving first, all changes
+(since the last save) will be lost, as mentioned above.
+
+  You can move to the previous character in the font, i.e., the one with
+the character code next smallest to the current one, by clicking on the
+`Prev' button.  Similarly, you can move to the next character by
+clicking on the `Next' button.  You can move to a specified character
+by typing its character code in the `Char' item and hitting RET.  *Note
+Specifying character codes::, for the various possibilities for
+character codes.
+
+
+File: fontu.info,  Node: XBfe shape editing,  Next: XBfe metrics editing,  Prev: Controlling XBfe,  Up: XBfe usage
+
+XBfe shape editing
+------------------
+
+  The most basic operation for editing character bitmaps is to change
+black pixels to white or the reverse; put another way, inverting the
+pixel the mouse is on.  You do this by clicking the third mouse button.
+
+  Technically, this is just a special case of changing more than one
+pixel: when you press the third button, the current pixel inverts; then,
+as you move the mouse, the pixels it touches change to the *color the
+first pixel changed to*.  Thus, if you press the third button on a
+white pixel, the mouse effectively becomes a "black pen" (until you
+release the button).
+
+* Menu:
+
+* Selections::                  Marking pixel regions for later operations.
+* Enlarging the bitmap::        Give yourself more room at the edges.
+
+
+File: fontu.info,  Node: Selections,  Next: Enlarging the bitmap,  Up: XBfe shape editing
+
+Selections
+..........
+
+  XBfe supports selection, pasting, and filling operations on a
+rectangle of pixels, as follows.
+
+  To select an arbitrary rectangle, press the left mouse button to
+determine the first corner; then move the mouse (with the button still
+down) to update the other corner of the rectangle; and release the
+button to define the rectangle.  (If you release the button when the
+mouse is off the character bitmap, the selection rectangle remains
+unchanged.)
+
+  Once a rectangle has been selected, you can "paste" it, either within
+the same character from which it was selected, or in a different
+character.  To do this, press the middle button; this outlines the
+region that will be changed; as you move the mouse (with the button
+still down), the outline moves accordingly; when you release the middle
+button, the selected rectangle is pasted onto the current bitmap,
+erasing whatever was in the affected area.
+
+  Pasting has several variations: if you have the `Alt' (a.k.a. Meta)
+key down when you release the middle button, the selection is flipped
+vertically; if the `Control' key is down, the selection is flipped
+horizontally; and if both are down, the selection is flipped in both
+directions.  Here is a minimal example:
+
+     original  vertical  horizontal  both
+       **         *         **        *
+        *        **         *         **
+
+This is useful when pasting serifs, since serifs are attached to the
+main stems in different orientations.  (Incidentally, making the serif
+shapes consist of exactly the same pixels may actually make the serifs
+look different, because of surrounding character features or the
+difference in orientation.  But it is still a good place to start.)
+
+  You can also fill the selected rectangle, i.e., change it to entirely
+black or white, by holding the Alt key down and pressing the right
+mouse button.  The selection is filled with the color of the pixel the
+mouse is on.  This is how you entirely erase a portion of the bitmap.
+
+
+File: fontu.info,  Node: Enlarging the bitmap,  Prev: Selections,  Up: XBfe shape editing
+
+Enlarging the bitmap
+....................
+
+  You can enlarge the bitmap on all four sides by clicking on the
+`Expand' button; i.e., this adds one blank row at the top and bottom,
+and one blank column at the left and right.  This is useful when you
+need to fill out a truncated curve, lengthen a stem or serif, etc.
+
+  XBfe correspondingly changes the side bearings and baseline position
+so that the origin of the character does not change.  In other words,
+the new row at the bottom is below the baseline, and the new columns
+are in what was the side bearing space.  You can change the baselines
+with Fontconvert (*note Character manipulation options::., and the side
+bearings with Charspace (*note Charspace::.).
+
+
+File: fontu.info,  Node: XBfe metrics editing,  Prev: XBfe shape editing,  Up: XBfe usage
+
+XBfe metrics editing
+--------------------
+
+  You can change the left side bearing for the current character by
+typing the new value in the `lsb' item (and hitting RET, as always for
+information you type).  Likewise for the right side bearing and the
+`rsb' item.  The side bearing values must be integers.
+
+  XBfe shows a box with any kerns for the current character.  Each item
+in the kern box looks like `CODE: KERN', where CODE is the character
+code (in decimal) of the character kerned with, and KERN is the kern
+distance (in pixels).  You can edit the kern distances just as with the
+side bearings; the values here are real numbers.
+
+  You can add new kerns by typing the character code of the new
+kerned-with character in the `Add kern' item; then a kern item with
+that code is added to the kern box, with a distance of zero (which you
+can then change to whatever you want).  Similarly, you can delete a kern
+by typing the character code in the `Del kern' item.
+
+
+File: fontu.info,  Node: Invoking XBfe,  Prev: XBfe usage,  Up: XBfe
+
+Invoking XBfe
+=============
+
+  This section describes the options that XBfe accepts. *Note
+Command-line options::, for general option syntax.
+
+`-dpi UNSIGNED'
+     The resolution, in pixels per inch.  *Note Common options::.
+
+`-expansion UNSIGNED'
+     Expand each pixel in the character bitmaps to this many pixels
+     square on the display; default is 12, i.e., each pixel in the
+     original bitmap will become a 12 by 12 rectangle.
+
+     You can't use `=' here to separate the option name and value.
+
+     You can also set this value by setting the resource `expansion' in
+     `.Xdefaults'.
+
+`-initial-char CHARCODE'
+     Initially display the character CHARCODE; default is the first
+     character in the font, i.e., the one with the lowest character
+     code.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-output-file FILENAME'
+     Write the output to `FILENAME.DPIgf' and `FILENAME.tfm'.  The
+     default is to use the name of the main input file for FILENAME.
+
+`-version'
+     Print the version number.
+
+  In addition to the above options, XBfe also accepts the standard X
+toolkit options (and resources), such as `-display' to specify the X
+server to use.  See the documentation for any X program for a
+description of these options.  Unlike the options above, you cannot use
+`--' to start X toolkit options, nor can you use `=' to separate option
+names and values; for example, neither `--display host:0' nor
+`-display=host:0' are recognized.
+
+
+File: fontu.info,  Node: BZRedit,  Next: GSrenderfont,  Prev: XBfe,  Up: Top
+
+BZRedit
+*******
+
+  BZRedit allows hand-editing of outline fonts in the BZR font format
+output by Limn (*note Limn::.).
+
+  It is written in GNU Emacs Lisp, and thus works only inside GNU Emacs
+(*note Top: (emacs)Top.).  It uses Ghostscript to display the character
+images, and thus you must have Ghostscript installed to use it.  *Note
+Archives::, for information on how to obtain GNU software.
+
+  BZRedit provides only a simple form of editing: you change the textual
+representation of the BZR font in an Emacs buffer; when you wish to see
+the image corresponding to the particular character you have been
+editing, you type an explicit command to tell Emacs to send the image in
+PostScript form to a Ghostscript subprocess.
+
+  BZRedit uses BPL format for the "textual representation".  *Note BPL
+files::, for the precise details on what BPL files contain; however, you
+will probably find them fairly self-explanatory.
+
+  A more featureful editor would allow interactive manipulation of the
+outlines, say via a mouse in an X window.  It would also be useful to
+allow adding or editing of hints (additional commands which improve
+rasterization at low resolution and/or small sizes); right now, none of
+the programs do anything at all about hints.
+
+* Menu:
+
+* BZRedit usage::               Operating the editor.
+
+
+File: fontu.info,  Node: BZRedit usage,  Up: BZRedit
+
+BZRedit usage
+=============
+
+  The sections below detail using BZRedit.
+
+* Menu:
+
+* BZRedit installation::        Additional installation is needed.
+* BZR: Editing BZR files.       Editing files in the binary format.
+* BPL: Editing BPL files.       Editing files in the textual format.
+
+
+File: fontu.info,  Node: BZRedit installation,  Next: Editing BZR files,  Up: BZRedit usage
+
+BZRedit installation
+--------------------
+
+  BZRedit is contained in the file `bzrto/bzredit.el'.  Installation of
+the font utilities (*note Installation::.) copies this file into a
+directory where Emacs can find it.  But you still need to tell Emacs
+what functions `bzredit.el' defines.  To do this, put the following
+definitions into either your own `.emacs' file (*note  The Init File:
+`.emacs': (elisp)Init File.), if you are the only person planning to
+use BZRedit, or into the system initialization file `default.el' (*note
+ Summary: Sequence of Actions at Start Up: (elisp)Start-up Summary.),
+for a public installation:
+
+     (autoload 'bpl-mode "bzredit" "Mode for editing BPL files." t)
+     (autoload 'bzredit "bzredit" "Set up to editing a BZR file." t)
+
+  If you want the first function to be called automatically when you
+visit a file with extension `.bpl', you can add the following code to
+(presumably) the same file:
+
+     (setq auto-mode-alist
+       (append auto-mode-alist (list '("\\.bpl\\'" . bpl-mode))))
+
+If you do not do this, then to make the editing commands (described in
+the following sections) available you must type `M-x bpl-mode' after
+visiting a BPL file.
+
+
+File: fontu.info,  Node: Editing BZR files,  Next: Editing BPL files,  Prev: BZRedit installation,  Up: BZRedit usage
+
+Editing BZR files
+-----------------
+
+  To edit a BZR file, type `M-x bzredit' to Emacs.  (See the previous
+section for how to make this function known to Emacs.)  This will ask
+you for the filename of the BZR font.  After typing the filename, type
+`RET'.
+
+  The `bzredit' function then calls BZRto with the `-text' option
+(*note BZRto::.) to produce a BPL file--the textual form of the BZR
+font.  Then it calls `bpl-mode' and makes the resulting buffer visible
+(if it isn't already).
+
+  The next section describes `bpl-mode'.
+
+
+File: fontu.info,  Node: Editing BPL files,  Prev: Editing BZR files,  Up: BZRedit usage
+
+Editing BPL files
+-----------------
+
+  To edit a BPL file in `bpl-mode', the usual Emacs editing commands
+work: cursor motion, deletion, and insertion all work just as with
+normal text files.
+
+  Here is an example of a piece of a BPL file.  *Note BPL files::, for a
+full description of BPL files.
+
+     (char 0 (comment hex 0x0)
+       (width "6.263")
+       (bb "0.241" "5.782"  "-0.241" "6.745")
+       (outline "0.482" "6.745"
+         (line "1.445" "6.504")
+         (line "1.445" "0.241")
+         (line "0.482" "0.241")
+         (line "3.613" "0.000")
+         (spline "1.682" "1.264"  "2.409" "4.436"  "2.409" "6.504")
+         ...
+       )
+     )
+
+The most usual editing session is changing the numbers in the `line'
+and `spline' commands, which are the coordinates that determine the
+character outline.  But you can do anything you want: change a `line'
+to `spline' (and add the requisite other coordinates) or vice versa,
+change the set width, etc.
+
+  You must retain the quotation marks around the floating-point numbers,
+however.  (They are necessary because Emacs 18 does not recognize
+floating-point constants.)  If you inadvertently delete one, then when
+you go to display the edited character (see below), you will get an
+error from Emacs.
+
+  When `bpl-mode' is first invoked, it starts up Ghostscript in a
+subprocess.  The section below describes the details of this.  It is
+Ghostscript which does the actual displaying.
+
+  `bpl-mode' provides three additional commands (we show the default
+bindings in parentheses):
+
+  1. `bpl-quit' (`C-c q' and `C-c C-q'), which kills the Ghostscript
+     subprocess and then removes the BPL buffer from the screen.
+     `bpl-quit' does not convert the BPL file (back) to BZR form; that's
+     left for you to do by hand.
+
+  2. `bpl-erasepage' (`C-c e' and `C-c C-e'), which sends an
+     `erasepage' command to Ghostscript, thus erasing whatever is
+     currently displayed.
+
+  3. `bpl-show-char' (`C-c c' and `C-c C-c'), which sends to
+     Ghostscript a PostScript translation of the character that point
+     is in.
+
+
+  `bpl-mode' calls `bpl-mode-hook' as its last action.  You can define
+this to take additional actions if you like.
+
+* Menu:
+
+* BZRedit and Ghostscript::     Customizing the use of Ghostscript.
+
+
+File: fontu.info,  Node: BZRedit and Ghostscript,  Up: Editing BPL files
+
+BZRedit and Ghostscript
+.......................
+
+  As mentioned above, BZRedit uses Ghostscript, the GNU PostScript
+interpreter, to display the character images.  *Note Archives::, for how
+to obtain Ghostscript.
+
+  BZRedit assumes that Ghostscript's default output device is the
+correct one to use--presumably a window on an X display.  The actual
+default depends on how Ghostscript was installed.
+
+  The following variables control various attributes of the Ghostscript
+output:
+
+ -- Variable: bzr-gs-width
+     The width of the window, in pixels.  Default is 300.
+
+ -- Variable: bzr-gs-height
+     The height of the window, in pixels.  Default is 300.
+
+ -- Variable: bzr-gs-dpi
+     The resolution at which Ghostscript renders images, in pixels per
+     inch. Default is 300.
+
+
+File: fontu.info,  Node: GSrenderfont,  Next: Enhancements,  Prev: BZRedit,  Up: Top
+
+GSrenderfont
+************
+
+  GSrenderfont uses Ghostscript to rasterize a PostScript outline font
+at a particular point size and resolution.  The final result is a bitmap
+font in PK form, which can be used by any DVI-processing program, unlike
+the original PostScript font.  In particular, you can then use your
+favorite previewer with TeX documents which use PostScript fonts.
+
+  An alternative to using such PK fonts is to use a DVI-to-PostScript
+translator and then use Ghostscript or Ghostview directly on the result.
+The PostScript file consumes quite a bit of disk space, however; also,
+the extra step after running TeX can be quite inconvenient.
+
+  An alternative to using GSrenderfont is the standalone C program
+`ps2pk'.  It does the same job: rasterizing PostScript fonts.  It is
+available by ftp from `ftp.urc.tue.nl'.
+
+  Besides Ghostscript, GSrenderfont uses `gawk' (GNU Awk), the standard
+Unix utilities `tail' and `wc', the standard TeX utility `gftopk',
+another programs from this distribution (Imageto), and one small
+program written expressly for it, `bbcount'.  Since this last is of
+doubtful value for anything but GSrenderfont, it is not documented
+here.  See `gsrenderfont/main.c' if you are interested in what it does.
+
+  GSrenderfont has nothing in particular to do with the main task of
+creating typefaces, but it seemed a small enough job (given the other
+programs' existence) and widely enough asked for to be worthwhile.
+
+* Menu:
+
+* GSrenderfont usage::          Making bitmap fonts from PostScript.
+* Invoking GSrenderfont::       Command-line options.
+
+
+File: fontu.info,  Node: GSrenderfont usage,  Next: Invoking GSrenderfont,  Up: GSrenderfont
+
+GSrenderfont usage
+==================
+
+  GSrenderfont needs several bits of information to do its job, as
+described in the sections below.
+
+* Menu:
+
+* Names: GSrenderfont font names.  Supplying PostScript names and filenames.
+* Size: GSrenderfont output size.  Specifying the size and resolution.
+* Encoding: GSrenderfont encoding.  Specifying the output encoding.
+
+
+File: fontu.info,  Node: GSrenderfont font names,  Next: GSrenderfont output size,  Up: GSrenderfont usage
+
+GSrenderfont font names
+-----------------------
+
+  GSrenderfont needs at least two font names to do its job: the
+PostScript name, e.g., `Times-Roman', and the output filename, e.g.,
+`ptmr'.  (The PostScript font name cannot also be used as the filename
+because of its length.  At best, the result would be unwieldy, and at
+worst, invalid because of operating system restrictions.) If the font
+is not known to Ghostscript (i.e., in its `Fontmap' file), then an
+input filename is also needed.
+
+  You can explicitly specify the first with the `-font' option, the
+second with the `-output-file' option, and the third with a non-option
+argument.  If you specify them all, as in
+
+     gsrenderfont -font=Myfont -out=test myfont.ps
+
+then GSrenderfont simply uses what you've given.
+
+  But if you specify only the font name or the input filename,
+GSrenderfont tries to guess the other using a "mapping file".  On each
+line of this file the first (whitespace-delimited) "word" is the
+filename (possibly preceded by an `r'; *note  Introduction:
+(fontname)Top., for why), the second word is the PostScript font name,
+and any remaining stuff is ignored.  Unlike the other data files,
+GSrenderfont does not use path searching to find this file; it just
+uses the default:
+
+     /usr/local/lib/tex/dvips/psfonts.map
+
+unless you specify a different file with the `-map' option.  The reason
+for this is that `psfonts.map' should contain all the PostScript fonts
+in use at your site.
+
+  GSrenderfont complains and gives up if you specify neither the
+PostScript font name nor the input filename.  It also gives up if it
+can't determine the filename from the PostScript name or vice versa.
+
+  The default for the output filename is the input filename.
+
+
+File: fontu.info,  Node: GSrenderfont output size,  Next: GSrenderfont encoding,  Prev: GSrenderfont font names,  Up: GSrenderfont usage
+
+GSrenderfont output size
+------------------------
+
+  For convenience, GSrenderfont allows you to independently specify the
+point size and the resolution of the output font: the `-point-size'
+option, as an integer in points, and the latter with `-dpi' in pixels
+per inch.  The defaults are 10pt and 300dpi.
+
+  Because PostScript fonts are (in practice) linearly scaled, however,
+GSrenderfont does not put the point size in the output filename.
+Instead, it simply computes the final resolution as the `dpi'
+multiplied by the `point-size' divided by 10.  This assumes that the
+default size of the fonts as used in TeX is 10pt, which is true for the
+PostScript fonts distributed with Dvips.
+
+  For example, supposing the output filename is `ptmr', and you specify
+`-point-size=12', the bitmap font will be named `ptmr.360pk'.
+
+
+File: fontu.info,  Node: GSrenderfont encoding,  Prev: GSrenderfont output size,  Up: GSrenderfont usage
+
+GSrenderfont encoding
+---------------------
+
+  You specify the encoding for the new bitmap font with the `-encoding'
+option; the default is to use the encoding of the input font. 
+GSrenderfont reads the same encoding files as the other programs. *Note
+Encoding files::.
+
+  As with all other data files in the other programs, GSrenderfont
+searches for the encoding file using the path specified by the
+environment variable `FONTUTIL_LIB' if it is set; otherwise it uses the
+default path set during compilation.  *Note Font searching::, for the
+details of the path searching algorithm.
+
+
+File: fontu.info,  Node: Invoking GSrenderfont,  Prev: GSrenderfont usage,  Up: GSrenderfont
+
+Invoking GSrenderfont
+=====================
+
+  This section describes the options that GSrenderfont accepts. *Note
+Command-line options::, for general option syntax.
+
+  You must specify either `-font' or a single non-option argument, so
+GSrenderfont knows what font to work on.  See the previous section for
+more details.
+
+`-dpi UNSIGNED'
+     Render the output at a resolution of UNSIGNED pixels per inch;
+     default is 300.
+
+`-encoding SCHEME'
+     Read `SCHEME.enc' to define the encoding of the output font;
+     default is `dvips'.
+
+`-font FONTNAME'
+     Render the PostScript font FONTNAME (e.g., `Times-Roman').
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-map FILENAME'
+     Use FILENAME for the filename-to-PostScript name mapping file;
+     default is
+
+          /usr/local/lib/tex/dvips/psfonts.map
+
+`-output-file FILENAME'
+     Use `FILENAME.DPIpk' for the final PK output.
+
+`-point-size UNSIGNED'
+     Render the output at UNSIGNED points; default is 10.
+
+`-verbose'
+     Output progress reports.
+
+`-version'
+     Print the version number.
+
+
+File: fontu.info,  Node: Enhancements,  Next: Copying,  Prev: GSrenderfont,  Up: Top
+
+Enhancements
+************
+
+  Like all software, the font utilities can all be (probably endlessly)
+improved.  Following are some possible projects.
+
+  If you would like to contribute, send mail to
+`bug-gnu-utils@prep.ai.mit.edu' first, so we can coordinate the work.
+
+* Menu:
+
+* Additional fonts::            GNU needs more fonts.
+* Program features::            These programs can be improved.
+* Portability::                 Assumptions about the programming environment.
+* Implementation::              Conventions we used in the sources.
+
+
+File: fontu.info,  Node: Additional fonts,  Next: Program features,  Up: Enhancements
+
+Additional fonts
+================
+
+  The original purpose of these programs was to create fonts for
+Ghostscript, the GNU PostScript-compatible interpreter written by Peter
+Deutsch.  Adobe and many other vendors sell fonts which Ghostscript can
+use, but they place many restrictions on the use of those fonts.  These
+restrictions certainly include modification and copying; in some cases,
+they even include using the font on more than one printer or display!
+These restrictions are contrary to the aims of the GNU project.
+
+  Obviously we cannot compete in volume with Adobe, Bitstream, or other
+vendors, all of whom probably have dozens if not hundreds of people
+working on nothing but font production, and additional people hired as
+programmers in support.  The present authors (both working half-time)
+are the entire FSF "font production" department, both for design and
+for programming.
+
+  Fortunately, we do not need to compete in volume (certainly we haven't
+needed the thousands of Adobe fonts in our practice as typographers).
+Our aim is to produce the basic typefaces for typography: Garamond,
+Bodoni, Gill Sans, Univers, Baskerville, and perhaps a few others.  If
+someone wants some other typeface, they could use our programs to make
+it, and, we hope, contribute it back to GNU for others to use.
+
+  We do need volunteers to help create fonts for the GNU project.  You
+do not need to be an expert type designer to help, but you do need to
+know enough about TeX and/or PostScript to be able to install and test
+new fonts.  Example: if you know neither (1) the purpose of TeX utility
+program `gftopk' nor (2) what the PostScript `scalefont' command does,
+you probably need more experience before you can help.
+
+  If you can volunteer, the first step is to compile the font utilities
+(*note Installation::.).  After that, contact us at
+`karl@gnu.ai.mit.edu'.  I will get you a scanned type specimen image. 
+*Note Creating fonts::, for how to use these utilities to turn that
+into a font you can use in TeX or PostScript.
+
+* Menu:
+
+* Legal issues::                Legality (and illegality) differ by country.
+
+
+File: fontu.info,  Node: Legal issues,  Up: Additional fonts
+
+Legal issues
+------------
+
+  This section owes a great deal to Charles Bigelow (co-designer with
+Kris Holmes of the Lucida typeface family), who has generously answered
+our many queries about fonts and the law around the world with
+remarkable patience and understanding.  (But he is naturally not
+responsible for any errors here, much less our opinions.)
+
+  Fonts have always been treated rather strangely under the law, as
+befits their rather strange nature: letterforms are indivisibly both
+*useful* and *artistic*.  In most countries, and in all countries until
+recently, utility has taken precedence; i.e., it has been legal to copy
+fonts without permission or fee (the sitation that the Free Software
+Foundation hopes will obtain for software).
+
+  In any case, to the best of our knowledge, the situation in those
+countries which have any sort of typeface protection is as follows:
+
+United States
+     Typeface designs can be patented, but not copyrighted.  Only a few
+     designs have been patented.  (Lucida and Stone are the only ones we
+     know of.  We don't know what the grounds were for patenting Stone,
+     but Lucida had some novel features in its design which make it
+     reasonable to patent, if one accepts the patent system in the
+     first place.)
+
+     Particular programs which instantiate a font can be copyrighted
+     just as any other computer program can.  This is arguably wrong,
+     since font programs are nothing but a description of the shapes,
+     possibly with some simple hints, and there's only one basic way to
+     describe the shapes in any given language.  Thus, the creativity
+     lies in making the shape right, not in making the computer program
+     right, so it would seem that to be consistent, the copyright laws
+     should protect the design, not the program--the opposite of the
+     current situation.
+
+Germany
+     Typeface designs have been copyrightable as original works of art
+     since 1981.  The law passed then was not retroactive, however,
+     German courts have upheld the intellectual property rights of font
+     designers even for earlier cases.  In one case the heirs of Paul
+     Bauer (designer of Futura) sued the Bauer foundry for arbitrarily
+     discontinuing a portion of their royalties, and won.
+
+     Since 1981, many (perhaps most) designs have been copyrighted in
+     Germany.
+
+England
+     A copyright law passed in 1989 covers typeface designs first
+     published in England (or published in Britain within 30 days of
+     its publication elsewhere), and it *is* (unbelievably foolishly)
+     retroactive.  It's unclear how far back the law extends, but Times
+     Roman, designed in the late 1920's and 1930's by Stanley Morison
+     and cut by Victor Lardent for Monotype is probably covered.  This
+     does not mean GNU cannot have a Times Roman; it just means we
+     cannot start with an English version, as the law does not forbid
+     importing foreign versions of English typefaces.
+
+France
+     The Romain du Roi typeface designed by Philippe Grandjean in 1702
+     for the French royal family is protected, and perhaps other such
+     "royal" designs.  Since these are not widely used anyway, it's not
+     important that GNU provide them.
+
+  In 1973 the international Vienna treaty on typeface design protection
+was proposed.  France ratified it in 1974 or 1975, and Germany in 1981.
+The English law might constitute ratification, but this has not been
+settled.  In any case, since at least four countries have to ratify it
+before it takes effect (and even then it takes effect only in those
+countries which ratify it), it is still of no consequence for now.
+
+
+File: fontu.info,  Node: Program features,  Next: Portability,  Prev: Additional fonts,  Up: Enhancements
+
+Program features
+================
+
+  Here are some possible projects:
+
+BZRedit
+        * Rewrite as a C program along the lines of XBfe.
+
+        * Add support for hints.
+
+BZRto
+        * Output more font formats, e.g., TrueType.
+
+        * Output hints for Metafont and Type 1 fonts.
+
+        * Make better guesses for the `FontInfo' information.
+
+        * Handle obliquing fonts by changing the transform matrix in
+          the output, instead of changing the numbers in the splines.
+
+        * Do nonlinear scaling.
+
+        * Handle italic corrections in the Metafont output somehow. 
+          Probably have to do the same in Charspace.
+
+Fontconvert
+        * Output virtual fonts as an option, instead of another bitmap
+          font.
+
+        * Allow specifying entire input encodings and output encodings
+          (the same `.enc' files that the other programs read).
+
+GF library
+        * Support multiple simultaneous open fonts, like the PK library
+          does now.
+
+        * Output a checksum.
+
+GSrenderfont
+        * Allow for characters larger than 1 inch square in the
+          original font.
+
+        * Implement slanting, extending, and small caps, a la Dvips.
+
+Imageto
+        * Recognize more image formats, e.g., Tiff.
+
+        * Perhaps the `-column-split' option in Fontconvert should be
+          removed, and the equivalent information specified in the IFI
+          file.
+
+IMGrotate
+        * Perhaps combine with Imageto.
+
+        * Implement a good rotation algorithm, perhaps as described in:
+          "A Fast Algorithm for General Raster Rotation", by Alan
+          Paeth, `Graphics Interface '86', pages 77--81.  (We'd be
+          interested in hearing of optimized alternatives for the case
+          of 90 degree rotation only).  The program `pnmrotate', which
+          mentions that article, in the PBMplus distribution could
+          perhaps be adapted.
+
+`lib'
+        * Extend the encoding files to allow defining math attributes,
+          probably by rewriting the parsing routines as a Bison grammar.
+
+        * Write a variant of `string_to_bitmap' (in `font.c') which
+          understands kerns and ligatures.
+
+        * Add support for BDF or other bitmap formats.  Unrelated
+          utility programs now exist for handling the X11 BDF format
+          (specifically, Bdf2gf and GFto), but it might be useful to
+          integrate BDF support.
+
+Limn
+     Handle the standard X toolkit options.
+
+PK library
+     Implement output of PK files.
+
+TFM library
+        * Support multiple simultaneous open fonts, like PK does now.
+
+        * Support ligatures in their full generality.
+
+        * Output a checksum.
+
+XBfe
+        * Allow showing more than one character at a time.
+
+        * Adjusting (or at least seeing) the baseline, cap height,
+          x-height, or arbitrary guidelines.
+
+        * Handle multiple fonts.
+
+        * Notice if the window it's given is too small, and give up.
+
+        * Ask the window manager for a window big enough for the
+          largest character in the font, not the first character.
+
+  In addition, one general enhancement would be to allow more than 256
+characters per font.  The bitmap formats allow this already, and the TFM
+format has some support for it.
+
+  Two other smaller general improvements: combine multiple `-range'
+options; allow for omitting ranges.
+
+
+File: fontu.info,  Node: Portability,  Next: Implementation,  Prev: Program features,  Up: Enhancements
+
+Portability
+===========
+
+  We didn't worry about making the programs work with any C compiler;
+instead, we used GNU C extensions where they were useful.  Likewise for
+GNU make.
+
+  We allowed ourselves this luxury because these programs are not
+historical utilities which people would expect to find on any Unix
+system.  Rather, they are application programs.  Perhaps having them
+work only with other GNU programs will encourage people to switch to
+GNU programs, or at least become aware of them.
+
+  It probably would not be too hard to change the programs to work with
+other ANSI C compilers.  Changing them to work with old C compilers
+would be more painful.  Thus far, the dependency on GCC hasn't proved a
+serious problem, because GCC runs on so many machines.
+
+  It would be dull but straightforward to write Makefiles for the
+programs which didn't use any of GNU make's special features.  As with
+GCC, though, GNU make is so widely available that we haven't felt it
+necessary to do so.
+
+  The one exception is to this are the dozen or so files in the `lib'
+and `include' directories which implement the path searching algorithm.
+ Because these files are shared with the TeX, Dvips, and XDvi
+distributions, they are written to work with old C compilers.
+
+  *Note Archives::, for information on how to obtain GCC and the other
+programs mentioned.  *Note Portability as it applies to GNU:
+(standards)Portability, for more discussion of the portability of GNU
+programs in general.
+
+
+File: fontu.info,  Node: Implementation,  Prev: Portability,  Up: Enhancements
+
+Implementation
+==============
+
+  This section describes some of the conventions we used in the
+organization of the source code.  *Note Top: (standards)Top, for the
+general GNU conventions.
+
+  In our sources, `.c' files include `config.h' first, which in turn
+includes `global.h', which includes `types.h' and other header files
+which define ubiquitous identifiers.
+
+  `.h' files, on the other hand, do not include `config.h'. They only
+include whatever headers are needed to define what they themselves
+use--typically including but not limited to `types.h'.
+
+  All `.h' files are protected with `#ifndef UNIQUE-SYMBOL'.
+
+  The upshot of these conventions is that headers can be included in any
+order, as many times as necessary.  In a `.c' file, only those headers
+which define symbols needed in the C source need be included, without
+worrying that some headers depend on others.  (ANSI C defines its
+headers to follow these same rules.)
+
+  Virtually all `.c' files--the only exceptions are (sometimes)
+`main.c' and some library files--have a corresponding `.h' file, which
+defines all the public symbols (e.g., non-`static' routines and types).
+in the `.h' file are intended to explain the external interface;
+comments in the `.c' file assume you already know what's in the `.h'
+file, to avoid having the same information in two places, and try to
+explain only implementation details.
+
+  Therefore, a `.c' file should always include its corresponding `.h'
+file, to ensure consistency between the definitions and the
+declarations.  GCC 2's `-Wmissing-prototypes' option can be used to
+check this.
+
+  The main program is always in a file named `main.c'.  Typically it
+loops through all the characters in the input font, doing something with
+them.  Parsing arguments is also done in `main.c', in a function named
+`read_command_line', using `getopt'.  *Note Command-line options::, for
+more information on option parsing.
+
+  The `configure' script used to determine system dependencies is
+generated by GNU Autoconf from `configure.in'.  When `configure' runs,
+it creates `include/c-auto.h' from `include/c-auto.h.in' to record what
+it discovers.  `config.h' includes this file.
+
+  We access members of most structure types via macros instead of with
+`.' or `->' directly.  We pass and return whole structures without
+hesitation; this has not resulted in any noticeable performance loss. 
+When we use pointers to structures, it's almost always because we need
+a distinguishable value (i.e., `NULL').
+
+  When a function has no side effects (e.g., assignments to global
+variables), and does not examine any values except its arguments (e.g.
+if a pointer is passed, it does not examine the data pointed to), we
+declare it `const'.  (This is a GNU C extension.)
+
+

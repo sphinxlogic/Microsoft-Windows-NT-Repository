@@ -1,0 +1,119 @@
+#
+# Xdm - startup script for xdm under SVR4
+#
+# Install this file as /etc/init.d/Xdm. Create the following links to 
+# cause xdm to be started & stopped when booting and shutting down:
+#
+#	ln /etc/init.d/Xdm /etc/rc0.d/K88xdm
+#	ln /etc/init.d/Xdm /etc/rc2.d/S90xdm
+#
+# WARNING:
+#   If you are using the xqueue driver in your Xconfig file, you must
+#   specify the 'vtXX' option to the server in your Xservers file.  See
+#   the X386(1) and xdm(1) manual pages.
+#
+# Version 1.0 - 6/12/92
+#   David E. Wexelblat <dwex@goblin.org>
+#
+# Version 1.1 - 7/15/92
+#   Read /etc/default/login, set ulimit, TZ, HZ
+#
+
+#
+# Root of the X tree
+#
+XPATH=/usr/X386
+
+case $1 in
+'start')
+	#
+	# First nuke an old streams pipe that may have been left lying
+	# around.
+	#
+	rm -f /dev/X/server.0
+
+	#
+	# Verify that xdm was previously shut down cleanly.  This will avoid
+	# a loop if xdm caused a crash.
+	#
+	if [ -f ${XPATH}/lib/X11/xdm/.badexit ]
+	then
+		echo "Not starting xdm - abnormal exit"
+		exit 1
+	fi
+
+	#
+	# If the xdm binary exists...
+	#
+	if [ -x ${XPATH}/bin/xdm ]
+	then
+		#
+		# Create a pseudo-lock file, so that if the system crashes
+		# xdm won't start up on the next boot (safer when debugging
+		# X servers or xdm)
+		#
+		touch ${XPATH}/lib/X11/xdm/.badexit
+		#
+		# Read /etc/default/login to set some parameters
+		#
+		DEF_LOGIN=/etc/default/login
+		if [ -r $DEF_LOGIN ]; then
+			line=`grep '^TIMEZONE=' $DEF_LOGIN`
+			if [ "$line" ]; then
+				TZ=`expr $line : 'TIMEZONE=\(.*\)'`
+				export TZ
+			fi
+			line=`grep '^HZ=' $DEF_LOGIN`
+			if [ "$line" ]; then
+				HZ=`expr "$line" : 'HZ=\(.*\)'`
+				export HZ
+			fi
+			line=`grep '^ULIMIT=' $DEF_LOGIN`
+			if [ "$line" ]; then
+				ulimit `expr "$line" : 'ULIMIT=\(.*\)'`
+			fi
+		fi
+		#
+		# Wait a few seconds before kicking off the server; the
+		# thrashing that goes on with finishing the boot after this
+		# script gets run can cause X386 to not be able to determine
+		# clocks correctly, delaying start up even more than this
+		# sleep will cause.
+		#
+		(sleep 5; ${XPATH}/bin/xdm) &
+		echo "Started xdm"
+	else
+		echo "${XPATH}/bin/xdm not found!"
+	fi
+	;;
+'stop')
+	#
+	# See if xdm is running or not.  If xdm has already been killed
+	# by some other means, this will just clean things up.
+	#
+	if [ -f ${XPATH}/lib/X11/xdm/xdm-pid ]
+	then
+		i=`cat ${XPATH}/lib/X11/xdm/xdm-pid`
+		kill $i 2>/dev/null
+		ps -p $i > /dev/null 2>&1
+		if [ "$?" = "0" ]
+		then
+			#
+			# Some times xdm doesn't die right away, so try
+			# again.
+			#
+			sleep 3
+			kill $i 2>/dev/null
+		fi
+		#
+		# Remove existing pseudo-lock files.
+		#
+		rm -f ${XPATH}/lib/X11/xdm/xdm-pid
+		rm -f ${XPATH}/lib/X11/xdm/.badexit
+		echo "Killed xdm"
+	fi
+	;;
+*)
+	echo "usage: /etc/init.d/Xdm {start|stop}"
+	;;
+esac

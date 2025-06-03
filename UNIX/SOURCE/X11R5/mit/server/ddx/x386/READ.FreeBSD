@@ -1,0 +1,362 @@
+                   README for XFree86 2.1 on FreeBSD 1.1
+                   -------------------------------------
+
+Contents
+--------
+    1) What and Where is XFree86?
+    2) Bug Reports for This Document
+    3) Installing The Binaries
+    4) Installing Xdm, the display manager
+    5) Configuring X for Your Hardware
+    6) Running X
+    7) Kernel Support for X
+    8) Rebuilding the XFree86 Distribution
+    9) Building New X Clients
+
+
+1 - What and Where is XFree86?
+------------------------------
+  XFree86 is a port of X11R5 that supports several versions of
+Intel-based Unix.  It is derived from X386 1.2, which was the X server
+distributed with X11R5.  This release consists of many new features
+and performance improvements as well as many bug fixes.  The release
+is available as source patches against the MIT X11R5 code, as well as
+binary distributions for many architectures.
+
+The sources for XFree86 are available by anonymous ftp from:
+
+    ftp.x.org:/contrib/XFree86
+    ftp.physics.su.oz.au:/XFree86.
+
+Binaries for XFree86 on FreeBSD will be available from:
+
+    XFree86.cdrom.com:/pub/XFree86/FreeBSD/XFree86-2.1
+
+On US ftp sites note 00README-Legal-Rules-Regs or
+README.export-control which state that ftp users outside the U.S.
+should not copy XFree86-2.1-xdm-des.tar.gz from sites within the U.S.
+because it employs DES encryption.
+
+2 - Bug Reports for This Document
+---------------------------------
+  Send email to Rich-Murphey@Rice.edu or XFree86@physics.su.oz.au if
+you have comments or suggestions about this file and we'll revise it.
+
+3 - Installing the Binaries
+---------------------------
+
+  The binary distribution is composed of a number of tar archives
+which are the executables, servers, fonts, libraries, include files,
+man pages, config files, and server link kit.  The full distribution
+takes 23Mb.
+
+At a minimum you need to unpack the required bin, fonts, doc, lib,
+config archives and a server that matches your vga card.  But if you
+are unsure you can can safely just install all of them.
+
+REQUIRED:
+
+bin		- all the executable X client applications and shared libs
+fonts		- the misc and 75 dpi fonts (required)
+doc		- READMEs, install scripts, and XFree86 specific man pages
+lib		- data files needed at runtime (required)
+config		- customizable xinit, xdm and fs runtime configuration files
+
+CHOOSE ONE (or more):
+
+8514		- server for IBM 8514/A boards
+Mach32		- server for ATI Mach32 graphic accelerator boards
+Mach8		- server for ATI Mach8 graphic accelerator boards
+Mono		- monochrome server for VGA, Super-VGA, Hercules, and others
+S3		- server for S3 based boards
+SVGA		- 8-bit pseudocolor server for Super-VGA cards
+VGA16		- 4-bit pseudocolor server for VGA and Super-VGA cards
+
+OPTIONAL:
+
+man		- man pages except XFree86 specific ones in etc archive
+fonts-100dpi	- optional 100dpi fonts
+fonts-scaled	- optional Speedo and Type1 fonts
+prog		- lib*.a and *.h files needed only for compiling
+xdm-des		- xdm executable with des encryption
+xdm-nodes	- xdm executable with no encryption
+linkkit		- optional X server reconfiguration kit
+fontserver	- the font server and it's man page
+pex		- pex clients, libraries, header files and data.
+
+
+First find a partition that has enough space: 10Mb for the required
+for the run-time binaries only, 23Mb for the complete binaries.
+
+For a FULL INSTALL, unpack everything (assuming you are using csh):
+
+    foreach i (XFree86-2.1-*.tar.gz)
+        tar -xzf $i
+    end
+
+For a MINIMAL INSTALL, unpack the required files and a server (e.g. SVGA):
+
+    foreach i (XFree86-2.1-{bin,fonts,doc,lib,config}.tar.gz)
+        tar -xzf $i
+    end
+    tar -xzf XFree86-2.1-S3.tar.gz
+
+After unpacking the archives, run the installation script, x386install
+from the directory where you just unpacked everything.  It creates
+links so that the distribution appears to be in /usr/X386, and adds
+/usr/X386/bin to the default path for sh in /etc/profile and for csh
+in /etc/csh.login.
+
+ ./X386/lib/X11/etc/x386install
+
+Next, create a symbolic link for the server that matches your vga
+card.  For example, if you have an ET4000 based SVGA card, then you
+want a symbolic link for the SVGA server:
+
+  cd /usr/X386/bin; rm X; ln -s XF86_SVGA X
+
+Also make sure you add /usr/X386/bin to your shell's `path' variable.
+
+If X was already installed and you have have customized your xinit or
+xdm runtime configuration scripts, omit the config archive or unpack
+it elsewhere and merge in your customizations.  The fonts-scaled and
+fonts-100dpi archives are optional and can be omitted if you are short
+on space.  The optional linkkit archive which allows you to
+reconfigure and link a server.  The optional the prog archive is
+needed only for writing or compiling X applications.  The optional pex
+archive contains pex clients and libraries for writing pex
+applications.
+
+NOTE: Do not uncompress the font files without subsequently rerunning
+mkfontdir in the corresponding font directory; otherwise your server
+will abort with the message "could not open default font 'fixed'".
+
+4 - Installing Xdm, the display manager
+---------------------------------------
+  Export restrictions prevent us from providing support for DES
+encryption outside the US.  If you have not installed FreeBSD's
+optional securedist/des, then passwords in /etc/passwd.master are
+unencrypted and you should install the version of xdm without DES
+encryption:
+
+ tar xzf XFree86-2.1-xdm-nodes.tar.gz
+ cd /usr/X386/bin; ln -s xdm-nodes xdm
+
+The xdm-nodes binary uses the *BSD dummy crypt routine that prints the
+message 'Crypt not present in system' in the xdm-errors file each time
+a user logs in.  You can ignore this.  It just means
+/etc/passwd.master is unencrypted.  If you install xdm-des by mistake
+xdm will not accept any passwords.
+
+If you have installed the optional securedist/des package on your
+system then you are using DES encryption on passwords and you should
+install xdm-des:
+
+ tar xzf XFree86-2.1-xdm-des.tar.gz
+ cd /usr/X386/bin; ln -s xdm-des xdm
+
+To start the display manager, log in as root on the console and type
+`xdm -nodaemon'.
+
+You can start xdm automatically on bootup by disabling the console
+getty adding the following code to /etc/rc.local:
+
+  if [ -x /usr/X386/bin/xdm ]; then
+    echo -n ' xdm'; /usr/X386/bin/xdm
+  fi
+
+To disable the console getty, change 'on' to 'off' in the ttyv0
+entry in /etc/ttys:
+
+    ttyv0	"/usr/libexec/getty Pc"	pc3	off secure
+
+When using the syscons console driver, it is recommended that xdm be
+started by adding the following to /etc/rc.local:
+
+  if [ -x /usr/X386/bin/xdm ]; then
+    echo -n ' xdm'; (sleep 5; /usr/X386/bin/xdm)&
+  fi
+
+Check /etc/ttys to make sure there are some ttyv? devices which don't
+have gettys enabled.  The default is to have 4 devices configured to
+run gettys.  If your kernel was configured with more than 4 VTs this
+is fine.
+
+5 - Configuring X for Your Hardware
+-----------------------------------
+  You *must* create /usr/X386/lib/X11/Xconfig to suit your hardware.
+See README.Config for step-by-step instructions for setting it up.
+
+The Xconfig file tells the X server what kind of monitor, adapter and
+mouse you have.  In addition to README.Config, the server manual pages
+(XF86_Accel, XF86_Mono, XF86_SVGA, and XF86_VGA16) describe the
+options specific to each type of board.
+
+Read README.Config, and look in /usr/X386/lib/X11/etc/modeDB.txt and
+/usr/X386/lib/X11/etc/AccelCards to find Clocks and ModeDB entries to
+your specific monitor and graphics card.  If you can find them there,
+grab the Clocks and ModeDB lines and put them in your Xconfig.  If
+not, read /usr/X386/lib/X11/etc/VideoModes.doc for instructions on how
+to create the video timing values given your vga card and monitor
+specs.  The manual for your monitor and adapter should have these
+values.  The tuner program (on FreeBSD.cdrom.com
+/pub/386BSD/0.1-ports/XFree86-2.0) can calculate a rough guess about a
+ModeDB line given the dot clock rate and horizontal frequency of your
+monitor.
+
+The X server (except the 8514 server) will print out the Clocks values
+for your card if you leave them our of your Xconfig file when you run:
+
+    X -probeonly >& x.out
+
+You can take these values and edit them to put them in your Xconfig
+file; although you MUST include all the clock values, AND leave them
+in the same order.
+
+If your mouse does not work try using kermit or tip to connect to the
+mouse serial port and verify that it does indeed generate characters.
+
+6 - Running X
+-------------
+  8mb of memory is a recommended minimum for running X.  The server,
+window manager and an xterm take about 2.5 Mb of memory themselves.
+On a 4Mb system that would leave very little left over for other
+applications like gcc that expect a few meg free.  X will work with
+4Mb of memory, but in practice compilation while running X can take 5
+or 10 times as long due to constant paging.
+
+The easiest way for new users to start X windows is to type 'startx >&
+startx.log'.  Error messages are lost unless you redirect them because
+the server takes over the screen.
+
+To get out of X windows, type 'exit' in the console xterm.  You can
+customize your X by creating .xinitrc, .xserverrc, and .twmrc files in
+your home directory as described in the xinit and startx man pages.
+
+7 - Kernel Support for X
+------------------------
+  The server supports several console drivers: pccons, syscons, codrv
+and pcvt.  They are detected at runtime and no configuration of the
+server itself is required.
+
+The pccons driver is the most widely tested and is the console driver
+contained in the FreeBSD binary distribution's kernels.
+
+In order to instead use the syscons driver, you must reconfigure,
+compile and install a new kernel from the FreeBSD sources.  For a
+general description of BSD kernel configuration get smm.02.config.ps.Z
+from gatekeeper.dec.com (16.1.0.2) in /pub/BSD/manuals.  It is a ready
+postscript copy of the kernel configuration chapter from the systems
+maintainers manual.
+
+Do not remove the two lines below from your kernel configuration file
+(in /sys/arch/i386/conf).  They are both required for X support:
+
+options		XSERVER			#Xserver
+options		UCONSOLE		#X Console support
+
+To use syscons with FreeBSD, add the following in place of the pc0
+entry, as in /sys/i386/conf/SYSCONS:
+
+device		sc0	at isa? port "IO_KBD" tty irq 1 vector scintr
+
+The number of virtual consoles can be set by adding a line like:
+
+options		"NCONS=8"		#8 virtual consoles
+
+to your kernel config file (the default without a line like this is 12).
+It recommended that you have more then 4 when using X.
+
+The codrv console driver is not bundled with FreeBSD.  It is available
+from ftp.uni-duisburg.de in /pub/unix/386bsd-0.1/unofficial/codrv and
+from bsd386.first.gmd.de in ~veit/codrv (no ANON FTP, login with
+'guest'/'guest', cd to ~veit/codrv).
+
+The pcvt console driver is also not bundled with FreeBSD.  A "ports"
+version of pcvt for FreeBSD versions 1.0.2 through FreeBSD 1.1 may be
+obtained from:
+
+	FreeBSD.cdrom.com:~ftp/pub/FreeBSD/FreeBSD-1.1/ports/util/pcvt
+
+Refer to the README.FreeBSD file for complete installation
+instructions.
+
+The XFree86 servers include support for the MIT-SHM extension.  If you
+want to make use of this, you will need a kernel configured with SYSV
+shared memory support.  To do this, add the following line to your
+kernel config file:
+
+options		SYSVSHM			#System V shared memory support
+
+
+8 - Rebuilding the XFree86 Distribution
+---------------------------------------
+  The server link kit allow you to rebuild just the X server with a
+minimum amount of disk space.  Just unpack it, make the appropriate
+changes to the site.def, type './mkmf' and 'make' to link the server.
+See /usr/X386/lib/Server/README for more info.
+
+See /usr/X386/lib/X11/etc/INSTALL for instructions on unbundling and
+building the source distribution.  The source tree takes approximately
+82Mb before compiling and 170Mb after 'make World'.  You should
+configure the distribution by editing mit/site.def before compiling.
+Note that by default, the config files are set up to build shared
+libraries.  If you are running a version of FreeBSD that doesn't
+include shared library support, add the following line to site.def:
+
+#define BuildBsdSharedLibs		NO
+
+If your system doesn't have support or SYSV shared memory (for
+example, if you don't have the <sys/shm.h> header), you should disable
+the MIT-SHM extension by adding the following line to site.def:
+
+#define HasShm				NO
+
+To compile the sources:
+
+If you are running an older version of FreeBSD (pre 1.1), then type
+
+    make World BOOTSTRAPCFLAGS=-D__FreeBSD__
+
+in the mit directory.  Otherwise, a simple 'make World' will suffice.
+
+9 - Building New X Clients
+--------------------------
+  The easiest way to build a new client (X application) is to use
+xmkmf if an Imakefile is included in the sources.  Type 'xmkmf -a' to
+create the Makefiles, check the configuration if necessary and type
+'make'.  Whenever you install additional man pages you should update
+whatis.db by running 'makewhatis /usr/X386/man'.  To avoid the
+`Virtual memory exhausted' message from cc while compiling, increase
+the data and stack size limits (in csh type `limit datasize 32M' and
+`limit stacksize 16M').
+
+Note:  Starting with XFree86 2.1 and FreeBSD 1.1, the symbol "__386BSD__"
+no longer gets defined either by the compiler or via the X config files
+for FreeBSD systems.  When porting clients to BSD systems, make use of the
+symbol "BSD" for code which is truly BSD-specific.  The value of the
+symbol can be used to distinguish different BSD releases.  For example,
+code specific to the Net-2 and later releases can use:
+
+#if (BSD >= 199103)
+
+To ensure that this symbol is correctly defined, include either
+<X11/Xos.h> (best) or <sys/param.h> in the source that requires it.
+For code that really is specific to a particular i386 BSD port, use
+__FreeBSD__ for FreeBSD, __NetBSD__ for NetBSD, __386BSD__ for 386BSD,
+and __bsdi__ for BSD/386.
+
+
+Many thanks to
+- Pace Willison for providing the initial port to 386BSD.
+- Amancio Hasty for fixing cursor restoration, mouse bugs and many others.
+- Christoph Robitschko for fixing com.c and thus select().
+- Nate Williams for the patchkit support for X.
+- Rod Grimes and Jack Velte of Walnut Creek Cdrom for use
+  of their machines in preparing the FreeBSD binary release.
+
+Rich  Murphey
+David Dawes
+
+
+$XFree86: mit/server/ddx/x386/READ.FreeBSD,v 2.10 1994/03/11 03:08:35 dawes Exp $

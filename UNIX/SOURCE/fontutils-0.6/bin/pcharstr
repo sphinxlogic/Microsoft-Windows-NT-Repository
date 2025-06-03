@@ -1,0 +1,45 @@
+#!/bin/sh
+# Print the encrypted and encoded charstrings (i.e., the CharStrings and
+# Subrs dictionaries) in a font.  This uses the `pcharstr.ps' file that
+# comes with Ghostscript.
+
+if test $# -lt 1 -o $# -gt 2
+then
+  echo "Usage: $0 <filename>[.gsf] [<FontName>]."
+  exit 1
+fi
+
+filename=$1
+
+# If the filename has no extension, add .gsf.
+# 
+if echo `basename $filename` | grep '\.' > /dev/null 2>&1
+then :
+else filename=$filename.gsf
+fi
+
+# If the fontname wasn't given, guess it from the `%!' line in the file.
+# We look for the file in the current directory only, so this loses for
+# fonts which are in the GS directory.
+if test -z "$2"
+then
+  if test -r $filename
+  then fontname=`sed -n 's/^%!FontType.* \(.*\) .*$/\1/p' < $filename`
+  fi
+else
+  fontname=$2
+fi
+
+if test -z "$fontname"
+then
+  echo "Can't guess FontName; please supply it."
+  exit 1
+fi
+
+gsnd - << eof
+($filename)run
+(pcharstr.ps)run
+/$fontname findfont setfont
+currentfont /FontName get (Ugly) eq { (No font.) == quit } if
+()= printfont
+eof

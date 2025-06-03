@@ -1,0 +1,259 @@
+#!/bin/sh
+# 
+# Shell script to invoke Ghostscript on a font, create an image, and
+# then run imagetofont to get a bitmap font.  (You can then run
+# fontconvert to get a tfm if desired.)
+
+version=0.6
+
+# Set defaults.
+resolution=300
+point_size=10
+encoding=
+map_file=/usr/local/lib/tex/dvips/psfonts.map
+
+usage="Usage: gsrenderfont [options] [<filename>].
+  You can abbreviate option names unambiguously.
+  The <filename> should be without extension, e.g., \`phvr'.  Default is
+    to look for the filename corresponding to the given <fontname> in the
+    mapping file.
+  Either the <filename> or -font must be supplied.
+Options:
+-dpi <unsigned>: render at a resolution of <unsigned> dots per inch;
+  default is $resolution.
+-encoding <scheme>: use <scheme> for the output font, i.e., look for
+  <scheme>.enc; default is \`$encoding'.
+-font <fontname>: look for the PostScript font <fontname>.  Default
+  is to look for the <fontname> corresponding to the given <filename> in
+  the mapping file.
+-help: print this message.
+-map <filename>: use <filename> for the mapping file;
+  default is \`$map_file'.
+-point-size <unsigned>: render the font at <unsigned> printer's points;
+  default is $point_size.
+-verbose: print brief progress reports.
+-version: print the version number of this program and the others it calls."
+
+# Figure out arguments.
+while test $# -gt 0
+do
+  case $1 in
+  -dpi=* | --dpi=* | -dp=* | --dp=* | -d=* | --d=*)
+    resolution=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+
+  -dpi | --dpi | -dp | --dp | -d | --d)
+    shift
+    resolution=$1
+    ;;
+
+  -encoding=* | -encodin=* | -encodi=* | -encod=* | -enco=* \
+  | -enc=* | -en=* | -e=* \
+  | --encoding=* | --encodin=* | --encodi=* | --encod=* | --enco=* \
+  | --enc=* | --en=* | --e=* )
+    encoding=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+  -encoding | -encodin | -encodi | -encod | -enco | -enc | -en | -e \
+  | --encoding | --encodin | --encodi | --encod | --enco | --enc | --en | --e )
+    shift
+    encoding=$1
+    ;;
+
+  -font=* | -fon=* | -fo=* | -f=* | --font=* | --fon=* | --fo=* | --f=*)
+    fontname=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+  -font | -fon | -fo | -f | --font | --fon | --fo | --f)
+    shift
+    fontname=$1
+    ;;
+
+  -help | -hel | -he | -h | --help | --hel | --he | --h )
+    echo "$usage"
+    exit 0
+    ;;
+
+  -map=* | -ma=* | -m=* | --map=* | --ma=* | --m=*)
+    map_file=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+  -map | -ma | -m | --map | --ma | --m)
+    shift
+    map_file=$1
+    ;;
+
+  -output-file=* | -output-fil=* | -output-fi=* | -output-f=* | -output-=* \
+  | -output=* | -output=* | -outpu=* | -outp=* | -out=* | -ou=* | -o=* \
+  | --output-file=* | --output-fil=* | --output-fi=* | --output-f=* \
+  | --output-=* | --output=* | --output=* | --outpu=* | --outp=* \
+  | --out=* | --ou=* | --o=* )
+    output_file=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+  -output-file | -output-fil | -output-fi | -output-f | -output- \
+  | -output | -output | -outpu | -outp | -out | -ou | -o \
+  | --output-file | --output-fil | --output-fi | --output-f | --output- \
+  | --output | --output | --outpu | --outp | --out | --ou | --o)
+    shift
+    output_file=$1
+    ;;
+
+  -point-size=* | -point-siz=* | -point-si=* | -point-s=* | -point-=* \
+  | -point=* | -poin=* | -poi=* | -po=* | -p=* \
+  | --point-size=* | --point-siz=* | --point-si=* | --point-s=* | --point-=* \
+  | --point=* | --poin=* | --poi=* | --po=* | --p=*)
+    point_size=`echo $1 | sed 's/[-a-z_]*=//'`
+    ;;
+  -point-size | -point-siz | -point-si | -point-s | -point- \
+  | -point | -poin | -poi | -po | -p \
+  | --point-size | --point-siz | --point-si | --point-s | --point- \
+  | --point | --poin | --poi | --po | --p)
+    shift
+    point_size=$1
+    ;;
+
+  -verbose | -verbos | -verbo | -verb \
+  | --verbose | --verbos | --verbo | --verb)
+    verbose="$verbose -verbose"
+    ;;
+
+  -version | -versio | -versi | -vers \
+  | --version | --versio | --versi | --vers)
+    verbose="$verbose -version"
+    printed_version=t
+    echo "gsrenderfont version $version."
+    ;;
+
+  # Really we should handle --, but I don't want to put in the work
+  # right now.
+  -*)
+    echo Unknown option $1.
+    echo Use -help for more information.
+    exit 1
+    ;;
+
+  *)   if test -z "$input_file"
+       then input_file=$1
+       else
+         echo "Too many filenames ($1 was the second)."
+         echo "Use -help for more information."
+         exit 1
+       fi
+       ;;
+  esac
+  shift
+done
+
+if test -z "$input_file" && test -z "$fontname" && test -n "$printed_version"
+then exit 0
+fi
+
+# If they gave us a filename and no fontname or vice versa, try to get
+# the missing name from the map file.  Each line in the map file looks like
+# r<filename> <fontname> <stuff we ignore>
+# 
+# The filename might have an `r' in front to specify a raw fonts, not
+# the virtual one (for the user).
+if test -r $map_file
+then
+  if test -n "$input_file" && test -z "$fontname"
+  then fontname=`awk "/^r?$input_file[ 	]/"'{print $2; exit}' $map_file`
+  elif test -z "$input_file" && test -n "$fontname"
+  then
+    filename=`awk "/[ 	]$fontname[ 	]*"'$/ {print $1; exit}' $map_file \
+      | sed -e 's/^r?p/p/'`
+  fi
+fi
+
+# We need both a filename and a fontname to do anything.
+if test -z "$input_file"
+then
+  if test -z "$fontname"
+  then
+    # Didn't have either one.
+    echo "Either a fontname (e.g., Times-Roman) or a filename (e.g., ptmr)"
+    echo "is needed.  Use -help for more information."
+    exit 1
+  else
+    # Had a fontname, but no filename.
+    echo "I couldn't find the filename corresponding to the font $fontname."
+    echo "Please specify it."
+    exit 1
+  fi
+elif test -z "$fontname"
+then
+  # Had a filename, but no fontname.
+  echo "I couldn't find the font corresponding to the file \`$input_file'."
+  echo "Please specify it with -font."
+  exit 1
+fi
+
+# If we have no output file, use the input file (but strip off `.ps' or
+# other such extensions).
+# 
+if test -z "$output_file"
+then output_file=`basename $input_file \
+  | sed -e 's/\.ps$//'  -e 's/\.pf3$//' -e 's/\.gsf$//' \
+        -e 's/\.pfa$//' -e 's/\.pfb$//'`
+fi
+
+# We need the lib path for encoding files.
+if test -n "$FONTUTIL_LIB"
+then lib_path=$FONTUTIL_LIB
+else lib_path=replace-with-lib-path
+fi
+
+# If the encoding file wasn't specified, use a sentinel to get the
+# one from the input font.  We include a / in the name so it's highly
+# unlikely to ever be a reasonable encoding name itself.
+# 
+if test -z "$encoding"
+then gs_encoding=/encoding-from-input
+else gs_encoding=$encoding
+fi
+
+# Let Ghostscript give us its normal messages if we are verbose.
+# 
+if test -z "$verbose"
+then quiet="-q"
+fi
+
+# We don't use gsnd because that always uses -q.
+# 
+gs -DNODISPLAY $quiet -I$lib_path -- writefont.PS \
+  $gs_encoding $resolution $point_size $output_file $input_file $fontname \
+|| exit 1
+
+# Count the bounding boxes in each character.
+bbcount $verbose $output_file > $output_file.bbs || exit 1
+
+# Insert the bounding box counts into the IFI file.
+AWKPATH=$lib_path gawk -f fixifibb.awk -vbbsfile=$output_file.bbs \
+                    <$output_file.xifi >$output_file.ifi \
+                  || exit 1
+
+# We do not put the point size in the filename, because PostScript fonts
+# are (in practice) linearly scaled.  So we compute `final_resolution'
+# as the resolution * point_size / 10 -- assuming that the 10pt size is
+# what you get when you ask TeX for just (say) `phvr'.
+# 
+final_resolution=`expr $resolution \* $point_size / 10`
+
+# Make a font out of the image; do not throw away any bounding boxes,
+# there's no noise in this image.
+# 
+if test -n "$encoding"
+then encoding="-encoding=$encoding"
+fi
+
+imageto $verbose $encoding -dpi=$resolution \
+  $output_file.pbm -o=$output_file.${final_resolution}gf || exit 1
+
+# PK files are smaller than GF files, and hold the same information, so
+# convert to PK form and throw the GF file away.
+# 
+if test -n "$verbose"
+then verbose=-v
+fi
+gftopk $verbose ./$output_file.${final_resolution}gf || exit 1
+
+rm -f $output_file.${final_resolution}gf
+rm -f $output_file.bbs $output_file.xifi $output_file.pbm
+rm -f $output_file.bfi $output_file.ifi

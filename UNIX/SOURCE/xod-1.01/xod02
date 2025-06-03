@@ -1,0 +1,2150 @@
+#!/bin/sh
+# this is part 2 of a multipart archive
+# do not concatenate these parts, unpack them in order with /bin/sh
+# file ctw.c continued
+#
+CurArch=2
+if test ! -r s2_seq_.tmp
+then echo "Please unpack part 1 first!"
+     exit 1; fi
+( read Scheck
+  if test "$Scheck" != $CurArch
+  then echo "Please unpack part $Scheck next!"
+       exit 1;
+  else exit 0; fi
+) < s2_seq_.tmp || exit 1
+echo "x - Continuing file ctw.c"
+sed 's/^X//' << 'SHAR_EOF' >> ctw.c
+X		reason.len = 3;
+X		}
+X	else if (IsFunctionKey(keysym) || IsMiscFunctionKey(keysym) ||
+X		keysym == XK_Prior || keysym == XK_Next) {
+X		*rp++ = ESC;
+X		*rp++ = '[';
+X		if (cw->ctw.sun_function_keys) {
+X			sprintf(rp, "%dz", sunfuncvalue(keysym));
+X			}
+X		else {
+X			sprintf(rp, "%d~", funcvalue(keysym));
+X			}
+X		rp += strlen(rp);
+X		reason.len = rp - reply;
+X		}
+X	else if (nbytes > 0) {
+X		reason.ptr = buf;
+X		reason.len = nbytes;
+X		}
+X
+X	if (reason.len)
+X		XtCallCallbacks((Widget)w, XtNkbdCallback, (caddr_t) &reason);
+X}
+Xstatic void
+Xredisplay(Widget w, XExposeEvent *event) {
+X	exposed_region((CtwWidget)w, event->x, event->y, event->width, 
+X		event->height);
+X}
+X/**********************************************************************/
+X/*   Action routine to handle redrawing of window.		      */
+X/**********************************************************************/
+Xstatic void 
+XCtwExpose(Widget w, XEvent *event, String *x, Cardinal *y) {
+X	CtwWidget	cw = (CtwWidget) w;
+X
+X	if (!XtIsRealized(w) /*|| need_resize*/)
+X		return;
+X	/***********************************************/
+X	/*   If  window  has  changed  size,  then we  */
+X	/*   need  to  resize  it.  Also  we  need to  */
+X	/*   clear  any  garbage  which may be at the  */
+X	/*   bottom or right edge of the window.       */
+X	/***********************************************/
+X	if (cw->ctw.win_height_allocated != cw->core.height ||
+X	    cw->ctw.win_width_allocated != cw->core.width) {
+X/*		need_resize = TRUE;*/
+X		cw->ctw.win_height_allocated = cw->core.height;
+X		cw->ctw.win_width_allocated = cw->core.width;
+X		return;
+X		}
+X	redisplay(w, (XExposeEvent *)event);
+X}
+Xint
+Xctw_set_font(Widget w, char *font_name) {
+X	XFontStruct	*font;
+X	CtwWidget	cw = (CtwWidget) w;
+X	Display	*dpy = XtDisplay(cw);
+X	Arg	args[20];
+X	int	n;
+X		
+X	if ((font = XLoadQueryFont(dpy, font_name)) == NULL)
+X		return -1;
+X	cw->ctw.fontp = font;
+X	XSetFont(dpy, cw->ctw.gc, font->fid);
+X
+X	reset_font((CtwWidget)w, TRUE);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNwidthInc, cw->ctw.font_width); n++;
+X	XtSetArg(args[n], XtNheightInc, cw->ctw.font_height); n++;
+X	XtSetValues(XtParent(cw), args, n);
+X
+X	return 0;
+X}
+X/**********************************************************************/
+X/*   Common code to handle a change in the font.		      */
+X/**********************************************************************/
+Xstatic int
+Xreset_font(CtwWidget w, int delete_flag) {
+X	w->ctw.font_height = w->ctw.fontp->ascent + w->ctw.fontp->descent;
+X	w->ctw.font_width = XTextWidth(w->ctw.fontp, "A", 1);
+X	return 0;
+X}
+X/**********************************************************************/
+X/*   Function to allocate color pixels.				      */
+X/**********************************************************************/
+Xstatic int
+Xsetup_x11_colors(Display *dpy) {
+X	static int first_time = TRUE;
+X	static int is_color;
+X
+X	Colormap	default_color_map;
+X	int	default_depth;
+X	XColor		exact_def;
+X	int		i;
+X	static char	*color_tbl[] = {
+X  "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", 
+X  "dim gray", "red", "green", "yellow", "blue", "magenta", "cyan", "white", 
+X		NULL
+X		};
+X	static char	*mono_tbl[] = {
+X  "black", "gray80", "gray85", "gray90", "gray95", "gray96", "gray98", "white",
+X  "black", "gray80", "gray85", "gray90", "gray95", "gray96", "gray98", "white",
+X		NULL
+X		};
+X	char	**color_names = color_tbl;
+X
+X	if (!first_time)
+X		return is_color;
+X	first_time = FALSE;
+X	default_color_map = DefaultColormap(dpy, DefaultScreen(dpy));
+X	/***********************************************/
+X	/*   If  we've  got  a  mono-only screen then  */
+X	/*   set  up  the  flag  saying whether we're  */
+X	/*   running on mono or color screen.	       */
+X	/***********************************************/
+X	default_depth = DefaultDepth(dpy, DefaultScreen(dpy));
+X	if (default_depth == 1 || getenv("CRMONO") != (char *) NULL) {
+X		color_names = mono_tbl;
+X		is_color = FALSE;
+X		}
+X	else
+X		is_color = TRUE;
+X
+X	for (i = 0; color_names[i]; i++) {
+X		if (!XParseColor(dpy, default_color_map, color_names[i], &exact_def)) {
+X			fprintf(stderr, "Color name %s not in database.\n",
+X				color_names[i]);
+X			exit(0);
+X			}
+X		if (!XAllocColor(dpy, default_color_map, &exact_def)) {
+X			fprintf(stderr, "Can't allocate color: %s -- all color cells allocated.\n",
+X				color_names[i]);
+X			exit(1);
+X			}
+X		x11_colors[i] = exact_def.pixel;
+X		}
+X	return is_color;
+X}
+X/**********************************************************************/
+X/*   Handle exposure events. Redraw appropriate sections of window.   */
+X/**********************************************************************/
+Xstatic void
+Xexposed_region(CtwWidget w, int x, int y, int width, int height) {
+X	int	start_row, start_col;
+X	int	end_row, end_col;
+X
+X	/***********************************************/
+X	/*   Convert     pixel     co-ordinates    to  */
+X	/*   character positions.		       */
+X	/***********************************************/
+X	get_xy(w, &start_row, &start_col, x, y);
+X	get_xy(w, &end_row, &end_col, x + width, y + height);
+X
+X	update_region(w, start_row, start_col, end_row + 1, end_col + 1);
+X	/***********************************************/
+X	/*   Redraw cursor if we just obliterated it.  */
+X	/***********************************************/
+X	if (start_row <= w->ctw.y && w->ctw.y <= end_row + 1 &&
+X	    start_col <= w->ctw.x && w->ctw.x <= end_col + 1)
+X	    	show_cursor(w);
+X}
+X/**********************************************************************/
+X/*   Function to allocate (or re-allocate) screen memory structure.   */
+X/**********************************************************************/
+Xstatic void
+Xalloc_screen(CtwWidget w, int clear_flag) {
+X	int	i, j, c;
+X	int	rows;
+X	ctw_callback_t	reason;
+X	vbyte_t	**old_lines = (vbyte_t **) NULL;
+X	vbyte_t	*old_memory = (vbyte_t *) NULL;
+X
+X	turn_off_cursor(w);
+X	/***********************************************/
+X	/*   Dont  do  anything if screen is the same  */
+X	/*   size.				       */
+X	/***********************************************/
+X	if (w->ctw.rows == w->ctw.old_rows && w->ctw.columns == w->ctw.old_columns)
+X		return;
+X
+X	/***********************************************/
+X	/*   Save  copy  of  old  screen  contents in  */
+X	/*   case   we   want  to  keep  as  much  as  */
+X	/*   possible.				       */
+X	/***********************************************/
+X	old_memory = w->ctw.memory;
+X	old_lines = w->ctw.lines;
+X
+X	rows = w->ctw.rows + w->ctw.max_lines;
+X	w->ctw.memory = (vbyte_t *) 
+X		chk_alloc(rows * w->ctw.columns * sizeof(vbyte_t));
+X	w->ctw.orig_lines = (vbyte_t **) chk_alloc(rows * sizeof(vbyte_t *));
+X	w->ctw.lines = w->ctw.orig_lines;
+X	for (i = 0; i < rows; i++) {
+X		w->ctw.lines[i] = &w->ctw.memory[i * w->ctw.columns];
+X		}
+X	/***********************************************/
+X	/*   Set  whole  screen  to  white  spaces on  */
+X	/*   black background.			       */
+X	/***********************************************/
+X	blank_line(w, w->ctw.lines[0]);
+X	for (i = 1; i < rows; i++)
+X		memcpy(w->ctw.lines[i], 
+X			w->ctw.lines[0], sizeof(vbyte_t) * w->ctw.columns);
+X	/***********************************************/
+X	/*   Keep cursor within bounds of the screen.  */
+X	/***********************************************/
+X	if (w->ctw.y >= w->ctw.rows)
+X		w->ctw.y = w->ctw.rows - 1;
+X	if (w->ctw.saved_y >= w->ctw.rows)
+X		w->ctw.saved_y = w->ctw.rows - 1;
+X	if (w->ctw.x >= w->ctw.columns)
+X		w->ctw.x = w->ctw.columns - 1;
+X	if (w->ctw.saved_x >= w->ctw.columns)
+X		w->ctw.saved_x = w->ctw.columns - 1;
+X
+X	/***********************************************/
+X	/*   If  we're  resizing the screen then copy  */
+X	/*   back  as  much  of  the  old  screen  as  */
+X	/*   possible.				       */
+X	/***********************************************/
+X	if (!clear_flag) {
+X		int	last_line;
+X		c = w->ctw.old_columns;
+X		if (w->ctw.columns < c)
+X			c = w->ctw.columns;
+X		if (w->ctw.rows < w->ctw.old_rows)
+X			last_line = w->ctw.top_line + w->ctw.rows;
+X		else
+X			last_line = w->ctw.top_line + w->ctw.old_rows;
+X		i = 0;
+X		while (i < last_line) {
+X			for (j = 0; j < c; j++)
+X				w->ctw.lines[i][j] = old_lines[i][j];
+X			i++;
+X			}
+X		}
+X	/***********************************************/
+X	/*   Save size in case we get a resize event.  */
+X	/***********************************************/
+X	w->ctw.old_rows = w->ctw.rows;
+X	w->ctw.old_columns = w->ctw.columns;
+X
+X	if (old_memory)
+X		chk_free((void *) old_memory);
+X	if (old_lines)
+X		chk_free((void *) old_lines);
+X	turn_on_cursor(w);
+X	/***********************************************/
+X	/*   Allow   owner   of  widget  to  see  the  */
+X	/*   resize event.			       */
+X	/***********************************************/
+X	reason.reason = CTW_RESIZE;
+X	XtCallCallbacks((Widget)w, XtNresizeCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Function to display cursor at current position.		      */
+X/**********************************************************************/
+Xstatic void
+Xshow_cursor(CtwWidget w) {
+X	vbyte_t	attr;
+X	int	y = w->ctw.top_line + w->ctw.y;
+X	int	x;
+X
+X	/***********************************************/
+X	/*   Dont do anything if cursor not visible.   */
+X	/***********************************************/
+X	if (w->ctw.cursor_visible == FALSE || 
+X	    w->ctw.cursor_state == CURSOR_HIDDEN ||
+X	    w->ctw.old_top_line >= 0)
+X		return;
+X	x = w->ctw.x >= w->ctw.columns ? w->ctw.columns - 1 : w->ctw.x;
+X	attr = w->ctw.lines[y][x];
+X	XDrawImageString(XtDisplay(w), XtWindow(w), w->ctw.cursor_gc, 
+X		x * w->ctw.font_width, 
+X		ROW_TO_PIXEL(w, w->ctw.y),
+X		&attr.vb_byte, 1);
+X	w->ctw.cursor_state = CURSOR_ON;
+X}
+X/**********************************************************************/
+X/*   Function to turn off cursor.				      */
+X/**********************************************************************/
+Xstatic void
+Xturn_off_cursor(CtwWidget w) {
+X	int	y = w->ctw.y;
+X	int	x;
+X
+X	if (w->ctw.cursor_state == CURSOR_OFF || w->ctw.cursor_state == CURSOR_HIDDEN)
+X		return;
+X	w->ctw.cursor_state = CURSOR_OFF;
+X	x = w->ctw.x >= w->ctw.columns ? w->ctw.columns - 1 : w->ctw.x;
+X	update_region(w, y, x, y+1, x+1);
+X}
+X/**********************************************************************/
+X/*   Function to toggle cursor.					      */
+X/**********************************************************************/
+Xstatic void
+Xtoggle_cursor(CtwWidget w) {
+X	if (w->ctw.cursor_state == CURSOR_OFF)
+X		turn_on_cursor(w);
+X	else
+X		turn_off_cursor(w);
+X}
+X/**********************************************************************/
+X/*   Function to turn on cursor.				      */
+X/**********************************************************************/
+Xstatic void
+Xturn_on_cursor(CtwWidget w) {
+X	if (w->ctw.cursor_state == CURSOR_ON || w->ctw.cursor_state == CURSOR_HIDDEN)
+X		return;
+X	w->ctw.cursor_state = CURSOR_ON;
+X	show_cursor(w);
+X}
+X/**********************************************************************/
+X/*   Routine  to  update  a  region of the screen. We get passed the  */
+X/*   co-ordinates as character positions (not pixels).		      */
+X/**********************************************************************/
+Xstatic void
+Xupdate_region(CtwWidget w, int start_line, int start_col, int end_line,
+X	int end_col) {
+X	int	r;
+X	vbyte_t	*vp;
+X
+X	if (end_line > w->ctw.rows)
+X		end_line = w->ctw.rows;
+X	if (end_col > w->ctw.columns)
+X		end_col = w->ctw.columns;
+X	if (start_line < 0)
+X		r = 0;
+X	else
+X		r = start_line;
+X	for (; r < end_line; r++) {
+X		vp = w->ctw.lines[r + w->ctw.top_line] + start_col;
+X		print_string(w, r, start_col, end_col - start_col, vp);
+X		}
+X}
+X/**********************************************************************/
+X/*   Routine  to  draw  a  single  string at the specified position.  */
+X/*   Handles the changes in attributes.				      */
+X/**********************************************************************/
+Xstatic void
+Xprint_string(CtwWidget w, int row, int col, int len, vbyte_t *vp) {
+X	char	buf[80];
+X	char	*end_buf;
+X	char	*bp;
+X	Pixel	fg, bg;
+X	int	c;
+X	int	end_col = col + len;
+X
+X	for (c = col; c < end_col; ) {
+X		vbyte_t	attr;
+X		attr.vb_all = vp->vb_all;
+X		/***********************************************/
+X		/*   Draw  as  many consecutive characters as  */
+X		/*   we can until we hit a color change.       */
+X		/***********************************************/
+X		bp = buf;
+X		if (end_col - c > sizeof buf)
+X			end_buf = &buf[sizeof buf];
+X		else
+X			end_buf = &buf[end_col - c];
+X		while (bp < end_buf) {
+X			if (vp->vb_color != attr.vb_color ||
+X			    vp->vb_attr != attr.vb_attr)
+X				break;
+X			*bp++ = vp->vb_byte;
+X			vp++;
+X			}
+X		if (attr.vb_attr & VB_SELECT) {
+X			fg = w->ctw.hilite_fg;
+X			bg = w->ctw.hilite_bg;
+X			}
+X		else {
+X			fg = x11_colors[GET_FG(attr.vb_color)];
+X			bg = x11_colors[GET_BG(attr.vb_color)];
+X			}
+X		/***********************************************/
+X		/*   Handle   line   drawing   by   doing  it  */
+X		/*   ourselves.				       */
+X		/***********************************************/
+X		len = bp - buf;
+X		if (attr.vb_attr & VB_LINE) {
+X			for (bp--; bp >= buf; bp--) {
+X				if (*bp >= 0x5f && *bp <= 0x7e)
+X					*bp = *bp == 0x5f ? 0x7f : (*bp - 0x5f);
+X				}
+X			draw_line(w, row, c, buf, len, fg, bg, attr.vb_attr);
+X			}
+X		else {
+X			draw_string(w, row, c, buf, len, fg, bg, attr.vb_attr);
+X			}
+X		c += len;
+X		}
+X}
+X/**********************************************************************/
+X/*   Function to draw the line-drawing characters.		      */
+X/**********************************************************************/
+Xstatic void
+Xdraw_line(CtwWidget w, int row, int col, unsigned char *str, int len,
+X	 Pixel fg, Pixel bg, int attr) {
+X	if (w->ctw.line_fontp == (XFontStruct *) NULL) {
+X		draw_string(w, row, col, str, len, fg, bg, attr);
+X		return;
+X		}
+X
+X	XSetForeground(XtDisplay(w), w->ctw.line_gc, fg);
+X	XSetBackground(XtDisplay(w), w->ctw.line_gc, bg);
+X	XDrawImageString(XtDisplay(w), XtWindow(w), w->ctw.line_gc, 
+X		col * w->ctw.font_width, 
+X		ROW_TO_PIXEL(w, row),
+X		str, len);
+X}
+X/**********************************************************************/
+X/*   Public  function  to  draw  a  string  at the specified row/col  */
+X/*   with the specified foreground and background colors.	      */
+X/**********************************************************************/
+Xstatic void
+Xdraw_string(CtwWidget w, int row, int col, char *str, int len,
+X	 Pixel fg, Pixel bg, int attr) {
+X	int	x = col * w->ctw.font_width;
+X	int	y = ROW_TO_PIXEL(w, row);
+X	
+X	XSetForeground(XtDisplay(w), w->ctw.gc, fg);
+X	XSetBackground(XtDisplay(w), w->ctw.gc, bg);
+X	XDrawImageString(XtDisplay(w), XtWindow(w), w->ctw.gc, 
+X		x, y,
+X		str, len);
+X	if (attr & VB_BOLD) {
+X		XDrawString(XtDisplay(w), XtWindow(w), w->ctw.gc, 
+X			x + 1, y,
+X			str, len);
+X		}
+X	if (attr & VB_UNDERLINE) {
+X		XDrawLine(XtDisplay(w), XtWindow(w), w->ctw.gc,
+X			x, y,
+X			x + len * w->ctw.font_width, y);
+X		}
+X}
+X/**********************************************************************/
+X/*   Routine  to  convert  an (x,y) pixel co-ordinate to a character  */
+X/*   position.							      */
+X/**********************************************************************/
+Xstatic void
+Xget_xy(CtwWidget w, int *row, int *col, int x, int y) {
+X	*row = y / w->ctw.font_height;
+X	*col = x / w->ctw.font_width;
+X	if (*row > w->ctw.rows)
+X		*row = w->ctw.rows;
+X	if (*col > w->ctw.columns)
+X		*col = w->ctw.columns;
+X}
+Xstatic int
+Xfuncvalue (int keycode) {
+X	switch (keycode) {
+X		case XK_F1:	return(11);
+X		case XK_F2:	return(12);
+X		case XK_F3:	return(13);
+X		case XK_F4:	return(14);
+X		case XK_F5:	return(15);
+X		case XK_F6:	return(17);
+X		case XK_F7:	return(18);
+X		case XK_F8:	return(19);
+X		case XK_F9:	return(20);
+X		case XK_F10:	return(21);
+X		case XK_F11:	return(23);
+X		case XK_F12:	return(24);
+X		case XK_F13:	return(25);
+X		case XK_F14:	return(26);
+X		case XK_F15:	return(28);
+X		case XK_Help:	return(28);
+X		case XK_F16:	return(29);
+X		case XK_Menu:	return(29);
+X		case XK_F17:	return(31);
+X		case XK_F18:	return(32);
+X		case XK_F19:	return(33);
+X		case XK_F20:	return(34);
+X
+X		case XK_Find :	return(1);
+X		case XK_Insert:	return(2);
+X		case XK_Delete:	return(3);
+X# if defined(DXK_Remove)
+X		case DXK_Remove: return(3);
+X# endif
+X		case XK_Select:	return(4);
+X		case XK_Prior:	return(5);
+X		case XK_Next:	return(6);
+X		default:	return(-1);
+X	}
+X}
+X
+X
+Xstatic int 
+Xsunfuncvalue (int keycode) {
+X  	switch (keycode) {
+X		case XK_F1:	return(224);
+X		case XK_F2:	return(225);
+X		case XK_F3:	return(226);
+X		case XK_F4:	return(227);
+X		case XK_F5:	return(228);
+X		case XK_F6:	return(229);
+X		case XK_F7:	return(230);
+X		case XK_F8:	return(231);
+X		case XK_F9:	return(232);
+X		case XK_F10:	return(233);
+X		case XK_F11:	return(192);
+X		case XK_F12:	return(193);
+X		case XK_F13:	return(194);
+X		case XK_F14:	return(195);
+X		case XK_F15:	return(196);
+X		case XK_Help:	return(196);
+X		case XK_F16:	return(197);
+X		case XK_Menu:	return(197);
+X		case XK_F17:	return(198);
+X		case XK_F18:	return(199);
+X		case XK_F19:	return(200);
+X		case XK_F20:	return(201);
+X
+X		case XK_R1:	return(208);
+X		case XK_R2:	return(209);
+X		case XK_R3:	return(210);
+X		case XK_R4:	return(211);
+X		case XK_R5:	return(212);
+X		case XK_R6:	return(213);
+X		case XK_R7:	return(214);
+X		case XK_R8:	return(215);
+X		case XK_R9:	return(216);
+X		case XK_R10:	return(217);
+X		case XK_R11:	return(218);
+X		case XK_R12:	return(219);
+X		case XK_R13:	return(220);
+X		case XK_R14:	return(221);
+X		case XK_R15:	return(222);
+X  
+X		case XK_Find :	return(1);
+X		case XK_Insert:	return(2);
+X		case XK_Delete:	return(3);
+X# if defined(DXK_Remove)
+X		case DXK_Remove: return(3);
+X# endif
+X		case XK_Select:	return(4);
+X		case XK_Prior:	return(5);
+X		case XK_Next:	return(6);
+X		default:	return(-1);
+X	}
+X}
+X
+X/**********************************************************************/
+X/*   Function to reset the screen.				      */
+X/**********************************************************************/
+Xstatic void
+Xreset_screen(CtwWidget w) {
+X	w->ctw.x = w->ctw.y = 0;
+X	w->ctw.saved_x = w->ctw.saved_y = 0;
+X	w->ctw.flags[CTW_NEWLINE_GLITCH] = TRUE;
+X
+X	w->ctw.attr.vb_all = 0;
+X	w->ctw.attr.vb_color = FG(WHITE);
+X	w->ctw.old_color = FG(WHITE);
+X	w->ctw.char_set = 'B';
+X
+X	w->ctw.escp = (char *) NULL;
+X
+X	w->ctw.scroll_top = 0;
+X	w->ctw.scroll_bot = w->ctw.rows;
+X
+X	w->ctw.flags[CTW_AUTOWRAP] = TRUE;
+X	w->ctw.flags[CTW_AUTOLINEFEED] = FALSE;
+X	w->ctw.flags[CTW_APPL_KEYPAD]  = FALSE;
+X	w->ctw.flags[CTW_CURSOR_KEYPAD] = FALSE;
+X	w->ctw.flags[CTW_LITERAL_MODE] = FALSE;
+X}
+X# define	FLUSH_OUTPUT() \
+X		{ \
+X		if (vp != start_vp) { \
+X			w->ctw.x = vp - vp_start; \
+X			update_region(w, w->ctw.y, start_vp - vp_start, \
+X				w->ctw.y + 1, w->ctw.x); \
+X			} \
+X		}
+X/**********************************************************************/
+X/*   Main public function for adding a string to the widget.	      */
+X/**********************************************************************/
+Xvoid
+Xctw_add_string(CtwWidget w, char *str, int len) {
+X	if (w->ctw.flags[CTW_SLOW_MODE] == FALSE) {
+X		ctw_add_string2(w, str, len);
+X		return;
+X		}
+X	while (len-- > 0) {
+X		ctw_add_string2(w, str++, 1);
+X		XFlush(XtDisplay(w));
+X		usleep(20000);
+X		}
+X}
+X/**********************************************************************/
+X/*   Function  to  add  a  string  to  the  display.  Processes ANSI  */
+X/*   escape sequences.						      */
+X/**********************************************************************/
+Xstatic void
+Xctw_add_string2(CtwWidget w, char *str, int len) {
+X	ctw_callback_t	reason;
+X	int	x;
+X	vbyte_t	attr;
+X	static int nest_level = 0;
+X	char	*str_end = str + len;
+X	vbyte_t	*vp_start, *vp_end;
+X	vbyte_t	*start_vp, *vp;
+X	int	top_line = w->ctw.top_line;
+X	int	pc_charset = w->ctw.flags[CTW_PC_CHARSET];
+X
+X	if (nest_level++ == 0)
+X		turn_off_cursor(w);
+X
+X	/***********************************************/
+X	/*   Reframe   the   area  if  the  user  has  */
+X	/*   scrolled us.			       */
+X	/***********************************************/
+X	if (w->ctw.old_top_line >= 0) {
+X		ctw_callback_t reason;
+X		if (w->ctw.old_top_line != w->ctw.top_line) {
+X			w->ctw.top_line = w->ctw.old_top_line;
+X			update_region(w, 0, 0, 
+X				w->ctw.rows + 1, w->ctw.columns + 1);
+X			}
+X		w->ctw.old_top_line = -1;
+X		reason.reason = CTW_TOP_LINE;
+X		reason.top_line = w->ctw.top_line;
+X		XtCallCallbacks((Widget)w, XtNtopCallback, (caddr_t) &reason);
+X		}
+X	/***********************************************/
+X	/*   If  we  were in the middle of processing  */
+X	/*   an  escape  sequence  then carry on from  */
+X	/*   where we left off.			       */
+X	/***********************************************/
+X	if (w->ctw.escp)
+X		str = handle_escape(w, str, str_end);
+X
+X	attr = w->ctw.attr;
+Xstart_again:
+X	vp_start = w->ctw.lines[w->ctw.top_line + w->ctw.y];
+X	start_vp = vp = vp_start + w->ctw.x;
+X	vp_end = vp_start + w->ctw.columns;
+X	while (str < str_end) {
+X		if (parse_tbl[*str] == 0) {
+XDEFAULT:
+X		  	if (vp >= vp_end) {
+X				FLUSH_OUTPUT();
+X				w->ctw.x = 0;
+X				down_line(w, str);
+X				goto start_again;
+X				}
+X			attr.vb_byte = *str++;
+X			*vp = attr;
+X			if (pc_charset && pc_chars[attr.vb_byte]) {
+X				vp->vb_attr |= VB_LINE;
+X				vp->vb_byte = pc_chars[attr.vb_byte];
+X				}
+X
+X			if (++vp < vp_end)
+X				continue;
+X			FLUSH_OUTPUT();
+X			if (w->ctw.flags[CTW_AUTOWRAP]) {
+X				if (w->ctw.flags[CTW_NEWLINE_GLITCH])
+X					continue;
+X				w->ctw.x = 0;
+X				down_line(w, str);
+X				goto start_again;
+X				}
+X			else
+X				vp--;
+X			continue;
+X			}
+X		switch (*str++) {
+X		  case BEL:
+X			break;
+X		  case '\b':
+X		  	FLUSH_OUTPUT();
+X		  	if (w->ctw.flags[CTW_LITERAL_MODE]) {
+X				ctw_add_string2(w, "<BS>", 4);
+X				goto start_again;
+X				}
+X			if (vp > vp_start) {
+X				start_vp = --vp;
+X				w->ctw.x = vp - vp_start;
+X				}
+X			break;
+X		  case '\t':
+X		  	if (w->ctw.flags[CTW_LITERAL_MODE]) {
+X			  	FLUSH_OUTPUT();
+X				ctw_add_string2(w, "<TAB>", 5);
+X				goto start_again;
+X				}
+X			x = vp - vp_start;
+X			if (w->ctw.flags[CTW_DESTRUCTIVE_TABS] == FALSE) {
+X				x = (x | 7) + 1;
+X				vp = vp_start + x;
+X				break;
+X				}
+X		  	attr.vb_byte = ' ';
+X			do {
+X				*vp++ = attr;
+X				}
+X			while (vp < vp_end && (++x & 7) != 0);
+X		  	break;
+X		  case '\r':
+X		  	FLUSH_OUTPUT();
+X		  	if (w->ctw.flags[CTW_LITERAL_MODE]) {
+X				ctw_add_string2(w, "<CR>", 4);
+X				goto start_again;
+X				}
+X			w->ctw.x = 0;
+X			goto start_again;
+X		  case '\n':
+X		  	FLUSH_OUTPUT();
+X			down_line(w, str);
+X			goto start_again;
+X		  case 'n' & 0x1f:
+X		  	attr.vb_attr |= VB_LINE;
+X		  	break;
+X		  case 'o' & 0x1f:
+X		  	attr.vb_attr &= ~VB_LINE;
+X		  	break;
+X		  case XON:
+X		  	if (!w->ctw.flags[CTW_LITERAL_MODE])
+X				goto DEFAULT;
+X		  	FLUSH_OUTPUT();
+X			ctw_add_string2(w, "<XON>", 5);
+X			break;
+X		  case XOFF:
+X		  	if (!w->ctw.flags[CTW_LITERAL_MODE])
+X				goto DEFAULT;
+X		  	FLUSH_OUTPUT();
+X			ctw_add_string2(w, "<XOFF>", 6);
+X			break;
+X		  case ESC:
+X		  	str--;
+X		  	if (w->ctw.flags[CTW_LITERAL_MODE])
+X				goto DEFAULT;
+X		  	FLUSH_OUTPUT();
+X			w->ctw.escp = w->ctw.escbuf;
+X		  	str = handle_escape(w, str+1, str_end);
+X			attr = w->ctw.attr;
+X			goto start_again;
+X		  case '\0':
+X			break;
+X		  }
+X		}
+X	FLUSH_OUTPUT();
+X	w->ctw.attr = attr;
+X	if (w->ctw.num_exposures)
+X		wait_for_exposure(w);
+X
+X	if (--nest_level == 0)
+X		turn_on_cursor(w);
+X	/***********************************************/
+X	/*   If  top  line  changed then tell user so  */
+X	/*   he/she   can   update  a  scrollbar  for  */
+X	/*   instance.				       */
+X	/***********************************************/
+X	if (top_line != w->ctw.top_line) {
+X		reason.reason = CTW_TOP_LINE;
+X		reason.top_line = w->ctw.top_line;
+X		XtCallCallbacks((Widget)w, XtNtopCallback, (caddr_t) &reason);
+X		}
+X}
+X/**********************************************************************/
+X/*   Function  to  move  cursor  down  a  line,  possibly  forcing a  */
+X/*   scroll.  Also  look  ahead  for more new-lines to see if we can  */
+X/*   bit-blt more than a line at a time.			      */
+X/**********************************************************************/
+Xstatic void
+Xdown_line(CtwWidget w, char *str) {
+X	int	y = w->ctw.y;
+X	int	i;
+X	int	max_rows;
+X# if COLLECT_STATS
+X	ctw_stats.lines_scrolled++;
+X# endif
+X	if (y < w->ctw.scroll_bot-1) {
+X		w->ctw.y++;
+X		return;
+X		}
+X	/***********************************************/
+X	/*   Look  ahead  to  see  if  we  can scroll  */
+X	/*   more than one line.		       */
+X	/***********************************************/
+X	i = 1;
+X	max_rows = w->ctw.scroll_bot - w->ctw.scroll_top;
+X	while (1) {
+X		switch (*str++) {
+X		  case ESC:
+X		  	goto after_loop;
+X		  case '\n':
+X		  	if (++i >= max_rows)
+X				goto after_loop;
+X			break;
+X		  case '\0':
+X		  	goto after_loop;
+X		  }
+X		}
+Xafter_loop:
+X
+X	/***********************************************/
+X	/*   If  we  have  a  hilited  selection then  */
+X	/*   adjust place where its displayed.	       */
+X	/***********************************************/
+X	if (w->ctw.sel_string) {
+X		w->ctw.sel_start_y -= i;
+X		w->ctw.sel_cur_y -= i;
+X		if (w->ctw.sel_start_y < 0 ||
+X		    w->ctw.sel_cur_y < 0) {
+X			w->ctw.sel_start_y -= -1;
+X			w->ctw.sel_cur_y -= -1;
+X			}
+X		}
+X
+X	w->ctw.y -= i-1;
+X	if (w->ctw.flags[CTW_SCROLLING_REGION] == FALSE &&
+X	    w->ctw.top_line < w->ctw.max_lines - 1) {
+X		if (w->ctw.top_line + i > w->ctw.max_lines)
+X			w->ctw.top_line = w->ctw.max_lines;
+X		else
+X			w->ctw.top_line += i;
+X		delete_line(w, 0, i);
+X		}
+X	else {
+X# if COLLECT_STATS
+X		ctw_stats.lines_jumped += i;
+X		ctw_stats.scroll_ups++;
+X# endif
+X		scroll_up(w, i);
+X		}
+X}
+X/**********************************************************************/
+X/*   Scroll screen up number of lines. Called on '\n'.		      */
+X/**********************************************************************/
+Xstatic void
+Xscroll_up(CtwWidget w, int num_lines) {
+X	int	j;
+X	vbyte_t	*vp;
+X	int	end;
+X	int	start_line;
+X	int	disp_start;
+X
+X	if (w->ctw.flags[CTW_SCROLLING_REGION]) {
+X		start_line = w->ctw.top_line + w->ctw.scroll_top;
+X		disp_start = w->ctw.scroll_top;
+X		end = w->ctw.top_line + w->ctw.scroll_bot;
+X		}
+X	else {
+X		start_line = 0;
+X		disp_start = 0;
+X		end = w->ctw.max_lines + w->ctw.rows;
+X		}
+X# if 0
+X	/***********************************************/
+X	/*   Blank  the  lines  at  the  top  of  the  */
+X	/*   screen  which  are  about  to be wrapped  */
+X	/*   around to the bottom.		       */
+X	/***********************************************/
+X	for (j = 0; j < num_lines; j++) {
+X		blank_line(w, w->ctw.lines[start_line + j]);
+X		}
+X	rotate_mem(&w->ctw.lines[start_line],
+X		&w->ctw.lines[end - start_line],
+X		-num_lines * sizeof(vbyte_t *));
+X# else
+X	for (j = 0; j < num_lines; j++) {
+X		vp = w->ctw.lines[start_line];
+X		memcpy(&w->ctw.lines[start_line], 
+X			&w->ctw.lines[start_line+1],
+X			(end - start_line - 1) * sizeof(vbyte_t *));
+X		w->ctw.lines[end-1] = vp;
+X		blank_line(w, vp);
+X		}
+X# endif
+X	delete_line(w, disp_start, num_lines);
+X}
+X/**********************************************************************/
+X/*   Scroll screen up number of lines. Called on ESC[M		      */
+X/**********************************************************************/
+Xstatic void
+Xscroll_up_local(CtwWidget w, int start_line, int num_lines) {
+X	int	j;
+X	vbyte_t	*vp;
+X	int	end;
+X	int	top = w->ctw.top_line;
+X
+X	
+X	if (w->ctw.flags[CTW_SCROLLING_REGION]) {
+X		end = w->ctw.scroll_bot;
+X		}
+X	else {
+X		end = w->ctw.rows;
+X		}
+X	if (num_lines > w->ctw.scroll_bot - w->ctw.scroll_top)
+X		num_lines = w->ctw.scroll_bot - w->ctw.scroll_top;
+X	for (j = 0; j < num_lines; j++) {
+X		vp = w->ctw.lines[top + start_line];
+X		memcpy(&w->ctw.lines[top + start_line], 
+X			&w->ctw.lines[top + start_line+1],
+X			(end - start_line - 1) * sizeof(vbyte_t *));
+X		w->ctw.lines[top + end-1] = vp;
+X		blank_line(w, vp);
+X		}
+X	delete_line(w, start_line, num_lines);
+X}
+X/**********************************************************************/
+X/*   Function to parse or continue parsing an escape sequence.	      */
+X/**********************************************************************/
+Xstatic char *
+Xhandle_escape(CtwWidget w, char *str, char *str_end) {
+X	char	*cp = w->ctw.escp;
+X	char	*cpend = &w->ctw.escbuf[MAX_ESCBUF - 1];
+X
+X	while (str < str_end) {
+X		/***********************************************/
+X		/*   If sequence too large then just junk it.  */
+X		/***********************************************/
+X		if (cp >= cpend) {
+X			w->ctw.escp = (char *) NULL;
+X			send_str(w, "<ESC>", 5);
+X			send_str(w, w->ctw.escbuf, MAX_ESCBUF);
+X			return str;
+X			}
+X		*cp++ = *str++;
+X		switch(w->ctw.escbuf[0]) {
+X		  case '[':
+X		  	if (!isalpha(str[-1]) && str[-1] != '@')
+X				continue;
+X			if (str[-1] == '-')
+X				continue;
+X			break;
+X		  case ']':
+X		  	if (str[-1] == BEL)
+X				break;
+X			/***********************************************/
+X			/*   Check  for  shelltool  style icon/window  */
+X			/*   name escape			       */
+X			/***********************************************/
+X			if (cp < &w->ctw.escbuf[3])
+X				continue;
+X			if (str[-1] == '\\' && str[-2] == ESC)
+X				break;
+X			continue;
+X		  case '(':
+X		  case ')':
+X		  	if (cp > &w->ctw.escbuf[1])
+X				break;
+X			continue;
+X		  case '7':
+X		  	w->ctw.saved_x = w->ctw.x;
+X		  	w->ctw.saved_y = w->ctw.y;
+X			w->ctw.escp = NULL;
+X		  	return str;
+X		  case '8':
+X		  	w->ctw.x = w->ctw.saved_x;
+X		  	w->ctw.y = w->ctw.saved_y;
+X			w->ctw.escp = NULL;
+X		  	return str;
+X		  case 'c':
+X		  	reset_screen(w);
+X			return str;
+X		  case '<':
+X		  	return str;
+X		  case '>':
+X		  	w->ctw.flags[CTW_APPL_KEYPAD] = FALSE;
+X			w->ctw.escp = (char *) NULL;
+X		  	return str;
+X		  case '=':
+X		  	w->ctw.flags[CTW_APPL_KEYPAD] = TRUE;
+X			w->ctw.escp = (char *) NULL;
+X		  	return str;
+X		  case 'D':
+X		  	do_index(w);
+X		  	return str;
+X		  case 'M':
+X		  	do_rev_index(w);
+X		  	return str;
+X		  case 'Z':
+X		  	send_input(w, "\033[?1;2c", 7);
+X			w->ctw.escp = NULL;
+X		  	return str;
+X		  default:
+X		  	if (w->ctw.flags[CTW_ESC_LITERAL]) {
+X				char	buf[1];
+X				buf[0] = w->ctw.escbuf[0];
+X				w->ctw.escp = NULL;
+X			  	send_str(w, buf, 1);
+X				return str;
+X				}
+X		  	break;
+X		  }
+X		*cp = '\0';
+X		w->ctw.escp = NULL;
+X		if (process_escape(w) == FALSE) {
+X			send_str(w, "<ESC>", 5);
+X			send_str(w, w->ctw.escbuf, cp - w->ctw.escbuf);
+X			}
+X		w->ctw.escp = NULL;
+X		return str;
+X		}
+X	w->ctw.escp = cp;
+X	return str;
+X}
+X/**********************************************************************/
+X/*   Execute a compiled escape sequence.			      */
+X/**********************************************************************/
+Xstatic int
+Xprocess_escape(CtwWidget w) {
+X	int	args[MAX_ARGS];
+X	int	arg1;
+X	int	arg_no = 0;
+X	int	n, i, y;
+X	int	quest = FALSE;
+X	int	esc_equ = FALSE;
+X	int	isneg;
+X	char	*cp;
+X	char	buf[32];
+X  	vbyte_t space, attr;
+X	ctw_callback_t	reason;
+X
+X	cp = w->ctw.escbuf;
+X	switch (*cp++) {
+X	  case '[':
+X	  	if (*cp == '?') {
+X			cp++;
+X		  	quest = TRUE;
+X			}
+X		break;
+X	  case ']':
+X	  	do_text_parms((Widget) w, cp);
+X		return TRUE;
+X	  case ')':
+X	  	/***********************************************/
+X	  	/*   Change character set.		       */
+X	  	/***********************************************/
+X		switch (*cp) {
+X		  case '0':
+X		  	w->ctw.attr.vb_attr &= ~VB_LINE;
+X			break;
+X		  case 'B':
+X		  default:
+X		  	w->ctw.attr.vb_attr |= VB_LINE;
+X			break;
+X		  }
+X	  	return TRUE;
+X	  case '(':
+X	  	/***********************************************/
+X	  	/*   Change character set.		       */
+X	  	/***********************************************/
+X		switch (*cp) {
+X		  case '0':
+X		  	w->ctw.attr.vb_attr |= VB_LINE;
+X			break;
+X		  case 'B':
+X		  default:
+X		  	w->ctw.attr.vb_attr &= ~VB_LINE;
+X			break;
+X		  }
+X	  	return TRUE;
+X	  default:
+X	  	return FALSE;
+X	  }
+X
+X	/***********************************************/
+X	/*   Handle ISC cursor size changes.	       */
+X	/***********************************************/
+X	if (*cp == '=') {
+X		cp++;
+X		esc_equ = TRUE;
+X		}
+X	while (!isalpha(*cp) && *cp != '@') {
+X		n = 0;
+X		isneg = FALSE;
+X		if (*cp == '-') {
+X			cp++;
+X			isneg = TRUE;
+X			}
+X		while (isdigit(*cp))
+X			n = 10 * n + *cp++ - '0';
+X		args[arg_no++] = isneg ? -n : n;
+X		if (*cp != ';')
+X			break;
+X		cp++;
+X		}
+X	if (quest) {
+X		return do_quest(w, *cp, arg_no, args);
+X		}
+X	if (esc_equ)
+X		return do_escequ(w, *cp, arg_no, args);
+X
+X	if (arg_no > 0)
+X		arg1 = args[0];
+X	else
+X		arg1 = 1;
+X	switch (*cp) {
+X	  case '@': {
+X		y = w->ctw.top_line + w->ctw.y;
+X		space.vb_all = 0;
+X		space.vb_byte = ' ';
+X		space.vb_color = FG(WHITE) | BG(BLACK);
+X	  	for (n = arg1; n-- > 0; ) {
+X		  	for (i = w->ctw.columns - 1; i > w->ctw.x; i--) {
+X				w->ctw.lines[y][i] = w->ctw.lines[y][i-1];
+X				}
+X			w->ctw.lines[y][w->ctw.x] = space;
+X			}
+X		update_region(w, w->ctw.y, w->ctw.x, w->ctw.y+1, w->ctw.columns);
+X	  	break;
+X		}
+X	  case 'A':
+X	  	w->ctw.y -= arg1;
+X		goto check_cursor;
+X	  case 'B':
+X	  	w->ctw.y += arg1;
+X		goto check_cursor;
+X	  case 'C':
+X	  	w->ctw.x += arg1;
+X		goto check_cursor;
+X	  case 'D':
+X	  	w->ctw.x -= arg1;
+X		goto check_cursor;
+X	  case 'H':
+X	  	if (arg_no > 1)
+X			w->ctw.x = args[1] - 1;
+X		else
+X			w->ctw.x = 0;
+X		if (arg_no > 0)
+X			w->ctw.y = args[0] - 1;
+X		else {
+X			w->ctw.x = 0;
+X			w->ctw.y = 0;
+X			}
+Xcheck_cursor:
+X		if (w->ctw.x < 0)
+X			w->ctw.x = 0;
+X		else if (w->ctw.x >= w->ctw.columns)
+X			w->ctw.x = w->ctw.columns - 1;
+X		if (w->ctw.y < w->ctw.scroll_top)
+X			w->ctw.y = w->ctw.scroll_top;
+X		else if (w->ctw.y >= w->ctw.scroll_bot)
+X			w->ctw.y = w->ctw.scroll_bot - 1;
+X		break;
+X	  case 'J':
+X		if (arg_no == 0)
+X			args[0] = 0;
+X		switch (args[0]) {
+X		  case 0:
+X		  	clear_to_eol(w);
+X			clear_lines(w, w->ctw.y, w->ctw.rows - 1);
+X		  	break;
+X		  case 1:
+X		  	clear_from_beginning(w);
+X			clear_lines(w, 0, w->ctw.y - 1);
+X			break;
+X		  case 2:
+X		  	clear_screen(w);
+X			break;
+X		  }
+X	  	break;
+X	  case 'K':
+X	  	if (arg_no == 0)
+X			args[0] = 0;
+X		switch (args[0]) {
+X		  case 0:
+X		  	clear_to_eol(w);
+X			break;
+X		  case 1:
+X		  	clear_from_beginning(w);
+X			break;
+X		  case 2:
+X		  	clear_from_beginning(w);
+X			clear_to_eol(w);
+X			break;
+X		  }
+X	  	break;
+X	  case 'L':
+X	  	if (w->ctw.y >= w->ctw.scroll_top && w->ctw.y < w->ctw.scroll_bot)
+X		  	scroll_down(w, w->ctw.y, arg1);
+X	  	break;
+X	  case 'M':
+X	  	if (w->ctw.y >= w->ctw.scroll_top && w->ctw.y < w->ctw.scroll_bot)
+X		  	scroll_up_local(w, w->ctw.y, arg1);
+X	  	break;
+X	  case 'P': {
+X		y = w->ctw.top_line + w->ctw.y;
+X		space.vb_all = 0;
+X		space.vb_byte = ' ';
+X		space.vb_color = FG(WHITE) | BG(BLACK);
+X
+X	  	for (n = arg1; n-- > 0; ) {
+X		  	for (i = w->ctw.x; i < w->ctw.columns - 1; i++) {
+X				w->ctw.lines[y][i] = w->ctw.lines[y][i+1];
+X				}
+X			w->ctw.lines[y][i] = space;
+X			}
+X		update_region(w, w->ctw.y, w->ctw.x, w->ctw.y+1, w->ctw.columns);
+X	  	break;
+X		}
+X	  case 'S':
+X	  	do_index(w);
+X		break;
+X	  case 'T':
+X	  	do_rev_index(w);
+X		break;
+X
+X	  case 'X':
+X	  	/***********************************************/
+X	  	/*   ISC  &  SCO  allow ESC[X have to erase a  */
+X	  	/*   sequence of blanks.		       */
+X	  	/***********************************************/
+X		if (w->ctw.flags[CTW_ISC_DRIVER] == FALSE && 
+X		    w->ctw.flags[CTW_SCO_DRIVER] == FALSE)
+X		    	return FALSE;
+X		attr = w->ctw.attr;
+X		attr.vb_byte = ' ';
+X		attr.vb_attr &= ~VB_LINE;
+X		y = w->ctw.top_line + w->ctw.y;
+X		for (i = 0; i < arg1; i++) {
+X			if (w->ctw.x + i >= w->ctw.columns)
+X				break;
+X			w->ctw.lines[y][w->ctw.x + i] = attr;
+X			}
+X		update_region(w, w->ctw.y, w->ctw.x, w->ctw.y+1, w->ctw.x + arg1);
+X		break;
+X
+X	  case 'g':
+X	  	if (w->ctw.flags[CTW_SCO_DRIVER] == FALSE)
+X			return FALSE;
+X		buf[0] = arg1;
+X		send_str(w, buf, 1);
+X	  	break;
+X	  case 'm':
+X	  	if (arg_no == 0) {
+X			arg_no = 1;
+X			args[0] = 0;
+X			}
+X	  	for (i = 0; i < arg_no; i++) {
+X			switch (args[i]) {
+X			  case 0: {
+X				w->ctw.attr.vb_all = 0;
+X				if (w->ctw.flags[CTW_COLOR_RESET] ||
+X				    w->ctw.old_color == 0)
+X				  	w->ctw.attr.vb_color = FG(WHITE) | BG(0);
+X				else
+X				  	w->ctw.attr.vb_color = w->ctw.old_color;
+X				break;
+X				}
+X			  case 1:
+X			  	w->ctw.attr.vb_attr |= VB_BOLD;
+X				break;
+X			  case 4:
+X			  	w->ctw.attr.vb_attr |= VB_UNDERLINE;
+X				break;
+X			  case 7: {
+X			  	w->ctw.old_color = w->ctw.attr.vb_color;
+X			  	w->ctw.attr.vb_color = 
+X					BG(GET_FG(w->ctw.attr.vb_color)) |
+X					FG(GET_BG(w->ctw.attr.vb_color));
+X				break;
+X				}
+X			  case 30: case 31: case 32: case 33:
+X			  case 34: case 35: case 36: case 37:
+X			  	w->ctw.attr.vb_color = 
+X					FG(args[i] - 30) | 
+X					BG(GET_BG(w->ctw.attr.vb_color));
+X			  	break;
+X			  case 40: case 41: case 42: case 43:
+X			  case 44: case 45: case 46: case 47:
+X			  	w->ctw.attr.vb_color = 
+X					BG(args[i] - 40) | 
+X					FG(GET_FG(w->ctw.attr.vb_color));
+X			  	break;
+X			  }
+X			}
+X	  	break;
+X	  case 'r':
+X		w->ctw.scroll_top = 0;
+X		w->ctw.scroll_bot = w->ctw.rows;
+X		w->ctw.flags[CTW_SCROLLING_REGION] = FALSE;
+X		if (arg_no >= 1) {
+X			w->ctw.flags[CTW_SCROLLING_REGION] = TRUE;
+X			w->ctw.scroll_top = args[0] ? args[0] - 1 : 0;
+X			if (arg_no >= 2)
+X				w->ctw.scroll_bot = args[1] ? args[1] : 0;
+X			if (w->ctw.scroll_top < 0)
+X				w->ctw.scroll_top = 0;
+X			if (w->ctw.scroll_bot < w->ctw.scroll_top || 
+X			    w->ctw.scroll_bot > w->ctw.rows)
+X				w->ctw.scroll_bot = w->ctw.rows;
+X			/***********************************************/
+X			/*   If  scrolling  region  to  entire window  */
+X			/*   then turn flag off.		       */
+X			/***********************************************/
+X			if (w->ctw.scroll_top == 0 &&
+X			    w->ctw.scroll_bot == w->ctw.rows)
+X				w->ctw.flags[CTW_SCROLLING_REGION] = FALSE;
+X			}
+X		w->ctw.x = 0;
+X		w->ctw.y = 0;
+X	  	break;
+X	  case 't':
+X	  	/***********************************************/
+X	  	/*   Shelltool/cmdtool    compatable   escape  */
+X	  	/*   sequences.				       */
+X	  	/***********************************************/
+X		switch (args[0]) {
+X		  case 1:
+X		  	reason.reason = CTW_OPEN_WINDOW;
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X		  	break;
+X		  case 2:
+X		  	reason.reason = CTW_CLOSE_WINDOW;
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X		  	break;
+X		  case 3:
+X		  	reason.reason = CTW_MOVE_WINDOW;
+X			reason.x = args[1];
+X			reason.y = args[2];
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X			break;
+X		  case 4:
+X		  	reason.reason = CTW_SIZE_WINDOW_PIXELS;
+X			reason.height = args[1];
+X			reason.width = args[2];
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X			break;
+X		  case 5:
+X		  	reason.reason = CTW_FRONT_WINDOW;
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X		  	break;
+X		  case 6:
+X		  	reason.reason = CTW_BACK_WINDOW;
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X		  	break;
+X		  case 8:
+X		  	reason.reason = CTW_SIZE_WINDOW_CHARS;
+X			reason.height = args[1];
+X			reason.width = args[2];
+X		  	XtCallCallbacks((Widget)w, XtNapplCallback, (caddr_t) &reason);
+X			break;
+X		  }
+X	  	break;
+X	  default:
+X	  	return FALSE;
+X	  }
+X	return TRUE;
+X}
+X/**********************************************************************/
+X/*   Handle  Sun  compatable escape sequences where we have a string  */
+X/*   to process.						      */
+X/**********************************************************************/
+Xstatic int
+Xdo_text_parms(Widget w, char *str) {
+X	Arg	args[20];
+X	int	n;
+X	int	type = atoi(str);
+X	char	*cp;
+X
+X	/***********************************************/
+X	/*   Check for Sun style shell tool sequence.  */
+X	/***********************************************/
+X	if (str[0] == 'l') {
+X		type = 1;
+X		str++;
+X		str[strlen(str) - 2] = '\0';
+X		}
+X	else if (str[0] == 'L') {
+X		type = 2;
+X		str++;
+X		str[strlen(str) - 2] = '\0';
+X		}
+X	else {
+X		while (*str && *str != ';')
+X			str++;
+X			
+X		if (*str++ == '\0')
+X			return 0;
+X		for (cp = str; *cp && *cp != BEL; )
+X			cp++;
+X		if (*cp == '\0')
+X			return 0;
+X		*cp = '\0';
+X		}
+X
+X	/***********************************************/
+X	/*   Find top level shell.		       */
+X	/***********************************************/
+X	while (XtParent(w))
+X		w = XtParent(w);
+X
+X	switch (type) {
+X	  case 0:
+X	  	/***********************************************/
+X	  	/*   Window Name and Title.		       */
+X	  	/***********************************************/
+X		n = 0;
+X		XtSetArg(args[n], XtNtitle, str); n++;
+X		XtSetArg(args[n], XtNiconName, str); n++;
+X		XtSetValues(w, args, n);
+X		break;
+X	  case 1:
+X	  	/***********************************************/
+X	  	/*   Window name.			       */
+X	  	/***********************************************/
+X		n = 0;
+X		XtSetArg(args[n], XtNtitle, str); n++;
+X		XtSetValues(w, args, n);
+X		break;
+X	  case 2:
+X	  	/***********************************************/
+X	  	/*   Window title.			       */
+X	  	/***********************************************/
+X		n = 0;
+X		XtSetArg(args[n], XtNiconName, str); n++;
+X		XtSetValues(w, args, n);
+X		break;
+X	  case 46:
+X	  	/***********************************************/
+X	  	/*   Set log file name.			       */
+X	  	/***********************************************/
+X		break;
+X	  }
+X	return 1;
+X}
+X/**********************************************************************/
+X/*   Handle ESC ? escape sequences.				      */
+X/**********************************************************************/
+Xstatic int
+Xdo_quest(CtwWidget w, int cmd, int arg_no, int *args) {
+X	int	flag = TRUE;
+X	int	r, c, h, width, num;
+X
+X	switch (cmd) {
+X	  case 'l':
+X	  	flag = FALSE;
+X		/* Fallthru.. */
+X	  case 'h':
+X	  	switch (args[0]) {
+X		  case 1:
+X		  	w->ctw.flags[CTW_CURSOR_KEYPAD] = flag;
+X			return TRUE;
+X		  case 4:
+X		  	w->ctw.flags[CTW_SMOOTH_SCROLL] = flag;
+X			return TRUE;
+X		  case 7:
+X		  	w->ctw.flags[CTW_AUTOWRAP] = flag;
+X			return TRUE;
+X		  case 47:
+X		  	/***********************************************/
+X		  	/*   Alternate screen buffer.		       */
+X		  	/***********************************************/
+X			return TRUE;
+X		  case 1962:
+X		  	/***********************************************/
+X		  	/*   My birthyear! Mouse report mode.	       */
+X		  	/***********************************************/
+X			w->ctw.flags[CTW_APPL_MOUSE] = flag;
+X			return TRUE;
+X		  }
+X		break;
+X	  case 'S':
+X	  	/***********************************************/
+X	  	/*   Scroll a rectangular region.	       */
+X	  	/***********************************************/
+X	  	if (arg_no != 5)
+X			break;
+X		r = args[0];
+X		c = args[1];
+X		h = args[2];
+X		width = args[3];
+X		num = args[4];
+X		/***********************************************/
+X		/*   Make sure arguments in range.	       */
+X		/***********************************************/
+X		if (r < 0)
+X			r = 0;
+X		else if (r >= w->ctw.rows)
+X			r = w->ctw.rows - 1;
+X		if (c < 0)
+X			c = 0;
+X		else if (c >= w->ctw.columns)
+X			c = w->ctw.columns - 1;
+X		if (h <= 0)
+X			h = 1;
+X		else if (h >= w->ctw.rows - r)
+X			h = w->ctw.rows - r;
+X		if (width <= 0)
+X			width = 1;
+X		else if (width >= w->ctw.columns - width)
+X			width = w->ctw.columns - width;
+X		if (num < -h)
+X			num = -h;
+X		else if (num > h)
+X			num = h;
+X		scroll_rectangle(w, r, c, width, h, num);
+X		return TRUE;
+X	  }
+X	return FALSE;
+X}
+X/**********************************************************************/
+X/*   Handle ISC's ESC[=... sequence.				      */
+X/**********************************************************************/
+Xstatic int
+Xdo_escequ(CtwWidget w, int cmd, int arg_no, int *args) {
+X	if (w->ctw.flags[CTW_ISC_DRIVER] == FALSE &&
+X	    w->ctw.flags[CTW_SCO_DRIVER] == FALSE) {
+X		return FALSE;
+X		}
+X	switch (cmd) {
+X	  case 'C':
+X	  	/***********************************************/
+X	  	/*   Ignore cursor size changes for now.       */
+X	  	/***********************************************/
+X	  	return TRUE;
+X	  }
+X	return FALSE;
+X}
+X/**********************************************************************/
+X/*   Function  to  execute  the  Index  escape  sequences  (ESC D or  */
+X/*   ESC[S).  Move  down  a  line  or  scroll screen if at bottom of  */
+X/*   window.							      */
+X/**********************************************************************/
+Xstatic void
+Xdo_index(CtwWidget w) {
+X	w->ctw.escp = NULL;
+X	if (w->ctw.y >= w->ctw.scroll_bot-1)
+X		scroll_up(w, 1);
+X	else
+X		w->ctw.y++;
+X}
+X/**********************************************************************/
+X/*   Function  to  execute a Reverse Index escape sequence (ESC M or  */
+X/*   ESC[T).  Move  up a line unless at top of region, in which case  */
+X/*   scroll region down.					      */
+X/**********************************************************************/
+Xstatic void
+Xdo_rev_index(CtwWidget w) {
+X	w->ctw.escp = NULL;
+X	if (w->ctw.y > w->ctw.scroll_top)
+X		w->ctw.y--;
+X	else
+X		scroll_down(w, w->ctw.scroll_top, 1);
+X}
+Xstatic void
+Xblank_line(CtwWidget w, vbyte_t *vp) {
+X	int	i;
+X	struct copy {
+X		vbyte_t	array[80];
+X		};
+X	static struct copy blank;
+X	static int first_time = TRUE;
+X
+X	if (first_time) {
+X		for (i = 0; i < 80; i++) {
+X			blank.array[i].vb_all = 0;
+X			blank.array[i].vb_byte = ' ';
+X			blank.array[i].vb_color = BG(0) | FG(7);
+X			}
+X		first_time = FALSE;
+X		}
+X
+X	for (i = w->ctw.columns; i >= 80; i -= 80) {
+X		*(struct copy *) vp = blank;
+X		vp += 80;
+X		}
+X	while (i-- > 0) {
+X		*vp++ = blank.array[0];
+X		}
+X}
+X/**********************************************************************/
+X/*   Do a fast delete line.					      */
+X/**********************************************************************/
+Xstatic void
+Xdelete_line(CtwWidget w, int start_line, int num_lines) {
+X	int	width, height;
+X	int	src_x, src_y, dst_y;
+X
+X	width = w->ctw.font_width * w->ctw.columns;
+X	height = w->ctw.font_height * (w->ctw.scroll_bot - start_line - num_lines);
+X
+X	src_x = 0;
+X	src_y = w->ctw.font_height * (start_line + num_lines);
+X	dst_y = w->ctw.font_height * start_line;
+X	if (height) {
+X		w->ctw.num_exposures++;
+X		XCopyArea(XtDisplay(w), XtWindow(w), XtWindow(w), w->ctw.gc,
+X			0, src_y, width, height,
+X			0, dst_y);
+X		}
+X	XClearArea(XtDisplay(w), XtWindow(w),
+X		0, dst_y + height, 
+X		0, w->ctw.font_height * w->ctw.scroll_bot - (dst_y + height),
+X		FALSE);
+X}
+X/**********************************************************************/
+X/*   Do a fast insert line.					      */
+X/**********************************************************************/
+Xstatic void
+Xinsert_line(CtwWidget w, int row, int bot, int nchunk) {
+X	int	y, dst_y, height;
+X
+X	y = row * w->ctw.font_height;
+X	dst_y = y + nchunk * w->ctw.font_height;
+X	height = (bot - row - nchunk) * w->ctw.font_height;
+X
+X	if (height) {	
+X		w->ctw.num_exposures++;
+X		XCopyArea(XtDisplay(w), XtWindow(w), XtWindow(w), w->ctw.gc,
+X			0, y, w->ctw.columns * w->ctw.font_width, height,
+X			0, dst_y);
+X		}
+X
+X	XClearArea(XtDisplay(w), XtWindow(w), 
+X		0, y,
+X		0, w->ctw.font_height * nchunk, False);
+X
+X}
+X/**********************************************************************/
+X/*   Wait  for  GraphicsExpose  or  NoExpose events to come in after  */
+X/*   scrolling screen.						      */
+X/**********************************************************************/
+Xstatic void
+Xwait_for_exposure(CtwWidget w) {
+X	XEvent	ev;
+X
+X	while (w->ctw.num_exposures > 0) {
+X		XWindowEvent(XtDisplay(w), XtWindow(w), ExposureMask, &ev);
+X		switch (ev.type) {
+X		  case Expose:
+X		  	exposed_region(w, ev.xexpose.x, ev.xexpose.y, 
+X				ev.xexpose.width, ev.xexpose.height);
+X			break;
+X		  case NoExpose:
+X		  	break;
+X	  	  case GraphicsExpose:
+X		  	exposed_region(w, ev.xgraphicsexpose.x, ev.xgraphicsexpose.y, 
+X				ev.xgraphicsexpose.width, ev.xgraphicsexpose.height);
+X			break;
+X		  }
+X		w->ctw.num_exposures--;
+X		}
+X	w->ctw.num_exposures = 0;
+X}
+X/**********************************************************************/
+X/*   Send input via the callback list to the owner.		      */
+X/**********************************************************************/
+Xstatic void
+Xsend_input(CtwWidget w, char *buf, int len) {
+X	ctw_callback_t	reason;
+X	reason.reason = CTW_INPUT;
+X	reason.ptr = buf;
+X	reason.len = len;
+X
+X	XtCallCallbacks((Widget)w, XtNkbdCallback, (caddr_t) &reason);
+X}
+Xstatic void
+Xscroll_down(CtwWidget w, int start_line, int num_lines) {
+X	int	i, j;
+X	vbyte_t	*vp;
+X	int	top = w->ctw.top_line;
+X
+X	if (num_lines > w->ctw.scroll_bot - w->ctw.scroll_top)
+X		num_lines = w->ctw.scroll_bot - w->ctw.scroll_top;
+X	for (j = 0; j < num_lines; j++) {
+X		i = top + w->ctw.scroll_bot - 1;
+X		vp = w->ctw.lines[i];
+X		for (; i > top + start_line; i--) {
+X			w->ctw.lines[i] = w->ctw.lines[i-1];
+X			}
+X		w->ctw.lines[top + start_line] = vp;
+X		blank_line(w, vp);
+X		}
+X	insert_line(w, start_line, w->ctw.scroll_bot, num_lines);
+X}
+X/**********************************************************************/
+X/*   Function to display a string internally.			      */
+X/**********************************************************************/
+Xstatic void
+Xsend_str(CtwWidget w, char *buf, int len) {
+X	vbyte_t	attr;
+X	char	*escp = w->ctw.escp;
+X
+X	attr = w->ctw.attr;
+X	w->ctw.attr.vb_color = FG(7) | BG(0);
+X	ctw_add_string2(w, buf, len);
+X	w->ctw.attr = attr;
+X	w->ctw.escp = escp;
+X}
+X/**********************************************************************/
+X/*   Clear to end of line.					      */
+X/**********************************************************************/
+Xstatic void
+Xclear_to_eol(CtwWidget w) {
+X	vbyte_t	space;
+X	int	i;
+X	int	y = w->ctw.top_line + w->ctw.y;
+X
+X	space.vb_all = 0;
+X	space.vb_byte = ' ';
+X	space.vb_color = FG(WHITE) | BG(BLACK);
+X	for (i = w->ctw.x; i < w->ctw.columns; i++)
+X		w->ctw.lines[y][i] = space;
+X
+X	XClearArea(XtDisplay(w), XtWindow(w), 
+X		w->ctw.x * w->ctw.font_width,
+X		w->ctw.y * w->ctw.font_height,
+X		0, w->ctw.font_height,
+X		False);
+X
+X}
+X/**********************************************************************/
+X/*   Clear from beginning of line to current character.		      */
+X/**********************************************************************/
+Xstatic void
+Xclear_from_beginning(CtwWidget w) {
+X	vbyte_t	space;
+X	int	i;
+X	int	y = w->ctw.top_line + w->ctw.y;
+X
+X	space.vb_all = 0;
+X	space.vb_byte = ' ';
+X	space.vb_color = FG(WHITE) | BG(BLACK);
+X	for (i = 0; i < w->ctw.x; i++)
+X		w->ctw.lines[y][i] = space;
+X
+X	XClearArea(XtDisplay(w), XtWindow(w), 
+X		0,
+X		w->ctw.y * w->ctw.font_height,
+X		w->ctw.x * w->ctw.font_width,
+X		w->ctw.font_height,
+X		False);
+X}
+X/**********************************************************************/
+X/*   Clear entire screen.					      */
+X/**********************************************************************/
+Xstatic void
+Xclear_screen(CtwWidget w) {
+X	int	i;
+X	int	y = w->ctw.top_line + w->ctw.y;
+X
+X	blank_line(w, w->ctw.lines[y]);
+X	for (i = 1; i < w->ctw.rows; i++)
+X		memcpy(w->ctw.lines[w->ctw.top_line + i], 
+X			w->ctw.lines[y], sizeof(vbyte_t) * w->ctw.columns);
+X
+X	XClearWindow(XtDisplay(w), XtWindow(w));
+X}
+X/**********************************************************************/
+X/*   Function  to  clear  a selected range of lines. Lines specified  */
+X/*   relative to current window.				      */
+X/**********************************************************************/
+Xstatic void
+Xclear_lines(CtwWidget w, int top, int bot) {
+X	int	i;
+X
+X	if (top >= bot)
+X		return;
+X
+X	top += w->ctw.top_line;
+X	bot += w->ctw.top_line;
+X		
+X	for (i = top; i < bot; i++) {
+X		blank_line(w, w->ctw.lines[i]);
+X		}
+X	XClearArea(XtDisplay(w), XtWindow(w),
+X		0, top * w->ctw.font_height,
+X		0, (bot - top) * w->ctw.font_height, FALSE);
+X}
+X/**********************************************************************/
+X/*   Function  to  retrieve  current setting for the line at the top  */
+X/*   of the screen.						      */
+X/**********************************************************************/
+Xint
+Xctw_get_top_line(CtwWidget ctw) {
+X	return ctw->ctw.top_line;
+X}
+X/**********************************************************************/
+X/*   Function  to  retrieve  current setting for the line at the top  */
+X/*   of the screen.						      */
+X/**********************************************************************/
+Xvoid
+Xctw_set_top_line(CtwWidget ctw, int top_line) {
+X	ctw_callback_t	reason;
+X	int	old_top;
+X	int	amt_to_scroll;
+X
+X	/***********************************************/
+X	/*   Make sure value in range.		       */
+X	/***********************************************/
+X	if (top_line < 0)
+X		top_line = 0;
+X	else if (top_line > ctw->ctw.max_lines)
+X		top_line = ctw->ctw.max_lines;
+X
+X	/***********************************************/
+X	/*   Save  the  top  line so that when we get  */
+X	/*   some  more  data we put it where we left  */
+X	/*   off and not where the user scrolled.      */
+X	/***********************************************/
+X	if (ctw->ctw.old_top_line < 0)
+X		ctw->ctw.old_top_line = ctw->ctw.top_line;
+X	if (top_line != ctw->ctw.top_line) {
+X		old_top = ctw->ctw.top_line;
+X		/***********************************************/
+X		/*   Try  and  update window intelligently if  */
+X		/*   we are scrolling a little up or down.     */
+X		/***********************************************/
+X		ctw->ctw.top_line = top_line;
+X		if (top_line < old_top && top_line + ctw->ctw.rows > old_top) {
+X			amt_to_scroll = old_top - top_line;
+X			insert_line(ctw, 0, ctw->ctw.rows, amt_to_scroll);
+X			update_region(ctw, 0, 0, 
+X				amt_to_scroll + 1, ctw->ctw.columns + 1);
+X			}
+X		else if (top_line < old_top + ctw->ctw.rows) {
+X			amt_to_scroll = top_line - old_top;
+X			delete_line(ctw, 0, amt_to_scroll);
+X			update_region(ctw, ctw->ctw.rows - amt_to_scroll, 0, 
+X				ctw->ctw.rows, ctw->ctw.columns + 1);
+X			}
+X		else {
+X			update_region(ctw, 0, 0, ctw->ctw.rows + 1, ctw->ctw.columns + 1);
+X			}
+X		if (ctw->ctw.num_exposures)
+X			wait_for_exposure(ctw);
+X		}
+X	else
+X		ctw->ctw.top_line = top_line;
+X	/***********************************************/
+X	/*   Let user affect a scrollbar.	       */
+X	/***********************************************/
+X	reason.reason = CTW_TOP_LINE;
+X	reason.top_line = ctw->ctw.top_line;
+X	XtCallCallbacks((Widget)ctw, XtNtopCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Function to let user see current flags.			      */
+X/**********************************************************************/
+Xint
+Xctw_get_attributes(CtwWidget w, int **ip, char ***strp) {
+X	static char *attr_names[] = {
+X	"Autowrap",
+X	"Auto line feed",
+X	"Application keypad",
+X	"Application cursor",
+X	"Application mouse",
+X	"Color reset",
+X	"Cut newlines",
+X	"Destructive tabs",
+X	"Erase black",
+X	"Esc + literal",
+X	"Font size",
+X	"Literal mode",
+X	"Newline glitch",
+X	"PC char set",
+X	"Reset",
+X	"Scrolling region",
+X	"Size",
+X	"Slow mode",
+X	"Smooth scroll",
+X	"Sun keys",
+X	"ISC driver",
+X	"SCO driver",
+X	(char *) NULL
+X	};
+X
+X	w->ctw.flags[CTW_RESET] = FALSE;
+X	w->ctw.flags[CTW_SUN_FUNCTION_KEYS] = w->ctw.sun_function_keys;
+X	w->ctw.flags[CTW_FONT_SIZE] = (w->ctw.font_width << 16) | w->ctw.font_height;
+X	w->ctw.flags[CTW_SIZE] = (w->ctw.columns << 16) | w->ctw.rows;
+X	*ip = &w->ctw.flags[0];
+X	*strp = attr_names;
+X	return CTW_MAX_ATTR;
+X}
+X/**********************************************************************/
+X/*   Function to set current attributes.			      */
+X/**********************************************************************/
+Xvoid
+Xctw_set_attributes(CtwWidget w, int *ip) {
+X	memcpy((char *) w->ctw.flags, (char *) ip, sizeof w->ctw.flags);
+X	w->ctw.sun_function_keys = ip[CTW_SUN_FUNCTION_KEYS];
+X
+X	if (w->ctw.flags[CTW_ISC_DRIVER] || w->ctw.flags[CTW_SCO_DRIVER])
+X		w->ctw.flags[CTW_PC_CHARSET] = TRUE;
+X	else
+X		w->ctw.flags[CTW_PC_CHARSET] = FALSE;
+X
+X	if (w->ctw.flags[CTW_RESET]) {
+X		reset_screen(w);
+X		}
+X}
+X
+X/**********************************************************************/
+X/*   Function  called  on  expiration  of timer to cause flashing to  */
+X/*   occur.							      */
+X/**********************************************************************/
+Xstatic void
+Xcursor_flash_proc(XtPointer client_data, XtIntervalId *timer) {
+X	CtwWidget	w = (CtwWidget) client_data;
+X
+X	/***********************************************/
+X	/*   If we dont have focus, turn off timer.    */
+X	/***********************************************/
+X	w->ctw.cursor_timer = 0;
+X	if (!w->ctw.have_focus) {
+X		turn_on_cursor(w);
+X		return;
+X		}
+X	if (w->ctw.flashrate) {
+X		toggle_cursor(w);
+X		w->ctw.cursor_timer = XtAppAddTimeOut(
+X			XtWidgetToApplicationContext((Widget)w),
+X			(long) w->ctw.flashrate, cursor_flash_proc, w);
+X		}
+X}
+X/**********************************************************************/
+X/*   Function to get the selection.				      */
+X/**********************************************************************/
+Xvoid
+Xctw_get_selection(CtwWidget w) {
+X	XtGetSelectionValue((Widget)w, XA_PRIMARY, XA_STRING, 
+X		(XtSelectionCallbackProc)requestor_callback, 
+X		NULL, w->ctw.timestamp);
+X}
+X/**********************************************************************/
+X/*   Function  to  handle  the ESC[?r;c;w;h;numS scrolling rectangle  */
+X/*   escape sequence.						      */
+X/**********************************************************************/
+Xstatic void
+Xscroll_rectangle(CtwWidget ctw, int r, int c, int w, int h, int num) {
+X	int	j, k;
+X	vbyte_t	space;
+X
+X	space.vb_all = 0;
+X	space.vb_byte = ' ';
+X	space.vb_color = FG(GET_FG(ctw->ctw.attr.vb_color)) | BG(0);
+X	if (num > 0) {
+X		if (h != num)
+X			XCopyArea(XtDisplay(ctw), XtWindow(ctw), XtWindow(ctw), ctw->ctw.gc,
+X				c * ctw->ctw.font_width, 
+X				(r + num) * ctw->ctw.font_height,
+X				w * ctw->ctw.font_width,
+X				(h - num) * ctw->ctw.font_height,
+X				c * ctw->ctw.font_width, r * ctw->ctw.font_height);
+X		XClearArea(XtDisplay(ctw), XtWindow(ctw),
+X			c * ctw->ctw.font_width, 
+X			(r + h - num) * ctw->ctw.font_height,
+X			w * ctw->ctw.font_width, 
+X			num * ctw->ctw.font_height, FALSE);
+X		for (j = r; j < r + h - num; j++) {
+X			memcpy(&ctw->ctw.lines[ctw->ctw.top_line + j][c],
+X				&ctw->ctw.lines[ctw->ctw.top_line + j + num][c],
+X					w * sizeof(vbyte_t));
+X			}
+X		for ( ; j < r + h; j++) {
+X			for (k = c; k < c + w; k++) {
+X				ctw->ctw.lines[j][k] = space;
+X				}
+X			}
+X		}
+X	else {
+X		num = -num;
+X		if (h != num)
+X			XCopyArea(XtDisplay(ctw), XtWindow(ctw), XtWindow(ctw), ctw->ctw.gc,
+X				c * ctw->ctw.font_width, 
+X				r * ctw->ctw.font_height,
+X				w * ctw->ctw.font_width,
+X				(h - num) * ctw->ctw.font_height,
+X				c * ctw->ctw.font_width, (r + num) * ctw->ctw.font_height);
+X		XClearArea(XtDisplay(ctw), XtWindow(ctw),
+X			c * ctw->ctw.font_width, 
+X			r * ctw->ctw.font_height,
+X			w * ctw->ctw.font_width, 
+X			num * ctw->ctw.font_height, FALSE);
+X		for (j = r + h; j > r + num; j--) {
+X			memcpy(&ctw->ctw.lines[ctw->ctw.top_line + j][c],
+X				&ctw->ctw.lines[ctw->ctw.top_line + j - num][c],
+X					w * sizeof(vbyte_t));
+X			}
+X		for ( ; j >= r; j--) {
+X			for (k = c; k < c + w; k++) {
+X				ctw->ctw.lines[j][k] = space;
+X				}
+X			}
+X		}
+X}
+X
+SHAR_EOF
+echo "File ctw.c is complete"
+chmod 0644 ctw.c || echo "restore of ctw.c fails"
+set `wc -c ctw.c`;Sum=$1
+if test "$Sum" != "97005"
+then echo original size 97005, current size $Sum;fi
+echo "x - extracting ctw.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > ctw.h &&
+X/*#include <X11/copyright.h>*/
+X
+X/* $XConsortium: Template.h,v 1.4 89/07/21 01:41:49 kit Exp $ */
+X
+X#ifndef _Ctw_h
+X#define _Ctw_h
+X
+X# if	defined(X11r3)
+X#	define	XtPointer	void *
+X# endif
+X/****************************************************************
+X *
+X * Ctw widget
+X *
+X ****************************************************************/
+X
+X/* Resources:
+X
+X Name		     Class		RepType		Default Value
+X ----		     -----		-------		-------------
+X background	     Background		Pixel		XtDefaultBackground
+X border		     BorderColor	Pixel		XtDefaultForeground
+X borderWidth	     BorderWidth	Dimension	1
+X destroyCallback     Callback		Pointer		NULL
+X height		     Height		Dimension	0
+X mappedWhenManaged   MappedWhenManaged	Boolean		True
+X sensitive	     Sensitive		Boolean		True
+X width		     Width		Dimension	0
+X x		     Position		Position	0
+X y		     Position		Position	0
+X
+XctwWidget:
+X Name		     Class		RepType		Default Value
+X ----		     -----		-------		-------------
+X applCallback	     ApplCallback	Callback	NULL
+X font		     Font		String		"fixed"
+X cursorColor	     CursorColor	Pixel		"red"
+X rows		     Rows		Integer		24
+X columns	     Columns		Integer		80
+X kbdCallback	     KbdCallback	Callback	NULL
+X sunFunctionKeys     SunFunctionKeys	Boolean		false
+X saveLines	     SaveLines		Integer		512
+X resizeCallback	     ResizeCallback	Callback	NULL
+X topCallback	     TopCallback	Callback	NULL
+X mouseCallback	     MouseCallback	Callback	NULL
+X geometry	     Geometry		String		NULL
+X flashrate	     Flashrate		Integer		500
+X font1		     Font1		String		"5x8"
+X font2		     Font2		String		"6x9"
+X font3		     Font3		String		"6x10"
+X font4		     Font4		String		"6x13"
+X font5		     Font5		String		"7x13bold"
+X font6		     Font6		String		"8x13bold"
+X hiliteBackground    HiliteBackground	String		"CadetBlue"
+X hiliteForeground    HiliteForeground	String		"yellow"
+X multiClickTime	     MultiClickTime	Integer		250
+X*/
+X
+X/**********************************************************************/
+X/*   define  any  special  resource  names  here  that  are  not  in  */
+X/*   <X11/StringDefs.h>						      */
+X/**********************************************************************/
+X
+X#define	XtNapplCallback "applCallback"
+X#define	XtNcursorColor	"cursorColor"
+X#define	XtNrows "rows"
+X#define	XtNcolumns "columns"
+X#define	XtNkbdCallback "kbdCallback"
+X#define	XtNsunFunctionKeys "sunFunctionKeys"
+X#define	XtNsaveLines "saveLines"
+X#define	XtNresizeCallback "resizeCallback"
+X#define	XtNtopCallback "topCallback"
+X#define	XtNmouseCallback "mouseCallback"
+X/* #define	XtNgeometry "geometry" */
+X#define	XtNflashrate "flashrate"
+X#define XtNfont1 "font1"
+X#define XtNfont2 "font2"
+X#define XtNfont3 "font3"
+X#define XtNfont4 "font4"
+X#define XtNfont5 "font5"
+X#define XtNfont6 "font6"
+X#define	XtNhiliteBackground "hiliteBackground"
+X#define	XtNhiliteForeground "hiliteForeground"
+X#define	XtNmultiClickTime "multiClickTime"
+X
+X#define	XtCApplCallback "ApplCallback"
+X#define	XtCCursorColor "CursorColor"
+X#define	XtCRows "Rows"
+X#define	XtCColumns "Columns"
+X#define	XtCKbdCallback "KbdCallback"
+X#define	XtCSunFunctionKeys "SunFunctionKeys"
+X#define XtCSaveLines "SaveLines"
+X#define	XtCResizeCallback "ResizeCallback"
+X#define	XtCTopCallback "TopCallback"
+X#define	XtCMouseCallback "MouseCallback"
+X/* #define	XtCGeometry "Geometry" */
+X#define	XtCFlashrate "Flashrate"
+X#define XtCFont1 "Font1"
+X#define XtCFont2 "Font2"
+X#define XtCFont3 "Font3"
+X#define XtCFont4 "Font4"
+X#define XtCFont5 "Font5"
+X#define XtCFont6 "Font6"
+X#define	XtCHiliteBackground "HiliteBackground"
+X#define	XtCHiliteForeground "HiliteForeground"
+X#define	XtCMultiClickTime "MultiClickTime"
+X
+X/**********************************************************************/
+X/*   declare specific CtwWidget class and instance datatypes	      */
+X/**********************************************************************/
+X
+Xtypedef struct _CtwClassRec*	CtwWidgetClass;
+Xtypedef struct _CtwRec*		CtwWidget;
+X
+X/**********************************************************************/
+X/*   declare the class constant					      */
+X/**********************************************************************/
+X
+Xextern WidgetClass ctwWidgetClass;
+X
+X/**********************************************************************/
+X/*   Declare a callback structure.				      */
+X/**********************************************************************/
+Xenum ctw_reasons {
+X	CTW_INPUT,	/* Key or string input.	*/
+X	CTW_RESIZE,	/* Window was resized.  */
+SHAR_EOF
+echo "End of part 2"
+echo "File ctw.h is continued in part 3"
+echo "3" > s2_seq_.tmp
+exit 0
+-- 
+| Bob Starr (starr@wg2.waii.com) | Western Geophysical | Opinions R mine! |
+
+

@@ -1,0 +1,106 @@
+#!/opt/bin/bash
+# Set default paths. This only works with bash, and pkgadd insists on
+# using sh, so call bash from the postinstall script. This script
+# self-destructs after reading.
+# Greg Lehey, 4 February 1994
+. /etc/profile &>/dev/null		# make sure we have the defaults
+
+echo $PATH | grep usr/X11R5 >/dev/null
+
+if [ $? -ne 0 ]; then			# no path to this subdir
+  echo $PATH | grep /usr/X &>/dev/null  # do we have one to /usr/X?
+  if [ $? -eq 0 ]; then			# yes
+    echo Your current path environment variable is set to execute from /usr/X,
+    echo the standard X11 environment. You have the choice of changing this to
+    echo execute from XFree86 instead, to try one directory first and then
+    echo the other, or not to include XFree86 in the path at all.
+    echo
+    echo WARNING: We do not recommend removing /usr/X from your path.
+    echo All X-based applications on this CD-ROM are installed in
+    echo /usr/X, so this would mean that they would no longer be
+    echo accessible. In addition, you will not be able to use the Unix
+    echo desktop if you remove /usr/X. We  recommend putting /usr/X11R5
+    echo "in front of /usr/X in your path (option F below)"
+    echo
+    success=0
+    while [ $success -eq 0 ]; do
+      echo
+      echo "To replace the standard X with XFree86, enter 'N'"
+      echo "                To try XFree86, then X, enter 'F'"
+      echo "                To try X, then XFree86, enter 'X'"
+      echo "                     To ignore XFree86, enter 'I'"
+      echo
+      echo -n "Enter choice [NFXI]: "
+      read choice
+      case $choice in
+  
+        N) echo $PATH | grep /usr/X &>/dev/null
+	   if [ $? -eq 0 ]; then	# already in path,
+	     newpath=`echo $PATH | sed 's:/usr/X:/usr/X11R5:'` 
+	   else
+	     newpath=/usr/X11R5/bin:$PATH 
+	   fi
+	   echo $LD_LIBRARY_PATH | grep /usr/X &>/dev/null
+	   if [ $? -eq 0 ]; then	# already in path,
+	     newldlib=`echo $LD_LIBRARY_PATH | sed 's:/usr/X:/usr/X11R5:'` 
+	   else
+	     newldlib=/usr/X11R5/lib:$LD_LIBRARY_PATH
+	   fi
+	   xwinhome=/usr/X11R5
+           success=1 ;;
+        F) echo $PATH | grep /usr/X &>/dev/null
+	   if [ $? -eq 0 ]; then	# already in path,
+	     newpath=`echo $PATH | sed 's#/usr/X#/usr/X11R5/bin:/usr/X#'`
+	   else
+	     newpath=/usr/X11R5/bin:/usr/X/bin:$PATH 
+	   fi
+	   echo $LD_LIBRARY_PATH | grep /usr/X &>/dev/null
+	   if [ $? -eq 0 ]; then	# already in path,
+	     newldlib=`echo $LD_LIBRARY_PATH | sed 's#/usr/X#/usr/X11R5/lib:/usr/X#'`
+	   else
+	     newldlib=/usr/X11R5/lib:/usr/X/lib:$LD_LIBRARY_PATH
+	   fi
+           success=1 ;;
+        X) newpath=$PATH:/usr/X11R5/bin
+	   newldlib=$LD_LIBRARY_PATH:/usr/X11R5/lib
+           success=1 ;;
+        I) newpath=$PATH
+           success=2 ;;
+        *) echo Please enter uppercase letters N, F, X or I ;;
+      esac
+    done
+    if [ $success -eq 1 ]; then		# change
+      echo >>/etc/profile "# Path modified by $0 on `date`"
+      echo >>/etc/profile PATH=$newpath
+      echo >>/etc/profile LD_LIBRARY_PATH=$newldlib
+      echo >>/etc/profile export LD_LIBRARY_PATH PATH XWINHOME
+      echo The system setup file /etc/profile has been modified. The
+      echo new PATH environment variable is:
+      echo
+      echo $newpath
+      echo
+      echo and the LD_LIBRARY_PATH environment variable is
+      echo
+      echo $newldlib
+      echo
+      if [ "$xwinhome" != "" ]; then
+        echo >>/etc/profile XWINHOME=$xwinhome
+	echo The XWINHOME environment variable is set to $xwinhome
+	echo
+      fi
+      echo If your local login scripts set the paths absolutely,
+      echo instead of modifying the system paths, you will need
+      echo to change the login scripts accordingly.
+    fi
+  else					# X not in environment,
+    echo >>/etc/profile "# Path modified by $0 on `date`"
+    echo >>/etc/profile PATH=/usr/X11R5/bin:$PATH
+    echo >>/etc/profile LD_LIBRARY_PATH=/usr/X11R5/lib:$LD_LIBRARY_PATH
+    echo >>/etc/profile export LD_LIBRARY_PATH PATH XWINHOME
+  fi
+else				# X11R5 already in environment
+  echo Your environment variables look just fine:
+  echo PATH: $PATH
+  echo LD_LIBRARY_PATH: $LD_LIBRARY_PATH
+fi
+rm /usr/X11R5/bin/setpaths	# burn myself

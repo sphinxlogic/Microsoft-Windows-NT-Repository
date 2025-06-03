@@ -1,0 +1,75 @@
+: << README
+This file uses 8-character tabstops.
+cisdownload @(#)Download CIS LIB file with XC   JPRadley 20 May 92 vers 0.1
+Assumes System-wide preference for B+ set in GO PROFILE.
+Assumes Prompt character in all Fora is ^H.
+
+Could use more checks. Providing a non-existent Forum, or one which one
+has not joined; providing an incorrect or inaccessible LIB number;
+providing a non-existent filename: all of these will cause failure
+while the meter's ticking.
+But if "all systems are go", then this should save a few pennies.
+README
+
+echo "\n\tDownload a file from CompuServe using XC"
+echo "\n\tDefault answers are in brackets"
+
+echo "\nWhat Forum [unixforum] ? \c"
+read GO
+FORUM=`echo ${GO:=UnixForum} | tr '[A-Z]' '[a-z]'`
+
+echo -n "\nWhat Library [1] ? \c"
+read RARY
+LIB="LIB "${RARY:=1}
+
+until test "$THERE"
+do
+	echo "\nName (case-insensitive) of the file on CIS? \c"
+	read THERE
+done
+
+WHERE="[$THERE] "
+while :
+do
+echo -n "\nPathname (case-sensitive) to use here $WHERE? "
+	read AND
+	HERE=${AND:-$THERE}
+	if test -f "$HERE" || test -d "$HERE"
+	then
+		echo "\n'$HERE' already exists. You may BREAK from this"
+		echo "script and either remove or rename '$HERE',"
+		echo "or choose another name instead.\n"
+		WHERE=''
+	else
+		break
+	fi
+done
+
+S=/usr/tmp/Download$$	# not publicly readable, to protect CIS password
+trap 'rm $S' 0 2 3
+
+cat >$S <<sCrIpT
+set cis "on"
+
+call ".cisdial"
+
+pause 3; transmit "^C"
+assign SERVICE eq "$FORUM"
+call ".pass"
+tty "on"
+
+waitfor "moment please..."
+if ! waitfor "forum !^H" 60; then transmit "bye^M"; quit; endif
+
+transmit "$LIB^M"
+waitfor "$LIB !^H"
+transmit "DOW $THERE^M"
+transmit "$HERE^M"
+
+waitfor "$LIB !^H"
+transmit "off^M"
+
+quit
+sCrIpT
+
+xc -s$S

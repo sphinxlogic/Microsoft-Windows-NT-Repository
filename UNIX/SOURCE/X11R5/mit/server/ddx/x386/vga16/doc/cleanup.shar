@@ -1,0 +1,760 @@
+# The patches in this file are provided for informational purposes only.
+# They do a little bit of cleaning up in preparation for future patches:
+# Basically, they remove all references to vgaVirtBase from the code, although
+# retaining some references to vgaBase.
+# I will incorporate these patches in the following release, but was too
+# late for this one. [Side-tracked to code that should work but doesn't.]
+# The modifications in this file should be applied before either the 128kb
+# modifications or the unbank modifications.
+
+# The content of the modifications is:
+# cleanup1.dif:
+#    Update vga.c in vga16/vga to call the initialization routine with all
+#    proper parameters. (mainly cosmetic).
+# cleanup2.dif:
+#    Update the Imakefile in vga16/vga so that it no longer fetches vgaBank.s
+#    but uses the one we provided.
+# cleanup3.dif:
+#    create a vgaBank.s that works with vgaBase instead of VGABASE.
+# cleanup4.dif:
+#    Update the header from Init16Output in ppcIO.c, and remove all references
+#    to vgaVirtBase from the code.
+# cleanup5.dif:
+#    Late cleanup patch. Hardly tested, but required.
+#    Set vgaVirtBase to vgaBase, lest VT switching crashes.
+
+# $XFree86: mit/server/ddx/x386/vga16/doc/cleanup.shar,v 2.1 1994/03/07 14:01:24 dawes Exp $
+
+#!/bin/sh
+# shar:	Shell Archiver  (v1.22)
+#
+#	Run the following text with /bin/sh to create:
+#	  cleanup1.dif
+#	  cleanup2.dif
+#	  cleanup3.dif
+#	  cleanup4.dif
+#	  cleanup5.dif
+#
+sed 's/^X//' << 'SHAR_EOF' > cleanup1.dif &&
+X*** mit/server/ddx/x386/vga256/vga/vga.c.org	Mon Feb 28 20:23:35 1994
+X--- mit/server/ddx/x386/vga256/vga/vga.c	Mon Feb 28 20:23:51 1994
+X***************
+X*** 618,624 ****
+X  #endif
+X      return(FALSE);
+X  #else /* XF86VGA16 */
+X!   Init16Output( pScreen, vga256InfoRec.virtualX, vga256InfoRec.virtualY );
+X  #endif /* XF86VGA16 */
+X  
+X    pScreen->CloseScreen = vgaCloseScreen;
+X--- 618,629 ----
+X  #endif
+X      return(FALSE);
+X  #else /* XF86VGA16 */
+X!   Init16Output(pScreen,
+X! 		     (pointer) vgaVirtBase,
+X! 		     vga256InfoRec.virtualX,
+X! 		     vga256InfoRec.virtualY,
+X! 		     displayResolution, displayResolution,
+X! 		     vga256InfoRec.virtualX);
+X  #endif /* XF86VGA16 */
+X  
+X    pScreen->CloseScreen = vgaCloseScreen;
+SHAR_EOF
+chmod 0644 cleanup1.dif || echo "restore of cleanup1.dif fails"
+sed 's/^X//' << 'SHAR_EOF' > cleanup2.dif &&
+X*** mit/server/ddx/x386/vga16/vga/Imakefile.org	Mon Feb 28 20:23:35 1994
+X--- mit/server/ddx/x386/vga16/vga/Imakefile	Mon Feb 28 20:24:20 1994
+X***************
+X*** 2,8 ****
+X  XCOMM $XConsortium: Imakefile,v 1.1 91/07/16 23:02:00 gildea Exp $
+X  #include <Server.tmpl>
+X  
+X! SRCS = 	vgaHW.c vga.c vgaCmap.c
+X  
+X  OBJS = 	vgaHW.o vga.o vgaCmap.o vgaBank.o
+X  
+X--- 2,8 ----
+X  XCOMM $XConsortium: Imakefile,v 1.1 91/07/16 23:02:00 gildea Exp $
+X  #include <Server.tmpl>
+X  
+X! SRCS = 	vgaHW.c vga.c vgaCmap.c vgaBank.s
+X  
+X  OBJS = 	vgaHW.o vga.o vgaCmap.o vgaBank.o
+X  
+X***************
+X*** 26,31 ****
+X  ObjectFromSpecialSource(vga,../../vga256/vga/vga,/**/)
+X  ObjectFromSpecialSource(vgaHW,../../vga256/vga/vgaHW,/**/)
+X  ObjectFromSpecialSource(vgaCmap,../../vga256/vga/vgaCmap,/**/)
+X- ObjectFromSpecialAsmSource(vgaBank,../../vga256/vga/vgaBank,/**/)
+X  
+X  DependTarget()
+X--- 26,30 ----
+SHAR_EOF
+chmod 0644 cleanup2.dif || echo "restore of cleanup2.dif fails"
+sed 's/^X//' << 'SHAR_EOF' > cleanup3.dif &&
+X*** /dev/null	Sat Aug 29 21:48:28 1992
+X--- mit/server/ddx/x386/vga16/vga/vgaBank.s	Mon Feb 28 20:32:42 1994
+X***************
+X*** 0 ****
+X--- 1,538 ----
+X+ /* GJA -- deleted rcs id since rcs doesn't like ids embedded in shar files */
+X+ /*
+X+  * Copyright 1990,91 by Thomas Roell, Dinkelscherben, Germany.
+X+  *
+X+  * Permission to use, copy, modify, distribute, and sell this software and its
+X+  * documentation for any purpose is hereby granted without fee, provided that
+X+  * the above copyright notice appear in all copies and that both that
+X+  * copyright notice and this permission notice appear in supporting
+X+  * documentation, and that the name of Thomas Roell not be used in
+X+  * advertising or publicity pertaining to distribution of the software without
+X+  * specific, written prior permission.  Thomas Roell makes no representations
+X+  * about the suitability of this software for any purpose.  It is provided
+X+  * "as is" without express or implied warranty.
+X+  *
+X+  * THOMAS ROELL DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,
+X+  * INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO
+X+  * EVENT SHALL THOMAS ROELL BE LIABLE FOR ANY SPECIAL, INDIRECT OR
+X+  * CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+X+  * DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+X+  * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+X+  * PERFORMANCE OF THIS SOFTWARE.
+X+  *
+X+  * Author:  Thomas Roell, roell@informatik.tu-muenchen.de
+X+  *
+X+  * $Header: /proj/X11/mit/server/ddx/x386/vga/RCS/vgaBank.s,v 1.1 1991/06/02 22:36:38 root Exp $
+X+  */
+X+ 
+X+ /* GJA -- This file is just vgaBank.s from vga256/vga, with VGABASE replaced
+X+  * by CONTENT(GLNAME(vgaBase))
+X+  * VGABASE is used in the other servers for allowing the same routines to be
+X+  * used for pixmap and window drawing. This is not possible for planar VGA,
+X+  * and getting rid of VGABASE brings the banked server much closer to the
+X+  * unbanked server.
+X+  */
+X+ 
+X+ #include "assyntax.h"
+X+ 
+X+ 	FILE("vgaBank.s")
+X+ 	AS_BEGIN
+X+ 
+X+ /*
+X+  * Because a modern VGA has more than 128kBytes (which are mappable into the
+X+  * 386' memory some logic is required. The VGA's memory (logical VGA
+X+  * address space) is devided into smaller parts (called logical segments). 
+X+  * These segments are mapped to logical areas.
+X+  *
+X+  * There are there different logical mapping areas:
+X+  *
+X+  * Read:       an area which can be read from
+X+  * Write:      an area which can be written to
+X+  * ReadWrite:  here is both read an write possible
+X+  *
+X+  * It is permissable to use simultaneously a Read and a Write, but you can use
+X+  * ReadWrite only as a single. 
+X+  * For example the bitblitting code uses a Read area as source and a Write
+X+  * area as destination. Most other routines use only a ReadWrite.
+X+  *
+X+  * A logical mapping area is described by some parameters (here I will for
+X+  * example describe a Read area:
+X+  *
+X+  * ReadBottom     lowest accessable byte relative to the beginning of the
+X+  *                VGA boards mapped memory.
+X+  * 
+X+  * ReadTop        highes accessable byte plus one.
+X+  *
+X+  * SegmentSize    size of such an mapped area (common for all three)
+X+  *
+X+  * SegmentShift   log2(SegmentSize) (used to compute the logical segment)
+X+  *
+X+  * SegmentMask    SegmentSize - 1 (used to mask the offset inter an area)
+X+  *
+X+  * 
+X+  * All that the following routines are doing is computing for a given offset
+X+  * into the logical VGA adress space the offset into such an logical area
+X+  * and the logical segment number. By the way they call also the VGA board's
+X+  * driver to set up the VGA's physical memory mapping according to the logical
+X+  * that was requested by the calliie.
+X+  *
+X+  * For shake of simplicity Write and ReadWrite share the same Bottom & Top.
+X+  * NOTE: Read & Write may have differnt starting addresses, or even common.
+X+  *
+X+  * There are multible routines present for the same effect. This was made
+X+  * for effectivly interface lowlevel assembly language best.
+X+  */
+X+ 
+X+ /*
+X+  * BUGALERT: this should be gotten from vga.h. But since there some C lang.
+X+  *           things, too ...
+X+  */
+X+ 
+X+ #include "vgaAsm.h"
+X+ 
+X+ 
+X+ 	SEG_DATA
+X+ 	GLOBL GLNAME(writeseg)
+X+ GLNAME(writeseg):
+X+ 	D_LONG 0
+X+ GLNAME(readseg):
+X+ 	D_LONG 0
+X+ GLNAME(saveseg):
+X+ 	D_LONG 0
+X+ 
+X+ 	SEG_TEXT
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaSetReadWrite ---
+X+  *     select a memory bank of the VGA board for read & write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  * pointer
+X+  * vgaSetReadWrite(p)
+X+  *     register pointer p;
+X+  * {
+X+  *   writeseg = ((unsigned long)p - VGABASE) >> vgaSegmentShift;
+X+  *   (vgaSetReadWriteFunc)(writeseg);
+X+  *   return (vgaWriteBottom + ((unsigned int)p & vgaSegmentMask));
+X+  * }
+X+  *
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL GLNAME(vgaSetReadWrite)
+X+ GLNAME(vgaSetReadWrite):
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	PUSH_L	(ECX)
+X+ 	PUSH_L	(EDX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaBase)),EAX) /* GJA */
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSegmentShift)),ECX)
+X+ 	SHR_L	(CL,EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetReadWriteFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	POP_L	(ECX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	AND_L	(CONTENT(GLNAME(vgaSegmentMask)),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaWriteBottom)),EAX)
+X+  	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaReadWriteNext ---
+X+  *     switch to next memory bank of the VGA board for read & write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  *
+X+  * pointer
+X+  * vgaReadWriteNext(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetReadWriteFunc)(++writeseg);
+X+  *   return (p - vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaReadWriteNext)
+X+ GLNAME(vgaReadWriteNext):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	INC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetReadWriteFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaReadWritePrev ---
+X+  *     switch to previous memory bank of the VGA board for read & write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * pointer
+X+  * vgaReadWritePrev(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetReadWriteFunc)(--writeseg); 
+X+  *   return (p + vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaReadWritePrev)
+X+ GLNAME(vgaReadWritePrev):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	DEC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetReadWriteFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaSetRead ---
+X+  *     select a memory bank of the VGA board for read access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  * pointer
+X+  * vgaSetRead(p)
+X+  *     register pointer p;
+X+  * {
+X+  *   readseg = ((unsigned long)p - VGABASE) >> vgaSegmentShift;
+X+  *   (vgaSetReadFunc)(readseg);
+X+  *   return (vgaReadBottom + ((unsigned int)p & vgaSegmentMask));
+X+  * }
+X+  *
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaSetRead)
+X+ GLNAME(vgaSetRead):
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	PUSH_L  (ECX)
+X+ 	PUSH_L	(EDX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaBase)),EAX) /* GJA */
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSegmentShift)),ECX)
+X+ 	SHR_L	(CL,EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(readseg)))
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetReadFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	POP_L	(ECX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	AND_L	(CONTENT(GLNAME(vgaSegmentMask)),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaReadBottom)),EAX)
+X+  	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaReadNext ---
+X+  *     switch to next memory bank of the VGA board for read access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  *
+X+  * pointer
+X+  * vgaReadNext(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetReadFunc)(++readseg);
+X+  *   return (p - vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaReadNext)
+X+ GLNAME(vgaReadNext):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(readseg)),EAX)
+X+ 	INC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(readseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetReadFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaReadPrev ---
+X+  *     switch to previous memory bank of the VGA board for read access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * pointer
+X+  * vgaReadPrev(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetReadFunc)(--readseg); 
+X+  *   return (p + vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaReadPrev)
+X+ GLNAME(vgaReadPrev):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(readseg)),EAX)
+X+ 	DEC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(readseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetReadFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaSetWrite ---
+X+  *     select a memory bank of the VGA board for write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  * pointer
+X+  * vgaSetWrite(p)
+X+  *     register pointer p;
+X+  * {
+X+  *   writeseg = ((unsigned long)p - VGABASE) >> vgaSegmentShift;
+X+  *   (vgaSetWriteFunc)(writeseg);
+X+  *   return (vgaWriteBottom + ((unsigned int)p & vgaSegmentMask));
+X+  * }
+X+  *
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaSetWrite)
+X+ GLNAME(vgaSetWrite):
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	PUSH_L  (ECX)
+X+ 	PUSH_L	(EDX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaBase)),EAX) /* GJA */
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSegmentShift)),ECX)
+X+ 	SHR_L	(CL,EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetWriteFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	POP_L	(ECX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	AND_L	(CONTENT(GLNAME(vgaSegmentMask)),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaWriteBottom)),EAX)
+X+  	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaWriteNext ---
+X+  *     switch to next memory bank of the VGA board for write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  *
+X+  * pointer
+X+  * vgaWriteNext(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetWriteFunc)(++writeseg);
+X+  *   return (p - vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaWriteNext)
+X+ GLNAME(vgaWriteNext):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	INC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetWriteFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	SUB_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaWritePrev ---
+X+  *     switch to previous memory bank of the VGA board for write access
+X+  * Results:
+X+  *      The adjusted pointer into the memory.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * pointer
+X+  * vgaWritePrev(p)
+X+  *      register pointer p;
+X+  * {
+X+  *   (vgaSetWriteFunc)(--writeseg); 
+X+  *   return (p + vgaSegmentSize);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaWritePrev)
+X+ GLNAME(vgaWritePrev):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	DEC_L	(EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L 	(CONTENT(GLNAME(vgaSetWriteFunc)),EDX)
+X+ 	CALL 	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	MOV_L	(REGOFF(4,ESP),EAX)
+X+ 	ADD_L	(CONTENT(GLNAME(vgaSegmentSize)),EAX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaSaveBank --
+X+  *     save Banking-state
+X+  * Results:
+X+  *      None.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * void
+X+  * vgaSaveBank()
+X+  * {
+X+  *   saveseg = writeseg;
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaSaveBank)
+X+ GLNAME(vgaSaveBank):
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(saveseg)))
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaRestoreBank --
+X+  *     restore the banking after vgaSaveBank was called
+X+  *
+X+  * Results:
+X+  *      None.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * void
+X+  * vgaRestoreBank()
+X+  * {
+X+  *   (vgaSetWriteFunc)(saveseg);
+X+  *   (vgaSetReadFunc)(saveseg);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaRestoreBank)
+X+ GLNAME(vgaRestoreBank):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(saveseg)),EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(writeseg)))
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetWriteFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	MOV_L	(CONTENT(GLNAME(saveseg)),EAX)
+X+ 	MOV_L	(EAX,CONTENT(GLNAME(readseg)))
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetReadFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	RET
+X+ 
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaPushRead ---
+X+  *     make the write-bank also readable. no acces to the former read bank !
+X+  * Results:
+X+  *      None.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * void
+X+  * vgaPushRead(p)
+X+  * {
+X+  *   (vgaSetReadWriteFunc)(writeseg);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaPushRead)
+X+ GLNAME(vgaPushRead):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetReadWriteFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	RET
+X+ 
+X+ /*
+X+  *-----------------------------------------------------------------------
+X+  * vgaPopRead ---
+X+  *     restore the banking after vgaPushRead was called
+X+  *
+X+  * Results:
+X+  *      None.
+X+  *
+X+  * Side Effects:
+X+  *      None.
+X+  *-----------------------------------------------------------------------
+X+  *
+X+  * void
+X+  * vgaPopRead(p)
+X+  * {
+X+  *   (vgaSetWriteFunc)(writeseg);
+X+  *   (vgaSetReadFunc)(readseg);
+X+  * }
+X+  */
+X+ 	ALIGNTEXT4
+X+ 	GLOBL	GLNAME(vgaPopRead)
+X+ GLNAME(vgaPopRead):
+X+ 	PUSH_L	(EDX)
+X+ 	MOV_L	(CONTENT(GLNAME(writeseg)),EAX)
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetWriteFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	MOV_L	(CONTENT(GLNAME(readseg)),EAX)
+X+ 	MOV_L	(CONTENT(GLNAME(vgaSetReadFunc)),EDX)
+X+ 	CALL	(CODEPTR(EDX))
+X+ 	POP_L	(EDX)
+X+ 	RET
+SHAR_EOF
+chmod 0644 cleanup3.dif || echo "restore of cleanup3.dif fails"
+sed 's/^X//' << 'SHAR_EOF' > cleanup4.dif &&
+Xdiff -cr mit/server/ddx/x386/vga16/ibm.org/ppcIO.c mit/server/ddx/x386/vga16/ibm/ppcIO.c
+X*** mit/server/ddx/x386/vga16/ibm.org/ppcIO.c	Mon Feb 28 20:23:34 1994
+X--- mit/server/ddx/x386/vga16/ibm/ppcIO.c	Mon Feb 28 20:24:14 1994
+X***************
+X*** 110,125 ****
+X  PixmapPtr samplePixmapPerDepth[1] = { 0 };
+X  
+X  void
+X! Init16Output( pScreen, virtx, virty )
+X      ScreenPtr pScreen;
+X      int virtx, virty;
+X  {
+X    extern int defaultColorVisualClass;
+X- #ifdef UNBANKED_VGA16
+X    extern pointer vgaBase; /* GJAHACK */
+X- #else
+X-   extern pointer vgaVirtBase; /* GJAHACK */
+X- #endif
+X  
+X    /*
+X     * patch the original structures
+X--- 110,124 ----
+X  PixmapPtr samplePixmapPerDepth[1] = { 0 };
+X  
+X  void
+X! Init16Output( pScreen, pbits, virtx, virty, dpix, dpiy, width )
+X      ScreenPtr pScreen;
+X+     pointer pbits; /* We assume that this is equal to vgaBase */
+X      int virtx, virty;
+X+     int dpix, dpiy;
+X+     int width;
+X  {
+X    extern int defaultColorVisualClass;
+X    extern pointer vgaBase; /* GJAHACK */
+X  
+X    /*
+X     * patch the original structures
+X***************
+X*** 175,185 ****
+X    if (!mfbAllocatePrivates(pScreen, (int*)NULL, (int*)NULL))
+X  	return ;
+X  
+X! #ifdef UNBANKED_VGA16
+X!   miScreenInit(pScreen, vgaBase, virtx, virty, 75, 75, virtx,
+X! #else
+X!   miScreenInit(pScreen, vgaVirtBase, virtx, virty, 75, 75, virtx,
+X! #endif
+X  	1, NUM_DEPTHS, vgaDepths, 0 /* See above */,
+X  	NUM_VISUALS, vgaVisuals, NULL);
+X    pScreen-> rootDepth = VGA_MAXPLANES;
+X--- 174,180 ----
+X    if (!mfbAllocatePrivates(pScreen, (int*)NULL, (int*)NULL))
+X  	return ;
+X  
+X!   miScreenInit(pScreen, vgaBase, virtx, virty, dpix, dpiy, width,
+X  	1, NUM_DEPTHS, vgaDepths, 0 /* See above */,
+X  	NUM_VISUALS, vgaVisuals, NULL);
+X    pScreen-> rootDepth = VGA_MAXPLANES;
+Xdiff -cr mit/server/ddx/x386/vga16/ibm.org/vgaProcs.h mit/server/ddx/x386/vga16/ibm/vgaProcs.h
+X*** mit/server/ddx/x386/vga16/ibm.org/vgaProcs.h	Mon Feb 28 20:23:34 1994
+X--- mit/server/ddx/x386/vga16/ibm/vgaProcs.h	Mon Feb 28 20:24:15 1994
+X***************
+X*** 81,87 ****
+X  /* vgaIO.c */
+X  Bool vga16ScreenInit P_((register ScreenPtr pScreen));
+X  Bool vgaScreenClose P_((register int index, register ScreenPtr pScreen));
+X! void Init16Output P_((ScreenPtr pScreen, int virtx, int virty));
+X  /* vgaImages.c */
+X  void vgaDrawColorImage P_((int x, int y, register int w, register int h, register const unsigned char *data, register int RowIncrement, const int alu, const unsigned long int planes));
+X  void vgaReadColorImage P_((int x, int y, int lx, int ly, register unsigned char *data, int RowIncrement));
+X--- 81,87 ----
+X  /* vgaIO.c */
+X  Bool vga16ScreenInit P_((register ScreenPtr pScreen));
+X  Bool vgaScreenClose P_((register int index, register ScreenPtr pScreen));
+X! void Init16Output P_((ScreenPtr pScreen, pointer pbits, int virtx, int virty, int dpix, int dpiy, int width));
+X  /* vgaImages.c */
+X  void vgaDrawColorImage P_((int x, int y, register int w, register int h, register const unsigned char *data, register int RowIncrement, const int alu, const unsigned long int planes));
+X  void vgaReadColorImage P_((int x, int y, int lx, int ly, register unsigned char *data, int RowIncrement));
+Xdiff -cr mit/server/ddx/x386/vga16/ibm.org/vgaVideo.h mit/server/ddx/x386/vga16/ibm/vgaVideo.h
+X*** mit/server/ddx/x386/vga16/ibm.org/vgaVideo.h	Mon Feb 28 20:23:35 1994
+X--- mit/server/ddx/x386/vga16/ibm/vgaVideo.h	Mon Feb 28 20:24:15 1994
+X***************
+X*** 83,94 ****
+X  
+X  	/* GJA -- Connect IBM code with XFree86 */
+X  extern pointer vgaBase;
+X- #ifdef UNBANKED_VGA16
+X  #define SCREEN_ADDR ((int)vgaBase)
+X- #else
+X- extern pointer vgaVirtBase;
+X- #define SCREEN_ADDR ((int)vgaVirtBase)
+X- #endif
+X  
+X  #define VIDEO_MEMORY_BASE ( (volatile unsigned char *) ( SCREEN_ADDR ) )
+X  #define VIDBASE VIDEO_MEMORY_BASE
+X--- 83,89 ----
+SHAR_EOF
+chmod 0644 cleanup4.dif || echo "restore of cleanup4.dif fails"
+sed 's/^X//' << 'SHAR_EOF' > cleanup5.dif &&
+X*** mit/server/ddx/x386/vga256/vga/vga.org	Sun Mar  6 22:05:02 1994
+X--- mit/server/ddx/x386/vga256/vga/vga.c	Sun Mar  6 22:06:58 1994
+X***************
+X*** 550,556 ****
+X--- 550,560 ----
+X        vgaVirtBase = vgaBase;
+X      }
+X  #else
+X+ #ifdef XF86VGA16
+X+     vgaVirtBase = vgaBase;
+X+ #else
+X      vgaVirtBase = (pointer)VGABASE;
+X+ #endif
+X  #endif
+X  
+X      vgaReadBottom  = (void *)((unsigned int)vgaReadBottom
+SHAR_EOF
+chmod 0644 cleanup5.dif || echo "restore of cleanup5.dif fails"
+exit 0

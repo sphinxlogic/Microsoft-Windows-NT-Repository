@@ -1,0 +1,92 @@
+# Makefile for the various bits of documentation.
+#
+# Copyright (C) 1992 Free Software Foundation, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 1, or (at your option)
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+# For `install'.
+prefix = /usr/local
+infodir = $(prefix)/info
+
+INSTALL = @INSTALL@
+INSTALL_DATA = @INSTALL_DATA@
+
+MAKEINFO = makeinfo
+SHELL = /bin/sh
+TEX = tex
+TEXINDEX = texindex
+
+default: fontu.info
+
+all: INSTALL fontu.dvi
+
+fontu.dvi: fontu.cps
+	$(TEX) fontu.texi
+fontu.cps: fontu.cp
+	$(TEXINDEX) fontu.??
+fontu.cp: *.texi
+	$(TEX) fontu.texi
+
+fontu.info: *.texi
+	$(MAKEINFO) fontu.texi
+
+install: fontu.info
+	for i in fontu.info*; do $(INSTALL_DATA) $$i $(infodir); done
+
+update:
+	emacs -batch -l update.el
+
+# We don't automatically generate dependencies.
+depend:
+
+# Separate the installation instructions into a separate file, for the
+# benefit of people who don't want to look at the info file.
+INSTALL: fontu.info
+	sed -n '/Node: Installation/,/Good luck./p' fontu.info-1 \
+          | grep -v  > $@
+
+# Prevent GNU make 3 from overflowing arg limit on system V.
+.NOEXPORT:
+
+# `make dist' should only be called from the top-level Makefile, as it
+# depends on $(version), $(top_distdir), and $(dir).
+# 
+distdir = ../$(top_distdir)/$(dir)
+distfiles = Makefile.in update.el *.texi
+
+dist::
+	mkdir $(distdir)
+	ln Makefile $(distfiles) $(distdir)
+	cp -p $(plain)/texinfo.tex $(distdir)
+#
+# Have to add the version number and date before making the Info file.
+	(cd $(distdir); \
+         add-version $(version) fontu.texi intro.texi; \
+         add-date fontu.texi; \
+ 	 $(MAKE) INSTALL fontu.cps distclean)
+	mv $(distdir)/INSTALL ../$(top_distdir)/INSTALL
+
+clean mostlyclean:
+	rm -f fontu.?? *.dvi *.log *.toc
+
+distclean: clean
+	rm -f Makefile
+	for f in fontu.??s; do if test ! -s $$f; then rm -f $$f; fi; done
+
+extraclean: distclean
+	rm -f *~ \#* patch* *.orig *.rej *.bak *.ckp core a.out
+
+realclean: distclean
+	rm -f *.info* fontu.??? INSTALL

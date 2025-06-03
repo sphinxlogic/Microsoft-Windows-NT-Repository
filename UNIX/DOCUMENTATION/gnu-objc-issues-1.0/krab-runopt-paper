@@ -1,0 +1,323 @@
+Return-Path: <krab@iesd.auc.dk>
+Date: Sat, 20 Feb 1993 19:08:46 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gcc2@cygnus.com
+Subject: Optimizing the GNU objc runtime [long]
+
+	      How to optimize the GNU objective C runtime
+
+                        Kresten Krab Thorup
+                         krab@iesd.auc.dk
+
+
+    Abstract: The following is an investigation of the changes needed
+    to the current objc runtime, to achieve the simple but non-trivial
+    goal of making the messenger so short that it only does a few
+    fetch instructions. 
+
+    A major problem in this is to assure the consistency when
+    initializing the system.  Basically--how do we catch a message
+    to an object which class has not yet been initialized. 
+
+
+Introduction
+============
+
+The principal goal of this investigation is to make needed changes to
+the current objc runtime, so that the two messengers can be written
+somewhat like this:
+
+  inline IMP objc_msgSend(id receiver, SEL operation)
+  {
+    if(receiver)
+      return receiver->class_pointer->cache[operation];
+    else
+      <<Return IMP for sending selector `operation' to nil object>>;
+  }
+  
+  inline IMP objc_msgSendSuper(Super_t super, SEL operation)
+  {
+    if(super->class)
+      return super->class->cache[operation];
+    else
+      <<Return IMP for sending selector `operation' to nil object>>;
+  }  
+
+How to handle messages to nil is not relevant for this discussion.
+
+Most of the fetch instructions needed for these functions can possibly
+be eliminated if the function is used in an inline fashion.  It may
+for example already be known at compile time if the receiver can
+possibly be null.
+
+The desire that the messenger can be coded this short was expressed
+clearly by Richard Stallman.  I see no need to discuss *if* it should
+be this simple--only *how* to do it. 
+
+
+
+Initialization
+==============
+
+A major problem in achieving this goal is to keep the semantics of the
+user level initialization correct.  For convenience, I will summarize
+that in the following paragraph:
+
+   Each class may define a factory method called "+initialize".  This
+   method may be used to initialize `global' data structures needed by
+   the class.  The method "initialize" is guaranteed to be called by
+   the runtime system before execution of the user level entry point
+   "main", and before execution of any other messages which may be
+   send to the class in which it resides.  "initialize" is guaranteed
+   to be called only once, and it may contain any kind of legal
+   objective C code.  Especially sending messages to other classes or
+   objects is also legal.   
+
+This is quite a bit to guarantee, but it actually *is* possible to
+keep all those promises, still using the fast messenger.  The
+following sections will explain how.
+
+Before this `user level' initialization can take place, the runtime
+system has initialized its internal structures.  This initialization,
+which I will call `runtime level initialization' include building the
+following data structures: 
+
+  * Representation of classes, including the pointers to their super
+    classes, as well as a table for mapping class names to their
+    internal representation. 
+
+  * Assign unique integers to each selector.  This is done in a
+    forth-running fashion, so that we will know that all selectors are
+    in the interval from 1 to max_selector.
+
+  * Tables for mapping selectors to names, and for mapping names to
+    selectors. 
+
+  * Tables for looking up method IMP's given a class and a selector.
+    This is not the dispatch table, only per-class defined methods
+    are present.
+
+The `user level' initialization thus starts right after the `runtime
+level' initialization has been ended, by calling a function I will
+from now on call `__objc_initClasses'.  The job of this function is to
+call "initialize" for all classes, and to install the real dispatch
+table as used in the messenger in such a way that all the above
+`promises' will hold.
+
+
+The user level initialization
+-----------------------------
+
+The trick of handling the `user level' initialization phase correct is
+to install a dummy function (which I will call __objc_initMetaClass)
+in the dispatch table for all factory methods before we call
+"initialize" for each class.  The dummy method will then initialize
+the receiver, install the real dispatch table, and forward the call to
+the method it was called for.  I will come back to how to implement
+this forwarding mechanism later.
+
+To justify that it is enough to install the dummy method in entries
+for factory methods, observe the fact, that one cannot call a instance
+method in a class before some factory method has been issued for that
+class -- a call to `+alloc' or `+new' is needed before an instance
+method is relevant.
+
+The following sections will take the form of WEB like code, in order to
+explain what happens step by step in a top down fashion.  
+
+The following is the current for the `user level' initialization
+function.
+
+  void __objc_initClasses()
+  {
+   <<[1] Allocate dispatch tables for all classes>>
+   <<[2] For each class, install __objc_initMetaClass for all factory methods>>
+   <<[3] For each class, install correct IMPs for all instance methods>>
+   <<[4] For each class, call "+initialize">>
+  }
+
+We now observe, that a dispatch table for a given class is an array of
+pointers to functions (called IMPs) which is indexed by selector.  All
+dispatch tables are thus of equal size, namely the maximal number of
+selectors (max_selectors).  Hence the code for allocating dispatch
+tables is very simple:
+
+  <<[1] Allocate dispatch tables for all classes>>=
+
+   <<[5] For each class do>> {
+     /* Allocate dispatch table for instance methods */
+     class->cache = (IMP*)malloc((max_selector+1)*sizeof(IMP));
+
+     /* Allocate dispatch table for factory methods */
+     class->class_pointer->cache = (IMP*)malloc((max_selector+1)*sizeof(IMP));
+   }
+
+How to implement the iterator <<[5] For each class do>> is irrelevant.
+The semathics is that the variable `class' is set to point to each
+known class in turn, as the following body is evaluated.
+
+
+
+The code for installing __objc_initMetaClass is equally simple.  How
+to actual implement __objc_initMetaClass will come as soon as we have
+finished __objc_initClasses.
+
+  <<[2] For each class, install __objc_initMetaClass for all factory methods>>=
+
+   <<[5] For each class do>> {
+     int sel;
+     for(sel = 0; sel <= max_selector; sel++) 
+       class->class_pointer->cache[sel] = __objc_initMetaClass;
+   }
+
+
+The code for installing real IMP's contains a bit more code.  We will
+here use the trick of installing a special method __objc_missingMethod
+at all indices for which there do not exist a corresponding message.
+That function handles the case where a message is not recognized, and
+if possible, forward the message to `doesNotRecognize:' in the
+receiver.  I won't discuss __objc_missingMethod further in this document.
+
+  <<[3] For each class, install correct IMPs for all instance methods>>=
+
+   <<[5] For each class do>> {
+     int sel;
+     for(sel = 0; sel <= max_selector; sel++) {
+       Method_t method = searchForMethodInHierachy(class, sel);
+       if(method) 
+	 class->cache[sel] = method->method_imp;
+       else
+	 class->cache[sel] = __objc_missingMethod;
+     }	 
+   }
+     
+The last bit of __objc_initClasses is to call "initialize" for each class.  
+
+  <<[4] For each class, call "+initialize">>
+ 
+    SEL initialize = sel_getUID("initialize");
+    <<[5] For each class do>> {
+
+      /* If this class is not yet initialized */
+      if((class->class_pointer->info & CLS_INITIALIZED) != CLS_INITIALIZED) {
+	
+	/* Get imp for the method */
+	IMP imp = objc_msgSend(class->class_pointer, initialize);
+
+	/* Register class initialized */
+	class->class_pointer->info |= CLS_INITIALIZED;
+
+	/* actually call the method */
+        (*imp)(class->class_pointer, initialize);
+      }
+    }
+
+
+
+Managing the initialization
+---------------------------
+
+The last thing done in __objc_initClasses is to call "initialize" for
+each class.  When this happens, it will actually call the function
+__objc_initMetaClass, since we installed that function for all factory
+methods.  But! If an "initialize" method calls a factory method in a
+yet uninitialized class, this function will also catch the
+invocation.  In the latter case, it is the job of this function to
+perform an "initialize" on the class.  Remember, that this function
+will only be invoked with a class as its first element since it's only
+installed in the table of factory methods.
+
+   id __objc_initMetaClass(Class_t class, SEL operation, ...)
+   {
+     SEL initialize = sel_getUID("initialize");
+   
+     <<[6] For `class', install correct IMPs for all factory methods>>;
+   
+     if(operation != initialize) {
+       /* Get imp for the method */
+       IMP imp = objc_msgSend(class->class_pointer, initialize);
+   
+       /* Register class initialized */
+       class->class_pointer->info |= CLS_INITIALIZED;
+   
+       /* actually call the method */
+       (*imp)(class->class_pointer, initialize);
+     }
+   
+     __builtin_forward(objc_msgSend(class, operation));
+   }  
+
+Installing the correct factory methods is close to what we've seen
+before:
+
+
+  <<[6] For `class', install correct IMPs for all factory methods>>=
+
+   {
+     int sel;
+     for(sel = 0; sel <= max_selector; sel++) {
+       Method_t method = searchForMethodInHierachy(class->class_pointer, sel);
+       if(method) 
+	 class->class_pointer->cache[sel] = method->method_imp;
+       else
+	 class->class_pointer->cache[sel] = __objc_missingMethod;
+     }	 
+   }
+     
+This completes my discussion on initialization.  It should be clear to
+the reader, that the present code will actually do the initialization 
+according to the specification.  The only missing link is how to
+implement the __builtin_forward, which is covered in the following section.
+
+
+
+Forwarding messages
+===================
+
+For the purpose of implementing the fast messenger as described above,
+we will need the ability to do a simple kind of forwarding.  The need
+is to have a special builtin function, which can `call' another
+function with the frame of the enclosing function.  This `call' should
+really be a `goto' or `jump' instruction, which is done in the context
+present right after the prologue of the enclosing function.
+
+In order to describe what this really means, I will assume, that we
+have another builtin function, which will take a block of C code, and
+place it right after the prologue of the enclosing function.  This is
+somewhat like what __builtin_saveregs does.  This builtin will have
+the following form:
+
+  __builtin_addprologue <Statement>;
+
+Where <Statement> may be any statement including compound statements,
+and control structures like `if' and `while'.  To make myself clear,
+the semantics of __builtin_saveregs can be expressed like:
+
+  #define __builtin_saveregs() \
+    __builtin_addprologue __builtin_saveregs(); /* don't expand */
+
+Now for the meaning of __builtin_forward.  The following is to be
+regarded as pseudo code, since I'm not sure if this is really the
+exact way to do it.  We will assume that the following two global
+variables are present in the runtime.
+
+  jmp_buf  __objc_forward_env; 
+  void    *__objc_forward_imp;
+
+The actual code could be done as the following macro.  For clarity, I
+did not add \<nl> to the definition.
+
+  #define __builtin_forward(imp)           /* argument is an IMP */
+    __builtin_addprologue {
+      if(setjmp(__objc_forward_env) == 1)
+        goto *__objc_forward_imp;          /* non-local goto */
+    }
+    __objc_forward_imp = (void*)imp;
+    longjmp(__objc_forward_env, 1);
+
+It must be implemented as a macro, since otherwise the
+__builtin_addprologue would cause the code to be added inside the
+__builtin_forward function.  I hope this code makes it clear what I
+mean. 
+
+

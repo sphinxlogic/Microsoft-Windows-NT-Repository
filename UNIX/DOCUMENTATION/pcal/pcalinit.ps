@@ -1,0 +1,601 @@
+% pcalinit.ps - provides the PostScript routines for pcal.c
+%
+% 4.3	modified by Andrew Rogers:
+%
+%	removed definitions of dategray and fillgray; handled instead by
+%	Pcal itself (may be selected by user via -s flag)
+%
+%	enlarge dates in small and medium calendars; enlarge title and
+%	weekday names in medium calendars
+%
+% 4.2	modified by Andrew Rogers:
+%
+%	support -[kK] options to reposition small calendars
+%
+%	use same font size for "Notes" as for weekday names; delete heading
+%	from notes box if null
+%
+%	move definition of notesfontsize to Pcal proper; tweak some of the
+%	routines to take variable font size into account
+%
+%	add support for printing notes in any blank box on calendar and
+%	suppressing small calendars
+%
+% 4.1	modified by Andrew Rogers:
+%
+%	support -G option (cf. prtday) to print "gray" dates as filled
+%	outlines
+%
+% 4.0	modified by Andrew Rogers:
+%
+%	support -w ("whole year") option - cf. printmonth_[pl], startpage
+%	moved all the calendar calculations to pcal.c and moonphas.c (q.v.)
+%
+%	support -B option (leave unused boxes blank)
+%
+%	support -O option (print "gray" numbers as outlines)
+%
+%	revised several of the basic routines and added some others; dates,
+%	moons, text, Julian days are now relative to upper-left corner of box
+%
+%	enlarged title and dates in small calendars
+%
+% 3.0	modified by Andrew Rogers:
+%
+%	added xsval, ysval, xtval, ytval for scaling and translation
+%	as per Ed Hand
+%
+%	added day-of-year support (-j, -J flags)
+%
+% 2.6	* no modifications *
+%
+% 2.5	modified by Joe Brownlee:
+%
+%	made day numbers smaller, providing more room for event text
+%	repositioned event text and moons accordingly
+%	added support for variable first day of week
+%
+% 2.4	* no modifications *
+%
+% 2.3	modified by Jamie Zawinski <jwz@lucid.com>:
+%
+%	merged in moon routines (originally by Mark Hanson)
+%
+% 2.2	modified by Joe Brownlee:
+%
+%	add "notetext" to print notes in unused calendar box
+%
+% 2.1	modified by Mark Kantrowitz:
+%
+%	use symbolic names instead of magic numbers throughout
+%	support -L, -C, -R, -n options (all new)
+%	print holiday text in otherwise-wasted space next to date
+%	use larger text for dates in large calendars
+%
+% 2.0	modified by Andrew W. Rogers:
+%
+%	skip printing days of week on small calendars
+%	center month and year at top of calendar
+%	use correct algorithm for leap year calculation
+%	get month and day names from main program
+%	use table to determine color (black/gray) of weekdays and holidays
+%	use hanging indent to print continued text lines
+
+/SM 0 def				% definitions for calendar sizes
+/MED 1 def
+/LG 2 def
+
+/titlefontsize   [ 60 52 48 ] def	% font sizes for SM/MED/LG calendars
+/datefontsize    [ 60 48 25 ] def
+/weekdayfontsize [  0 28 12 ] def
+/footfontsize 12 def
+
+/titlepos [ 19 43 25 ] def		% Y-offset (SM/MED/LG) of month/year title
+/Y0 35 def				% Y-coordinate of calendar grid origin
+
+/daywidth 100 def			% dimensions of grid boxes
+/dayheight 80 def
+/gridwidth daywidth 7 mul def
+/gridheight dayheight 6 mul def
+/negdaywidth daywidth neg def
+/negdayheight dayheight neg def
+/neggridwidth gridwidth neg def
+/neggridheight gridheight neg def
+
+/gridlinewidth 1.0 def			% width of grid lines
+/charlinewidth 0.1 def			% width of outline characters
+/moonlinewidth 0.1 def			% width of moon icon line
+
+/hangingindent (   ) def		% for indenting continued text lines
+
+%
+% Utility functions:
+%
+
+
+/center {		% print string centered in given width
+	/width exch def
+	/str exch def
+	width str stringwidth pop sub 2 div 0 rmoveto str show
+} def
+
+
+/strcat {		% concatenate two strings
+	2 copy
+	length exch length
+	dup 3 -1 roll add
+	string
+	dup 0 6 -1 roll putinterval
+	dup 3 -1 roll 4 -1 roll putinterval
+} def
+
+
+/prtday {		% print date in black, gray, outline, or filled outline
+	day 3 string cvs				% convert to string
+	color (black) eq {
+		show
+	} if
+	color (gray) eq {
+		dategray setgray show
+	} if
+	color (outline) eq {
+		true charpath stroke
+	} if
+	color (outline_gray) eq {
+		true charpath
+		gsave dategray setgray fill grestore
+		stroke
+	} if
+} def
+
+
+/nextbox {		% go to next column or start of next row
+	day startbox add 7 mod 0 eq				% end of week?
+		{ neggridwidth daywidth add negdayheight rmoveto }  % next row
+		{ daywidth 0 rmoveto }				    % next col
+	ifelse
+} def
+
+
+/boxpos {		% push coords of upper-left corner of box <arg> (0..41)
+	dup 7 mod daywidth mul					% x-coord
+	exch 7 idiv negdayheight mul Y0 add			% y-coord
+} def
+
+
+/datepos {		% push coords of upper-left corner of box for day <arg>
+	startbox add 1 sub dup 7 mod daywidth mul		% x-coord
+	exch 7 idiv negdayheight mul Y0 add			% y-coord
+} def
+	
+
+%
+% Functions for drawing parts of calendar:
+%
+
+
+/drawtitle {		% draw month and year title
+	titlefont findfont titlefontsize calsize get scalefont setfont
+	/month_name month_names month 1 sub get def
+	/yearstring year 10 string cvs def
+	0 Y0 titlepos calsize get add moveto
+	month_name (  ) strcat yearstring strcat gridwidth center
+} def
+
+
+/drawdaynames {		% draw day names above respective columns
+	dayfont findfont weekdayfontsize calsize get scalefont setfont
+	0 1 6 {
+		/i exch def
+		i daywidth mul Y0 5 add moveto
+		day_names i get
+		daywidth center
+	} for
+} def
+
+
+/drawgrid {		% draw the grid for the calendar
+	gridlinewidth setlinewidth
+	0 daywidth gridwidth {			% vertical lines
+		Y0 moveto
+		0 neggridheight rlineto
+		stroke
+	} for
+	0 negdayheight neggridheight {		% horizontal lines
+		0 exch Y0 add moveto
+		gridwidth 0 rlineto
+		stroke
+	} for
+} def
+
+
+/drawnums {		% place day numbers on calendar
+	dayfont findfont datefontsize calsize get scalefont setfont
+	/fontdiff datefontsize calsize get datefontsize LG get sub def
+	charlinewidth setlinewidth
+	1 datepos 20 fontdiff add sub exch 5 add exch moveto
+
+	1 1 ndays {
+		/day exch def
+		/color (black) def
+		calsize SM ne {		% select alternate color
+			/gray day_gray day startbox add 1 sub 7 mod get def
+			holidays { day eq { /gray holiday_gray def } if } forall
+			gray {
+				/color logical_gray def
+			} if
+		} if
+		gsave
+		prtday
+		grestore
+		nextbox
+	} for
+} def
+
+
+/drawjnums {		% place day-of-year numbers on calendar
+	notesfont findfont notesfontsize scalefont setfont
+	1 datepos dayheight 3 sub sub exch daywidth 3 sub add exch moveto
+
+	1 1 ndays {
+		/day exch def
+		/jday jdstart day add 1 sub def
+		/str jday 3 string cvs def
+		julian-dates true eq {		% print days left in year?
+			/str str ( \050) strcat yearlen jday sub 3 string cvs
+				strcat (\051) strcat def
+		} if
+		gsave
+		str dup stringwidth pop 0 exch sub 0 rmoveto show
+		grestore
+		nextbox
+	} for
+} def
+
+
+/fillboxes {		% used by drawfill to generate group of fill squares
+	/last exch def		% last box to fill (41 = lower right box)
+	/first exch def		% first box to fill (0 = upper left box)
+
+	first 1 last {		% loop through range of boxes
+		/box exch def
+		/fillit true def
+		calsize LG eq {		% skip note and small calendar boxes
+			noteboxes { box eq { /fillit false def } if } forall
+			box prev_small_cal eq box next_small_cal eq or {
+				/fillit false def
+			} if
+		} if
+		fillit {		% move to position and fill the box
+			box boxpos moveto
+			gsave
+			fillgray setgray
+			daywidth 0 rlineto
+			0 negdayheight rlineto
+			negdaywidth 0 rlineto
+			closepath fill
+			grestore
+		} if
+	} for
+} def
+
+
+/drawfill {		% generate fill squares where necessary
+	0 startbox 1 sub fillboxes		% fill boxes before calendar
+	startbox ndays add 41 fillboxes		% fill boxes after calendar
+} def
+
+
+/footstrings {		% print foot strings at bottom of page
+	titlefont findfont footfontsize scalefont setfont
+	/bottomrow { neggridheight 20 add } def
+	0 bottomrow moveto
+	Lfootstring show
+	gridwidth Rfootstring stringwidth pop sub bottomrow moveto
+	Rfootstring show
+	0 bottomrow moveto
+	Cfootstring gridwidth center
+} def
+
+
+%
+% Functions for printing text inside boxes:
+%
+
+
+/daytext {
+	/mytext exch def /day exch def
+	notesfont findfont notesfontsize scalefont setfont
+	day datepos datefontsize LG get notesfontsize add 2 sub sub dup
+	/ypos exch def exch 2 add exch moveto
+	currentpoint pop /LM exch def /RM LM 95 add def
+	showtext
+} def
+	
+
+/holidaytext {		% print text for holiday (next to date)
+	notesfont findfont notesfontsize scalefont setfont
+	/mytext exch def /day exch def
+	/dwidth day 10 lt {20} {33} ifelse def		% width of date
+	/mwidth do-moon-p {16} {0} ifelse def		% width of moon icon
+	day datepos notesfontsize 2 add sub dup
+	/ypos exch def exch dwidth add exch moveto
+	currentpoint pop /LM exch def /RM LM 97 dwidth mwidth add sub add def
+	showtext
+} def
+
+
+/notetext {		% print text in notes box (0..41)
+	/mytext exch def /box exch def
+	notesheading () eq {			% skip heading if null
+		box boxpos notesfontsize 2 add sub dup
+	} {
+		box boxpos 11 sub exch 4 add exch moveto
+		dayfont findfont weekdayfontsize LG get scalefont setfont
+		notesheading show
+		box boxpos notesfontsize 13 add sub dup
+	} ifelse
+	/ypos exch def exch 4 add exch moveto
+	notesfont findfont notesfontsize scalefont setfont
+	/LM currentpoint pop def /RM LM 93 add def
+	showtext
+} def
+
+
+/crlf {			% simulate CR/LF sequence
+    ypos notesfontsize sub /ypos exch def LM ypos moveto
+} def
+
+
+/prstr {		% print string on current or next line
+    dup stringwidth pop currentpoint pop
+    add RM gt { crlf hangingindent show } if show
+} def
+
+
+/showtext {		% print words in "mytext", splitting into lines
+	mytext {
+		dup linesep eq			% force new line?
+			{ crlf pop }		% yes - discard text
+			{ prstr ( ) show }	% no - print string + space
+		ifelse
+	} forall
+} def
+
+
+%
+% Functions for printing months of various sizes and orientations:
+%
+
+
+/startpage {		% initialize new physical page
+	rval rotate
+	xsval ysval scale
+	xtval ytval translate
+} def
+
+
+/calendar		% draw calendar for month/year
+{
+	drawtitle					% month/year heading
+
+	calsize SM ne {					% day names
+		drawdaynames
+	} if
+
+	calsize LG eq {					% foot strings
+		footstrings
+	} if
+
+	drawnums					% calendar dates
+
+	julian-dates false ne calsize LG eq and {	% julian dates
+		drawjnums
+	} if
+
+	fill-boxes {					% fill unused boxes
+		drawfill
+	} if
+
+	drawgrid					% calendar grid
+
+	draw-moons false ne calsize LG eq and {		% moon icons
+		drawmoons
+	} if
+
+	0 0 moveto					% return to origin
+} def
+
+
+/printmonth_l {		% print month on landscape page ("posn" = 0..11)
+	/calsize MED def
+
+	posn 0 eq {		% assume first month printed on page is posn 0
+		startpage
+		footstrings
+	} if
+
+	gsave			% draw medium calendar at selected position
+	.226 .25 scale		% landscape mode - 3 rows, 4 cols
+	posn 4 mod 800 mul
+	posn 4 idiv -700 mul 150 add
+	translate
+	calendar
+	grestore
+} def
+
+
+/printmonth_p {		% print month on portrait page ("posn" = 0..11)
+	/calsize MED def
+	/footfontsize 15 def	% compensate for scaling
+
+	posn 0 eq {		% assume first month printed on page is posn 0
+		gsave		% print foot strings at original scale
+		startpage
+		0 20 translate  % move foot strings up slightly 
+		footstrings
+		grestore	% re-scale Y axis for portrait mode
+		/sv_ysval ysval def
+		/ysval ysval 1.675 mul def
+		startpage
+		/ysval sv_ysval def
+	} if
+
+	gsave			% draw medium calendar at selected position
+	.304 .194 scale		% portrait mode - 4 rows, 3 cols
+	posn 3 mod 800 mul
+	posn 3 idiv -700 mul 300 add
+	translate
+	calendar
+	grestore
+} def
+
+
+/printsmallcals {		% print small calendars in lower right boxes
+	/calsize SM def
+	/sv_startbox startbox def
+
+	% draw calendars for previous and next months in appropriate boxes
+
+	prev_small_cal 0 ge {			% prev month/year
+		/year p_year def
+		/month p_month def
+		/startbox p_startbox def
+		/ndays p_ndays def
+		gsave
+		prev_small_cal boxpos translate
+		.138 .138 scale
+		12 -120 translate
+		calendar
+		grestore
+	} if
+
+	next_small_cal 0 ge {			% next month/year
+		/year n_year def
+		/month n_month def
+		/startbox n_startbox def
+		/ndays n_ndays def
+		gsave
+		next_small_cal boxpos translate
+		.138 .138 scale
+		12 -120 translate
+		calendar
+		grestore
+	} if
+
+	/startbox sv_startbox def		% required for text boxes
+} def
+
+
+/printmonth {		% print single month on page
+	startpage
+
+	/calsize LG def			% main (large) calendar
+	calendar
+
+	printsmallcals
+	
+} def
+
+
+%
+% Moon drawing functions:
+%
+
+
+/domoon {	% draw moon at phase (0 = new; .25 = 1q; .5 = full; .75 = 3q)
+	/phase exch def
+
+	gsave
+	currentpoint translate
+	newpath
+
+	% if moon is full, just draw unfilled circle
+
+	phase halfperiod .01 sub ge phase halfperiod .01 add le and {
+		0 0 radius
+		0 360 arc stroke
+	}
+	{
+		% draw the line arc now; prepare (but don't draw) the fill arc
+
+		0 0 radius			% for line and fill arcs
+		0 0 radius 
+		phase halfperiod lt {		% phase between new and full
+			270 90 arc stroke	% (line on right, fill on left)
+			0 radius neg moveto
+			270 90 arcn 
+		}
+		{				% phase between full and new
+			90 270 arc stroke	% (line on left, fill on right)
+			0 radius neg moveto
+			270 90 arc 
+			/phase phase halfperiod sub def
+		} ifelse
+
+		% curveto uses (x0,y0) (current point), (x1,y1), (x2,y2),
+		% and (x3,y3) as the control points for drawing a Bezier
+		% cubic section, used here as the curve dividing the moon
+		% icon into dark and light sections.  x1 is in the range
+		% -R*sqrt(2) <= x1 <= R*sqrt(2) and y1 is in the range
+		% 0 <= y1 <= R; note that except in the degenerate case
+		% where x1 = y1 = x2 = y2 = 0, the curve does not actually
+		% pass through (x1,y1) or (x2,y2).
+
+		/x1 quartperiod phase sub rect mul def
+		/y1 x1 abs 2 sqrt div def
+
+		% push control points for curveto
+
+					% x0 = 0   (current
+					% y0 = R    point)
+		x1			% x1
+		y1			% y1
+		x1			% x2 = x1
+		y1 neg			% y2 = -y1
+		0			% x3 = 0
+		radius neg		% y3 = -R
+
+		% draw Bezier curve; fill area between curve and fill arc
+
+		curveto
+		fill
+	} ifelse
+
+	grestore
+} def
+
+
+/do-moon-p {		% draw a moon on "day"?
+	draw-moons (some) eq {		% printing quarter moons?  look up day
+		/p false def
+		quarter_moons { day eq { /p true def } if } forall
+		p
+	}
+	{
+		draw-moons		% all moons or no moons
+	} ifelse
+} def
+
+
+/drawmoons {		% main routine to draw moons on calendar
+	/halfperiod 0.5 def
+	/quartperiod 0.25 def
+	/radius 6 def
+	/offset radius 3 add def
+	/rect radius 2 sqrt mul quartperiod div def	% domoon{} scale factor
+	/n 0 def
+
+	gsave
+	moonlinewidth setlinewidth
+	1 datepos offset sub exch daywidth add offset sub exch moveto
+	1 1 ndays {
+		/day exch def
+		do-moon-p {			% draw a moon today?
+			moon_phases n get domoon
+			/n n 1 add def
+		} if
+	nextbox
+	} for
+	grestore
+} def

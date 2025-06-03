@@ -1,0 +1,470 @@
+Date: Thu, 19 Nov 92 10:39:44 EST
+From: jjobe@mrj.com (jason jobe)
+Message-Id: <9211191539.AA05599@mrj.com>
+To: gnu-objc@prep.ai.mit.edu
+Subject: runtime feature or bug?
+
+I just started playing with the gcc 2.3.1 runtime. It seems that if
+an "-initialize" method is NOT provided for a new class we crash when running.
+I traced it to the fact that a NULL SEL generates an assertion failure. I
+changed 3 spots to return NULL if they recieved NULL. Is this a bug or a
+feature?
+
+I also noticed that the add_record (?) in record.h always increments the 
+count even though the comments claim it looks for blank entries to reuse. 
+This may or not be responsible for some of the assertion failures (or 
+perhaps the hacks mentioned above).
+
+Any ideas?
+
+Jason
+GNU ObjC++
+
+Date: Thu, 19 Nov 92 14:23:49 -0500
+From: athan@object.com
+To: gnu-objc-runtime@prep.ai.mit.edu
+Subject: Re: runtime feature or bug?
+Cc: jjobe@mrj.com (jason jobe), gnu-objc@prep.ai.mit.edu
+
+
+Let's move this discussion over to gnu-objc-runtime.  As you'll notice, I've put that list in the To: line.
+
+Regarding a missing method ( + initialize in your case) causing a failure:
+
+In general, missing methods should cause forwarding behavior to be triggered.  The Object class should implement a - forward metohd which gets called whenever a selector is sent to an object which does not respond to that selector.  That method can then "do the right thing", for example, it can forward the message on to another object, or, it can signal an error.
+
+The default implementation would probably look something like:
+
+- forward:(SEL)aSelector <whatever other gnu-runtime parameters are relevant>
+{
+  return [self doesNotImplement:aSelector <...>];
+}
+
+where doesNotImplement is also implemented by Object and might printf() a message or something like that.
+
+This, btw, is taken largely from the NeXT and Smalltalk regimes.
+
+Andrew Athan
+Objective Technologies, Inc.
+
+From: ssircar@canon.com (Subrata Sircar)
+Date: Thu, 10 Sep 92 14:13:02 PDT
+To: athan@object.com (Andrew C . Athan)
+Subject: Re: NeXT objc extentions (Was: Your mission, should you choose to accept it. . .)
+Cc: ObjC@canon.com
+
+I wrote:
+>Question:  what happens if you declare x to be "SomeControllerClass
+>*"?  If the warning goes away then, I would be happier, since now
+>you have told it what object x points to.
+>[More generally, the compiler won't complain if you say id x =
+>anObject; [x someMethod];.  This is generally held to be a good
+>thing for polymorphism.  Do we want the same thing for protocols?]
+
+athan@object.com (Andrew C . Athan) wrote:
+! Neither one of these solves the problem.  SomeControllerClass *x
+! declares x to be a pointer to an instance of SomeControllerClass.
+! What if x is pointing to a class object? i.e.
+! x=[SomeControllerClass class];
+
+Hmmm.  Good question.  What should happen?  Should the compiler type-check and allow x to only respond to class messages?  What is the declaration of x in this case?
+
+> Actually, this also makes sense to me.  The general question is:
+> given an interface declaration, where should the implementation be?
+> If you choose to allow it to be split up, then the compiler must
+> not issue warnings when compiling the file, but must check back
+> after all the files are compiled (in case the missing code has been
+> added in a different file).  NeXT essentially passed the buck on
+> this question and required it to be in a single file.
+
+! I was not clear.  What you say is true, and I think it is reasonable not to
+! do this sort of meta checking.  However, there is no reason to get warnings
+! when all the categories implementing all the protocol methods are in the
+! same .m.  That is the behavior I disliked.  E.g.:
+[Example deleted]
+
+For clarity, the multiple implementations in a single file make sense.  It should make code more readable, which is always a laudable goal :<)
+
+However, doesn't that put us into the same situation?  If the compiler doesn't find an method in the base implementation, what should it do?
+Should it
+a) flag an error
+b) finish the current file and then check
+c) finish the compile stage and then check
+
+Currently, NeXT does a).  I can make a case for c) but I'm not sure about b).
+
+> However, for a given protocol which you write (and hence might be
+> changed - I'm not terribly worried about the system protocols
+> changing) you can add a version number method to the protocol, and
+> require that implementers return the protocol version number as
+> given in the header.
+
+! This is an adequate solution, but it is not (IMHO) necessarily the nicest.
+! Also, it does not address the problem that I can get a true return from
+! conformsTo: and the class actually does not conformTo:!
+
+I agree.  Version control over protocols would be a good feature to add to the GNU Objective-C version of protocols, since we're still in the design stage.
+
+- Subrata Sircar
+ssircar@canon.com		Canon Information Systems
+
+Date: Thu, 10 Sep 92 17:07:41 -0500
+From: jr@alpo.media.com (J.R. Jesson)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: NeXT objc extentions (Was: Your mission, should you choose to accept it. . .)
+
+Andrew Athan (athan@object.com) writes:
+
+> [Previous discussion about @class, @protocol, etc.]
+>
+> There are other issues besides whether or not the
+> compiler code will become available from NeXT.  I
+> personally feel that the @protocol extension has not
+> been completely thought out by NeXT;  I don't claim to know
+> everything about it yet, nor do I claim to be doing
+> everything right, but I feel certain pieces are
+> missing/broken/not well thought out.
+>
+> To elaborate:  Though I can only guess, I'd say that NeXT
+> put in @protocol largely as support for their
+> distributed objects paradigm (so an NXProxy can say,
+> conformsTo:@protocol(SOMETHING) instead of
+> isKindOf:[Something class]) .. much like they added
+> keywords like "out," "in," and "inout."  An @protocol
+> (sometimes) builds a structure describing the methods;
+> that structure is then tacked on to the Class object and
+> can be used at runtime w/ distributed objects.  This is all
+> fine, as far as distributed objects go.
+
+I think that NeXT put the protocol stuff for a couple of reasons.
+First, it eliminates round-trips through the "wire" to do selector
+validation and error reporting. I found this explanation in the NeXTSTEP PR2 release notes (DistributedObjects.rtf):
+
+"...A client may specify the expected Protocol that an object will
+serve upon the completion of a connection.  Providing this
+specification enables more efficient delivery of messages to remote
+objects by avoiding a "discovery" message per method..."
+
+It makes a big difference in the efficiency of sending
+methods and the data associated with it across the wire. Ask any X
+programmer about the evils of round trips to the X server.  (Or ask a
+naive X programmer why their apps run slowly - it could be because
+they dont understand about server trips ;-) ).
+
+I like protocols better than categories for doing things like
+insuring that I've got all the methods needed to support delegate
+operations.  Again using NeXTSTEP as an example, my View classes
+which do drag & drop declare the protocol <NXDraggingInfo> in the
+@implementation directive.  The compiler enforces the type and
+existence of those methods without requiring that I put them
+in an @interface clause of a superclass of the object I'm defining.
+Again from the NeXT Literature (misspellings complements of NeXT):
+
+"Protocols allow you to organize related method into groups that form
+high-level behaviors. This gives library builders a tool to identifiy
+sets of standard protocols, independent of the class hierarchy.
+Protocols provide language support for the reuse of design (i.e.
+interface), whereas classes support the reuse of code (i.e.
+implementation). Well designed protocols can help users of an
+application framework when learning or designing new classes."
+
+[ Good complaints about protocols deleted... ]
+
+> An additional problem that I see with @protocol is the
+> question of versioning.  Protocol checking is to some
+> degree a compile-time event (and therefore versioning
+> is not as important).  @protocol is, however, often used
+> as a run-time tool: it is possible to ask an object if it
+> conforms to a protocol.  Currently, I cannot attach a
+> version number to a protocol.  Because of this, if someone
+> writes and compiles an object given the Controllers
+> protocol above, and I then at a later time write code which
+> does:
+>
+> if([someController
+> conformsTo:@protocol(Controllers)])
+>
+> in the meantime, having changed the Controllers
+> protocol, I am in trouble. 
+
+Yeah.  I hadn't thought this issue through before now, but this
+seems to be a lacking of the @protocol directive.  Interestingly,
+if you look at the file <objc/Protocol.h> you will find that
+protocols are objects which are subclasses of the root object class:
+
+@interface Protocol : Object
+{
+@private
+[ private stuff deleted ]
+}
+@end
+
+So, in the NeXT environment, it ought to be possible to attach a version number to the protocol using the NeXT factory method:
+
+[ {aClass} setVersion: {anInt} ];
+
+Of course the trick is finding the handle to the protocol "object".
+Since versioning is only important when protocols are used in
+distributed object messaging, what ought to happen is the proxy
+object do a version validation when the connection is established
+to a servicing process.  Since this issue is a run-time support issue, and not a compilation issue, it seems sensible to say that @protocols
+are Ok in concept but need help in implementation.
+
+So, how does this discussion relate to gnu Objective-C?  I think
+we ought to improve protocols so that:
+
+(1) we can find the handle to the protocol ( i.e. [ <protocolName> class ]
+(2) the runtime is augmented so that version checking is
+done.
+
+jr
+
+---
+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+J.R. Jesson
+Chief Development Dude, All-Around Nice Guy, Wirehead
+Multimedia Learning, Inc.
+(214)869-8282
+jr@media.com
+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+Date: Fri, 12 Feb 1993 04:04:26 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: mu@pcsbst.pcs.com, gnu-objc-submissions@gnu.ai.mit.edu
+Subject: ObjC library
+
+I have found two problems.
+
+1: Making sure +initialize of class NIL is called -- this is serious,
+   as the tuntime depends on it.... how do you do that?  The problem
+   is, that NIL is independant from the rest of the hieracy, and 
+   the current execClass may actually do the initialization part
+   before it has recieved a call for class NIL!!!
+
+2: If a +initialize function invokes other objects, which class has
+   not yet been initialized, you get a bad assertion in msgSend.
+   I suggest making objc_msgSend a pointer to a function, and using
+   the one with check for initialization during the loop which
+   initializes the classes, and another fast version after that.
+
+Major problem: How do we know if all classes have been processed in
+objc_execClass? It may be, that the final class is `independant' --
+i.e. does not inherit class Object, but that the +initialize of other
+classes uses its features??? What can we do?
+
+/Kresten
+
+PS:  I was actually close to release a collection library of my own,
+very much like yours, so I have quite a few comments -- I will,
+however, start on from your code, and make the best out of it... Some
+of the algorithms e.g. those in Set can be done alot better.
+
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 17 Feb 1993 01:19:29 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu, gsk@marble.com
+Subject: gnu objc runtime
+
+[...moved...handling of messages to nil...]
+
+For the matter of initialization, I have done the following changes:
+
+Changed __main by supplying it directly in the library, so that it
+first calls __objc_initExecClass, then do_global_ctors (which in term
+calls __objc_execClass for each module), and finally it calls
+__objc_doneExecClass.  This allows me to get complete control of the
+initialization.
+
+__objc_initExecClass sets up a special version of objc_msgSend, which
+is needed when sending messages from +initialize methods, because the
+receiver may not itself be initialized by then.  It also allocates
+tables for assembling information in the next phase.
+
+__objc_execClass collects diverse information on modules, classes and
+selectors etc.  Currently it does do some resolving, but it is more
+efficient to wait until after all modules have been studied.
+
+__objc_doneExecClass calls initialize_dispatchtables (described below)
+and calls +initialize for all classes.  (This is where the special
+version of the messenger is needed.)  Finally, it installs the
+`default' (fast) version of the messenger and returns control (to
+main).
+
+initialize_dispatchtables installs IMP's for each selector/class pair,
+as collected from the modules, but for all non-existent such pairs, it
+installs the special function undefined_method which takes care of
+calling doesNotRecognize etc.
+
+The messenger stuff means, that objc_sendMsg really calls via a
+function pointer, which is very handy also if the programmer for
+instance wants to define his own anyway. This should be changed in
+gcc, so that I dont have to define a `dummy' messenger just for
+forwarding.  We cannot avoid having the messenger to check for
+initialized classes at least during the initialization phase, so it
+will only speed up to have two versions.
+
+I am a little in doubt, if it is `allowed' to change __main like I do.
+My current implementation will only work if collect is used, so
+something will have to be incorporated into gnu-ld (correct?)
+
+So what does need to be done?  In general, the initialization phase
+could be much faster, and the current implementation of method lookup
+is a bit expensive (in space, not time).  Does other runtimes store the
+methods in an class/selector array?  All calls to libc should be
+avoided, or somehow encapsulated in dispatch vectors, so that they may
+be controlled by the environment.  I am working on forwarding of
+messages, but it will only be able to return id's until you (Stallman)
+fix up some construct for that.  The structures for storing internal
+data could be optimized a lot.
+
+For the runtime system to be complete, it must have an additional
+number of `system' classes like files/streams.  What should be the
+guidelines in defining such?  Should we blindly use something close to
+what NeXT does, or is it ok to come up with a new design perhaps
+inspired by C++ or Smalltalk streams?  How far can I/we go -- what is
+the goal?
+
+For the sake of the experiment I have made a WEB for objc.  Do you
+dislike WEB?  The runtime is rather compact and complicated, so it
+would be ideal for being described in WEB.
+
+I would appreciate comments on all issues!
+
+/Kresten
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 17 Feb 1993 14:16:48 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gsk@marble.com
+Subject: gnu objc runtime (initialization)
+
+I will explain to you why we need some more control in the
+initialization phase.  The simplest possible case, where the current
+scheme may fail is like this:
+
+  There exists classes A and B.  Both inherit Object.  Now, if A
+  implements an +initialize like this:
+
+    +initialize
+    {
+      someGlobalVar = [B new];
+    }
+ 
+  Some time during initialization (n'th call of execClass)  we
+  determine, that it is time to call that initializer of class A.  
+  This can fail for several reasons: B may not be initialized, which
+  means, that B is in an unsafe state.  B may not have been seen, in
+  which case the selectors `over there' are unknown.  Or finnaly the
+  same problems may apply recursively to anything B depends on (If
+  there were more classes in the system)
+
+So how can we determine if it is safe to initialize class A?  The
+current scheme tries to `guess' if it is safe by not calling
++initialize of class A, if any unresolved superclasses exists, but
+that will be the case (and fail) if we have only seen class Object and
+class A so far.  Since (I guess) we dont want to store a full
+dependancy hieracy each module, we will at least have to make
+`do_global_ctors' or whatever tell us if all classes have been seen.
+That is what I used __objc_doneExecClass for.
+ 
+Next, once we know that all classes have been seen, we still have to
+make sure, that class B is initialized before it is called in the
+above example.  For this reason, we have to use a make objc_msgSend
+check if the reciever has been initialized, an if not, than do so.
+But this check is only needed during the initialization phase, and
+hence I made two messengers, and used a pointer to a function to call
+either. 
+
+The problems cannot be solved by calling +inititialize in some fancy
+order, since class B may depend on class A being initialized to (some
+extend).  We have to check for initialization in the messenger as far
+as I can see.
+
+If we can accept, that cyclic dependencies in +initialize'ers is not
+allowed, we may be able to solve the problems, by having gcc produce a
+list of all needed classes for each +initialize method, or perhaps we
+could simply use a special messenger inside that method.  I have not
+thought this through, and I'm not sure if it suffices.
+
+/Kresten
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Sat, 20 Feb 1993 21:31:33 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: burchard@geom.umn.edu
+Cc: Kresten Krab Thorup <krab@iesd.auc.dk>, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302202004.AA03247@localhost.gw.umn.edu>
+Subject: Re: Optimizing the GNU objc runtime
+
+Paul Burchard writes:
+>My only question would be how much time a "typical" program would
+>spend at startup, filling all the dispatch caches. Would the wait be
+>noticeable on a human timescale?  (If you have ~100 classes with ~100
+>methods each, and you want to keep extra startup overhead to no more
+>than 1/20 second, that only allows you 5 ms per lookup.)
+
+A system of this scale (100 classes is quite a lot) would typically be
+running for more than just a moment.  The accurate time used for
+building this table will of course differ on different platforms, but
+we are only talking about traversing 10k words in this case.  Besides,
+the time you would use for building a dispatch table based on hashing
+would presumably not be faster, only save space.
+
+A note in this context:  The currently distributed runtime may happen
+to allocate and initialize the dispatch tables multiple times, thus
+you should not base any judgement on the basis of the current system.
+
+/Kresten
+
+Kresten Krab Thorup               |       /   | E-mail : krab@iesd.auc.dk
+Institute of Electronic Systems   |   ,-'/(   | S-mail : Sigrid Undsetsvej 226A
+Aalborg University                |  /  |  \  |          9220 Aalborg \O
+Fr. Bajers vej 7, DK-9220 Aalb    |  A  U  C  |          Denmark
+-------------------------------------------------------------------------------
+               Member of The League for Programming Freedom
+
+Return-Path: <burchard@localhost.gw.umn.edu>
+Date: Sun, 21 Feb 93 16:24:26 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Optimizing the GNU objc runtime
+Cc: gnu-objc@gnu.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+Kresten Krab Thorup <krab@iesd.auc.dk> writes:
+> A system of this scale (100 classes is quite a lot) would
+> typically be running for more than just a moment.
+
+Let me first say that I'm very interested in trying out your more  
+efficient run time...I think it's great that you're doing this.
+
+It should be said, though, that 100 different selectors by 100  
+classes may actually be a low estimate for perfectly reasonable  
+programs.  NeXT's AppKit, for example, has (roughly) 2000 different  
+selectors and 70 classes.  Even if just the *top-level* classes were  
+used in a program, that would mean looking up 140,000 implementations  
+at startup.
+
+> I have received numerous comments on `is this the right
+> way to do message lookup?' i.e. using a simple array for
+> dispatch is too expensive in the long run. 
+
+
+Long run?  The only long run cost is memory, not time.  Well, I guess  
+memory can turn into some serious time if you use too much of it and  
+get swapped out....in the above example we would pay a 0.5 MB memory  
+price per program (assuming 32-bit addresses).
+
+Besides startup time and memory usage, the only other possible  
+stumbling block I can see is thread safety.  Those concerned with  
+thread safety, however, may be willing to forgo these efficiencies  
+and use the standard runtime, since the non-threaded alternative  
+(remote messaging between different processes which use the efficient  
+runtime) is probably more expensive.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+

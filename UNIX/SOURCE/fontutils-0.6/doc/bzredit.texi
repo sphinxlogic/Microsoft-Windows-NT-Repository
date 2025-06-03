@@ -1,0 +1,238 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node BZRedit, GSrenderfont, XBfe, Top
+@chapter BZRedit
+
+@pindex bzredit
+@cindex editing BZR fonts
+@cindex BZR fonts, editing
+@cindex editing outlines
+@cindex outline fonts, editing
+
+BZRedit allows hand-editing of outline fonts in the BZR font format
+output by Limn (@pxref{Limn}).  
+
+@cindex Emacs, prerequisite for BZRedit
+@cindex Ghostscript, prerequisite for BZRedit
+It is written in GNU Emacs Lisp, and thus works only inside GNU Emacs
+(@pxref{Top, , , emacs, GNU Emacs Manual}).  It uses Ghostscript to
+display the character images, and thus you must have Ghostscript
+installed to use it.  @xref{Archives}, for information on how to obtain
+GNU software.
+
+BZRedit provides only a simple form of editing: you change the textual
+representation of the BZR font in an Emacs buffer; when you wish to see
+the image corresponding to the particular character you have been
+editing, you type an explicit command to tell Emacs to send the image in
+PostScript form to a Ghostscript subprocess.
+
+BZRedit uses BPL format for the ``textual representation''.  @xref{BPL
+files}, for the precise details on what BPL files contain; however, you
+will probably find them fairly self-explanatory.
+
+@cindex interactive outline editing
+@cindex hints, editing
+A more featureful editor would allow interactive manipulation of the
+outlines, say via a mouse in an X window.  It would also be useful to
+allow adding or editing of hints (additional commands which improve
+rasterization at low resolution and/or small sizes); right now, none of
+the programs do anything at all about hints.
+
+@menu
+* BZRedit usage::               Operating the editor.
+@end menu
+
+
+@node BZRedit usage,  ,  , BZRedit
+@section BZRedit usage
+
+@cindex BZRedit usage
+@cindex usage of BZRedit
+
+The sections below detail using BZRedit.
+
+@menu
+* BZRedit installation::        Additional installation is needed.
+* BZR: Editing BZR files.       Editing files in the binary format.
+* BPL: Editing BPL files.       Editing files in the textual format.
+@end menu
+
+
+@node BZRedit installation, Editing BZR files,  , BZRedit usage
+@subsection BZRedit installation
+
+@flindex bzredit.el
+@flindex default.el
+@flindex .emacs
+BZRedit is contained in the file @file{bzrto/bzredit.el}.  Installation
+of the font utilities (@pxref{Installation}) copies this file into a
+directory where Emacs can find it.  But you still need to tell Emacs
+what functions @file{bzredit.el} defines.  To do this, put the following
+definitions into either your own @file{.emacs} file (@pxref{Init File, ,
+The Init File: @file{.emacs}, elisp, GNU Emacs Lisp Manual}), if you are
+the only person planning to use BZRedit, or into the system
+initialization file @file{default.el} (@pxref{Start-up Summary, ,
+Summary: Sequence of Actions at Start Up, elisp, GNU Emacs Lisp
+Manual}), for a public installation:
+
+@example
+(autoload 'bpl-mode "bzredit" "Mode for editing BPL files." t)
+(autoload 'bzredit "bzredit" "Set up to editing a BZR file." t)
+@end example
+
+If you want the first function to be called automatically when you visit a
+file with extension @file{.bpl}, you can add the
+following code to (presumably) the same file:
+
+@example
+(setq auto-mode-alist
+  (append auto-mode-alist (list '("\\.bpl\\'" . bpl-mode))))
+@end example
+
+@noindent If you do not do this, then to make the editing commands
+(described in the following sections) available you must type @kbd{M-x
+bpl-mode} after visiting a BPL file.
+
+
+@node Editing BZR files, Editing BPL files, BZRedit installation, BZRedit usage
+@subsection Editing BZR files
+
+@cindex editing BZR files
+@cindex BZR files, editing
+@findex bzredit
+
+To edit a BZR file, type @kbd{M-x bzredit} to Emacs.  (See the previous
+section for how to make this function known to Emacs.)  This will ask
+you for the filename of the BZR font.  After typing the filename, type
+@kbd{RET}.
+
+The @code{bzredit} function then calls BZRto with the @samp{-text}
+option (@pxref{BZRto}) to produce a BPL file---the textual form of the
+BZR font.  Then it calls @code{bpl-mode} and makes the resulting buffer
+visible (if it isn't already).
+
+The next section describes @code{bpl-mode}.
+
+
+@node Editing BPL files,  , Editing BZR files, BZRedit usage
+@subsection Editing BPL files
+
+@cindex editing BPL files,
+@cindex BPL files, editing
+@findex bpl-mode
+
+To edit a BPL file in @code{bpl-mode}, the usual Emacs editing commands
+work: cursor motion, deletion, and insertion all work just as with
+normal text files.
+
+Here is an example of a piece of a BPL file.  @xref{BPL files}, for a
+full description of BPL files.
+
+@example
+(char 0 (comment hex 0x0)
+  (width "6.263")
+  (bb "0.241" "5.782"  "-0.241" "6.745")
+  (outline "0.482" "6.745"
+    (line "1.445" "6.504")
+    (line "1.445" "0.241")
+    (line "0.482" "0.241")
+    (line "3.613" "0.000")
+    (spline "1.682" "1.264"  "2.409" "4.436"  "2.409" "6.504")
+    @dots{}
+  )
+)
+@end example
+
+@noindent The most usual editing session is changing the numbers in the
+@code{line} and @code{spline} commands, which are the coordinates that
+determine the character outline.  But you can do anything you want:
+change a @code{line} to @code{spline} (and add the requisite other
+coordinates) or vice versa, change the set width, etc.
+
+You must retain the quotation marks around the floating-point numbers,
+however.  (They are necessary because Emacs 18 does not recognize
+floating-point constants.)  If you inadvertently delete one, then when
+you go to display the edited character (see below), you will get an
+error from Emacs.
+
+When @code{bpl-mode} is first invoked, it starts up Ghostscript in a
+subprocess.  The section below describes the details of this.  It is
+Ghostscript which does the actual displaying.
+
+@code{bpl-mode} provides three additional commands (we show the default
+bindings in parentheses):
+
+@enumerate
+
+@item
+@findex bpl-quit
+@cindex quitting @code{bpl-mode}
+@cindex leaving @code{bpl-mode}
+@kindex C-c q
+@kindex C-c C-q
+@code{bpl-quit} (@kbd{C-c q} and @kbd{C-c C-q}), which kills the
+Ghostscript subprocess and then removes the BPL buffer from the screen.
+@code{bpl-quit} does not convert the BPL file (back) to BZR form; that's
+left for you to do by hand.
+
+@item
+@findex bpl-erasepage
+@findex erasepage
+@kindex C-c e
+@kindex C-c C-e
+@code{bpl-erasepage} (@kbd{C-c e} and @kbd{C-c C-e}), which sends an
+@code{erasepage} command to Ghostscript, thus erasing whatever is
+currently displayed.
+
+@item
+@findex bpl-show-char
+@cindex showing edited characters
+@cindex displaying edited characters
+@kindex C-c c
+@kindex C-c C-C
+@code{bpl-show-char} (@kbd{C-c c} and @kbd{C-c C-c}), which sends to
+Ghostscript a PostScript translation of the character that point is in.
+
+@end enumerate
+
+@findex bpl-mode-hook
+@cindex hook, for @code{bpl-mode}
+@code{bpl-mode} calls @code{bpl-mode-hook} as its last action.  You can
+define this to take additional actions if you like.
+
+@menu
+* BZRedit and Ghostscript::     Customizing the use of Ghostscript.
+@end menu
+
+
+@node BZRedit and Ghostscript,  ,  , Editing BPL files
+@subsubsection BZRedit and Ghostscript
+
+@cindex BZRedit and Ghostscript
+@cindex Ghostscript and BZRedit
+
+As mentioned above, BZRedit uses Ghostscript, the GNU PostScript
+interpreter, to display the character images.  @xref{Archives}, for how
+to obtain Ghostscript.
+
+BZRedit assumes that Ghostscript's default output device is the correct
+one to use---presumably a window on an X display.  The actual default
+depends on how Ghostscript was installed.
+
+The following variables control various attributes of the Ghostscript
+output:
+
+@defvar bzr-gs-width
+The width of the window, in pixels.  Default is 300.
+@end defvar
+
+@defvar bzr-gs-height
+The height of the window, in pixels.  Default is 300.
+@end defvar
+
+@defvar bzr-gs-dpi
+The resolution at which Ghostscript renders images, in pixels per inch.
+Default is 300.
+@end defvar

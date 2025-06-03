@@ -1,0 +1,604 @@
+Paul Murphy <murphy@gun.com> just forwarded this to me.  FYI.  10/14/92 gsk
+
+Position Paper
+ECOOP'91 WORKSHOP ON
+EXCEPTION HANDLING AND OBJECT-ORIENTED PROGRAMMING
+July 1991
+Geneva, Switzerland
+
+Brad Cox
+203 426 1875
+cox@stepstone.com
+CI$ 71230,647
+The Stepstone Corporation
+75 Glen Road
+Sandy Hook CT 06482
+
+This consists of selected sections from a much longer paper,
+`TaskMaster', which discusses a number of environmental features,
+including exception handling and lightweight multi-tasking, that can
+be supported in any C-based language with a single uniform language
+extension called `action expressions'.
+
+The first section of this document discusses exception handling as a
+topic unto itself. The final section introduces action expression
+syntax and semantics, as is being considered for adoption as an
+extension to the Objective-C programming environment.
+
+Exception handling
+
+Consider a subroutine, main(), which calls foo(), which calls bar().
+The runtime stack that underlies the C runtime environment extends to
+record that main has called foo and that foo has called bar. Then it
+retracts as bar returns to foo and as foo returns to main. The same
+call/return path is used unconditionally, regardless of whether the
+subroutines ran successfully or failed because of an exception.
+
+The absence of a way of handling exceptions explicitly, independently
+from normal processing, is a severe obstacle to software quality and
+reusability. Since subroutines routines return the same way,
+regardless of whether they succeed or fail, a method that should
+return a handle to a new object might instead return an error code to
+indicate that it could not, perhaps because of insufficient memory.
+Since any such call might fail, the caller must check every return
+value, reporting any failures to higher levels with similar means.
+This is sufficiently tedious that it is neglected, allowing unhandled
+exceptions to crash the application.
+
+An `exception' is a situation where a computation does not proceed as
+planned, perhaps because of I/O errors, inability to allocate a new
+object because of insufficient memory, or defects in the software
+itself. `Exception handling' is a language/environmental feature that
+reserves the normal subroutine/message return channel exclusively for
+normal processing. Routines that return normally can be assumed to
+have succeeded, since those that fail will return via a independent
+channel reserved for exceptions. Low-level routines never fail by
+returning an error code for the caller to decipher, but by `raising an
+exception'. Higher level routines establish code fragments, `exception
+handlers', that will receive control if the exception they are to
+handle is raised by a lower-level routine.
+
+The following shows how exception handling might be done in C, in
+order to show the limitations of this solution and how these
+limitations are addressed in TaskMaster. TRY() is a C macro that uses
+setjmp() to record the machine's register settings before entering the
+computation that might fail; the foo subroutine.
+
+main() {
+	TRY() {
+		int v = foo();
+		<normal processing<
+	} HANDLE(OUTOFMEMORYEXCEPTION) {
+		<handle low memory exceptions<
+	} HANDLE(IOEXCEPTION) {
+		<handle IO failure exceptions<
+	} OTHERWISE() {
+		<handle any other exceptions<
+	}
+}
+foo() {
+	TRY() {
+		int v = bar();
+		<normal processing<
+	} HANDLE(OUTOFMEMORYEXCEPTION);
+}
+bar() {
+	id newObject = [SomeClass new];
+	<normal processing<
+}
+
+If the foo() subroutine, or any subroutine that it calls, fails
+because of some exception, it does not return normally. Instead, it
+`raises an exception', which returns directly to the higher-level
+routine, by using longjmp() to return directly, bypassing the
+intervening subroutines altogether. The TRY() macro detects the
+abnormal return and transfers to the appropriate handler, which
+handles the exception in some case-specific fashion. By having the
+TRY() macro manage saved register settings on LIFO stack, exception
+handlers can be nested so that exceptions are presented to their
+handlers in deepest-first sequence. The low-level exception handlers
+may choose to pass control to the next higher-level handler by popping
+the higher-level registers from the exception handler's stack and
+calling longjmp() again.
+
+The problems with this scheme will be familiar to anyone who has used
+it extensively. Since the exception handlers unconditionally execute
+in the context of the calling routine, as opposed to as a subroutine
+of the routine that detected the exception, information is
+unconditionally lost as to what sequence of calls triggered the
+exception. For example, foo's OUTOFMEMORYEXCEPTION handler can
+determine that bar, or one of its subroutines, failed because of
+insufficient memory. But it cannot tell which one, because the stack
+has been rewound before the handler has been invoked. This makes it
+useless for exception handlers to invoke process inspectors
+(debuggers), since the debugging information has been unconditionally
+discarded.
+
+TaskMaster takes a different approach. It exports the handler to the
+exception, rather than the other way around. By invoking the exception
+handler as a subroutine of the exception, the stack is never erased
+until the user's code has had a chance to use it. One way to think
+about the difference is that TaskMaster exception handlers are first
+class C subroutines, not compound statements as in the preceding
+example. They are passed as function pointers in the exception handler
+stack and invoked as subroutines by the logic for raising an
+exception.
+
+Action expressions are a compiler-supported enhancement to deal with
+the fact that code that uses function pointers extensively can be hard
+to write and nearly impossible to understand later. This extension,
+which is planned for a future compiler release and is not yet
+available, would let this example be coded like this:
+
+main() {
+	[{ int v = foo();
+		<normal processing<
+	} ifException:{
+		if (OUTOFMEMORYEXCEPTION) {
+		<handle low memory exceptions<
+		} else if (IOEXCEPTION) {
+		<handle IO failure exceptions<
+		} else {
+		<handle any other exceptions<
+		}
+	}];
+foo() {
+	[{ int v = bar();
+		<normal processing<
+	} ifException: {
+		<handle exceptions<
+	}];
+}
+bar() {
+	id newObject = [SomeClass new];
+	<normal processing<
+}
+
+The statements that look like C compound statements used as
+expressions, in {bold braces}, are action expressions, which will be
+described in the next section. Their relevance to exception handling
+is that
+
+The code to be protected from exceptions, and the code for providing
+that protection, can be written alongside each other in a familiar
+readable fashion, without the syntactic clutter of working with
+function pointers directly.
+
+The compiler will generate the necessary boiler plate automatically,
+transforming the action expressions into function definitions that the
+underlying C compiler knows how to handle.  Although actions look
+syntactically like expressions, they are semantically analogous to
+function pointers that the exception handler can invoke as a
+subroutine of the exception, as opposed to within the scope of the
+calling site.
+
+TaskMaster's run-time support for this style of exception handling is
+in place today, and can be used by following the code generation
+strategy that the extended compiler will use; coding action
+instantiation statements by hand.
+
+A final TaskMaster feature is that exception handling is closely
+integrated with lightweight multitasking. Each task maintains an
+independent stack of exception handlers that inherits any exception
+handlers of its parent task. For example, a parent task can provide
+supply handlers of last resort for exceptions in its subtasks.
+TaskMaster automatically initializes the root task with a default
+handler for all possible exceptions.
+
+This handler of last resort features an interactive task inspector
+with interactive debugging facilities. A programmer can use the
+inspector to examine the call history that led to the exception and
+specify whether to exit the application, produce a file suitable for
+detailed debugging, or to continue in spite of the exception.
+
+The inspector is based on a library of routines that interpret C call
+histories in terms that a programmer can easily understand. For
+example, call histories are not presented as hexadecimal numbers but
+in symbolic terms. Subroutine and selector names are spelled out with
+all arguments decoded. Object references are presented in terms of the
+object's class name and its address, string pointers are presented in
+terms of the string's contents, and so forth. These decoding
+facilities are based on a library of platform-dependent routines in
+the TaskMaster PDL. These routines support such platform-dependent
+operations as loading the application's symbol table. They also
+provide the heuristic rules that determine which format should be used
+in presenting the otherwise untyped numbers in a C call stack.
+
+Apart from such convenience features, the exception handling is not
+particularly dependent on the target platform. Exception handling is
+based on a pair of routines, setjmp() and longjmp(), in the standard C
+run time library. Nor is it particularly dependent on multi-tasking,
+except that bundling exception handling with multi-tasking makes it
+possible for subtasks to manage exceptions independently from other
+tasks. Nor is exception handling specific to Objective-C. Its benefits
+are equally germane to ordinary C programs. This is another reason why
+TaskMaster's exception handling facilities are brought forth through
+two API's, a message-based API for users who want to treat exceptions
+as objects and a function-based API for those who want to treat them
+as functions.
+
+Action expressions
+
+Action expressions in Objective-C are related to block expressions in
+Smalltalk, with differences that adapt to the constraints of
+stack-based languages like C. Action expressions are a way to express
+actions, or deferred computations; computations to be written at one
+place but invoked from another.
+
+The classical examples of a deferred computation is a computation that
+a collection is to perform on each of its members or that a menu is to
+perform when selected. As the following examples show, action
+expressions are generally useful, especially for defining menus,
+operating on collection members, handling exceptions, and defining
+lightweight tasks:
+
+[ aMenu str:"Open" action:{ code to do a menu operation }];
+[ { code that might fail } ifException: { code to handle the exception } ];
+[ anyCollection do:{ code to be applied to each member } ];
+[ { code to run as a separate task } forkWith:2, arg1, arg2];
+
+Here is an a simpler example of how action expressions help to express
+a deferred computation. In this example, a printf() statement is to be
+passed to a subroutine, bar(), which will execute it at its
+convenience. Notice that the deferred computation is written right
+inside the foo subroutine, just like any C expression. But it is not
+to be executed there. The action is passed as an argument to the bar
+routine, so that bar can decide whether, and when, to invoke it later.
+
+extern int aGlobal;
+foo(aFormal)
+	int aLocal;
+
+	<long, involved computation<
+
+	/*
+	 * Pass this action to bar, which may run it later
+	 */
+	bar({ int formalArg; | printf(<, aGlobal, aFormal, aLocal, formalArg);});
+
+	<long, involved computation<
+}
+
+An action expression can be thought of as any legal C compound
+statement, used in a context where an expression is otherwise
+expected:
+
+Action expressions are written in-line, exactly like an ordinary C or
+Objective-C expression. In this case, the action expression is an
+argument to the foo subroutine call.
+
+Action expressions can freely reference any and all data within the
+expression's enclosing scope, such as the aGlobal, aFormal, and aLocal
+variables in this example.
+
+Evaluation of an action expression produces an object; an instance of
+class Action. For example, the foo subroutine will receive an instance
+of class Action as its formal argument, anAction.
+
+Invocation of an action occurs separately, just as invocation of a
+function via a function pointer is separate from the act of defining
+the function that it points to. The bar routine might invoke the
+printf statement with the message expression, [anAction value], in
+which formalArg will be nil. If it invokes it as [anAction
+value:aValue], formalArg will contain aValue.
+
+Action expressions can receive formal arguments from the message that
+invokes them, such as formalArg in this example. These are analogous
+to subroutine arguments. If formal arguments are to be used, they are
+declared in the block expression as in this example, where the | is a
+place-holder for an as-yet-undecided syntactic delimiter.
+
+Action expression's usefulness becomes most obvious in contrast with
+how this example would be coded in ordinary C, using function
+pointers:
+
+extern aGlobal;
+static dummyFv, dummyLv;
+static dummyFn(formalArg)
+{
+	printf("<", aGlobal, dummyFv, dummyLv, formalArg);
+}
+foo(aFormal) {
+	int aLocal;
+
+	<long, involved computation<
+
+	/*
+	 * Pass dummyFn to bar as a function pointer
+	 * so that bar can run it later
+	 */
+	dummyFv = aFormal;
+	dummyLv = aLocal;
+	bar(dummyFn);
+
+	<long involved computation<
+}
+
+This is less desirable than the original code for reasons referred to
+earlier as syntactic clutter.
+
+The computation is no longer in-line, inside the foo routine. The
+reader must be extremely careful to see that this code is packaging a
+printf() statement for execution by bar().
+
+The enclosing scope (foo) cannot pass data to the computation in a
+clean, readable fashion. It must use extraneous global variables, the
+dummyFv and dummyLv symbols in this example, to export data from its
+internal scope to the external function, dummyFn. These global
+variables are an obstacle to recursion and a rich opportunity for hard
+to debug race conditions should foo be used by multiple tasks.
+
+Objective-C actions have a key restriction that is not present with
+Smalltalk blocks. The code inside a action accesses copies of the
+variables that it references in the enclosing scope. These copies are
+made when the action is instantiated, not when it is invoked, as is
+the case with Smalltalk Blocks. The copies are stored as indexed
+instance variables inside the Action object and not in the enclosing
+scope (foo's stack frame).
+
+When the underlying C function is invoked, these variables are
+exported to the function via a structure pointer, as can be seen in
+the following example. For example, the aGlobal, aFormal, and aLocal
+variables in this example are copied when the action is created (i.e.
+just before bar is called), not when the deferred computation is
+invoked (inside bar). Objective-C action expressions do not share
+memory with their enclosing scope, they cannot export changes to the
+enclosing scope as in Smalltalk. Changes to action variables is
+ineffective, since the change affects a copy, not the original.
+
+This may have made the simple seem unduly complicated. What is going
+on here can seen by examining the C code that the compiler would emit
+for this example:
+
+static void fn(struct { int aGlobal, aFormal, aLocal; } *c, int formalArg)
+{
+	printf(<, c->aGlobal, c->aFormal, c->aLocal, formalArg);
+}
+foo(aFormal) {
+	extern int aGlobal;
+	int aLocal;
+
+	<long, involved computation<
+
+	bar(createAction(fn, 3, aGlobal, aFormal, aLocal));
+
+	<long, involved computation<
+
+}
+
+Of course, this example was intentionally simplified by choosing an
+example in which everything is of type int. This does not mean that
+actions will only be usable for integers; just that the adjustments
+that the compiler would emit for other types seem obvious. Until the
+compiler has been enhanced to emit this code automatically, this
+example shows what a present-day Objective-C user would write to use
+TaskMaster's action-based library facilities today.
+
+
+Date: Mon, 12 Oct 1992 13:46:03 -0500
+To: gnu-objc@prep.ai.mit.edu
+From: bradcox@sitevax.gmu.edu (Brad Cox)
+Subject: Action Expressions (exception handling, multitasking)
+Cc: Bruce Nilo <bruce@ictv.com>
+
+In Re: Your mission, should you choose to accept it. . Bruce Nilo
+<bruce@ictv.com> writes
+
+NeXT has half heartedly implemented an "Exception Handling" facility.  
+It basically consists of some macros, and the use of setjmp() and  
+longjmp(). An error handling facility should be specified,  
+implemented, and adhered to throughout the runtime system.
+
+I agree wholeheartedly! I joined this list primarily to encourage
+extensions to Objective-C of precisely this nature.
+
+I made substantial progress on the run-time part of this problem at Stepstone
+several years ago, but never managed to complete the language extensions
+(upwards compatible) to make them broadly useful. 
+
+<Taskmaster Document> "Action expressions in Objective-C are similar to
+block expressions in Smalltalk, with differences to adapt to the
+constraints of stack-based languages like C. Action expressions are a way
+to express actions, or deferred computations; computations to be written at
+one place but invoked from another."
+
+This document, which describes the (implemented) runtime components and
+(unimplemented) syntactic extensions, would be useful in considering
+language and/or runtime extensions. 
+
+I'll be glad to email a copy to those planning to  work on such extentions. 
+(Please...only if you're planning to do actual work!)
+===
+Brad Cox, Ph.D; Program on Social and Organizational Learning; George Mason
+University; Fairfax VA 22030; 703 691 3187 direct; 703 993 1142 reception;
+bradcox@sitevax.gmu.edu
+---
+Information Age Consulting; 13668 Bent Tree Circle #203; Centreville VA
+22020;           703 968 8229 home; 703 968 8798 fax; bradcox@infoage.com
+
+Date: Thu, 15 Oct 92 04:59:00 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: gsk@marble.com
+Cc: gnu-objc@prep.ai.mit.edu
+Subject: action expressions
+
+GNU C supports nested functions.  In 2.3, these should work in
+Objective C.  This supplies most of the mechanism for creating action
+objects if you want them.  In fact, I expect one can go the rest of
+the way with macros, if you don't mind a different syntax:
+
+#define make_action(name, body)
+ ({ id __temp = <create an empty action object>;
+    void name () { body }
+    <store &name into __temp>;
+    __temp; })
+
+I've omitted the backslashes, and left stubs for where Objective C
+constructs are needed since I don't know them.
+
+This technique requires you to give a unique name each time you write
+an action expression.  That could be avoided with an improvement in
+macro power.
+
+Date: Thu, 15 Oct 92 05:02:24 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: gsk@marble.com
+Cc: gnu-objc@prep.ai.mit.edu
+Subject: exceptions
+
+There seems to be a concensus that (1) exceptions should work by
+exiting to the level where the handler was set up, and (2) running a
+debugger is a completely independent matter from handling exceptions.
+
+I've seen systems where there was an attempt to permit handlers to
+look at the environment of the exception.  The problem is that the
+handler can't do anything useful except a goto, unless it understands
+what was going on at the place that got the exception.  And the whole
+idea is that the handler shouldn't have to know that.  So an exception
+facility that always does a goto is sufficient.
+
+There are various plans to implement exception handling in GCC for the
+sake of various languages, and it will surely get done sooner or later.
+It will be easy to support in Objective C once the mechanism is present.
+
+Date: Thu, 15 Oct 92 05:25:13 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: rms@gnu.ai.mit.edu
+Cc: gsk@marble.com, gnu-objc@prep.ai.mit.edu
+Subject: exceptions
+
+I see my message was not clearly written and might have been
+confusing.
+
+There seems to be a consensus among most language designers that (1)
+exceptions should work by exiting to the level where the handler was
+set up, and (2) running a debugger is a completely independent matter
+from handling exceptions.  Brad Cox seems to disagree--but I agree
+with the general consensus, and that's how I plan to support
+exceptions in GCC.
+
+Date: Thu, 15 Oct 1992 08:15:44 -0500
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+From: bradcox@sitevax.gmu.edu (Brad Cox)
+Subject: Re: exceptions
+Cc: gsk@marble.com, gnu-objc@prep.ai.mit.edu
+
+>There seems to be a consensus among most language designers that (1)
+>exceptions should work by exiting to the level where the handler was
+>set up, and (2) running a debugger is a completely independent matter
+>from handling exceptions.
+
+The problem is most obvious when designing a 'default' exception handler;
+i.e. a piece of code internal to the EH package that will automatically
+catch exceptions globally if the programmer doesn't provide one of his own.
+
+This global handler needs to run in the context of the exception to, for
+example, print a backtrace showing the calls that led to the exception. The
+same applies if somebody wants to override the exception to call a more
+sophisticated process inspector ( a 'debugger'), perhaps capable of
+examining and possibly even changing global shared state (such as the
+stack) and maybe even resuming the execution. For example, imagine invoking
+adb (or something better) from inside the handler.
+
+I suspect that the concensus you speak of arose from the difficulty of
+writing exception handlers as subroutines rather than from more considered
+reasons. Action expressions are useful for many other things than exception
+handling. But once they become available, it becomes practical to
+reconsider solutions that weren't practical in their absence...like running
+exception handlers as subroutines of the exception. That is, exception
+handlers often need to access state  local to the scope of the calling
+site. This is clumsy if the handler is a subroutine, but easy if the
+handler is an action object because all variables are copied into the
+action object and passed to its handler as ordinary variables.
+
+I've advocated a departure from concensus on this matter on the grounds of
+generality...potentially useful (albeit nontrivial to access) information;
+i.e. stack frames, are unconditionally discarded in the concensus solution
+that is retained by the action expression approach. 
+
+And oh yes, the concensus approach is a concensus only for compiled
+stack-based languages like C, but not for non-stack-based languages like
+Smalltalk and (although I'm less sure of this; any Lisp experts in the
+crowd?) and Lisp. 
+Brad Cox; 703 691 3187 direct; 703 993 1142 reception;
+bradcox@sitevax.gmu.edu
+
+From: billb@jupiter.fnbc.com (Bill Burcham)
+Date: Thu, 15 Oct 92 09:59:06 -0500
+To: bradcox@sitevax.gmu.edu (Brad Cox)
+Subject: Re: exceptions
+Cc: gnu-objc@prep.ai.mit.edu
+
+Yeah, and there are also the problems of breaking a thread and never
+getting back from traditional exceptions.  Also, NeXT's approach uses
+int's to identify exceptions -- but they have no object to manage the
+allocation of these ints, so if I write some reusable class, I have to
+pick an int range at random (and pray that no one else has used or
+will ever use any of those same ints for their exceptions).
+
+If we choose the consensus scheme (not that I am saying we _should_), then I believe it is important to provide an ExceptionBroker:
+
++ (BOOL)setCodeBase:(int)base availableExceptions:(int)howmany;
++ registerErrorReporter:(void (*)(NXHandler *errorState))proc
+	forException:(STR)aName;
++ raise:(STR)exception data1:(void*)data1 data2:(void*)data2;
++ (BOOL)senderMayRaise:(STR)aName;
++ (int)exceptionNumber:(STR)aName;
+	
+#define EB_RegisterErrorReporter(proc, name) \
+[ExceptionBroker registerErrorReporter:(proc) \
+	forException:(aName)]
+	
+#define EB_RAISE(exception, d1, d2) \
+[ExceptionBroker raise:(exception) data1:(d1) data2:(d2)]
+
+This protocol allows a class which will raise certain exceptions (or
+will produce instances which will produce certain exceptions) to check
+in +initialize (or -init) whether or not those exception identifiers
+are available to it.  If they are not, then the class or instance can
+set an ivar such as `BOOL classIsBroker' which can prevent subsequent
+instantiation, etc.
+
+I will donate ExceptionBroker and helper class Exception to The
+Project if anyone is interested.
+
+Bill
+
+Date: Thu, 15 Oct 92 15:00:35 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: bradcox@sitevax.gmu.edu
+Cc: gsk@marble.com, gnu-objc@prep.ai.mit.edu
+Subject: exceptions
+
+    I suspect that the concensus you speak of arose from the difficulty of
+    writing exception handlers as subroutines
+
+The difficulty you speak of is limited to C.  Most of the language
+design I'm talking about is for other languages that support nested
+functions, and could easily use that mechanism for running an
+exception handler as a subroutine, if that were desired.  There used
+to be such designs, as in PL/1, but they were not very useful and that
+led to the conclusion that handlers should always go back to the
+context where they were set up.
+
+    This global handler needs to run in the context of the exception to, for
+    example, print a backtrace showing the calls that led to the exception.
+
+The second part of the consensus is that handlers should not be the
+basis for debugging.
+
+It is not very useful to print a backtrace.  The ways we deal with
+crashes is by either stopping the process or by making a core dump.
+Either way, you can get a backtrace or do various other useful
+things.  The way to do these is not with a handler.  Instead, the
+function that raises an exception will raise a signal when
+appropriate.
+
+
+I'm not going to support more than one exception handler mechanism in
+GCC unless there is a clear need.  I want to support just one, for all
+languages--to save work.  It may be that this mechanism can handle
+handlers that run as subroutines as well as handlers that jump,
+without much extra trouble.  But I would still design the handler
+construct in a new language to do jumps, at this point.
+

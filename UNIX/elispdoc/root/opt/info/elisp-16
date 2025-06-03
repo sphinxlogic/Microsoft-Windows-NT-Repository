@@ -1,0 +1,1211 @@
+This is Info file elisp, produced by Makeinfo-1.55 from the input file
+elisp.texi.
+
+   This version is newer than the second printed edition of the GNU
+Emacs Lisp Reference Manual.  It corresponds to Emacs Version 19.19.
+
+   Published by the Free Software Foundation 675 Massachusetts Avenue
+Cambridge, MA 02139 USA
+
+   Copyright (C) 1990, 1991, 1992, 1993 Free Software Foundation, Inc.
+
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided that the
+entire resulting derived work is distributed under the terms of a
+permission notice identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that this permission notice may be stated in a
+translation approved by the Foundation.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the section entitled "GNU General Public License" is included
+exactly as in the original, and provided that the entire resulting
+derived work is distributed under the terms of a permission notice
+identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the section entitled "GNU General Public License"
+may be included in a translation approved by the Free Software
+Foundation instead of in the original English.
+
+
+File: elisp,  Node: Scanning Keymaps,  Prev: Key Binding Commands,  Up: Keymaps
+
+Scanning Keymaps
+================
+
+   This section describes functions used to scan all the current keymaps
+for the sake of printing help information.
+
+ - Function: accessible-keymaps KEYMAP &optional PREFIX
+     This function returns a list of all the keymaps that can be
+     accessed (via prefix keys) from KEYMAP.  The value is an
+     association list with elements of the form `(KEY . MAP)', where
+     KEY is a prefix key whose definition in KEYMAP is MAP.
+
+     The elements of the alist are ordered so that the KEY increases in
+     length.  The first element is always `("" . KEYMAP)', because the
+     specified keymap is accessible from itself with a prefix of no
+     events.
+
+     If PREFIX is given, it should be a prefix key sequence; then
+     `accessible-keymaps' includes only the submaps whose prefixes start
+     with PREFIX.  These elements look just as they do in the value of
+     `(accessible-keymaps)'; the only difference is that some elements
+     are omitted.
+
+     In the example below, the returned alist indicates that the key
+     ESC, which is displayed as `^[', is a prefix key whose definition
+     is the sparse keymap `(keymap (83 . center-paragraph) (115 .
+     foo))'.
+
+          (accessible-keymaps (current-local-map))
+          =>(("" keymap
+                (27 keymap   ; Note this keymap for ESC is repeated below.
+                    (83 . center-paragraph)
+                    (115 . center-line))
+                (9 . tab-to-tab-stop))
+
+          ("^[" keymap
+              (83 . center-paragraph)
+              (115 . foo)))
+
+     In the following example, `C-h' is a prefix key that uses a sparse
+     keymap starting with `(keymap (118 . describe-variable)...)'.
+     Another prefix, `C-x 4', uses a keymap which happens to be
+     `ctl-x-4-map'.  The event `mode-line' is one of several dummy
+     events used as prefixes for mouse actions in special parts of a
+     window.
+
+          (accessible-keymaps (current-global-map))
+          => (("" keymap [set-mark-command beginning-of-line ...
+                             delete-backward-char])
+
+          ("^H" keymap (118 . describe-variable) ...
+               (8 . help-for-help))
+
+          ("^X" keymap [x-flush-mouse-queue ...
+               backward-kill-sentence])
+
+          ("^[" keymap [mark-sexp backward-sexp ...
+               backward-kill-word])
+              ("^X4" keymap (15 . display-buffer) ...)
+          ([mode-line] keymap
+               (S-mouse-2 . mouse-split-window-horizontally) ...))
+
+     These are not all the keymaps you would see in an actual case.
+
+ - Function: where-is-internal COMMAND &optional KEYMAP FIRSTONLY
+     This function returns a list of key sequences (of any length) that
+     are bound to COMMAND in KEYMAP and the global keymap.  The
+     argument COMMAND can be any object; it is compared with all keymap
+     entries using `eq'.  If KEYMAP is not supplied, then the global
+     map alone is used.
+
+     If FIRSTONLY is non-`nil', then the value is a single string
+     representing the first key sequence found, rather than a list of
+     all possible key sequences.
+
+     This function is used by `where-is' (*note Help: (emacs)Help.).
+
+          (where-is-internal 'describe-function)
+              => ("\^hf" "\^hd")
+
+ - Command: describe-bindings PREFIX
+     This function creates a listing of all defined keys, and their
+     definitions.  The listing is put in a buffer named `*Help*', which
+     is then displayed in a window.
+
+     A meta character is shown as ESC followed by the corresponding
+     non-meta character.  Control characters are indicated with `C-'.
+
+     When several characters with consecutive ASCII codes have the same
+     definition, they are shown together, as `FIRSTCHAR..LASTCHAR'.  In
+     this instance, you need to know the ASCII codes to understand
+     which characters this means.  For example, in the default global
+     map, the characters `SPC .. ~' are described by a single line.
+     SPC is ASCII 32, `~' is ASCII 126, and the characters between them
+     include all the normal printing characters, (e.g., letters,
+     digits, punctuation, etc.); all these characters are bound to
+     `self-insert-command'.
+
+     If PREFIX is non-`nil', it should be a prefix key; then only keys
+     that start with PREFIX are described.
+
+
+File: elisp,  Node: Modes,  Next: Documentation,  Prev: Keymaps,  Up: Top
+
+Major and Minor Modes
+*********************
+
+   A "mode" is a set of definitions that customize Emacs and can be
+turned on and off while you edit.  There are two varieties of modes:
+"major modes", which are mutually exclusive and used for editing
+particular kinds of text, and "minor modes", which provide features that
+may be enabled individually.
+
+   This chapter covers both major and minor modes, the way they are
+indicated in the mode line, and how they run hooks supplied by the user.
+Related topics such as keymaps and syntax tables are covered in separate
+chapters.  (*Note Keymaps::, and *Note Syntax Tables::.)
+
+* Menu:
+
+* Major Modes::        Defining major modes.
+* Minor Modes::        Defining minor modes.
+* Mode Line Format::   Customizing the text that appears in the mode line.
+* Hooks::              How to use hooks; how to write code that provides hooks.
+
+
+File: elisp,  Node: Major Modes,  Next: Minor Modes,  Prev: Modes,  Up: Modes
+
+Major Modes
+===========
+
+   Major modes specialize Emacs for editing particular kinds of text.
+Each buffer has only one major mode at a time.
+
+   The least specialized major mode is called "Fundamental mode".  This
+mode has no mode-specific definitions or variable settings, so each
+Emacs command behaves in its default manner, and each option is in its
+default state.  All other major modes redefine various keys and options.
+For example, Lisp Interaction mode provides special key bindings for
+LFD (`eval-print-last-sexp'), TAB (`lisp-indent-line'), and other keys.
+
+   When you need to write several editing commands to help you perform a
+specialized editing task, creating a new major mode is usually a good
+idea.  In practice, writing a major mode is easy (in contrast to
+writing a minor mode, which is often difficult).
+
+   If the new mode is similar to an old one, it is often unwise to
+modify the old one to serve two purposes, since it may become harder to
+use and maintain.  Instead, copy and rename an existing major mode
+definition and alter it for its new function.  For example, Rmail Edit
+mode, which is in `emacs/lisp/rmailedit.el', is a major mode that is
+very similar to Text mode except that it provides three additional
+commands.  Its definition is distinct from that of Text mode, but was
+derived from it.
+
+   Rmail Edit mode is an example of a case where one piece of text is
+put temporarily into a different major mode so it can be edited in a
+different way (with ordinary Emacs commands rather than Rmail).  In such
+cases, the temporary major mode usually has a command to switch back to
+the buffer's usual mode (Rmail mode, in this case).  You might be
+tempted to present the temporary redefinitions inside a recursive edit
+and restore the usual ones when the user exits; but this is a bad idea
+because it constrains the user's options when it is done in more than
+one buffer: recursive edits must be exited most-recently-entered first.
+Using alternative major modes avoids this limitation.  *Note Recursive
+Editing::.
+
+   The standard GNU Emacs Lisp library directory contains the code for
+several major modes, in files including `text-mode.el', `texinfo.el',
+`lisp-mode.el', `c-mode.el', and `rmail.el'.  You can look at these
+libraries to see how modes are written.  Text mode is perhaps the
+simplest major mode aside from Fundamental mode.  Rmail mode is a
+rather complicated, full-featured mode.
+
+* Menu:
+
+* Major Mode Conventions::  Coding conventions for keymaps, etc.
+* Example Major Modes::     Text mode and Lisp modes.
+* Auto Major Mode::         How Emacs chooses the major mode automatically.
+* Mode Help::               Finding out how to use a mode.
+
+
+File: elisp,  Node: Major Mode Conventions,  Next: Example Major Modes,  Prev: Major Modes,  Up: Major Modes
+
+Major Mode Conventions
+----------------------
+
+   The code for existing major modes follows various coding conventions,
+including conventions for local keymap and syntax table initialization,
+global names, and hooks.  Please keep these conventions in mind when you
+create a new major mode:
+
+   * Define a command whose name ends in `-mode', with no arguments,
+     that switches to the new mode in the current buffer.  This command
+     should set up the keymap, syntax table, and local variables in an
+     existing buffer without changing the buffer's text.
+
+   * Write a documentation string for this command which describes the
+     special commands available in this mode.  `C-h m'
+     (`describe-mode') will print this.
+
+     The documentation string may include the special documentation
+     substrings, `\[COMMAND]', `\{KEYMAP}', and `\<KEYMAP>', that
+     enable the documentation to adapt automatically to the user's own
+     key bindings.  *Note Keys in Documentation::.  The `describe-mode'
+     function replaces these special documentation substrings with
+     their current meanings.  *Note Accessing Documentation::.
+
+   * The major mode command should set the variable `major-mode' to the
+     major mode command symbol.  This is how `describe-mode' discovers
+     which documentation to print.
+
+   * The major mode command should set the variable `mode-name' to the
+     "pretty" name of the mode, as a string.  This appears in the mode
+     line.
+
+   * Since all global names are in the same name space, all the global
+     variables, constants, and functions that are part of the mode
+     should have names that start with the major mode name (or with an
+     abbreviation of it if the name is long).  *Note Style Tips::.
+
+   * The major mode should usually have its own keymap, which is used
+     as the local keymap in all buffers in that mode.  The major mode
+     function should call `use-local-map' to install this local map.
+     *Note Active Keymaps::, for more information.
+
+     This keymap should be kept in a global variable named
+     `MODENAME-mode-map'.  Normally the library that defines the mode
+     sets this variable.  Use `defvar' to set the variable, so that it
+     is not reinitialized if it already has a value.  (Such
+     reinitialization could discard customizations made by the user.)
+
+   * The mode may have its own syntax table or may share one with other
+     related modes.  If it has its own syntax table, it should store
+     this in a variable named `MODENAME-mode-syntax-table'.  The reasons
+     for this are the same as for using a keymap variable.  *Note
+     Syntax Tables::.
+
+   * The mode may have its own abbrev table or may share one with other
+     related modes.  If it has its own abbrev table, it should store
+     this in a variable named `MODENAME-mode-abbrev-table'.  *Note
+     Abbrev Tables::.
+
+   * To give a variable a buffer-local binding, use
+     `make-local-variable' in the major mode command, not
+     `make-variable-buffer-local'.  The latter function would make the
+     variable local to every buffer in which it is subsequently set,
+     which would affect buffers that do not use this mode.  It is
+     undesirable for a mode to have such global effects.  *Note
+     Buffer-Local Variables::.
+
+   * If hooks are appropriate for the mode, the major mode command
+     should run the hooks after completing all other initialization so
+     the user may further customize any of the settings.  *Note Hooks::.
+
+   * If this mode is appropriate only for specially-prepared text, then
+     the major mode command symbol should have a property named
+     `mode-class' with value `special', put on as follows:
+
+          (put 'funny-mode 'mode-class 'special)
+
+     This tells Emacs that new buffers created while the current buffer
+     has Funny mode should not inherit Funny mode.  Modes such as
+     Dired, Rmail, and Buffer List use this feature.
+
+   * If it is desirable that Emacs use the new mode by default after
+     visiting files with certain recognizable names, add an element to
+     `auto-mode-alist' to select the mode for those file names.  If you
+     define the mode command to autoload, you should add this element
+     in the same file that calls `autoload'.  Otherwise, it is
+     sufficient to add the element in the file that contains the mode
+     definition.  *Note Auto Major Mode::.
+
+   * In the documentation, you should provide a sample `autoload' form
+     and an example of how to add to `auto-mode-alist', that users can
+     include in their `.emacs' files.
+
+   * The top level forms in the file defining the mode should be
+     written so that they may be evaluated more than once without
+     adverse consequences.  Even if you never load the file more than
+     once, someone else will.
+
+
+File: elisp,  Node: Example Major Modes,  Next: Auto Major Mode,  Prev: Major Mode Conventions,  Up: Major Modes
+
+Major Mode Examples
+-------------------
+
+   Text mode is perhaps the simplest mode besides Fundamental mode.
+Here are excerpts from  `text-mode.el' that illustrate many of the
+conventions listed above:
+
+     ;; Create mode-specific tables.
+     (defvar text-mode-syntax-table nil
+       "Syntax table used while in text mode.")
+
+     (if text-mode-syntax-table
+         ()              ; Do not change the table if it is already set up.
+       (setq text-mode-syntax-table (make-syntax-table))
+       (modify-syntax-entry ?\" ".   " text-mode-syntax-table)
+       (modify-syntax-entry ?\\ ".   " text-mode-syntax-table)
+       (modify-syntax-entry ?' "w   " text-mode-syntax-table))
+
+     (defvar text-mode-abbrev-table nil
+       "Abbrev table used while in text mode.")
+     (define-abbrev-table 'text-mode-abbrev-table ())
+
+     (defvar text-mode-map nil)   ; Create a mode-specific keymap.
+     
+     (if text-mode-map
+         ()              ; Do not change the keymap if it is already set up.
+       (setq text-mode-map (make-sparse-keymap))
+       (define-key text-mode-map "\t" 'tab-to-tab-stop)
+       (define-key text-mode-map "\es" 'center-line)
+       (define-key text-mode-map "\eS" 'center-paragraph))
+
+   Here is the complete major mode function definition for Text mode:
+
+     (defun text-mode ()
+       "Major mode for editing text intended for humans to read.
+      Special commands: \\{text-mode-map}
+
+     Turning on text-mode runs the hook `text-mode-hook'."
+       (interactive)
+       (kill-all-local-variables)
+
+     (use-local-map text-mode-map)     ; This provides the local keymap.
+       (setq mode-name "Text")           ; This name goes into the mode line.
+       (setq major-mode 'text-mode)      ; This is how `describe-mode'
+                                         ;   finds the doc string to print.
+       (setq local-abbrev-table text-mode-abbrev-table)
+       (set-syntax-table text-mode-syntax-table)
+       (run-hooks 'text-mode-hook))      ; Finally, this permits the user to
+                                         ;   customize the mode with a hook.
+
+   The three Lisp modes (Lisp mode, Emacs Lisp mode, and Lisp
+Interaction mode) have more features than Text mode and the code is
+correspondingly more complicated.  Here are excerpts from
+`lisp-mode.el' that illustrate how these modes are written.
+
+     ;; Create mode-specific table variables.
+     (defvar lisp-mode-syntax-table nil "")
+     (defvar emacs-lisp-mode-syntax-table nil "")
+     (defvar lisp-mode-abbrev-table nil "")
+
+     (if (not emacs-lisp-mode-syntax-table) ; Do not change the table
+                                            ;   if it is already set.
+         (let ((i 0))
+           (setq emacs-lisp-mode-syntax-table (make-syntax-table))
+
+     ;; Set syntax of chars up to 0 to class of chars that are
+           ;;   part of symbol names but not words.
+           ;;   (The number 0 is `48' in the ASCII character set.)
+           (while (< i ?0)
+             (modify-syntax-entry i "_   " emacs-lisp-mode-syntax-table)
+             (setq i (1+ i)))
+           ...
+
+     ;; Set the syntax for other characters.
+           (modify-syntax-entry ?  "    " emacs-lisp-mode-syntax-table)
+           (modify-syntax-entry ?\t "    " emacs-lisp-mode-syntax-table)
+           ...
+
+     (modify-syntax-entry ?\( "()  " emacs-lisp-mode-syntax-table)
+           (modify-syntax-entry ?\) ")(  " emacs-lisp-mode-syntax-table)
+           ...))
+     ;; Create an abbrev table for lisp-mode.
+     (define-abbrev-table 'lisp-mode-abbrev-table ())
+
+   Much code is shared among the three Lisp modes.  The following
+function sets various variables; it is called by each of the major Lisp
+mode functions:
+
+     (defun lisp-mode-variables (lisp-syntax)
+       ;; The `lisp-syntax' argument is `nil' in Emacs Lisp mode,
+       ;;   and `t' in the other two Lisp modes.
+       (cond (lisp-syntax
+              (if (not lisp-mode-syntax-table)
+                  ;; The Emacs Lisp mode syntax table always exists, but
+                  ;;   the Lisp Mode syntax table is created the first time a
+                  ;;   mode that needs it is called.  This is to save space.
+
+     (progn (setq lisp-mode-syntax-table
+                            (copy-syntax-table emacs-lisp-mode-syntax-table))
+                         ;; Change some entries for Lisp mode.
+                         (modify-syntax-entry ?\| "\"   "
+                                              lisp-mode-syntax-table)
+                         (modify-syntax-entry ?\[ "_   "
+                                              lisp-mode-syntax-table)
+                         (modify-syntax-entry ?\] "_   "
+                                              lisp-mode-syntax-table)))
+
+     (set-syntax-table lisp-mode-syntax-table)))
+       (setq local-abbrev-table lisp-mode-abbrev-table)
+       ...)
+
+   Functions such as `forward-paragraph' use the value of the
+`paragraph-start' variable.  Since Lisp code is different from ordinary
+text, the `paragraph-start' variable needs to be set specially to
+handle Lisp.  Also, comments are indented in a special fashion in Lisp
+and the Lisp modes need their own mode-specific
+`comment-indent-function'.  The code to set these variables is the rest
+of `lisp-mode-variables'.
+
+     (make-local-variable 'paragraph-start)
+       (setq paragraph-start (concat "^$\\|" page-delimiter))
+       ...
+
+     (make-local-variable 'comment-indent-function)
+       (setq comment-indent-function 'lisp-comment-indent))
+
+   Each of the different Lisp modes has a slightly different keymap.
+For example, Lisp mode binds `C-c C-l' to `run-lisp', but the other
+Lisp modes do not.  However, all Lisp modes have some commands in
+common.  The following function adds these common commands to a given
+keymap.
+
+     (defun lisp-mode-commands (map)
+       (define-key map "\e\C-q" 'indent-sexp)
+       (define-key map "\177" 'backward-delete-char-untabify)
+       (define-key map "\t" 'lisp-indent-line))
+
+   Here is an example of using `lisp-mode-commands' to initialize a
+keymap, as part of the code for Emacs Lisp mode.  First we declare a
+variable with `defvar' to hold the mode-specific keymap.  When this
+`defvar' executes, it sets the variable to `nil' if it was void.  Then
+we set up the keymap if the variable is `nil'.
+
+   This code avoids changing the keymap or the variable if it is already
+set up.  This lets the user customize the keymap if he or she so wishes.
+
+     (defvar emacs-lisp-mode-map () "")
+     
+     (if emacs-lisp-mode-map
+         ()
+       (setq emacs-lisp-mode-map (make-sparse-keymap))
+       (define-key emacs-lisp-mode-map "\e\C-x" 'eval-defun)
+       (lisp-mode-commands emacs-lisp-mode-map))
+
+   Finally, here is the complete major mode function definition for
+Emacs Lisp mode.
+
+     (defun emacs-lisp-mode ()
+       "Major mode for editing Lisp code to run in Emacs.
+     Commands:
+     Delete converts tabs to spaces as it moves back.
+     Blank lines separate paragraphs.  Semicolons start comments.
+     \\{emacs-lisp-mode-map}
+
+     Entry to this mode runs the hook `emacs-lisp-mode-hook'."
+       (interactive)
+       (kill-all-local-variables)
+       (use-local-map emacs-lisp-mode-map)    ; This provides the local keymap.
+       (set-syntax-table emacs-lisp-mode-syntax-table)
+
+     (setq major-mode 'emacs-lisp-mode)     ; This is how `describe-mode'
+                                              ;   finds out what to describe.
+       (setq mode-name "Emacs-Lisp")          ; This goes into the mode line.
+       (lisp-mode-variables nil)              ; This define various variables.
+       (run-hooks 'emacs-lisp-mode-hook))     ; This permits the user to use a
+                                              ;   hook to customize the mode.
+
+
+File: elisp,  Node: Auto Major Mode,  Next: Mode Help,  Prev: Example Major Modes,  Up: Major Modes
+
+How Emacs Chooses a Major Mode
+------------------------------
+
+   Based on information in the file name or in the file itself, Emacs
+automatically selects a major mode for the new buffer when a file is
+visited.
+
+ - Command: fundamental-mode
+     Fundamental mode is a major mode that is not specialized for
+     anything in particular.  Other major modes are defined in effect
+     by comparison with this one--their definitions say what to change,
+     starting from Fundamental mode.  The `fundamental-mode' function
+     does *not* run any hooks, so it is not readily customizable.
+
+ - Command: normal-mode &optional FIND-FILE
+     This function establishes the proper major mode and local variable
+     bindings for the current buffer.  First it calls `set-auto-mode',
+     then it runs `hack-local-variables' to parse, and bind or evaluate
+     as appropriate, any local variables.
+
+     If the FIND-FILE argument to `normal-mode' is non-`nil',
+     `normal-mode' assumes that the `find-file' function is calling it.
+     In this case, it may process a local variables list at the end of
+     the file.  The variable `enable-local-variables' controls whether
+     to do so.
+
+     If you run `normal-mode' yourself, the argument FIND-FILE is
+     normally `nil'.  In this case, `normal-mode' unconditionally
+     processes any local variables list.  *Note Local Variables in
+     Files: (emacs)File variables, for the syntax of the local
+     variables section of a file.
+
+     `normal-mode' uses `condition-case' around the call to the major
+     mode function, so errors are caught and reported as a `File mode
+     specification error',  followed by the original error message.
+
+ - User Option: enable-local-variables
+     This variable controls processing of local variables lists in files
+     being visited.  A value of `t' means process the local variables
+     lists unconditionally; `nil' means ignore them; anything else means
+     ask the user what to do for each file.  The default value is `t'.
+
+ - User Option: enable-local-eval
+     This variable controls processing of `Eval:' in local variables
+     lists in files being visited.  A value of `t' means process them
+     unconditionally; `nil' means ignore them; anything else means ask
+     the user what to do for each file.  The default value is `maybe'.
+
+ - Function: set-auto-mode
+     This function selects the major mode that is appropriate for the
+     current buffer.  It may base its decision on the value of the `-*-'
+     line, on the visited file name (using `auto-mode-alist'), or on the
+     value of a local variable).  However, this function does not look
+     for the `mode:' local variable near the end of a file; the
+     `hack-local-variables' function does that.  *Note How Major Modes
+     are Chosen: (emacs)Choosing Modes.
+
+ - User Option: default-major-mode
+     This variable holds the default major mode for new buffers.  The
+     standard value is `fundamental-mode'.
+
+     If the value of `default-major-mode' is `nil', Emacs uses the
+     (previously) current buffer's major mode for the major mode of a
+     new buffer.  However, if the major mode symbol has a `mode-class'
+     property with value `special', then it is not used for new buffers;
+     Fundamental mode is used instead.  The modes that have this
+     property are those such as Dired and Rmail that are useful only
+     with text that has been specially prepared.
+
+ - Variable: initial-major-mode
+     The value of this variable determines the major mode of the initial
+     `*scratch*' buffer.  The value should be a symbol that is a major
+     mode command name.  The default value is `lisp-interaction-mode'.
+
+ - Variable: auto-mode-alist
+     This variable contains an association list of file name patterns
+     (regular expressions; *note Regular Expressions::.) and
+     corresponding major mode functions.  Usually, the file name
+     patterns test for suffixes, such as `.el' and `.c', but this need
+     not be the case.  Each element of the alist looks like `(REGEXP .
+     mODE-FUNCTION)'.
+
+     For example,
+
+          (("^/tmp/fol/" . text-mode)
+           ("\\.texinfo$" . texinfo-mode)
+           ("\\.texi$" . texinfo-mode)
+
+          ("\\.el$" . emacs-lisp-mode)
+           ("\\.c$" . c-mode)
+           ("\\.h$" . c-mode)
+           ...)
+
+     When you visit a file whose *expanded* file name (*note File Name
+     Expansion::.) matches a REGEXP, `set-auto-mode' calls the
+     corresponding MODE-FUNCTION.  This feature enables Emacs to select
+     the proper major mode for most files.
+
+     Here is an example of how to prepend several pattern pairs to
+     `auto-mode-alist'.  (You might use this sort of expression in your
+     `.emacs' file.)
+
+          (setq auto-mode-alist
+            (append
+             ;; Filename starts with a dot.
+             '(("/\\.[^/]*$" . fundamental-mode)
+               ;; Filename has no dot.
+               ("[^\\./]*$" . fundamental-mode)
+               ("\\.C$" . c++-mode))
+             auto-mode-alist))
+
+ - Function: hack-local-variables &optional FORCE
+     This function parses, and binds or evaluates as appropriate, any
+     local variables for the current buffer.
+
+     The handling of `enable-local-variables' documented for
+     `normal-mode' actually takes place here.  The argument FORCE
+     reflects the argument FIND-FILE given to `normal-mode'.
+
+
+File: elisp,  Node: Mode Help,  Prev: Auto Major Mode,  Up: Major Modes
+
+Getting Help about a Major Mode
+-------------------------------
+
+   The `describe-mode' function is used to provide information about
+major modes.  It is normally called with `C-h m'.  The `describe-mode'
+function uses the value of `major-mode', which is why every major mode
+function needs to set the `major-mode' variable.
+
+ - Command: describe-mode
+     This function displays the documentation of the current major mode.
+
+     The `describe-mode' function calls the `documentation' function
+     using the value of `major-mode' as an argument.  Thus, it displays
+     the documentation string of the major mode function.  (*Note
+     Accessing Documentation::.)
+
+ - Variable: major-mode
+     This variable holds the symbol for the current buffer's major
+     mode.  This symbol should be the name of the function that is
+     called to initialize the mode.  The `describe-mode' function uses
+     the documentation string of this symbol as the documentation of
+     the major mode.
+
+
+File: elisp,  Node: Minor Modes,  Next: Mode Line Format,  Prev: Major Modes,  Up: Modes
+
+Minor Modes
+===========
+
+   A "minor mode" provides features that users may enable or disable
+independently of the choice of major mode.  Minor modes can be enabled
+individually or in combination.  Minor modes would be better named
+"Generally available, optional feature modes" except that such a name is
+unwieldy.
+
+   A minor mode is not usually a modification of single major mode.  For
+example, Auto Fill mode may be used in any major mode that permits text
+insertion.  To be general, a minor mode must be effectively independent
+of the things major modes do.
+
+   A minor mode is often much more difficult to implement than a major
+mode.  One reason is that you should be able to deactivate a minor mode
+and restore the environment of the major mode to the state it was in
+before the minor mode was activated.
+
+   Often the biggest problem in implementing a minor mode is finding a
+way to insert the necessary hook into the rest of Emacs.  Minor mode
+keymaps make this easier.
+
+* Menu:
+
+* Minor Mode Conventions::      Tips for writing a minor mode.
+* Keymaps and Minor Modes::     How a minor mode can have its own keymap.
+
+
+File: elisp,  Node: Minor Mode Conventions,  Next: Keymaps and Minor Modes,  Up: Minor Modes
+
+Conventions for Writing Minor Modes
+-----------------------------------
+
+   There are conventions for writing minor modes just as there are for
+major modes.  Several of the major mode conventions apply to minor
+modes as well: those regarding the name of the mode initialization
+function, the names of global symbols, and the use of keymaps and other
+tables.
+
+   In addition, there are several conventions that are specific to
+minor modes.
+
+   * Make a variable whose name ends in `-mode' to represent the minor
+     mode.  Its value should enable or disable the mode (`nil' to
+     disable; anything else to enable.)  We call this the "mode
+     variable".
+
+     This variable is used in conjunction with the `minor-mode-alist' to
+     display the minor mode name in the mode line.  It can also enable
+     or disable a minor mode keymap.  Individual commands or hooks can
+     also check the variable's value.
+
+     If you want the minor mode to be enabled separately in each buffer,
+     make the variable buffer-local.
+
+   * Define a command whose name is the same as the mode variable.  Its
+     job is to enable and disable the mode by setting the variable.
+
+     The command should accept one optional argument.  If the argument
+     is `nil', it should toggle the mode (turn it on if it is off, and
+     off if it is on).  Otherwise, it should turn the mode on if the
+     argument is a positive integer, a symbol other than `nil' or `-',
+     or a list whose CAR is such an integer or symbol; it should turn
+     the mode off otherwise.
+
+     Here is an example taken from the definition of `overwrite-mode'.
+     It shows the use of `overwrite-mode' as a variable which enables or
+     disables the mode's behavior.
+
+          (setq overwrite-mode
+                (if (null arg) (not overwrite-mode)
+                  (> (prefix-numeric-value arg) 0)))
+
+   * Add an element to `minor-mode-alist' for each minor mode (*note
+     Mode Line Variables::.).  This element should be a list of the
+     following form:
+
+          (MODE-VARIABLE STRING)
+
+     Here MODE-VARIABLE is the variable that controls enablement of the
+     minor mode, and STRING is a short string, starting with a space,
+     to represent the mode in the mode line.  These strings must be
+     short so that there is room for several of them at once.
+
+     When you add an element to `minor-mode-alist', use `assq' to check
+     for an existing element, to avoid duplication.  For example:
+
+          (or (assq 'leif-mode minor-mode-alist)
+              (setq minor-mode-alist
+                    (cons '(leif-mode " Leif") minor-mode-alist)))
+
+
+File: elisp,  Node: Keymaps and Minor Modes,  Prev: Minor Mode Conventions,  Up: Minor Modes
+
+Keymaps and Minor Modes
+-----------------------
+
+   As of Emacs version 19, each minor mode can have its own keymap
+which is active when the mode is enabled.  *Note Active Keymaps::.  To
+set up a keymap for a minor mode, add an element to the alist
+`minor-mode-map-alist'.
+
+   One use of minor mode keymaps is to modify the behavior of certain
+self-inserting characters so that they do something else as well as
+self-insert.  This is the only way to accomplish this in general, since
+there is no way to customize what `self-insert-command' does except in
+certain special cases (designed for abbrevs and Auto Fill mode).  (Do
+not try substituting your own definition of `self-insert-command' for
+the standard one.  The editor command loop handles this function
+specially.)
+
+ - Variable: minor-mode-map-alist
+     This variable is an alist of elements element that look like this:
+
+          (VARIABLE . KEYMAP)
+
+     where VARIABLE is the variable which indicates whether the minor
+     mode is enabled, and KEYMAP is the keymap.  The keymap KEYMAP is
+     active whenever VARIABLE has a non-`nil' value.
+
+     Note that elements of `minor-mode-map-alist' do not have the same
+     structure as elements of `minor-mode-alist'.  The map must be the
+     CDR of the element; a list with the map as the second element will
+     not do.
+
+     What's more, the keymap itself must appear in the CDR.  It does not
+     work to store a variable in the CDR and make the map the value of
+     that variable.
+
+     When more than one minor mode keymap is active, their order of
+     priority is the order of `minor-mode-map-alist'.  But you should
+     design minor modes so that they don't interfere with each other.
+     If you do this properly, the order will not matter.
+
+
+File: elisp,  Node: Mode Line Format,  Next: Hooks,  Prev: Minor Modes,  Up: Modes
+
+Mode Line Format
+================
+
+   Each Emacs window (aside from minibuffer windows) includes a mode
+line which displays status information about the buffer displayed in the
+window.  The mode line contains information about the buffer such as its
+name, associated file, depth of recursive editing, and the major and
+minor modes of the buffer.
+
+   This section describes how the contents of the mode line are
+controlled.  It is in the chapter on modes because much of the
+information displayed in the mode line relates to the enabled major and
+minor modes.
+
+   `mode-line-format' is a buffer-local variable that holds a template
+used to display the mode line of the current buffer.  All windows for
+the same buffer use the same `mode-line-format' and the mode lines will
+appear the same (except perhaps for the percentage of the file scrolled
+off the top).
+
+   The mode line of a window is normally updated whenever a different
+buffer is shown in the window, or when the buffer's modified-status
+changes from `nil' to `t' or vice-versa.  If you modify any of the
+variables referenced by `mode-line-format', you may want to force an
+update of the mode line so as to display the new information.
+
+ - Function: force-mode-line-update
+     Force redisplay of the current buffer's mode line.
+
+   The mode line is usually displayed in inverse video; see
+`mode-line-inverse-video' in *Note Inverse Video::.
+
+* Menu:
+
+* Mode Line Data::        The data structure that controls the mode line.
+* Mode Line Variables::   Variables used in that data structure.
+* %-Constructs::          Putting information into a mode line.
+
+
+File: elisp,  Node: Mode Line Data,  Next: Mode Line Variables,  Prev: Mode Line Format,  Up: Mode Line Format
+
+The Data Structure of the Mode Line
+-----------------------------------
+
+   The mode line contents are controlled by a data structure of lists,
+strings, symbols and numbers kept in the buffer-local variable
+`mode-line-format'.  The data structure is called a "mode line
+construct", and it is built in recursive fashion out of simpler mode
+line constructs.
+
+ - Variable: mode-line-format
+     The value of this variable is a mode line construct with overall
+     responsibility for the mode line format.  The value of this
+     variable controls which other variables are used to form the mode
+     line text, and where they appear.
+
+   A mode line construct may be as simple as a fixed string of text, but
+it usually specifies how to use other variables to construct the text.
+Many of these variables are themselves defined to have mode line
+constructs as their values.
+
+   The default value of `mode-line-format' incorporates the values of
+variables such as `mode-name' and `minor-mode-alist'.  Because of this,
+very few modes need to alter `mode-line-format'.  For most purposes, it
+is sufficient to alter the variables referenced by `mode-line-format'.
+
+   A mode line construct may be a list, cons cell, symbol, or string.
+If the value is a list, each element may be a list, a cons cell, a
+symbol, or a string.
+
+`STRING'
+     A string as a mode line construct is displayed verbatim in the
+     mode line except for "`%'-constructs".  Decimal digits after the
+     `%' specify the field width for space filling on the right (i.e.,
+     the data is left justified).  *Note %-Constructs::.
+
+`SYMBOL'
+     A symbol as a mode line construct stands for its value.  The value
+     of SYMBOL is used in place of SYMBOL unless SYMBOL is `t' or
+     `nil', or is void, in which case SYMBOL is ignored.
+
+     There is one exception: if the value of SYMBOL is a string, it is
+     processed verbatim in that the `%'-constructs are not recognized.
+
+`(STRING REST...) or (LIST REST...)'
+     A list whose first element is a string or list, means to
+     concatenate all the elements.  This is the most common form of
+     mode line construct.
+
+`(SYMBOL THEN ELSE)'
+     A list whose first element is a symbol is a conditional.  Its
+     meaning depends on the value of SYMBOL.  If the value is non-`nil',
+     the second element of the list (THEN) is processed recursively as
+     a mode line element.  But if the value of SYMBOL is `nil', the
+     third element of the list (if there is one) is processed
+     recursively.
+
+`(WIDTH REST...)'
+     A list whose first element is an integer specifies truncation or
+     padding of the results of REST.  The remaining elements REST are
+     processed recursively as mode line constructs and concatenated
+     together.  Then the result is space filled (if WIDTH is positive)
+     or truncated (to -WIDTH columns, if WIDTH is negative) on the
+     right.
+
+     For example, the usual way to show what percentage of a buffer is
+     above the top of the window is to use a list like this: `(-3 .
+     "%p")'.
+
+   If you do alter `mode-line-format' itself, the new value should use
+all the same variables that are used by the default value, rather than
+duplicating their contents or displaying the information in another
+fashion.  This permits customizations made by the user, by libraries
+(such as `display-time') or by major modes via changes to those
+variables remain effective.
+
+   Here is an example of a `mode-line-format' that might be useful for
+`shell-mode' since it contains the hostname and default directory.
+
+     (setq mode-line-format
+       (list ""
+        'mode-line-modified
+        "%b--"
+        (getenv "HOST")      ; One element is not constant.
+        ":"
+        'default-directory
+        "   "
+        'global-mode-string
+        "   %[(" 'mode-name
+        'minor-mode-alist
+        "%n"
+        'mode-line-process
+        ")%]----"
+        '(-3 . "%p")
+        "-%-"))
+
+
+File: elisp,  Node: Mode Line Variables,  Next: %-Constructs,  Prev: Mode Line Data,  Up: Mode Line Format
+
+Variables Used in the Mode Line
+-------------------------------
+
+   This section describes variables incorporated by the standard value
+of `mode-line-format' into the text of the mode line.  There is nothing
+inherently special about these variables; any other variables could
+have the same effects on the mode line if `mode-line-format' were
+changed to use them.
+
+ - Variable: mode-line-modified
+     This variable holds the value of the mode-line construct that
+     displays whether the current buffer is modified.
+
+     The default value of `mode-line-modified' is `("--%1*%1*-")'.
+     This means that the mode line displays `--**-' if the buffer is
+     modified, `-----' if the buffer is not modified, and `--%%-' if
+     the buffer is read only.
+
+     Changing this variable does not force an update of the mode line.
+
+ - Variable: mode-line-buffer-identification
+     This variable identifies the buffer being displayed in the window.
+     Its default value is `Emacs: %17b', which means that it displays
+     `Emacs:' followed by the buffer name.  You may want to change this
+     in modes such as Rmail that do not behave like a "normal" Emacs.
+
+ - Variable: global-mode-string
+     This variable holds a string that is displayed in the mode line.
+     The command `display-time' puts the time and load in this variable.
+     The `%M' construct substitutes the value of `global-mode-string',
+     but this is obsolete, since the variable is included directly in
+     the mode line.
+
+ - Variable: mode-name
+     This buffer-local variable holds the "pretty" name of the current
+     buffer's major mode.  Each major mode should set this variable so
+     that the mode name will appear in the mode line.
+
+ - Variable: minor-mode-alist
+     This variable holds an association list whose elements specify how
+     the mode line should indicate that a minor mode is active.  Each
+     element of the `minor-mode-alist' should be a two-element list:
+
+          (MINOR-MODE-VARIABLE MODE-LINE-STRING)
+
+     The string MODE-LINE-STRING is included in the mode line when the
+     value of MINOR-MODE-VARIABLE is non-`nil' and not otherwise.
+     These strings should begin with spaces so that they don't run
+     together.  Conventionally, the MINOR-MODE-VARIABLE for a specific
+     mode is set to a non-`nil' value when that minor mode is activated.
+
+     The default value of `minor-mode-alist' is:
+
+          minor-mode-alist
+          => ((abbrev-mode " Abbrev")
+              (overwrite-mode " Ovwrt")
+              (auto-fill-function " Fill")
+              (defining-kbd-macro " Def"))
+
+     (In earlier Emacs versions, `auto-fill-function' was called
+     `auto-fill-hook'.)
+
+     `minor-mode-alist' is not buffer-local.  The variables mentioned
+     in the alist should be buffer-local if the minor mode can be
+     enabled separately in each buffer.
+
+ - Variable: mode-line-process
+     This buffer-local variable contains the mode line information on
+     process status in modes used for communicating with subprocesses.
+     It is displayed immediately following the major mode name, with no
+     intervening space.  For example, its value in the `*shell*' buffer
+     is `(": %s")', which allows the shell to display its status along
+     with the major mode as: `(Shell: run)'.  Normally this variable is
+     `nil'.
+
+ - Variable: default-mode-line-format
+     This variable holds the default `mode-line-format' for buffers
+     that do not override it.  This is the same as `(default-value
+     'mode-line-format)'.
+
+     The default value of `default-mode-line-format' is:
+
+          (""
+           mode-line-modified
+           mode-line-buffer-identification
+           "   "
+           global-mode-string
+           "   %[("
+           mode-name
+           minor-mode-alist
+           "%n"
+           mode-line-process
+           ")%]----"
+           (-3 . "%p")
+           "-%-")
+
+
+File: elisp,  Node: %-Constructs,  Prev: Mode Line Variables,  Up: Mode Line Format
+
+`%'-Constructs in the Mode Line
+-------------------------------
+
+   The following table lists the recognized `%'-constructs and what
+they mean.
+
+`%b'
+     the current buffer name, using the `buffer-name' function.
+
+`%f'
+     the visited file name, using the `buffer-file-name' function.
+
+`%*'
+     `%' if the buffer is read only (see `buffer-read-only');
+     `*' if the buffer is modified (see `buffer-modified-p');
+     `-' otherwise.
+
+`%s'
+     the status of the subprocess belonging to the current buffer, using
+     `process-status'.
+
+`%p'
+     the percent of the buffer above the top of window, or `Top',
+     `Bottom' or `All'.
+
+`%n'
+     `Narrow' when narrowing is in effect; nothing otherwise (see
+     `narrow-to-region' in *Note Narrowing::).
+
+`%['
+     an indication of the depth of recursive editing levels (not
+     counting minibuffer levels): one `[' for each editing level.
+
+`%]'
+     one `]' for each recursive editing level (not counting minibuffer
+     levels).
+
+`%%'
+     the character `%'--this is how to include a literal `%' in a
+     string in which `%'-constructs are allowed.
+
+`%-'
+     dashes sufficient to fill the remainder of the mode line.
+
+   The following two `%'-constructs are still supported but are
+obsolete since use of the `mode-name' and `global-mode-string'
+variables will produce the same results.
+
+`%m'
+     the value of `mode-name'.
+
+`%M'
+     the value of `global-mode-string'.  Currently, only `display-time'
+     modifies the value of `global-mode-string'.
+
+
+File: elisp,  Node: Hooks,  Prev: Mode Line Format,  Up: Modes
+
+Hooks
+=====
+
+   A "hook" is a variable where you can store a function or functions
+to be called on a particular occasion by an existing program.  Emacs
+provides lots of hooks for the sake of customization.  Most often, hooks
+are set up in the `.emacs' file, but Lisp programs can set them also.
+*Note Standard Hooks::, for a list of standard hook variables.
+
+   Most of the hooks in Emacs are "normal hooks".  These variables
+contain lists of functions to be called with no arguments.  The reason
+most hooks are normal hooks is so that you can use them in a uniform
+way.  You can always tell when a hook is a normal hook, because its
+name ends in `-hook'.
+
+   The recommended way to add a hook function to a normal hook is by
+calling `add-hook' (see below).  The hook functions may be any of the
+valid kinds of functions that `funcall' accepts (*note What Is a
+Function::.).  Most normal hook variables are initially void;
+`add-hook' knows how to deal with this.
+
+   As for abnormal hooks, those whose names end in `-function' have a
+value which is a single function.  Those whose names end in `-hooks'
+have a value which is a list of functions.  Any hook which is abnormal
+is abnormal because a normal hook won't do the job; either the
+functions are called with arguments, or their values are meaningful.
+The name shows you that the hook is abnormal and you need to look up
+how to use it properly.
+
+   Most major modes run hooks as the last step of initialization.  This
+makes it easy for a user to customize the behavior of the mode, by
+overriding the local variable assignments already made by the mode.  But
+hooks may also be used in other contexts.  For example, the hook
+`suspend-hook' runs just before Emacs suspends itself (*note Suspending
+Emacs::.).
+
+   For example, you can put the following expression in your `.emacs'
+file if you want to turn on Auto Fill mode when in Lisp Interaction
+mode:
+
+     (add-hook 'lisp-interaction-mode-hook 'turn-on-auto-fill)
+
+   The next example shows how to use a hook to customize the way Emacs
+formats C code.  (People often have strong personal preferences for one
+format compared to another.)  Here the hook function is an anonymous
+lambda expression.
+
+     (add-hook 'c-mode-hook
+       (function (lambda ()
+                   (setq c-indent-level 4
+                         c-argdecl-indent 0
+                         c-label-offset -4
+                         c-continued-statement-indent 0
+                         c-brace-offset 0
+                         comment-column 40))))
+     
+     (setq c++-mode-hook c-mode-hook)
+
+   Finally, here is an example of how to use the Text mode hook to
+provide a customized mode line for buffers in Text mode, displaying the
+default directory in addition to the standard components of the mode
+line.  (This may cause the mode line to run out of space if you have
+very long file names or display the time and load.)
+
+     (add-hook 'text-mode-hook
+       (function (lambda ()
+                   (setq mode-line-format
+                         '(mode-line-modified
+                           "Emacs: %14b"
+                           "  "
+                           default-directory
+                           " "
+                           global-mode-string
+                           "%[("
+                           mode-name
+                           minor-mode-alist
+                           "%n"
+                           mode-line-process
+                           ") %]---"
+                           (-3 . "%p")
+                           "-%-")))))
+
+   At the appropriate time, Emacs uses the `run-hooks' function to run
+particular hooks.  This function calls the hook functions you have
+added with `add-hooks'.
+
+ - Function: run-hooks &rest HOOKVAR
+     This function takes one or more hook names as arguments and runs
+     each one in turn.  Each HOOKVAR argument should be a symbol that
+     is a hook variable.  These arguments are processed in the order
+     specified.
+
+     If a hook variable has a non-`nil' value, that value may be a
+     function or a list of functions.  If the value is a function
+     (either a lambda expression or a symbol with a function
+     definition), it is called.  If it is a list, the elements are
+     called, in order.  The hook functions are called with no arguments.
+
+     For example:
+
+          (run-hooks 'emacs-lisp-mode-hook)
+
+     Major mode functions use this function to call any hooks defined
+     by the user.
+
+ - Function: add-hook HOOK FUNCTION &optional APPEND
+     This function is the handy way to add function FUNCTION to hook
+     variable HOOK.  For example,
+
+          (add-hook 'text-mode-hook 'my-text-hook-function)
+
+     adds `my-text-hook-function' to the hook called `text-mode-hook'.
+
+     It is best to design your hook functions so that the order in
+     which they are executed does not matter.  Any dependence on the
+     order is "asking for trouble."  However, the order is predictable:
+     normally, FUNCTION goes at the front of the hook list, so it will
+     be executed first (barring another `add-hook' call).
+
+     If the optional argument APPEND is non-`nil', the new hook
+     function goes at the end of the hook list and will be executed
+     last.
+

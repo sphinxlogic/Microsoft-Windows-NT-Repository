@@ -1,0 +1,422 @@
+Here's a modified version of Tim Iverson's xthread patch for nntp.  The code
+that goes into the nntp daemon has been only slightly modified for use with
+trn 2.0.  The clientlib code has been entirely re-worked, however.
+
+If you plan to build a trn that uses the XTHREAD extention for NNTP,
+you need to apply this patch from the root directory of your nntp source
+before compiling trn.  Your server will need to be running a version of
+nntpd that supports the XTHREAD call.  This can be either version 1.5.11t
+created by this patch, or version 1.5.11a created by Tim's patch.
+
+To apply this:
+	cd nntp-1.5.11
+	patch -p < xthread.patch
+or	unipatch < xthread.patch | patch -p
+
+This patch changes the conf.h.dist file, so you will need to edit your
+conf.h file to add the new XTHREAD section.  For example, you could:
+
+	cd common
+	diff -c conf.h.dist.orig conf.h.dist | patch conf.h
+
+and then edit conf.h to make sure THREAD_DIR is defined correctly.  If
+you're not running C news, I also recommend that you set things up to use
+the active.times file, and use "mthreads -t" or the program acttimes to
+maintain it.  This allows trn to use the NEWGROUPS call in nntp, and have
+it return accurate values.
+
+Then you are ready to compile the new server with "make server" as usual.
+
+Tim can be contacted at:  iverson@xstor.com -/- uunet!xstor!iverson
+-- 
+ \  /| / /|\/ /| /(_)     Wayne Davison
+(_)/ |/ /\|/ / |/  \      davison@borland.com
+   (W   A  Y   N   e)
+
+Index: common/version.c
+Prereq: "1.5.11
+@@ -3,3 +3,3 @@
+  */
+ 
+-char	nntp_version[] = "1.5.11 (10 February 1991)";
++char	nntp_version[] = "1.5.11t (16 November 1991)";
+Index: common/clientlib.c
+@@ -606,4 +606,74 @@
+ 
+ 
++static	long	rawbytes = -1;	/* bytes remaining to be transfered */
++
++/*
++ * rawcheck_server -- get a line of text from the server, interpreting
++ * it as a status message for a raw (binary) command.  Call this once
++ * before calling rawget_server() for the actual data transfer.
++ *
++ *	Parameters:	"string" has the buffer space for the
++ *			line received.
++ *			"size" is the size of the buffer.
++ *
++ *	Returns:	-1 on error, otherwise the length of the raw data.
++ *
++ *	Side effects:	Talks to server, changes contents of "string".
++ */
++long
++rawcheck_server(string, size)
++char	*string;
++int	size;
++{
++	/* try to get the status line and the status code */
++	if (get_server(string, size) || *string != CHAR_OK)
++		return rawbytes = -1;
++
++	/* try to get the number of bytes being transfered */
++	if (sscanf(string, "%*d%ld", &rawbytes) != 1)
++		return rawbytes = -1;
++	return rawbytes;
++}
++
++
++/*
++ * rawget_server -- read data from the server in raw format.  This call must
++ * follow an appropriate put_server command and a rawcheck_server call.
++ *
++ *	Parameters:	"buf" is the buffer for the data to receive.
++ *			"n" is the size of the buffer.
++ *
++ *	Returns:	0 on EOF, otherwise the length of the read.
++ *
++ *	Side effects:	Talks to server, changes contents of "buf".
++ */
++long
++rawget_server(buf, n)
++void	*buf;
++long	n;
++{
++	/* if no bytes to read, then just return EOF */
++	if (rawbytes < 0)
++		return 0;
++
++	/* try to read some data from the server */
++	if (rawbytes) {
++		n = fread(buf, 1, n > rawbytes ? rawbytes : n, ser_rd_fp);
++		rawbytes -= n;
++	} else
++		n = 0;
++
++	/* if no more left, then fetch the end-of-command signature */
++	if (!rawbytes)
++	{
++		char buf[5];	/* "\r\n.\r\n" */
++
++		fread(buf, 1, 5, ser_rd_fp);
++		rawbytes = -1;
++	}
++	return n;
++}
++
++
+ /*
+  * close_server -- close the connection to the server, after sending
+@@ -633,3 +703,2 @@
+ 	(void) fclose(ser_rd_fp);
+ }
+-
+Index: common/clientlib.h
+@@ -9,3 +9,5 @@
+ extern	void	put_server();
+ extern	int	get_server();
++extern	long	rawcheck_server();
++extern	long	rawget_server();
+ extern	void	close_server();
+Index: common/conf.h.dist
+@@ -95,4 +95,19 @@
+ 			/* loaded already, defining this may be a bad idea */
+ 
++/* XTHREAD defines:  if XTHREAD is defined, THREAD_DIR controls where the
++ * thread files will be read from.
++ */
++#define XTHREAD		/* Optional XTHREAD command.  This allows trn to
++			 * keep all data on the server. */
++
++/* Leave this undefined to indicate that thread files go in the spool
++ * directory.  However, if you want a separate hierarchy of thread files,
++ * define it here.
++ */
++/*#define THREAD_DIR	"/usr/spool/threads"		/* base directory */
++
++/* if LONG_THREAD_NAMES & THREAD_DIR are defined, create threads in one dir */
++#undef LONG_THREAD_NAMES		/* not for short-name systems */
++
+ /* Things that vary in network implementations */
+ #define	SUBNET		/* If you have 4.3 subnetting */
+@@ -333,4 +348,22 @@
+ #		endif
+ #	endif
++#endif
++
++#ifdef XTHREAD
++# ifdef THREAD_DIR
++#   ifdef LONG_THREAD_NAMES
++#	undef SUFFIX
++#   else
++#     ifndef SUFFIX
++#	define SUFFIX ".th"
++#     endif
++#   endif
++# else
++#   define THREAD_DIR	SPOOLDIR
++#   ifndef SUFFIX
++#     define SUFFIX	"/.thread"
++#   endif
++#   undef LONG_THREAD_NAMES
++# endif
+ #endif
+ 
+Index: common/nntp.h
+@@ -49,4 +49,5 @@
+ #define	OK_AUTHSYS	280	/* Authorization system ok */
+ #define	OK_AUTH		281	/* Authorization (user/pass) ok */
++#define	OK_BIN		282	/* binary data follows */
+ 
+ #define	CONT_XFER	335	/* Continue to send article */
+Index: server/Makefile
+@@ -7,5 +7,5 @@
+ 	newgroups.o newnews.o nextlast.o ngmatch.o post.o parsit.o scandir.o \
+ 	slave.o spawn.o strcasecmp.o subnet.o time.o xhdr.o fakesyslog.o \
+-	batch.o auth.o timer.o ../common/version.o
++	batch.o auth.o timer.o xthread.o ../common/version.o
+ 
+ SRVRSRC = main.c serve.c access.c access_inet.c access_dnet.c active.c \
+@@ -13,5 +13,5 @@
+ 	newgroups.c newnews.c nextlast.c ngmatch.c post.c parsit.c scandir.c \
+ 	slave.c spawn.c strcasecmp.c subnet.c time.c xhdr.c fakesyslog.c \
+-	batch.c auth.c timer.c ../common/version.c
++	batch.c auth.c timer.c xthread.c ../common/version.c
+ 
+ SRVRINC = common.h ../common/conf.h ../common/nntp.h timer.h
+Index: server/common.h
+@@ -164,4 +164,9 @@
+ extern	char	inews[];
+ extern	char	rnews[];
++
++#ifdef	XTHREAD
++extern	char	*threaddir;
++extern	char	*threadfile;
++#endif
+ 
+ extern	char	**group_array;
+Index: server/globals.c
+@@ -27,4 +27,9 @@
+ char	rnews[] = RNEWS;
+ 
++#ifdef	XTHREAD
++char	*threaddir = THREAD_DIR;
++char	*threadfile = NULL;
++#endif
++
+ /*
+  * Other random externals.
+Index: server/group.c
+@@ -5,4 +5,8 @@
+ #include "common.h"
+ 
++#ifdef	XTHREAD
++extern char *thread_name();
++#endif
++
+ /*
+  * GROUP newsgroup
+@@ -97,4 +101,8 @@
+ 
+ 	ingroup = 1;
++
++#ifdef	XTHREAD
++	threadfile = thread_name(argv[1]);
++#endif
+ 
+ 	while ((cp = index(argv[1], '/')) != (char *) NULL)
+Index: server/help.c
+@@ -22,6 +22,13 @@
+ 	printf("STAT        NEWGROUPS    HELP\r\n");
+ 	printf("IHAVE       NEWNEWS      SLAVE\r\n");
+-	printf("\r\nAdditionally, the following extention is supported:\r\n\r\n");
++#if defined(XHDR) || defined(XTHREAD)
++	printf("\r\nAdditionally, the following extentions are supported:\r\n\r\n");
++# ifdef	XHDR
+ 	printf("XHDR        Retrieve a single header line from a range of articles.\r\n");
++# endif	XHDR
++# ifdef	XTHREAD
++	printf("XTHREAD     Retrieve trn thread file for the current group.\r\n");
++# endif
++#endif
+ 	printf("\r\n");
+ 	printf("Bugs to Stan Barber (Internet: nntp@tmc.edu; UUCP: ...!bcm!nntp)\r\n");
+Index: server/serve.c
+@@ -27,5 +27,5 @@
+ extern	int	ahbs(), group(), help(), ihave();
+ extern	int	list(), newgroups(), newnews(), nextlast(), post();
+-extern	int	slave(), stat(), xhdr();
++extern	int	slave(), stat(), xhdr(), xthread();
+ 
+ extern int errno;
+@@ -62,4 +62,7 @@
+ 	"xhdr",		0,	xhdr,
+ #endif XHDR
++#ifdef XTHREAD
++	"xthread",	0,	xthread,
++#endif
+ };
+ #define NUMCMDS (sizeof(cmdtbl) / sizeof(struct cmdent))
+Index: server/xthread.c
+@@ -0,0 +1,152 @@
++/* This file (and only this file - not the entire nntp distribution) is
++ * hereby placed in the public domain.  Use it as you see fit, but if you
++ * manage to find some wonderful use for this code elsewhere, it would be
++ * nice to receive mention for it.
++ *
++ * - Tim Iverson
++ *   iverson@xstor.com -/- uunet!xstor!iverson
++ *   3/28/91
++ *   modified by Wayne Davison (davison@borland.com) to work with trn 2.0
++ *   10/6/91
++ */
++
++#include "common.h"
++
++#ifdef XTHREAD
++
++# ifdef __GNUC__
++#  define alloca __builtin_alloca
++# endif
++
++
++/* Usage: XTHREAD [DBINIT|THREAD]
++ *
++ * DBINIT	dump the contents of the db.init file to stdout
++ * THREAD	dump the contents of the thread file for the current
++ *		newsgroup to stdout (default if no argument).
++ *
++ * N.B. These two files are not ascii and no attempt is made at converting
++ *	native byte size to any type of standard whatsoever.  This'll have
++ *	to be fixed if this command is to be integrated into the protocol.
++ *
++ * This command is not documented in rfc977.
++ */
++
++void
++xthread(argc, argv)
++int	argc;
++char	*argv[];
++{
++	register FILE	*fp;
++	struct stat	s;
++	char		*buf, *file, *what;
++
++	/* can't transfer threads, only read 'em */
++	if (!canread)
++	{
++		printf("%d You only have permission to transfer, sorry.\r\n",
++			ERR_ACCESS);
++		(void) fflush(stdout);
++		return;
++	}
++
++	/* "parse" the argument */
++	if (argc == 2 && !strcasecmp(argv[1], "dbinit"))
++	{
++		char *cp, *thread_name();
++
++		file = thread_name("*******");
++		what = "db.init";
++		for (cp = file; *cp != '*'; cp++)
++			;
++		strcpy(cp, what);
++	}
++	else if (argc == 1 || argc == 2 && !strcasecmp(argv[1], "thread"))
++	{
++		if (!threadfile)
++		{
++			printf("%d You are not currently in a newsgroup.\r\n",
++				ERR_NCING);
++			(void) fflush(stdout);
++			return;
++		}
++		file = threadfile;
++		what = "thread";
++	}
++	else
++	{
++		printf("%d Usage: XTHREAD [DBINIT|THREAD]\r\n", ERR_CMDSYN);
++		(void) fflush(stdout);
++		return;
++	}
++
++	/* try to open the file to be transfered */
++	if (!(fp = fopen(file, "r")))
++	{
++		printf("%d %s file is not available.\r\n", ERR_FAULT, what);
++		(void) fflush(stdout);
++#ifdef SYSLOG
++		if (!strcmp(what, "db.init"))
++		    syslog(LOG_ERR, "xthread: fopen %s: %m", file);
++#endif
++		return;
++	}
++
++	/* tell 'em how much binary data is coming down the pike */
++	fstat(fileno(fp), &s);
++	printf("%d %u bytes of %s file follows verbatim (binary!)\r\n",
++		OK_BIN, s.st_size, what);
++
++	/* copy the file verbatim to stdout */
++#ifdef __GNUC__
++	if (buf = alloca(s.st_size))
++	{
++		/* ah-so! got lotsa memoree */
++		read(fileno(fp), buf, s.st_size);
++		fwrite(buf, s.st_size, 1, stdout);
++	}
++	else
++#endif
++	{
++		int		bytes;
++		char		buf[BUFSIZ];
++
++		while (bytes = fread(buf, 1, sizeof buf, fp))
++			fwrite(buf, bytes, 1, stdout);
++	}
++
++	fputs("\r\n.\r\n", stdout);
++	fflush(stdout);
++	fclose(fp);
++}
++
++/* Change a newsgroup name into the name of the thread data file.  We
++** subsitute any '.'s in the group name into '/'s (unless LONG_THREAD_NAMES
++** is defined), prepend the path, and append the '/.thread' (or '.th') on to
++** the end.
++*/
++char *
++thread_name(group)
++char *group;
++{
++	static char name_buff[MAXPATHLEN];
++#ifndef LONG_THREAD_NAMES
++	char group_buff[512];
++	register char *ptr;
++
++	strcpy(group_buff, group);
++	ptr = group = group_buff;
++	while ((ptr = index(ptr, '.'))) {
++		*ptr = '/';
++	}
++#endif
++#ifdef SUFFIX
++	sprintf(name_buff, "%s/%s%s", threaddir, group, SUFFIX);
++#else
++	sprintf(name_buff, "%s/%s", threaddir, group);
++#endif
++
++	return name_buff;
++}
++
++#endif /* not XTHREAD */

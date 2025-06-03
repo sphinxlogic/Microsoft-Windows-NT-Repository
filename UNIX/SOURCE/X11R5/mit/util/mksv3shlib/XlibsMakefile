@@ -1,0 +1,71 @@
+######################################################################
+# XlibsMakefile                                                      #
+# ------------------------------------------------------------------ #
+# Copyright (c) 1992 by Thomas Wolfram, Berlin, Germany              #
+# Auxiliary makefile for mkshtmpl.sh 1.4, version 1.2                #
+# Author: Thomas Wolfram, thomas@aeon.in-berlin.de,                  #
+#         wolf@prz.tu-berlin.de                                      #
+######################################################################
+#
+# This makefile creates for a certain X library a file with symbols
+# defined in other X libraries, which can be sorted out from the
+# set of imported symbols, these references will resolved via
+# the #object noload directive
+#
+# WARNING! This makefile don't work with ISC's make!
+# GNU make 3.62 is strongly recommended!
+
+      SHELL = /bin/sh
+# Not really needed for GNU make, but looks better...
+  _NULLCMD_ = @echo -n
+
+all:
+	@echo "This file should be called only from \
+inside mkshtmpl.sh" >&2
+
+# GNU make don't like empty rules, so give it $(_NULLCMD_)
+libX11.A:  independent
+	$(_NULLCMD_)
+libXt.A:   libX11.rule
+	$(_NULLCMD_)
+libXmu.A:  libX11.rule libXt.rule
+	$(_NULLCMD_)
+libXaw.A:  libX11.rule libXt.rule libXmu.rule
+	$(_NULLCMD_)
+libXext.A: libX11.rule
+	$(_NULLCMD_)
+libXi.A:   libX11.rule libXext.rule
+	$(_NULLCMD_)
+
+independent:
+	@echo "$$LIB doesn't depend on another X lib... Nothing to do."
+
+.SUFFIXES: .rule
+.DEFAULT:
+	@echo -n "$$LIB is dependent on $*... " 
+	@(OBJNL=`echo "libX11 ../X libXt libXmu libXaw\n\
+libX11 ../../lib/X libXext\n\
+libX11 ../../../lib/X libXi\n\
+libXt ../Xt libXmu libXaw\n\
+libXmu ../Xmu libXaw\n\
+libXext .. libXi\n\
+" | nawk '$$1 == XLIB { print $$2, $$3, $$4, $$5 }' XLIB=$* | \
+grep $$LIB | cut -f1 -d' '`; \
+LIBPATH=`echo "\
+libX11 ../../lib/X\n\
+libXt ../../lib/Xt\n\
+libXmu ../../lib/Xmu\n\
+libXaw ../../lib/Xaw\n\
+libXext ../../extensions/lib\n\
+libXi ../../extensions/lib/xinput\n\
+" | grep $* | cut -f3 -d' '` ; \
+	nm -ep $${LIBPATH}/$*.a | nawk '$$2 ~ /^[C|D|T]$$/ \
+{ print LIB " A " $$3 }' LIB=$*.a >>$${TMPDIR}/$${LIB}.A ; \
+echo $${OBJNL}/$*_s.a >>$${TMPDIR}/$${LIB}.nol)
+	@echo Done.
+
+# to avoid undesired things...
+.c.o:
+	$(_NULLCMD_)
+.c:
+	$(_NULLCMD_)

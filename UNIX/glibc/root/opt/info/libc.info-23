@@ -1,0 +1,1287 @@
+This is Info file libc.info, produced by Makeinfo-1.55 from the input
+file libc.texinfo.
+
+   This file documents the GNU C library.
+
+   This is Edition 0.05, last updated 30 August 1993, of `The GNU C
+Library Reference Manual', for Version 1.07 Beta.
+
+   Copyright (C) 1993 Free Software Foundation, Inc.
+
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the section entitled "GNU Library General Public License" is
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the text of the translations of the section
+entitled "GNU Library General Public License" must be approved for
+accuracy by the Foundation.
+
+
+File: libc.info,  Node: Process Group Functions,  Next: Terminal Access Functions,  Prev: Identifying the Terminal,  Up: Functions for Job Control
+
+Process Group Functions
+-----------------------
+
+   Here are descriptions of the functions for manipulating process
+groups.  Your program should include the header files `sys/types.h' and
+`unistd.h' to use these functions.
+
+ - Function: pid_t setsid (void)
+     The `setsid' function creates a new session.  The calling process
+     becomes the session leader, and is put in a new process group whose
+     process group ID is the same as the process ID of that process.
+     There are initially no other processes in the new process group,
+     and no other process groups in the new session.
+
+     This function also makes the calling process have no controlling
+     terminal.
+
+     The `setsid' function returns the new process group ID of the
+     calling process if successful.  A return value of `-1' indicates an
+     error.  The following `errno' error conditions are defined for this
+     function:
+
+    `EPERM'
+          The calling process is already a process group leader, or
+          there is already another process group around that has the
+          same process group ID.
+
+   The `getpgrp' function has two definitions: one derived from BSD
+Unix, and one from the POSIX.1 standard.  The feature test macros you
+have selected (*note Feature Test Macros::.) determine which definition
+you get.  Specifically, you get the BSD version if you define
+`_BSD_SOURCE'; otherwise, you get the POSIX version if you define
+`_POSIX_SOURCE' or `_GNU_SOURCE'.  Programs written for old BSD systems
+will not include `unistd.h', which defines `getpgrp' specially under
+`_BSD_SOURCE'.  You must link such programs with the `-lbsd-compat'
+option to get the BSD definition.
+
+ - POSIX.1 Function: pid_t getpgrp (void)
+     The POSIX.1 definition of `getpgrp' returns the process group ID of
+     the calling process.
+
+ - BSD Function: pid_t getpgrp (pid_t PID)
+     The BSD definition of `getpgrp' returns the process group ID of the
+     process PID.  You can supply a value of `0' for the PID argument
+     to get information about the calling process.
+
+ - Function: int setpgid (pid_t PID, pid_t PGID)
+     The `setpgid' function puts the process PID into the process group
+     PGID.  As a special case, either PID or PGID can be zero to
+     indicate the process ID of the calling process.
+
+     This function fails on a system that does not support job control.
+     *Note Job Control is Optional::, for more information.
+
+     If the operation is successful, `setpgid' returns zero.  Otherwise
+     it returns `-1'.  The following `errno' error conditions are
+     defined for this function:
+
+    `EACCES'
+          The child process named by PID has executed an `exec'
+          function since it was forked.
+
+    `EINVAL'
+          The value of the PGID is not valid.
+
+    `ENOSYS'
+          The system doesn't support job control.
+
+    `EPERM'
+          The process indicated by the PID argument is a session leader,
+          or is not in the same session as the calling process, or the
+          value of the PGID argument doesn't match a process group ID
+          in the same session as the calling process.
+
+    `ESRCH'
+          The process indicated by the PID argument is not the calling
+          process or a child of the calling process.
+
+ - Function: int setpgrp (pid_t PID, pid_t PGID)
+     This is the BSD Unix name for `setpgid'.  Both functions do exactly
+     the same thing.
+
+
+File: libc.info,  Node: Terminal Access Functions,  Prev: Process Group Functions,  Up: Functions for Job Control
+
+Functions for Controlling Terminal Access
+-----------------------------------------
+
+   These are the functions for reading or setting the foreground
+process group of a terminal.  You should include the header files
+`sys/types.h' and `unistd.h' in your application to use these functions.
+
+   Although these functions take a file descriptor argument to specify
+the terminal device, the foreground job is associated with the terminal
+file itself and not a particular open file descriptor.
+
+ - Function: pid_t tcgetpgrp (int FILEDES)
+     This function returns the process group ID of the foreground
+     process group associated with the terminal open on descriptor
+     FILEDES.
+
+     If there is no foreground process group, the return value is a
+     number greater than `1' that does not match the process group ID
+     of any existing process group.  This can happen if all of the
+     processes in the job that was formerly the foreground job have
+     terminated, and no other job has yet been moved into the
+     foreground.
+
+     In case of an error, a value of `-1' is returned.  The following
+     `errno' error conditions are defined for this function:
+
+    `EBADF'
+          The FILEDES argument is not a valid file descriptor.
+
+    `ENOSYS'
+          The system doesn't support job control.
+
+    `ENOTTY'
+          The terminal file associated with the FILEDES argument isn't
+          the controlling terminal of the calling process.
+
+ - Function: int tcsetpgrp (int FILEDES, pid_t PGID)
+     This function is used to set a terminal's foreground process group
+     ID.  The argument FILEDES is a descriptor which specifies the
+     terminal; PGID specifies the process group.  The calling process
+     must be a member of the same session as PGID and must have the same
+     controlling terminal.
+
+     For terminal access purposes, this function is treated as output.
+     If it is called from a background process on its controlling
+     terminal, normally all processes in the process group are sent a
+     `SIGTTOU' signal.  The exception is if the calling process itself
+     is ignoring or blocking `SIGTTOU' signals, in which case the
+     operation is performed and no signal is sent.
+
+     If successful, `tcsetpgrp' returns `0'.  A return value of `-1'
+     indicates an error.  The following `errno' error conditions are
+     defined for this function:
+
+    `EBADF'
+          The FILEDES argument is not a valid file descriptor.
+
+    `EINVAL'
+          The PGID argument is not valid.
+
+    `ENOSYS'
+          The system doesn't support job control.
+
+    `ENOTTY'
+          The FILEDES isn't the controlling terminal of the calling
+          process.
+
+    `EPERM'
+          The PGID isn't a process group in the same session as the
+          calling process.
+
+
+File: libc.info,  Node: Users and Groups,  Next: System Information,  Prev: Job Control,  Up: Top
+
+Users and Groups
+****************
+
+   Every user who can log in on the system is identified by a unique
+number called the "user ID".  Each process has an effective user ID
+which says which user's access permissions it has.
+
+   Users are classified into "groups" for access control purposes.  Each
+process has one or more "group ID values" which say which groups the
+process can use for access to files.
+
+   The effective user and group IDs of a process collectively form its
+"persona".  This determines which files the process can access.
+Normally, a process inherits its persona from the parent process, but
+under special circumstances a process can change its persona and thus
+change its access permissions.
+
+   Each file in the system also has a user ID and a group ID.  Access
+control works by comparing the user and group IDs of the file with those
+of the running process.
+
+   The system keeps a database of all the registered users, and another
+database of all the defined groups.  There are library functions you
+can use to examine these databases.
+
+* Menu:
+
+* User and Group IDs::          Each user has a unique numeric ID;
+				 likewise for groups.
+* Process Persona::             The user IDs and group IDs of a process.
+* Why Change Persona::          Why a program might need to change
+				 its user and/or group IDs.
+* How Change Persona::          Changing the user and group IDs.
+* Reading Persona::             How to examine the user and group IDs.
+
+* Setting User ID::             Functions for setting the user ID.
+* Setting Groups::              Functions for setting the group IDs.
+
+* Enable/Disable Setuid::       Turning setuid access on and off.
+* Setuid Program Example::      The pertinent parts of one sample program.
+* Tips for Setuid::             How to avoid granting unlimited access.
+
+* Who Logged In::               Getting the name of the user who logged in,
+				 or of the real user ID of the current process.
+
+* User Database::               Functions and data structures for
+                        	 accessing the user database.
+* Group Database::              Functions and data structures for
+                        	 accessing the group database.
+* Database Example::            Example program showing use of database
+				 inquiry functions.
+
+
+File: libc.info,  Node: User and Group IDs,  Next: Process Persona,  Up: Users and Groups
+
+User and Group IDs
+==================
+
+   Each user account on a computer system is identified by a "user
+name" (or "login name") and "user ID".  Normally, each user name has a
+unique user ID, but it is possible for several login names to have the
+same user ID.  The user names and corresponding user IDs are stored in
+a data base which you can access as described in *Note User Database::.
+
+   Users are classified in "groups".  Each user name also belongs to
+one or more groups, and has one "default group".  Users who are members
+of the same group can share resources (such as files) that are not
+accessible to users who are not a member of that group.  Each group has
+a "group name" and "group ID".  *Note Group Database::, for how to find
+information about a group ID or group name.
+
+
+File: libc.info,  Node: Process Persona,  Next: Why Change Persona,  Prev: User and Group IDs,  Up: Users and Groups
+
+The Persona of a Process
+========================
+
+   At any time, each process has a single user ID and a group ID which
+determine the privileges of the process.  These are collectively called
+the "persona" of the process, because they determine "who it is" for
+purposes of access control.  These IDs are also called the "effective
+user ID" and "effective group ID" of the process.
+
+   Your login shell starts out with a persona which consists of your
+user ID and your default group ID.  In normal circumstances, all your
+other processes inherit these values.
+
+   A process also has a "real user ID" which identifies the user who
+created the process, and a "real group ID" which identifies that user's
+default group.  These values do not play a role in access control, so
+we do not consider them part of the persona.  But they are also
+important.
+
+   Both the real and effective user ID can be changed during the
+lifetime of a process.  *Note Why Change Persona::.
+
+   In addition, a user can belong to multiple groups, so the persona
+includes "supplementary group IDs" that also contribute to access
+permission.
+
+   For details on how a process's effective user IDs and group IDs
+affect its permission to access files, see *Note Access Permission::.
+
+   The user ID of a process also controls permissions for sending
+signals using the `kill' function.  *Note Signaling Another Process::.
+
+
+File: libc.info,  Node: Why Change Persona,  Next: How Change Persona,  Prev: Process Persona,  Up: Users and Groups
+
+Why Change the Persona of a Process?
+====================================
+
+   The most obvious situation where it is necessary for a process to
+change its user and/or group IDs is the `login' program.  When `login'
+starts running, its user ID is `root'.  Its job is to start a shell
+whose user and group IDs are those of the user who is logging in.  (To
+accomplish this fully, `login' must set the real user and group IDs as
+well as its persona.  But this is a special case.)
+
+   The more common case of changing persona is when an ordinary user
+program needs access to a resource that wouldn't ordinarily be
+accessible to the user actually running it.
+
+   For example, you may have a file that is controlled by your program
+but that shouldn't be read or modified directly by other users, either
+because it implements some kind of locking protocol, or because you want
+to preserve the integrity or privacy of the information it contains.
+This kind of restricted access can be implemented by having the program
+change its effective user or group ID to match that of the resource.
+
+   Thus, imagine a game program that saves scores in a file.  The game
+program itself needs to be able to update this file no matter who is
+running it, but if users can write the file without going through the
+game, they can give themselves any scores they like.  Some people
+consider this undesirable, or even reprehensible.  It can be prevented
+by creating a new user ID and login name (say, `games') to own the
+scores file, and make the file writable only by this user.  Then, when
+the game program wants to update this file, it can change its effective
+user ID to be that for `games'.  In effect, the program must adopt the
+persona of `games' so it can write the scores file.
+
+
+File: libc.info,  Node: How Change Persona,  Next: Reading Persona,  Prev: Why Change Persona,  Up: Users and Groups
+
+How an Application Can Change Persona
+=====================================
+
+   The ability to change the persona of a process can be a source of
+unintentional privacy violations, or even intentional abuse.  Because of
+the potential for problems, changing persona is restricted to special
+circumstances.
+
+   You can't arbitrarily set your user ID or group ID to anything you
+want; only privileged processes can do that.  Instead, the normal way
+for a program to change its persona is that it has been set up in
+advance to change to a particular user or group.  This is the function
+of the setuid and setgid bits of a file's access mode.  *Note
+Permission Bits::.
+
+   When the setuid bit of an executable file is set, executing that file
+automatically changes the effective user ID to the user that owns the
+file.  Likewise, executing a file whose setgid bit is set changes the
+effective group ID to the group of the file.  *Note Executing a File::.
+Creating a file that changes to a particular user or group ID thus
+requires full access to that user or group ID.
+
+   *Note File Attributes::, for a more general discussion of file modes
+and accessibility.
+
+   A process can always change its effective user (or group) ID back to
+its real ID.  Programs do this so as to turn off their special
+privileges when they are not needed, which makes for more robustness.
+
+
+File: libc.info,  Node: Reading Persona,  Next: Setting User ID,  Prev: How Change Persona,  Up: Users and Groups
+
+Reading the Persona of a Process
+================================
+
+   Here are detailed descriptions of the functions for reading the user
+and group IDs of a process, both real and effective.  To use these
+facilities, you must include the header files `sys/types.h' and
+`unistd.h'.
+
+ - Data Type: uid_t
+     This is an integer data type used to represent user IDs.  In the
+     GNU library, this is an alias for `unsigned int'.
+
+ - Data Type: gid_t
+     This is an integer data type used to represent group IDs.  In the
+     GNU library, this is an alias for `unsigned int'.
+
+ - Function: uid_t getuid (void)
+     The `getuid' function returns the real user ID of the process.
+
+ - Function: gid_t getgid (void)
+     The `getgid' function returns the real group ID of the process.
+
+ - Function: uid_t geteuid (void)
+     The `geteuid' function returns the effective user ID of the
+     process.
+
+ - Function: gid_t getegid (void)
+     The `getegid' function returns the effective group ID of the
+     process.
+
+ - Function: int getgroups (int COUNT, gid_t *GROUPS)
+     The `getgroups' function is used to inquire about the supplementary
+     group IDs of the process.  Up to COUNT of these group IDs are
+     stored in the array GROUPS; the return value from the function is
+     the number of group IDs actually stored.  If COUNT is smaller than
+     the total number of supplementary group IDs, then `getgroups'
+     returns a value of `-1' and `errno' is set to `EINVAL'.
+
+     If COUNT is zero, then `getgroups' just returns the total number
+     of supplementary group IDs.  On systems that do not support
+     supplementary groups, this will always be zero.
+
+     Here's how to use `getgroups' to read all the supplementary group
+     IDs:
+
+          gid_t *
+          read_all_groups (void)
+          {
+            int ngroups = getgroups (NULL, 0);
+            gid_t *groups
+              = (gid_t *) xmalloc (ngroups * sizeof (gid_t));
+            int val = getgroups (ngroups, groups);
+            if (val < 0)
+              {
+                free (groups);
+                return NULL;
+              }
+            return groups;
+          }
+
+
+File: libc.info,  Node: Setting User ID,  Next: Setting Groups,  Prev: Reading Persona,  Up: Users and Groups
+
+Setting the User ID
+===================
+
+   This section describes the functions for altering the user ID (real
+and/or effective) of a process.  To use these facilities, you must
+include the header files `sys/types.h' and `unistd.h'.
+
+ - Function: int setuid (uid_t NEWUID)
+     This function sets both the real and effective user ID of the
+     process to NEWUID, provided that the process has appropriate
+     privileges.
+
+     If the process is not privileged, then NEWUID must either be equal
+     to the real user ID or the saved user ID (if the system supports
+     the `_POSIX_SAVED_IDS' feature).  In this case, `setuid' sets only
+     the effective user ID and not the real user ID.
+
+     The `setuid' function returns a value of `0' to indicate
+     successful completion, and a value of `-1' to indicate an error.
+     The following `errno' error conditions are defined for this
+     function:
+
+    `EINVAL'
+          The value of the NEWUID argument is invalid.
+
+    `EPERM'
+          The process does not have the appropriate privileges; you do
+          not have permission to change to the specified ID.
+
+ - Function: int setreuid (uid_t RUID, uid_t EUID)
+     This function sets the real user ID of the process to RUID and the
+     effective user ID to EUID.  If RUID is `-1', it means not to
+     change the real user ID; likewise if EUID is `-1', it means not to
+     change the effective user ID.
+
+     The `setreuid' function exists for compatibility with 4.3 BSD Unix,
+     which does not support saved IDs.  You can use this function to
+     swap the effective and real user IDs of the process.  (Privileged
+     processes are not limited to this particular usage.)  If saved IDs
+     are supported, you should use that feature instead of this
+     function.  *Note Enable/Disable Setuid::.
+
+     The return value is `0' on success and `-1' on failure.  The
+     following `errno' error conditions are defined for this function:
+
+    `EPERM'
+          The process does not have the appropriate privileges; you do
+          not have permission to change to the specified ID.
+
+
+File: libc.info,  Node: Setting Groups,  Next: Enable/Disable Setuid,  Prev: Setting User ID,  Up: Users and Groups
+
+Setting the Group IDs
+=====================
+
+   This section describes the functions for altering the group IDs (real
+and effective) of a process.  To use these facilities, you must include
+the header files `sys/types.h' and `unistd.h'.
+
+ - Function: int setgid (gid_t NEWGID)
+     This function sets both the real and effective group ID of the
+     process to NEWGID, provided that the process has appropriate
+     privileges.
+
+     If the process is not privileged, then NEWGID must either be equal
+     to the real group ID or the saved group ID.  In this case, `setgid'
+     sets only the effective group ID and not the real group ID.
+
+     The return values and error conditions for `setgid' are the same
+     as those for `setuid'.
+
+ - Function: int setregid (gid_t RGID, fid_t EGID)
+     This function sets the real group ID of the process to RGID and
+     the effective group ID to EGID.  If RGID is `-1', it means not to
+     change the real group ID; likewise if EGID is `-1', it means not
+     to change the effective group ID.
+
+     The `setregid' function is provided for compatibility with 4.3 BSD
+     Unix, which does not support saved IDs.  You can use this function
+     to swap the effective and real group IDs of the process.
+     (Privileged processes are not limited to this usage.)  If saved
+     IDs are supported, you should use that feature instead of using
+     this function.  *Note Enable/Disable Setuid::.
+
+     The return values and error conditions for `setregid' are the same
+     as those for `setreuid'.
+
+   The GNU system also lets privileged processes change their
+supplementary group IDs.  To use `setgroups' or `initgroups', your
+programs should include the header file `grp.h'.
+
+ - Function: int setgroups (size_t COUNT, gid_t *GROUPS)
+     This function sets the process's supplementary group IDs.  It can
+     only be called from privileged processes.  The COUNT argument
+     specifies the number of group IDs in the array GROUPS.
+
+     This function returns `0' if successful and `-1' on error.  The
+     following `errno' error conditions are defined for this function:
+
+    `EPERM'
+          The calling process is not privileged.
+
+ - Function: int initgroups (const char *USER, gid_t GID)
+     The `initgroups' function effectively calls `setgroups' to set the
+     process's supplementary group IDs to be the normal default for the
+     user name USER.  The group ID GID is also included.
+
+
+File: libc.info,  Node: Enable/Disable Setuid,  Next: Setuid Program Example,  Prev: Setting Groups,  Up: Users and Groups
+
+Enabling and Disabling Setuid Access
+====================================
+
+   A typical setuid program does not need its special access all of the
+time.  It's a good idea to turn off this access when it isn't needed,
+so it can't possibly give unintended access.
+
+   If the system supports the saved user ID feature, you can accomplish
+this with `setuid'.  When the game program starts, its real user ID is
+`jdoe', its effective user ID is `games', and its saved user ID is also
+`games'.  The program should record both user ID values once at the
+beginning, like this:
+
+     user_user_id = getuid ();
+     game_user_id = geteuid ();
+
+   Then it can turn off game file access with
+
+     setuid (user_user_id);
+
+and turn it on with
+
+     setuid (game_user_id);
+
+Throughout this process, the real user ID remains `jdoe' and the saved
+user ID remains `games', so the program can always set its effective
+user ID to either one.
+
+   On other systems that don't support the saved user ID feature, you
+can turn setuid access on and off by using `setreuid' to swap the real
+and effective user IDs of the process, as follows:
+
+     setreuid (geteuid (), getuid ());
+
+This special case is always allowed--it cannot fail.
+
+   Why does this have the effect of toggling the setuid access?
+Suppose a game program has just started, and its real user ID is `jdoe'
+while its effective user ID is `games'.  In this state, the game can
+write the scores file.  If it swaps the two uids, the real becomes
+`games' and the effective becomes `jdoe'; now the program has only
+`jdoe' access.  Another swap brings `games' back to the effective user
+ID and restores access to the scores file.
+
+   In order to handle both kinds of systems, test for the saved user ID
+feature with a preprocessor conditional, like this:
+
+     #ifdef _POSIX_SAVED_IDS
+       setuid (user_user_id);
+     #else
+       setreuid (geteuid (), getuid ());
+     #endif
+
+
+File: libc.info,  Node: Setuid Program Example,  Next: Tips for Setuid,  Prev: Enable/Disable Setuid,  Up: Users and Groups
+
+Setuid Program Example
+======================
+
+   Here's an example showing how to set up a program that changes its
+effective user ID.
+
+   This is part of a game program called `caber-toss' that manipulates
+a file `scores' that should be writable only by the game program
+itself.  The program assumes that its executable file will be installed
+with the set-user-ID bit set and owned by the same user as the `scores'
+file.  Typically, a system administrator will set up an account like
+`games' for this purpose.
+
+   The executable file is given mode `4755', so that doing an `ls -l'
+on it produces output like:
+
+     -rwsr-xr-x   1 games    184422 Jul 30 15:17 caber-toss
+
+The set-user-ID bit shows up in the file modes as the `s'.
+
+   The scores file is given mode `644', and doing an `ls -l' on it
+shows:
+
+     -rw-r--r--  1 games           0 Jul 31 15:33 scores
+
+   Here are the parts of the program that show how to set up the changed
+user ID.  This program is conditionalized so that it makes use of the
+saved IDs feature if it is supported, and otherwise uses `setreuid' to
+swap the effective and real user IDs.
+
+     #include <stdio.h>
+     #include <sys/types.h>
+     #include <unistd.h>
+     #include <stdlib.h>
+     
+     
+     /* Save the effective and real UIDs. */
+     
+     static uid_t euid, ruid;
+     
+     
+     /* Restore the effective UID to its original value. */
+     
+     void
+     do_setuid (void)
+     {
+       int status;
+     
+     #ifdef _POSIX_SAVED_IDS
+       status = setuid (euid);
+     #else
+       status = setreuid (ruid, euid);
+     #endif
+       if (status < 0) {
+         fprintf (stderr, "Couldn't set uid.\n");
+         exit (status);
+         }
+     }
+     /* Set the effective UID to the real UID. */
+     
+     void
+     undo_setuid (void)
+     {
+       int status;
+     
+     #ifdef _POSIX_SAVED_IDS
+       status = setuid (ruid);
+     #else
+       status = setreuid (euid, ruid);
+     #endif
+       if (status < 0) {
+         fprintf (stderr, "Couldn't set uid.\n");
+         exit (status);
+         }
+     }
+     
+     /* Main program. */
+     
+     int
+     main (void)
+     {
+       /* Save the real and effective user IDs.  */
+       ruid = getuid ();
+       euid = geteuid ();
+       undo_setuid ();
+     
+       /* Do the game and record the score.  */
+       ...
+     }
+
+   Notice how the first thing the `main' function does is to set the
+effective user ID back to the real user ID.  This is so that any other
+file accesses that are performed while the user is playing the game use
+the real user ID for determining permissions.  Only when the program
+needs to open the scores file does it switch back to the original
+effective user ID, like this:
+
+     /* Record the score. */
+     
+     int
+     record_score (int score)
+     {
+       FILE *stream;
+       char *myname;
+     
+       /* Open the scores file. */
+       do_setuid ();
+       stream = fopen (SCORES_FILE, "a");
+       undo_setuid ();
+     /* Write the score to the file. */
+       if (stream)
+         {
+           myname = cuserid (NULL);
+           if (score < 0)
+             fprintf (stream, "%10s: Couldn't lift the caber.\n", myname);
+           else
+             fprintf (stream, "%10s: %d feet.\n", myname, score);
+           fclose (stream);
+           return 0;
+         }
+       else
+         return -1;
+     }
+
+
+File: libc.info,  Node: Tips for Setuid,  Next: Who Logged In,  Prev: Setuid Program Example,  Up: Users and Groups
+
+Tips for Writing Setuid Programs
+================================
+
+   It is easy for setuid programs to give the user access that isn't
+intended--in fact, if you want to avoid this, you need to be careful.
+Here are some guidelines for preventing unintended access and
+minimizing its consequences when it does occur:
+
+   * Don't have `setuid' programs with privileged user IDs such as
+     `root' unless it is absolutely necessary.  If the resource is
+     specific to your particular program, it's better to define a new,
+     nonprivileged user ID or group ID just to manage that resource.
+
+   * Be cautious about using the `system' and `exec' functions in
+     combination with changing the effective user ID.  Don't let users
+     of your program execute arbitrary programs under a changed user ID.
+     Executing a shell is especially bad news.  Less obviously, the
+     `execlp' and `execvp' functions are a potential risk (since the
+     program they execute depends on the user's `PATH' environment
+     variable).
+
+     If you must `exec' another program under a changed ID, specify an
+     absolute file name (*note File Name Resolution::.) for the
+     executable, and make sure that the protections on that executable
+     and *all* containing directories are such that ordinary users
+     cannot replace it with some other program.
+
+   * Only use the user ID controlling the resource in the part of the
+     program that actually uses that resource.  When you're finished
+     with it, restore the effective user ID back to the actual user's
+     user ID.  *Note Enable/Disable Setuid::.
+
+   * If the `setuid' part of your program needs to access other files
+     besides the controlled resource, it should verify that the real
+     user would ordinarily have permission to access those files.  You
+     can use the `access' function (*note Access Permission::.) to
+     check this; it uses the real user and group IDs, rather than the
+     effective IDs.
+
+
+File: libc.info,  Node: Who Logged In,  Next: User Database,  Prev: Tips for Setuid,  Up: Users and Groups
+
+Identifying Who Logged In
+=========================
+
+   You can use the functions listed in this section to determine the
+login name of the user who is running a process, and the name of the
+user who logged in the current session.  See also the function `getuid'
+and friends (*note Reading Persona::.).
+
+   The `getlogin' function is declared in `unistd.h', while `cuserid'
+and `L_cuserid' are declared in `stdio.h'.
+
+ - Function: char * getlogin (void)
+     The `getlogin' function returns a pointer to a string containing
+     the name of the user logged in on the controlling terminal of the
+     process, or a null pointer if this information cannot be
+     determined.  The string is statically allocated and might be
+     overwritten on subsequent calls to this function or to `cuserid'.
+
+ - Function: char * cuserid (char *STRING)
+     The `cuserid' function returns a pointer to a string containing a
+     user name associated with the effective ID of the process.  If
+     STRING is not a null pointer, it should be an array that can hold
+     at least `L_cuserid' characters; the string is returned in this
+     array.  Otherwise, a pointer to a string in a static area is
+     returned.  This string is statically allocated and might be
+     overwritten on subsequent calls to this function or to `getlogin'.
+
+ - Macro: int L_cuserid
+     An integer constant that indicates how long an array you might
+     need to store a user name.
+
+   These functions let your program identify positively the user who is
+running or the user who logged in this session.  (These can differ when
+setuid programs are involved; *Note Process Persona::.)  The user cannot
+do anything to fool these functions.
+
+   For most purposes, it is more useful to use the environment variable
+`LOGNAME' to find out who the user is.  This is more flexible precisely
+because the user can set `LOGNAME' arbitrarily.  *Note Standard
+Environment::.
+
+
+File: libc.info,  Node: User Database,  Next: Group Database,  Prev: Who Logged In,  Up: Users and Groups
+
+User Database
+=============
+
+   This section describes all about now to search and scan the database
+of registered users.  The database itself is kept in the file
+`/etc/passwd' on most systems, but on some systems a special network
+server gives access to it.
+
+* Menu:
+
+* User Data Structure::         What each user record contains.
+* Lookup User::                 How to look for a particular user.
+* Scanning All Users::          Scanning the list of all users, one by one.
+* Writing a User Entry::        How a program can rewrite a user's record.
+
+
+File: libc.info,  Node: User Data Structure,  Next: Lookup User,  Up: User Database
+
+The Data Structure that Describes a User
+----------------------------------------
+
+   The functions and data structures for accessing the system user
+database are declared in the header file `pwd.h'.
+
+ - Data Type: struct passwd
+     The `passwd' data structure is used to hold information about
+     entries in the system user data base.  It has at least the
+     following members:
+
+    `char *pw_name'
+          The user's login name.
+
+    `char *pw_passwd.'
+          The encrypted password string.
+
+    `uid_t pw_uid'
+          The user ID number.
+
+    `gid_t pw_gid'
+          The user's default group ID number.
+
+    `char *pw_gecos'
+          A string typically containing the user's real name, and
+          possibly other information such as a phone number.
+
+    `char *pw_dir'
+          The user's home directory, or initial working directory.
+          This might be a null pointer, in which case the
+          interpretation is system-dependent.
+
+    `char *pw_shell'
+          The user's default shell, or the initial program run when the
+          user logs in.  This might be a null pointer, indicating that
+          the system default should be used.
+
+
+File: libc.info,  Node: Lookup User,  Next: Scanning All Users,  Prev: User Data Structure,  Up: User Database
+
+Looking Up One User
+-------------------
+
+   You can search the system user database for information about a
+specific user using `getpwuid' or `getpwnam'.  These functions are
+declared in `pwd.h'.
+
+ - Function: struct passwd * getpwuid (uid_t UID)
+     This function returns a pointer to a statically-allocated structure
+     containing information about the user whose user ID is UID.  This
+     structure may be overwritten on subsequent calls to `getpwuid'.
+
+     A null pointer value indicates there is no user in the data base
+     with user ID UID.
+
+ - Function: struct passwd * getpwnam (const char *NAME)
+     This function returns a pointer to a statically-allocated structure
+     containing information about the user whose user name is NAME.
+     This structure may be overwritten on subsequent calls to
+     `getpwnam'.
+
+     A null pointer value indicates there is no user named NAME.
+
+
+File: libc.info,  Node: Scanning All Users,  Next: Writing a User Entry,  Prev: Lookup User,  Up: User Database
+
+Scanning the List of All Users
+------------------------------
+
+   This section explains how a program can read the list of all users in
+the system, one user at a time.  The functions described here are
+declared in `pwd.h'.
+
+   You can use the `fgetpwent' function to read user entries from a
+particular file.
+
+ - Function: struct passwd * fgetpwent (FILE *STREAM)
+     This function reads the next user entry from STREAM and returns a
+     pointer to the entry.  The structure is statically allocated and is
+     rewritten on subsequent calls to `fgetpwent'.  You must copy the
+     contents of the structure if you wish to save the information.
+
+     This stream must correspond to a file in the same format as the
+     standard password database file.  This function comes from System
+     V.
+
+   The way to scan all the entries in the user database is with
+`setpwent', `getpwent', and `endpwent'.
+
+ - Function: void setpwent (void)
+     This function initializes a stream which `getpwent' uses to read
+     the user database.
+
+ - Function: struct passwd * getpwent (void)
+     The `getpwent' function reads the next entry from the stream
+     initialized by `setpwent'.  It returns a pointer to the entry.  The
+     structure is statically allocated and is rewritten on subsequent
+     calls to `getpwent'.  You must copy the contents of the structure
+     if you wish to save the information.
+
+ - Function: void endpwent (void)
+     This function closes the internal stream used by `getpwent'.
+
+
+File: libc.info,  Node: Writing a User Entry,  Prev: Scanning All Users,  Up: User Database
+
+Writing a User Entry
+--------------------
+
+ - Function: int putpwent (const struct passwd *P, FILE *STREAM)
+     This function writes the user entry `*P' to the stream STREAM, in
+     the format used for the standard user database file.  The return
+     value is zero on success and nonzero on failure.
+
+     This function exists for compatibility with SVID.  We recommend
+     that you avoid using it, because it makes sense only on the
+     assumption that the `struct passwd' structure has no members
+     except the standard ones; on a system which merges the traditional
+     Unix data base with other extended information about users, adding
+     an entry using this function would inevitably leave out much of
+     the important information.
+
+     The function `putpwent' is declared in `pwd.h'.
+
+
+File: libc.info,  Node: Group Database,  Next: Database Example,  Prev: User Database,  Up: Users and Groups
+
+Group Database
+==============
+
+   This section describes all about how to search and scan the database
+of registered groups.  The database itself is kept in the file
+`/etc/group' on most systems, but on some systems a special network
+service provides access to it.
+
+* Menu:
+
+* Group Data Structure::        What each group record contains.
+* Lookup Group::                How to look for a particular group.
+* Scanning All Groups::         Scanning the list of all groups.
+
+
+File: libc.info,  Node: Group Data Structure,  Next: Lookup Group,  Up: Group Database
+
+The Data Structure for a Group
+------------------------------
+
+   The functions and data structures for accessing the system group
+database are declared in the header file `grp.h'.
+
+ - Data Type: struct group
+     The `group' structure is used to hold information about an entry in
+     the system group database.  It has at least the following members:
+
+    `char *gr_name'
+          The name of the group.
+
+    `gid_t gr_gid'
+          The group ID of the group.
+
+    `char **gr_mem'
+          A vector of pointers to the names of users in the group.
+          Each user name is a null-terminated string, and the vector
+          itself is terminated by a null pointer.
+
+
+File: libc.info,  Node: Lookup Group,  Next: Scanning All Groups,  Prev: Group Data Structure,  Up: Group Database
+
+Looking Up One Group
+--------------------
+
+   You can search the group database for information about a specific
+group using `getgrgid' or `getgrnam'.  These functions are declared in
+`grp.h'.
+
+ - Function: struct group * getgrgid (gid_t GID)
+     This function returns a pointer to a statically-allocated structure
+     containing information about the group whose group ID is GID.
+     This structure may be overwritten by subsequent calls to
+     `getgrgid'.
+
+     A null pointer indicates there is no group with ID GID.
+
+ - Function: struct group * getgrnam (const char *NAME)
+     This function returns a pointer to a statically-allocated structure
+     containing information about the group whose group name is NAME.
+     This structure may be overwritten by subsequent calls to
+     `getgrnam'.
+
+     A null pointer indicates there is no group named NAME.
+
+
+File: libc.info,  Node: Scanning All Groups,  Prev: Lookup Group,  Up: Group Database
+
+Scanning the List of All Groups
+-------------------------------
+
+   This section explains how a program can read the list of all groups
+in the system, one group at a time.  The functions described here are
+declared in `grp.h'.
+
+   You can use the `fgetgrent' function to read group entries from a
+particular file.
+
+ - Function: struct group * fgetgrent (FILE *STREAM)
+     The `fgetgrent' function reads the next entry from STREAM.  It
+     returns a pointer to the entry.  The structure is statically
+     allocated and is rewritten on subsequent calls to `fgetgrent'.  You
+     must copy the contents of the structure if you wish to save the
+     information.
+
+     The stream must correspond to a file in the same format as the
+     standard group database file.
+
+   The way to scan all the entries in the group database is with
+`setgrent', `getgrent', and `endgrent'.
+
+ - Function: void setgrent (void)
+     This function initializes a stream for reading from the group data
+     base.  You use this stream by calling `getgrent'.
+
+ - Function: struct group * getgrent (void)
+     The `getgrent' function reads the next entry from the stream
+     initialized by `setgrent'.  It returns a pointer to the entry.  The
+     structure is statically allocated and is rewritten on subsequent
+     calls to `getgrent'.  You must copy the contents of the structure
+     if you wish to save the information.
+
+ - Function: void endgrent (void)
+     This function closes the internal stream used by `getgrent'.
+
+
+File: libc.info,  Node: Database Example,  Prev: Group Database,  Up: Users and Groups
+
+User and Group Database Example
+===============================
+
+   Here is an example program showing the use of the system database
+inquiry functions.  The program prints some information about the user
+running the program.
+
+     #include <grp.h>
+     #include <pwd.h>
+     #include <sys/types.h>
+     #include <unistd.h>
+     #include <stdlib.h>
+     
+     int
+     main (void)
+     {
+       uid_t me;
+       struct passwd *my_passwd;
+       struct group *my_group;
+       char **members;
+     
+       /* Get information about the user ID. */
+       me = getuid ();
+       my_passwd = getpwuid (me);
+       if (!my_passwd)
+         {
+           printf ("Couldn't find out about user %d.\n", (int) me);
+           exit (EXIT_FAILURE);
+         }
+     
+       /* Print the information. */
+       printf ("I am %s.\n", my_passwd->pw_gecos);
+       printf ("My login name is %s.\n", my_passwd->pw_name);
+       printf ("My uid is %d.\n", (int) (my_passwd->pw_uid));
+       printf ("My home directory is %s.\n", my_passwd->pw_dir);
+       printf ("My default shell is %s.\n", my_passwd->pw_shell);
+     
+       /* Get information about the default group ID. */
+       my_group = getgrgid (my_passwd->pw_gid);
+       if (!my_group)
+         {
+           printf ("Couldn't find out about group %d.\n",
+                   (int) my_passwd->pw_gid);
+           exit (EXIT_FAILURE);
+         }
+     
+       /* Print the information. */
+       printf ("My default group is %s (%d).\n",
+               my_group->gr_name, (int) (my_passwd->pw_gid));
+       printf ("The members of this group are:\n");
+       members = my_group->gr_mem;
+       while (*members)
+         {
+           printf ("  %s\n", *(members));
+           members++;
+         }
+     
+       return EXIT_SUCCESS;
+     }
+
+   Here is some output from this program:
+
+     I am Throckmorton Snurd.
+     My login name is snurd.
+     My uid is 31093.
+     My home directory is /home/fsg/snurd.
+     My default shell is /bin/sh.
+     My default group is guest (12).
+     The members of this group are:
+       friedman
+       tami
+
+
+File: libc.info,  Node: System Information,  Next: System Configuration,  Prev: Users and Groups,  Up: Top
+
+System Information
+******************
+
+   This chapter describes functions that return information about the
+particular machine that is in use--the type of hardware, the type of
+software, and the individual machine's name.
+
+* Menu:
+
+* Host Identification::         Determining the name of the machine.
+* Hardware/Software Type ID::   Determining the hardware type of the
+                                 machine and what operating system it is
+                                 running.
+
+
+File: libc.info,  Node: Host Identification,  Next: Hardware/Software Type ID,  Up: System Information
+
+Host Identification
+===================
+
+   This section explains how to identify the particular machine that
+your program is running on.  The identification of a machine consists
+of its Internet host name and Internet address; see *Note Internet
+Namespace::.
+
+   Prototypes for these functions appear in `unistd.h'.  The shell
+commands `hostname' and `hostid' work by calling them.
+
+ - Function: int gethostname (char *NAME, size_t SIZE)
+     This function returns the name of the host machine in the array
+     NAME.  The SIZE argument specifies the size of this array, in
+     bytes.
+
+     The return value is `0' on success and `-1' on failure.  In the
+     GNU C library, `gethostname' fails if SIZE is not large enough;
+     then you can try again with a larger array.  The following `errno'
+     error condition is defined for this function:
+
+    `ENAMETOOLONG'
+          The SIZE argument is less than the size of the host name plus
+          one.
+
+     On some systems, there is a symbol for the maximum possible host
+     name length: `MAXHOSTNAMELEN'.  It is defined in `sys/param.h'.
+     But you can't count on this to exist, so it is cleaner to handle
+     failure and try again.
+
+     `gethostname' stores the beginning of the host name in NAME even
+     if the host name won't entirely fit.  For some purposes, a
+     truncated host name is good enough.  If it is, you can ignore the
+     error code.
+
+ - Function: int sethostname (const char *NAME, size_t LENGTH)
+     The `sethostname' function sets the name of the host machine to
+     NAME, a string with length LENGTH.  Only privileged processes are
+     allowed to do this.  Usually it happens just once, at system boot
+     time.
+
+     The return value is `0' on success and `-1' on failure.  The
+     following `errno' error condition is defined for this function:
+
+    `EPERM'
+          This process cannot set the host name because it is not
+          privileged.
+
+ - Function: long int gethostid (void)
+     This function returns the "host ID" of the machine the program is
+     running on.  By convention, this is usually the primary Internet
+     address of that machine, converted to a `long int'.  But on some
+     systems it is a meaningless but unique number which is hard-coded
+     for each machine.
+
+ - Function: int sethostid (long int ID)
+     The `sethostid' function sets the "host ID" of the host machine to
+     ID.  Only privileged processes are allowed to do this.  Usually it
+     happens just once, at system boot time.
+
+     The return value is `0' on success and `-1' on failure.  The
+     following `errno' error condition is defined for this function:
+
+    `EPERM'
+          This process cannot set the host name because it is not
+          privileged.
+
+    `ENOSYS'
+          The operating system does not support setting the host ID.
+          On some systems, the host ID is a meaningless but unique
+          number hard-coded for each machine.
+
+
+File: libc.info,  Node: Hardware/Software Type ID,  Prev: Host Identification,  Up: System Information
+
+Hardware/Software Type Identification
+=====================================
+
+   You can use the `uname' function to find out some information about
+the type of computer your program is running on.  This function and the
+associated data type are declared in the header file `sys/utsname.h'.
+
+ - Data Type: struct utsname
+     The `utsname' structure is used to hold information returned by
+     the `uname' function.  It has the following members:
+
+    `char sysname[]'
+          This is the name of the operating system in use.
+
+    `char nodename[]'
+          This is the network name of this particular computer.  In the
+          GNU library, the value is the same as that returned by
+          `gethostname'; see *Note Host Identification::.
+
+    `char release[]'
+          This is the current release level of the operating system
+          implementation.
+
+    `char version[]'
+          This is the current version level within the release of the
+          operating system.
+
+    `char machine[]'
+          This is a description of the type of hardware that is in use.
+
+          Some systems provide a mechanism to interrogate the kernel
+          directly for this information.  On systems without such a
+          mechanism, the GNU C library fills in this field based on the
+          configuration name that was specified when building and
+          installing the library.
+
+          GNU uses a three-part name to describe a system
+          configuration; the three parts are CPU, MANUFACTURER and
+          SYSTEM-TYPE, and they are separated with dashes.  Any
+          possible combination of three names is potentially
+          meaningful, but most such combinations are meaningless in
+          practice and even the meaningful ones are not necessarily
+          supported by any particular GNU program.
+
+          Since the value in `machine' is supposed to describe just the
+          hardware, it consists of the first two parts of the
+          configuration name: `CPU-MANUFACTURER'.  For example, it
+          might be one of these:
+
+               `"sparc-sun"', `"i386-ANYTHING"', `"m68k-hp"',
+               `"m68k-sony"', `"m68k-sun"', `"mips-dec"'
+
+ - Function: int uname (struct utsname *INFO)
+     The `uname' function fills in the structure pointed to by INFO
+     with information about the operating system and host machine.  A
+     non-negative value indicates that the data was successfully stored.
+
+     `-1' as the value indicates an error.  The only error possible is
+     `EFAULT', which we normally don't mention as it is always a
+     possibility.
+

@@ -1,0 +1,205 @@
+/* Async device configuration file for the SAS async driver. */
+
+/* This version is for the standard COM1 and COM2 ports.
+*/
+ 
+/* SAS was developed by
+Uwe Doering             INET : gemini@geminix.in-berlin.de
+Billstedter Pfad 17 b   UUCP : ...!unido!fub!geminix.in-berlin.de!gemini
+1000 Berlin 20
+Germany
+*/
+
+#if !defined (M_I286)
+#ident	"@(#)space.c	2.09"
+#endif
+
+#if defined (XENIX)
+#include "sas.h"
+#else
+#include <sys/sas.h>
+#endif
+
+/* This is the number of devices to be handled by this driver.
+   You may define up to 16 devices.  If this number is changed
+   the arrays below must be filled in accordingly.
+*/
+#define NUM_PHYSICAL_UNITS	2
+
+#if NUM_PHYSICAL_UNITS > MAX_UNITS
+#undef NUM_PHYSICAL_UNITS
+#define NUM_PHYSICAL_UNITS	MAX_UNITS
+#endif
+
+/* let the driver know the number of devices */
+uint	sas_physical_units = NUM_PHYSICAL_UNITS;
+
+/* array of base port addresses
+   Some modifier flags can be "ored" into these addresses to change
+   the behaviour of the respective devices. See sas.h for possible
+   names and values.
+*/
+ulong	sas_port [NUM_PHYSICAL_UNITS] =
+{
+	0x3f8,	0x2f8
+};
+
+/* array of interrupt vectors */
+uint	sas_vec [NUM_PHYSICAL_UNITS] =
+{
+	0x4,	0x3
+};
+
+/* initialization sequence for serial card
+   This array contains pairs of values of the form:
+
+        portaddress, value,
+              :
+              :
+        portaddress, value,
+        0
+
+   For every line `value' will be written to `portaddress'. If
+   `value' is replaced with the macro `READ_PORT' then a value
+   is read from `portaddress' instead. The value itself will be
+   discarded. Therefore, this makes only sense if the read access
+   to the port has a side effect like setting or resetting
+   certain flags.
+
+   NOTE: This array *must* be terminated with a value of 0
+         in the portaddress column!
+*/
+uint	sas_init_seq [] =
+{
+	0
+};
+
+/* initial modem control port info
+   This value is ored into the modem control value for each UART. This is
+   normaly used to force out2 which is used to enable the interrupts of
+   the standard com1 and com2 ports. Several brands of cards have modes
+   that allow them to work in compatible mode like com1 and com2 or as a
+   shared interrupts card. One of these cards is the AST 4-port card. When
+   this card is used in shared interrupts mode out2 must _not_ be set.
+
+   Note: This is one of the major trouble-spots with shared interrupts
+   cards. Check your manual.
+*/
+uint	sas_mcb [NUM_PHYSICAL_UNITS] =
+{
+	MC_SET_OUT2,	MC_SET_OUT2
+};
+
+/* array of modem control flags
+   You can choose which signals to use for modem control. See sas.h
+   for possible names and values. Whether or not modem control is
+   used is determined by the minor device number at open time.
+*/
+ulong	sas_modem [NUM_PHYSICAL_UNITS] =
+{
+	EO_DTR | EI_DTR | CA_DCD,
+	EO_DTR | EI_DTR | CA_DCD
+};
+
+/* array of hardware flow control flags
+   You can choose which signals to use for hardware handshake. See sas.h
+   for possible names and values. Whether or not hardware handshake is
+   used is determined by the minor device number at open time and by the
+   RTSFLOW/CTSFLOW termio(7) flags.
+*/
+ulong	sas_flow [NUM_PHYSICAL_UNITS] =
+{
+	HI_RTS | HO_CTS_ON_DSR | HX_RTS,
+	HI_RTS | HO_CTS_ON_DSR | HX_RTS
+};
+
+/* array of control register addresses
+   There are serial boards available that have all serial ports
+   multiplexed to one address location in order to save I/O address
+   space (Bell Tech HUB-6 card etc.). This multiplexing is controlled
+   by a special register that needs to be written to before the actual
+   port registers can be accessed. This array contains the addresses
+   of these special registers.
+   Enter the addresses on a per unit base. An address of zero
+   disables this feature.
+*/
+uint	sas_ctl_port [NUM_PHYSICAL_UNITS] =
+{
+	0,	0
+};
+
+/* array of control register values
+   These values are written to the corresponding control register
+   before the first access to the actual port registers. If not only
+   entire UART chips (blocks of 8 contiguous addresses) but even the
+   single registers of the UART chips need to be multiplexed to one
+   address you have to "or" a bit mask (shifted 8 times to the left)
+   to the control register value. This mask determines at which bit
+   locations the UART chip register number is "xored" into the control
+   register value at runtime. This implies that you can also use
+   negative logic by setting the bits in the control register value
+   to 1 at the locations corresponding to the bit mask.
+*/
+uint	sas_ctl_val [NUM_PHYSICAL_UNITS] =
+{
+	0,	0
+};
+
+/* additional configurations for shared interrupts boards
+   If you have a shared interrupts board, you may have to acknowledge
+   interrupts by writing to a special register. The following arrays
+   contain the special register addresses and the corresponding values
+   that are written to them in response to an interrupt.
+*/
+
+/* array of int ack register addresses
+   These registers are written to every time after all interrupt
+   sources in all of the UARTs that are tied to the corresponding
+   interrupt vector have been cleared.
+   Enter the addresses on a per vector base. An address of zero
+   disables this feature.
+*/
+uint	sas_int_ack_port [NUM_INT_VECTORS] =
+{
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0
+};
+
+/* array of int ack values
+   These values are written to the corresponding int ack register
+   in response to an interrupt.
+*/
+uint	sas_int_ack [NUM_INT_VECTORS] =
+{
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0,
+	0,	0,	0,	0
+};
+
+/* NOTHING NEEDS TO BE CHANGED BELOW THIS LINE.
+   ============================================
+*/
+
+/* array of structures to hold all info for a physical minor device */
+struct sas_info	sas_info [NUM_PHYSICAL_UNITS];
+
+
+/* array of pointers to sas_info structures
+   this prevents time consuming multiplications for index calculation
+*/
+struct sas_info	*sas_info_ptr [NUM_PHYSICAL_UNITS];
+
+/*
+   this prevents time consuming multiplications for index calculation
+*/

@@ -1,0 +1,1937 @@
+#!/bin/sh
+# shar:	Shell Archiver  (v1.22)
+#
+# This is part 1 of a multipart archive                                    
+# do not concatenate these parts, unpack them in order with /bin/sh        
+#
+#	Run the following text with /bin/sh to create:
+#	  Dialog.c
+#	  Dialog.h
+#	  Imakefile
+#	  README
+#	  Xod.ad
+#	  buttonndx.h
+#	  buttons.h
+#	  byteaddress.c
+#	  cmdline.c
+#	  ctw.c
+#	  ctw.h
+#	  ctwP.h
+#	  decode.c
+#	  defines.h
+#	  fileio.c
+#	  frowny.xbm
+#	  getres.c
+#	  gvars.h
+#	  gwidgets.h
+#	  helpdialog.c
+#	  keyhandler.c
+#	  keys.h
+#	  main.c
+#	  mkwidgets.c
+#	  rotate.c
+#	  utils.c
+#	  version.h
+#	  xod.1
+#	  xod.h
+#	  xod.pt
+#	  xutils.c
+#
+if test -r s2_seq_.tmp
+then echo "Must unpack archives in sequence!"
+     next=`cat s2_seq_.tmp`; echo "Please unpack part $next next"
+     exit 1; fi
+echo "x - extracting Dialog.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Dialog.c &&
+Xstatic char *RcsID = "$Id: Dialog.c,v 1.3 1993/02/23 18:21:42 rfs Exp $";
+X/*
+X * $Log: Dialog.c,v $
+X * Revision 1.3  1993/02/23  18:21:42  rfs
+X * Mad PositionPopup routine.
+X *
+X * Revision 1.2  1993/02/22  22:19:16  rfs
+X * *** empty log message ***
+X *
+X * Revision 1.1  1993/02/13  02:19:24  rfs
+X * Initial revision
+X *
+X*/
+X
+X/*
+X * $XConsortium: Dialog.c,v 1.10 91/07/24 15:46:20 converse Exp $
+X *
+X * Copyright 1989 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Davor Matic, MIT X Consortium
+X */
+X
+X#include <xod.h>
+X#include <X11/Xaw/Dialog.h>
+X#include <X11/Xaw/Command.h>
+X#include <X11/Xmu/CharSet.h>
+X#include <Dialog.h>
+X#include <xod.pt>
+X
+X#define min(x, y)                     (((x) < (y)) ? (x) : (y))
+X#define max(x, y)                     (((x) > (y)) ? (x) : (y))
+X
+Xvoid SetDialogButton();
+X
+Xstatic XtActionsRec actions_table[] = {
+X  {"set-dialog-button", SetDialogButton},
+X};
+X
+Xstatic DialogButton dialog_buttons[] = {
+X    {"yes", Yes},
+X    {"no", No},
+X    {"maybe", Maybe},
+X    {"okay", Okay},
+X    {"abort", Abort},
+X    {"cancel", Cancel},
+X    {"retry", Retry},
+X};
+X
+Xstatic unsigned long selected;
+X
+X/* ARGSUSED */
+Xvoid SetSelected(w, clientData, callData) /* ARGSUSED */
+X     Widget w;
+X     XtPointer clientData, callData;
+X{
+X    String name = (String)clientData;
+X    int i;
+X    
+X    for (i = 0; i < XtNumber(dialog_buttons); i++) 
+X	if (!strcmp(dialog_buttons[i].name, name)) 
+X	    selected |= dialog_buttons[i].flag;
+X}
+X
+X/* ARGSUSED */
+Xvoid SetDialogButton(w, event, argv, argc)
+X     Widget w;         /* not used */
+X     XEvent *event;    /* not used */
+X     String *argv;
+X     Cardinal *argc;  
+X{
+X  char button_name[80];
+X  XtPointer dummy = NULL;
+X  int i;
+X
+X  for (i = 0; i < *argc; i++) {
+X    XmuCopyISOLatin1Lowered (button_name, argv[i]);
+X    SetSelected(w, button_name, dummy);
+X  }
+X}
+X
+Xstatic Boolean firstTime = True;
+X
+XDialog CreateDialog(top_widget, name, options)
+X     Widget top_widget;
+X     String name;
+X     unsigned long options;
+X{
+X    int i;
+X    Dialog popup;
+X
+X    popup = (Dialog) XtMalloc(sizeof(_Dialog));
+X
+X    if (popup) {
+X        if (firstTime) {
+X	  XtAddActions(actions_table, XtNumber(actions_table));
+X	  firstTime = False;
+X	}
+X	popup->top_widget = top_widget;
+X	popup->shell_widget = XtCreatePopupShell(name, 
+X						 transientShellWidgetClass, 
+X						 top_widget, NULL, 0);
+X	popup->dialog_widget = XtCreateManagedWidget("dialog", 
+X						     dialogWidgetClass,
+X						     popup->shell_widget, 
+X						     NULL, 0);
+X	for (i = 0; i < XtNumber(dialog_buttons); i++)
+X	    if (options & dialog_buttons[i].flag)
+X		XawDialogAddButton(popup->dialog_widget, 
+X				   dialog_buttons[i].name, 
+X				   SetSelected, dialog_buttons[i].name);
+X	popup->options = options;
+X	return popup;
+X    }
+X    else
+X	return NULL;
+X}
+X
+Xvoid PopdownDialog(popup, answer)
+X    Dialog popup;
+X    String *answer;
+X{
+X    if (answer)
+X	*answer = XawDialogGetValueString(popup->dialog_widget);
+X    
+X    XtPopdown(popup->shell_widget);
+X}
+X
+Xunsigned long PopupDialog(popup, message, suggestion, answer, grab)
+X    Dialog popup;
+X    String message, suggestion, *answer;
+X    XtGrabKind grab;
+X{
+X  Position popup_x, popup_y, top_x, top_y;
+X  Dimension popup_width, popup_height, top_width, top_height, border_width;
+X  int n;
+X  Arg wargs[4];
+X
+X  n = 0;
+X  XtSetArg(wargs[n], XtNlabel, message); n++;
+X  XtSetArg(wargs[n], XtNvalue, suggestion); n++;
+X  XtSetValues(popup->dialog_widget, wargs, n);
+X
+X  XtRealizeWidget(popup->shell_widget);
+X  PositionPopupDialog(popup->top_widget, popup->shell_widget, &popup_width,
+X  	&popup_height);
+X
+X  selected = None;
+X
+X  XtPopup(popup->shell_widget, grab);
+X  XWarpPointer(XtDisplay(popup->shell_widget), 
+X	       XtWindow(popup->top_widget),
+X	       XtWindow(popup->shell_widget), 
+X	       0, 0, top_width, top_height,
+X	       popup_width / 2, popup_height / 2);
+X
+X  while ((selected & popup->options) == None) {
+X      XEvent event;
+X      XtNextEvent(&event);
+X      XtDispatchEvent(&event);
+X  }
+X
+X  PopdownDialog(popup, answer);
+X
+X  return (selected & popup->options);
+X}
+X
+Xvoid
+XPositionPopup(Widget top, Widget popup) {
+X	Dimension w, h;
+X
+X	PositionPopupDialog(top, popup, &w, &h);
+X}
+X
+Xvoid
+XPositionPopupDialog(Widget top_widget, Widget shell_widget, Dimension *width,
+X  Dimension *height) {
+X  Position popup_x, popup_y, top_x, top_y;
+X  Dimension popup_width, popup_height, top_width, top_height, border_width;
+X  int n;
+X  Arg wargs[20];
+X
+X  n = 0;
+X  XtSetArg(wargs[n], XtNx, &top_x); n++;
+X  XtSetArg(wargs[n], XtNy, &top_y); n++;
+X  XtSetArg(wargs[n], XtNwidth, &top_width); n++;
+X  XtSetArg(wargs[n], XtNheight, &top_height); n++;
+X  XtGetValues(top_widget, wargs, n);
+X
+X  n = 0;
+X  XtSetArg(wargs[n], XtNwidth, &popup_width); n++;
+X  XtSetArg(wargs[n], XtNheight, &popup_height); n++;
+X  XtSetArg(wargs[n], XtNborderWidth, &border_width); n++;
+X  XtGetValues(shell_widget, wargs, n);
+X  *width = popup_width;
+X  *height = popup_height;
+X
+X  popup_x = max(0, 
+X	min(top_x + ((Position)top_width - (Position)popup_width) / 2, 
+X	    (Position)DisplayWidth(XtDisplay(shell_widget), 
+X		   DefaultScreen(XtDisplay(shell_widget))) -
+X	    (Position)popup_width - 2 * (Position)border_width));
+X  popup_y = max(0, 
+X	min(top_y + ((Position)top_height - (Position)popup_height) / 2,
+X	    (Position)DisplayHeight(XtDisplay(shell_widget), 
+X		    DefaultScreen(XtDisplay(shell_widget))) -
+X	    (Position)popup_height - 2 * (Position)border_width));
+X  n = 0;
+X  XtSetArg(wargs[n], XtNx, popup_x); n++;
+X  XtSetArg(wargs[n], XtNy, popup_y); n++;
+X  XtSetValues(shell_widget, wargs, n);
+X}
+SHAR_EOF
+chmod 0644 Dialog.c || echo "restore of Dialog.c fails"
+set `wc -c Dialog.c`;Sum=$1
+if test "$Sum" != "6532"
+then echo original size 6532, current size $Sum;fi
+echo "x - extracting Dialog.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Dialog.h &&
+X/*
+X * $XConsortium: Dialog.h,v 1.5 91/02/22 18:20:14 converse Exp $
+X *
+X * Copyright 1989 Massachusetts Institute of Technology
+X *
+X * Permission to use, copy, modify, distribute, and sell this software and its
+X * documentation for any purpose is hereby granted without fee, provided that
+X * the above copyright notice appear in all copies and that both that
+X * copyright notice and this permission notice appear in supporting
+X * documentation, and that the name of M.I.T. not be used in advertising or
+X * publicity pertaining to distribution of the software without specific,
+X * written prior permission.  M.I.T. makes no representations about the
+X * suitability of this software for any purpose.  It is provided "as is"
+X * without express or implied warranty.
+X *
+X * M.I.T. DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING ALL
+X * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN NO EVENT SHALL M.I.T.
+X * BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+X * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+X * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+X * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+X *
+X * Author:  Davor Matic, MIT X Consortium
+X */
+X
+X
+X#ifndef _DIALOG_H
+X#define _DIALOG_H
+X
+X/*#define None   0*/
+X#define Yes    1<<1
+X#define No     1<<2
+X#define Maybe  1<<3  /* :-) */
+X#define Okay   1<<4
+X#define Abort  1<<5
+X#define Cancel 1<<6
+X#define Retry  1<<7
+X
+Xtypedef struct {
+X  Widget top_widget, shell_widget, dialog_widget;
+X  unsigned long options;
+X} _Dialog, *Dialog;
+X
+Xtypedef struct {
+X    String name;
+X    unsigned long flag;
+X} DialogButton;
+X#endif
+SHAR_EOF
+chmod 0644 Dialog.h || echo "restore of Dialog.h fails"
+set `wc -c Dialog.h`;Sum=$1
+if test "$Sum" != "1669"
+then echo original size 1669, current size $Sum;fi
+echo "x - extracting Imakefile (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Imakefile &&
+X# $Id: Imakefile,v 1.5 1993/02/16 23:12:44 rfs Exp rfs $
+X#
+X# $Log: Imakefile,v $
+X# Revision 1.5  1993/02/16  23:12:44  rfs
+X# *** empty log message ***
+X#
+X# Revision 1.4  1993/02/14  01:14:04  rfs
+X# Added dependencies for headers
+X#
+X# Revision 1.3  1993/02/13  23:48:36  rfs
+X# Enhanced "tar" target.
+X#
+X# Revision 1.2  1993/02/13  14:33:11  rfs
+X# use shared libs
+X#
+X# Revision 1.1  1993/02/13  12:28:22  rfs
+X# Initial revision
+X#
+X#
+X# Makefile for xod
+X
+XLDOPTIONS = -lXaw -lXmu -lXext -lXt -lX11 -lm -lXext
+X
+XCC = gcc -pipe -I.
+XPROG = xod
+X
+XHEADERS	= ctw.h ctwP.h Dialog.h buttons.h defines.h gvars.h gwidgets.h \
+X	keys.h version.h xod.h buttonndx.h xod.pt
+XSRCS = main.c rotate.c ctw.c xutils.c \
+X	Dialog.c keyhandler.c helpdialog.c byteaddress.c decode.c \
+X	utils.c fileio.c cmdline.c mkwidgets.c getres.c
+XOBJS = main.o rotate.o ctw.o xutils.o \
+X	Dialog.o keyhandler.o helpdialog.o byteaddress.o decode.o \
+X	utils.o fileio.o cmdline.o mkwidgets.o getres.o
+X
+XAllTarget($(PROG))
+XComplexProgramTarget($(PROG))
+X
+Xctw.o: ctw.h
+Xcmdline.o: defines.h
+Xdecode.o: defines.h
+Xkeyhandler.o: defines.h
+Xmain.o: defines.h buttons.h version.h
+Xmkwidgets.o: buttons.h
+X
+Xproto:
+X	mkptypes -p _P_XOD $(SRCS) > xod.pt
+X
+Xbackup::
+X	cp *.c *.h Makefile backup
+X
+Xtar:
+X	-rm core
+X	$(MAKE) getapp-def
+X	(cd ..; tar cvf /dev/fd0H1440 xod)
+X
+X# install the app-defaults file
+Xapp-def:
+X	cp Xod.ad /usr/X386/lib/X11/app-defaults/Xod
+X
+Xshar::
+X	shar README frowny.xbm Imakefile xod.1 Xod.ad $(SRCS) $(HEADERS) > xod.shar
+SHAR_EOF
+chmod 0644 Imakefile || echo "restore of Imakefile fails"
+set `wc -c Imakefile`;Sum=$1
+if test "$Sum" != "1465"
+then echo original size 1465, current size $Sum;fi
+echo "x - extracting README (Text)"
+sed 's/^X//' << 'SHAR_EOF' > README &&
+X=================================== XOD =================================
+X
+XPlease read this whole file before trying to make this program.  Some
+Xof what is said herein just may be important..... and you might not
+Xgive up on it if you realize the minor caveats.  If nothing else,
+Xsearch for IMPORTANT in this document.
+X
+XRelease
+X-------
+XThis is the first release of xod (xod 1.01).
+X
+XXod is an X-based "octal" dump program.  Like the Unix-supplied od(1),
+Xyou are not limited to octal displays.  You can view your data in
+Xhex, octal, decimal, or ASCII as well.  Not only that (which isn't all
+Xthat earth-shattering), you can click on a byte, and decode it and the
+Xbytes that follow in a variety of formats, search for strings, move
+Xbackwards and forwards in the file, and lots more.
+X
+XLike some mainframe data dumpers, you see your binary data in your
+Xselected format on one side of the screen, and in ASCII on the other.
+XBut with xod, you are a key (or mouse) stroke away from viewing your
+Xdata in one of 4 formats (hex, octal, decimal, or ASCII).
+X
+Xxod uses the Athena widget set for portability.
+XIn a lot of ways, it is like running less, vi, or emacs on a binary file
+X(except that you can't edit it).  But you can search for  strings,
+Xnumbers, etc., decode any byte pointed to, and much other stuff.  See the
+Xman page for full details.
+X
+Xxod was developed on a 486 running Linux, and tested there and on a
+XSun.  Both were running X11R5, but is should run under R4.
+X
+XBuilding
+X--------
+XShould be fairly easy:
+X
+X	xmkmf
+X	make
+X
+XIf this doesn't work, the files used by imake (run by xmkmf) may
+Xbe wrong.  Have your sysadmin fix the appropriate files.
+X
+X*IMPORTANT*
+XTo install, you need to install Xod.ad as Xod in your app-defaults
+Xarea.  You may need a sysadmin to do this.  If you don't do this,
+Xxod will look stupid when it is run. And you will have to copy
+Xxod to your area for binaries (a sysadmin will probably have to do
+Xthis as well).
+X
+X*IMPORTANT*
+XNOTE: this code is ANSI-C, so you may need to modify the CC line
+Xin the Imakefile before running xmkmf.  Use gcc if your company is too
+Xcheap to buy an ASNI compiler (in 1993?).  Otherwise, perhaps you
+Xcan use one of the public domain de-prototypers.
+X
+X*IMPORTANT*
+XIf keys don't work as advertized, some of the key mappings may be wrong
+X(mainly PgUp, PgDn, Home, and End).  This has been tested on a Sun, and
+Xa 486 under Linux,  and there are proper key mappings for them.  Check
+Xout keys.h, and modify if required.  If you get proper mappings for other
+Xmachines, please email them to me.
+X
+XBefore running xod
+X------------------
+XEnsure that Xod.ad (included with this distribution) is installed in
+Xan app-defaults as Xod.  Otherwise, the screen display will be pretty
+Xfunky.
+X
+XAuthor(s)
+X---------
+Xxod was written by RF Starr (starr@wg2.waii.com).  It makes use of
+XPaul Fox's wonderful CTW widget.  The CTW widget is a color terminal widget,
+Xallowing a text-like widget with multiple colors, and easy cursor manipulation.
+XMuch of the dialog box stuff was ripped out of the X11R5 bitmap program.
+X
+XDisclaimer
+X----------
+XThis software is provided as-is.  There are no guarantees of any kind.
+XUse at your own risk.  Don't smoke in bed.
+X
+XThis software is free, with no obligations whatsoever, except possibly
+Xthose imposed by the authors of chunks of code used herein.
+X
+XPlease report bugs to the author, and please do not distribute hacked up
+Xversions of the source without my permission.  Suggest improvements to
+Xthe author (especially minor mods to the keys.h file to get it to work on
+Xother machines).
+SHAR_EOF
+chmod 0644 README || echo "restore of README fails"
+set `wc -c README`;Sum=$1
+if test "$Sum" != "3541"
+then echo original size 3541, current size $Sum;fi
+echo "x - extracting Xod.ad (Text)"
+sed 's/^X//' << 'SHAR_EOF' > Xod.ad &&
+X! You can muck with these
+X*font: -*-fixed-bold-*-*-*-14*
+X*MenuButton.background: blue
+X*MenuButton.foreground: white
+X*Label.background: yellow
+X*labelHelp.background: LightBlue
+X*Command.background: pink
+X*Form.background: Light Gray
+X*vt100.rows: 16
+X*vt100.columns: 84
+X*cursorFg: black
+X*cursorBg: green
+X*cursorColor: black
+X
+X!!!!!!!!!!!!!!!!!!!!! DON'T MESS WITH THESE !!!!!!!!!!!!!!!!!!!
+X! But you shouldn't change these!!!
+X*TransientShell.allowShellResize: True
+X*baseTranslations:#override\
+X			<Key>Return:	set-dialog-button(okay, yes, retry)
+X*shapeStyle: oval
+X*pane.orientation: horizontal
+X*helpOK*top: ChainTop
+X*helpOK*bottom: ChainTop
+X*helpOK*left: ChainLeft
+X*helpOK*right: ChainLeft
+X
+X*formy.status*top: ChainTop
+X*formy.status*bottom: ChainTop
+X*formy.status*left: ChainLeft
+X*formy.status*right: ChainRight
+X*formy*File*left: ChainLeft
+X*formy*menu*width: 40
+X*status.fromHoriz: File
+X*decode.fromHoriz: status
+X*byteoffset.fromHoriz: decode
+X*form*width: 80
+X*form*height: 15
+X
+X*File.top: ChainTop
+X*File.bottom: ChainTop
+X*File.left: ChainLeft
+X*File.right: ChainLeft
+X
+X*status*top: ChainTop
+X*status*bottom: ChainTop
+X*status*left: ChainLeft
+X*status*right: ChainLeft
+X
+X*byteoffset*top: ChainTop
+X*byteoffset*bottom: ChainTop
+X*byteoffset*left: ChainRight
+X*byteoffset*right: ChainRight
+X
+X*decode*top: ChainTop
+X*decode*bottom: ChainTop
+X*decode*left: ChainRight
+X*decode*right: ChainRight
+X*decode*label:
+X
+X*form.Octal.fromVert: Hex
+X*form.Decimal.fromVert: Octal
+X*form.ASCII.fromVert: Decimal
+X*form.Short.vertDistance: 15
+X*form.Short.fromVert: ASCII
+X*form.uShort.fromVert: Short
+X*form.Long.fromVert: uShort
+X*form.uLong.fromVert: Long
+X*form.Float.fromVert: uLong
+X*form.Double.fromVert: Float
+X! *form.HpR4.fromVert: Double
+X! *form.HpR6.fromVert: HpR4
+SHAR_EOF
+chmod 0644 Xod.ad || echo "restore of Xod.ad fails"
+set `wc -c Xod.ad`;Sum=$1
+if test "$Sum" != "1727"
+then echo original size 1727, current size $Sum;fi
+echo "x - extracting buttonndx.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > buttonndx.h &&
+X#define New 101
+X#define Quit 102
+X
+X#define Hex 0
+X#define Octal 1
+X#define Decimal 2
+X#define Ascii 3
+X
+X#define Short 5
+X#define uShort 6
+X#define Long 7
+X#define uLong 8
+X#define Float 9
+X#define Double 10
+X#define HPR4 11
+X#define HPR6 12
+SHAR_EOF
+chmod 0644 buttonndx.h || echo "restore of buttonndx.h fails"
+set `wc -c buttonndx.h`;Sum=$1
+if test "$Sum" != "229"
+then echo original size 229, current size $Sum;fi
+echo "x - extracting buttons.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > buttons.h &&
+X#include <buttonndx.h>
+X
+Xtypedef struct {
+X  int             id;
+X  String          name;
+X  Boolean         trap;
+X  Widget          widget;
+X} ButtonRec, *ButtonPtr;
+X
+X/* for the File menu */
+Xstatic ButtonRec file_menu[] = {
+X  {New, "new", True},
+X  {Quit, "quit", True},
+X};
+X
+Xstatic ButtonRec buttonsMode[] = {
+X  {Hex, "Hex", False},
+X  {Octal, "Octal", False},
+X  {Decimal, "Decimal", False},
+X  {Ascii, "ASCII", False},
+X};
+X
+Xstatic ButtonRec buttonsDecode[] = {
+X  {Short, "Short", False},
+X  {uShort, "uShort", False},
+X  {Long, "Long", False},
+X  {uLong, "uLong", False},
+X  {Float, "Float", False},
+X  {Double, "Double", False},
+X  {HPR4, "HpR4", False},
+X  {HPR6, "HpR6", False},
+X};
+SHAR_EOF
+chmod 0644 buttons.h || echo "restore of buttons.h fails"
+set `wc -c buttons.h`;Sum=$1
+if test "$Sum" != "671"
+then echo original size 671, current size $Sum;fi
+echo "x - extracting byteaddress.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > byteaddress.c &&
+Xstatic char *RcsId = "$Id: byteaddress.c,v 1.2 1993/02/13 18:43:58 rfs Exp rfs $";
+X
+X/*
+X * $Log: byteaddress.c,v $
+X * Revision 1.2  1993/02/13  18:43:58  rfs
+X * *** empty log message ***
+X *
+X * Revision 1.1  1993/02/13  02:20:18  rfs
+X * Initial revision
+X *
+X * Revision 1.1  1993/02/13  02:20:18  rfs
+X * Initial revision
+X *
+X*/
+X
+X#include "defines.h"
+X#include "gvars.h"
+X#include "gwidgets.h"
+X#include <stdio.h>
+X#include <malloc.h>
+X
+Xstatic char *fmts[] = {
+X	"%06x\n",
+X	"%06o\n",
+X	"%06d\n",
+X};
+Xstatic char *offsetbuf = NULL;
+X
+Xvoid
+XSetAddressMode(int mode) {
+X	OffsetMode = mode;
+X	OffsetFmt = fmts[mode];
+X}
+X
+Xchar *
+XFmtOffset(long addr) {
+X	static char buffer[MAXLEN];
+X
+X	sprintf(buffer, OffsetFmt, addr);
+X	return buffer;
+X}
+X
+Xvoid
+XShowByteAddress(long startaddr) {
+X	char buffer[128];
+X	int addr = startaddr;
+X	int i;
+X
+X	if (!offsetbuf) {
+X		offsetbuf = (char *)malloc(NumberRows*(6+2));
+X	}
+X	if (!OffsetFmt) {
+X		OffsetMode = 0;
+X		OffsetFmt = fmts[0];
+X	}
+X	*offsetbuf = (int)NULL;
+X	for (i=0; i < NumberRows; i++) {
+X		sprintf(buffer, OffsetFmt, addr);
+X		strcat(offsetbuf, buffer);
+X		addr += BytesHoriz;
+X	}
+X	SetWidgetLabel(ByteAddress, offsetbuf);
+X}
+SHAR_EOF
+chmod 0644 byteaddress.c || echo "restore of byteaddress.c fails"
+set `wc -c byteaddress.c`;Sum=$1
+if test "$Sum" != "1128"
+then echo original size 1128, current size $Sum;fi
+echo "x - extracting cmdline.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > cmdline.c &&
+Xstatic char *RcsID = "$Id: cmdline.c,v 1.3 1993/03/02 00:44:36 rfs Exp $";
+X
+X/*
+X * $Log: cmdline.c,v $
+X * Revision 1.3  1993/03/02  00:44:36  rfs
+X * Enhanced for release.
+X *
+X * Revision 1.2  1993/02/13  14:34:03  rfs
+X * *** empty log message ***
+X *
+X * Revision 1.1  1993/02/13  02:20:18  rfs
+X * Initial revision
+X *
+X * Revision 1.1  1993/02/13  02:20:18  rfs
+X * Initial revision
+X *
+X*/
+X
+X#include <xod.h>
+X#include <xod.pt>
+X
+Xstatic int offsetType = HEX;
+Xstatic int gotoOffset = 0;
+X
+Xvoid
+XCmdLineInit(void) {
+X	UpdateAll(offsetType, GetDataOffset());
+X	CursorToAbsByte(gotoOffset);
+X}
+X
+X/* print usage summary */
+Xstatic void
+XUsage() {
+X	fprintf(stderr, "Usage: xod [-options] filename\n");
+X}
+X
+X/* pares the command line */
+Xvoid
+XParseCommandLine(int argc, char **argv) {
+X	char *program, *title, *filename;
+X
+X	program = *argv;
+X	argv++;
+X	if (! *argv) {
+X		Usage();
+X		exit(1);
+X	}
+X	while (*argv) {
+X		char *arg = *argv;
+X		char *next;
+X		if (!strcmp(arg, "-v")) {
+X			printf("%s\n", XodVersion());
+X			exit(0);
+X		}
+X		else if (!strcmp(arg, "-x"))
+X			DataMode = HEX;
+X		else if (!strcmp(arg, "-o"))
+X			DataMode = OCTAL;
+X		else if (!strcmp(arg, "-d"))
+X			DataMode = DECIMAL;
+X		else if (!strcmp(arg, "-a"))
+X			DataMode = ASCII;
+X		/* change offset display format from hex default */
+X		else if (!strcmp(arg, "-odf")) {
+X			argv++;
+X			if (*(*argv) == 'o') {
+X				offsetType = OCTAL;
+X			}
+X			else if (*(*argv) == 'd') {
+X				offsetType = DECIMAL;
+X			}
+X			else if (*(*argv) == 'h') {
+X				offsetType = HEX;
+X			}
+X		}
+X		else if (!strcmp(arg, "-off")) {
+X			argv++;
+X			gotoOffset = AddressConvert(*argv);
+X		}
+X		else if (!strncmp(arg, "-", 1))
+X			;
+X		else
+X			filename = arg;
+X		argv++;
+X	}
+X	if (!FileOpen(filename)) {
+X		fprintf(stderr, "Error trying to open %s for reading\n", filename);
+X		exit(1);
+X	}
+X}
+SHAR_EOF
+chmod 0644 cmdline.c || echo "restore of cmdline.c fails"
+set `wc -c cmdline.c`;Sum=$1
+if test "$Sum" != "1758"
+then echo original size 1758, current size $Sum;fi
+echo "x - extracting ctw.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > ctw.c &&
+Xstatic char *RcsID = "$Id: ctw.c,v 1.1 1993/02/13 18:39:38 rfs Exp rfs $";
+X/*
+X * $Log: ctw.c,v $
+X * Revision 1.1  1993/02/13  18:39:38  rfs
+X * Initial revision
+X *
+X *
+X*/
+X
+X/**********************************************************************/
+X/*                                                                    */
+X/*  File:          ctw.c                                              */
+X/*  Author:        P. D. Fox                                          */
+X/*  Created:       25 Nov 1991                     		      */
+X/*                                                                    */
+X/*  Copyright (c) 1990, 1991, 1992 Paul Fox                           */
+X/*                All Rights Reserved.                                */
+X/*                                                                    */
+X/*                                                                    */
+X/*--------------------------------------------------------------------*/
+X/*  Description:  Color terminal widget.                              */
+X/*                                                                    */
+X/*   Sequences supported:					      */
+X/*   								      */
+X/*   ESC 7	Save cursor position    			      */
+X/*   ESC 8	Restore cursor position 			      */
+X/*   ESC c	Reset terminal					      */
+X/*   ESC D	Index (down cursor or scroll).   	      	      */
+X/*   ESC M	Reverse index (up cursor or insline).   	      */
+X/*   ESC Z	Identify terminal.      			      */
+X/*   ESC >	Numeric keypad					      */
+X/*   ESC =	Application keypad      			      */
+X/*   ^H		Backspace					      */
+X/*   ^I		Tabs (fixed-width -- 8 chars wide).		      */
+X/*   ^J		Line feed					      */
+X/*   ^L		Clear screen.					      */
+X/*   ^M 	Carriage return 				      */
+X/*   ESC ( 0  	Graphics char set.      			      */
+X/*   ESC ) 0  	Graphics char set.      			      */
+X/*   ESC ( B  	Normal character set.   			      */
+X/*   ESC [ 0m	Reset attributes.                      	              */
+X/*   ESC [ 1m	Bold                                   	              */
+X/*   ESC [ 4m	Underline                              	              */
+X/*   ESC [ 7m	Reverse video.                         	              */
+X/*   ESC [ 3Xm	Set foreground color.                  	      	      */
+X/*   ESC [ 4Xm	Set background color.                  	      	      */
+X/*   ESC [ n @	Insert characters.      			      */
+X/*   ESC [ n A	Move cursor up					      */
+X/*   ESC [ n B	Move cursor down				      */
+X/*   ESC [ n C	Move cursor right       			      */
+X/*   ESC [ n D	Move cursor left				      */
+X/*   ESC [ n ; m H						      */
+X/*		Move cursor to absolute position.		      */
+X/*   ESC [ n L	Insert lines at current row     		      */
+X/*   ESC [ n M	Delete lines at current row     		      */
+X/*   ESC [ n ; m r	Set scrolling region.			      */
+X/*   ESC [ n P	Delete characters.              		      */
+X/*   ESC [ S	Index (down cursor or scroll).   	      	      */
+X/*   ESC [ T	Reverse index (up cursor or insline).   	      */
+X/*   ESC [ n X	Erase to blank (no cursor move) 		      */
+X/*   ESC [ n g	Print ASCII char 'n' (SCO mode only)    	      */
+X/*   ESC [n;m r	Set scrolling region to lines n..m.     	      */
+X/*   ESC [ n t	Shelltool/cmdtool compatable escape sequence          */
+X/*   		ESC [1t	Open window.				      */
+X/*   		ESC [2t	Iconise window.				      */
+X/*   		ESC [3t	Move window.				      */
+X/*   		ESC [4t	Change size (in pixels) window.		      */
+X/*   		ESC [5t	Raise window.				      */
+X/*   		ESC [6t	Lower window.				      */
+X/*   								      */
+X/*   ESC [ ? 1 h	Application cursor keys			      */
+X/*   ESC [ ? 4 h	Set smooth scroll mode.			      */
+X/*   ESC [ ? 7 h	Set autowrap           			      */
+X/*   ESC [ ? 47 h	Use alternate screen buffer.           	      */
+X/*   ESC [ ? 1962 h	Turn on application mouse.             	      */
+X/*   								      */
+X/*   ESC [ ? 1 l	Normal cursor keys			      */
+X/*   ESC [ ? 4 l	Set jump scroll mode.			      */
+X/*   ESC [ ? 7 l	Disable autowrap       			      */
+X/*   ESC [ ? 47 l	Use normal screen buffer.              	      */
+X/*   ESC [ ? 1962 l     Turn off application mouse.            	      */
+X/*   								      */
+X/*   ESC [ ? r;c;h;w;n S Scroll rectangular region up or down n lines */
+X/*   								      */
+X/*   								      */
+X/*   Sequences reported:					      */
+X/*     ESC [ b; m; s; r; c M  Mouse position report   		      */
+X/*   			b == Button being reported (1..3)	      */
+X/*   			s == 0 button pressed  			      */
+X/*   			  == 1 button released 			      */
+X/*   			  == 2 button motion   			      */
+X/*   								      */
+X/*   			m == Modifier status as a set of bits         */
+X/*   			     0x01 Shift down    		      */
+X/*   			     0x02 Ctrl down     		      */
+X/*   			     0x04 Meta down     		      */
+X/*   								      */
+X/*   			r == current row (decimal 0..n)		      */
+X/*   			c == current col (decimal 0..n)		      */
+X/*   								      */
+X/**********************************************************************/
+X
+X/*static char sccs_id[] = "%Z% %M% %R%.%L%";*/
+X
+X/*# include 	<X11/copyright.h>*/
+X# include 	<X11/IntrinsicP.h>
+X# include 	<X11/StringDefs.h>
+X# include 	<X11/Shell.h>
+X# include	<X11/Xatom.h>
+X# include	<signal.h>
+X# include 	"ctwP.h"
+X/**********************************************************************/
+X/*   Following  is  used  if  we  want  to  use my version of malloc  */
+X/*   checking.							      */
+X/**********************************************************************/
+X# if 0
+X# 	include	<chkalloc.h>
+X# else
+X#	define	chk_alloc	malloc
+X#	define	chk_free	free
+X# endif
+X# include	<stdio.h>
+X# include	<X11/keysym.h>
+X# include	<ctype.h>
+X# include	<memory.h>
+X# include	<stdlib.h>
+X# include	<string.h>
+X
+X# define	ROW_TO_PIXEL(w, r)	((r) * w->ctw.font_height + w->ctw.fontp->ascent)
+X# define	BLACK	0
+X# define	WHITE	7
+X
+X# define	MAX_ARGS	32
+X
+X/**********************************************************************/
+X/*   Default size of window if too small or not defined.	      */
+X/**********************************************************************/
+X# define	DEFAULT_HEIGHT	(13 * 24)
+X# define	DEFAULT_WIDTH	(7 * 80)
+X# define	DEFAULT_FONT	XtDefaultFont
+X
+Xstatic int 	default_rows = 24;
+Xstatic int 	default_columns = 80;
+Xstatic int	default_max_lines = 512;
+Xstatic Boolean	defaultFALSE = FALSE;
+Xstatic int	default_flashrate = 500;
+Xstatic int	default_multiClickTime = 250;
+X
+Xstatic XtResource resources[] = {
+X#define offset(field) XtOffset(CtwWidget, ctw.field)
+X	/* {name, class, type, size, offset, default_type, default_addr}, */
+X	{ XtNfont, XtCFont, XtRString, sizeof(char*),
+X	  offset(font), XtRString, "7x13bold"},
+X	{ XtNgeometry, XtCGeometry, XtRString, sizeof(char*),
+X	  offset(geometry), XtRString, ""},
+X	{ XtNcursorColor, XtCCursorColor, XtRPixel, sizeof(unsigned long),
+X	  offset(cursor_color), XtRString, "red"},
+X	{ XtNhiliteBackground, XtCHiliteBackground, XtRPixel, sizeof(unsigned long),
+X	  offset(hilite_bg), XtRString, "CadetBlue"},
+X	{ XtNhiliteForeground, XtCHiliteForeground, XtRPixel, sizeof(unsigned long),
+X	  offset(hilite_fg), XtRString, "yellow"},
+X	{ XtNrows, XtCRows, XtRInt, sizeof(int),
+X	  offset(rows), XtRInt, (char *) &default_rows},
+X	{ XtNcolumns, XtCColumns, XtRInt, sizeof(int),
+X	  offset(columns), XtRInt, (char *) &default_columns},
+X	{ XtNkbdCallback, XtCKbdCallback, XtRCallback, sizeof(caddr_t),
+X	  offset(kbd_callback), XtRCallback, (caddr_t) NULL},
+X	{ XtNresizeCallback, XtCResizeCallback, XtRCallback, sizeof(caddr_t),
+X	  offset(resize_callback), XtRCallback, (caddr_t) NULL},
+X	{ XtNtopCallback, XtCTopCallback, XtRCallback, sizeof(caddr_t),
+X	  offset(top_callback), XtRCallback, (caddr_t) NULL},
+X	{ XtNmouseCallback, XtCMouseCallback, XtRCallback, sizeof(caddr_t),
+X	  offset(mouse_callback), XtRCallback, (caddr_t) NULL},
+X	{ XtNapplCallback, XtCApplCallback, XtRCallback, sizeof(caddr_t),
+X	  offset(appl_callback), XtRCallback, (caddr_t) NULL},
+X	{ XtNtranslations, XtCTranslations, XtRTranslationTable, sizeof(char*),
+X	  offset(table), XtRString, ""},
+X	{ XtNsunFunctionKeys, XtCSunFunctionKeys, XtRBoolean, sizeof(Boolean),
+X	  offset(sun_function_keys), XtRBoolean, &defaultFALSE},
+X	{ XtNsaveLines, XtCSaveLines, XtRInt, sizeof(int),
+X	  offset(max_lines), XtRInt, (char *) &default_max_lines},
+X	{ XtNflashrate, XtCFlashrate, XtRInt, sizeof(int),
+X	  offset(flashrate), XtRInt, (char *) &default_flashrate},
+X	{ XtNfont1, XtCFont1, XtRString, sizeof(char *),
+X	  offset(font1), XtRString, "5x8"},
+X	{ XtNfont2, XtCFont2, XtRString, sizeof(char *),
+X	  offset(font2), XtRString, "6x9"},
+X	{ XtNfont3, XtCFont3, XtRString, sizeof(char *),
+X	  offset(font3), XtRString, "6x10"},
+X	{ XtNfont4, XtCFont4, XtRString, sizeof(char *),
+X	  offset(font4), XtRString, "6x13"},
+X	{ XtNfont5, XtCFont5, XtRString, sizeof(char *),
+X	  offset(font5), XtRString, "7x13bold"},
+X	{ XtNfont6, XtCFont6, XtRString, sizeof(char *),
+X	  offset(font6), XtRString, "8x13bold"},
+X	{ XtNmultiClickTime, XtCMultiClickTime, XtRInt, sizeof(int),
+X	  offset(multiClickTime), XtRInt, (char *) &default_multiClickTime},
+X#undef offset
+X};
+X
+Xstatic void	initialize();
+Xstatic void	realize();
+Xstatic void	Destroy();
+Xstatic void	Resize();
+Xstatic void	redisplay();
+Xstatic Boolean	Set_values();
+Xvoid	HandleFocusChange();
+X
+Xstatic void CtwInput(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwSelectStart(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwSelectExtend(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwSelectEnd(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwString(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwExpose(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwButtonDown(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwButtonUp(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwButtonMotion(/* Widget, XEvent*, String*, Cardinal* */);
+Xstatic void CtwInsertSelection(/* Widget, XEvent*, String*, Cardinal* */);
+X
+Xstatic void	application_mouse PROTO((CtwWidget, int, int, XEvent *, int, int));
+Xstatic void	ctw_add_string2 PROTO((CtwWidget, char *, int));
+Xstatic int	compute_length PROTO((CtwWidget, int, int, int));
+Xstatic void	cursor_flash_proc();
+Xstatic void	convert_click PROTO((CtwWidget));
+Xstatic void	reset_screen PROTO((CtwWidget));
+Xstatic void	alloc_screen PROTO((CtwWidget, int));
+Xstatic int	setup_x11_colors PROTO((Display *));
+Xstatic void	exposed_region PROTO((CtwWidget, int, int, int, int));
+Xstatic void	update_region PROTO((CtwWidget, int, int, int, int));
+Xstatic void	print_string PROTO((CtwWidget, int, int, int, vbyte_t *));
+Xstatic void	show_cursor PROTO((CtwWidget));
+Xstatic void	draw_string PROTO((CtwWidget, int, int, char *, int, Pixel, Pixel, int));
+Xstatic void	draw_line PROTO((CtwWidget, int, int, unsigned char *, int, Pixel, Pixel, int));
+Xstatic int	reset_font PROTO((CtwWidget, int));
+Xstatic void	get_xy PROTO((CtwWidget, int *, int *, int, int));
+Xstatic int	sunfuncvalue PROTO((int));
+Xstatic int	funcvalue PROTO((int));
+Xstatic char	*handle_escape PROTO((CtwWidget, char *, char *));
+Xstatic void	do_rev_index PROTO((CtwWidget));
+Xstatic void	do_index PROTO((CtwWidget));
+Xstatic void	scroll_up PROTO((CtwWidget, int));
+Xstatic void	scroll_rectangle PROTO((CtwWidget, int, int, int, int, int));
+Xstatic void	scroll_up_local  PROTO((CtwWidget, int, int));
+Xstatic void	blank_line PROTO((CtwWidget, vbyte_t *));
+Xstatic void	clear_lines PROTO((CtwWidget, int, int));
+Xstatic void	delete_line PROTO((CtwWidget, int, int));
+Xstatic void	insert_line PROTO((CtwWidget, int, int, int));
+Xstatic void	wait_for_exposure PROTO((CtwWidget));
+Xstatic int	process_escape PROTO((CtwWidget));
+Xstatic void	send_input PROTO((CtwWidget, char *, int));
+Xstatic void	scroll_down PROTO((CtwWidget, int, int));
+Xstatic void	turn_off_cursor PROTO((CtwWidget));
+Xstatic void	turn_on_cursor PROTO((CtwWidget));
+Xstatic void	toggle_cursor();
+Xstatic void	send_str PROTO((CtwWidget, char *, int));
+Xstatic int	do_quest PROTO((CtwWidget, int, int, int *));
+Xstatic int	do_escequ PROTO((CtwWidget, int, int, int *));
+Xstatic int	do_text_parms PROTO((Widget, char *));
+Xstatic void	down_line PROTO((CtwWidget, char *));
+Xstatic void	clear_to_eol PROTO((CtwWidget));
+Xstatic void	clear_from_beginning PROTO((CtwWidget));
+Xstatic void	clear_screen PROTO((CtwWidget));
+Xstatic void	hilite PROTO((CtwWidget, int, int, int, int, int));
+Xstatic Boolean convert_proc();
+Xstatic Atom 	FetchAtom();
+Xstatic void lose_selection();
+Xstatic void	requestor_callback();
+X
+X
+Xstatic XtActionsRec actions[] = {
+X  /* {name, procedure}, */
+X    {"input",		CtwInput},
+X    {"expose",		CtwExpose},
+X    {"string",		CtwString},
+X/* not good or cool for xod
+X    {"select-start",	CtwSelectStart},
+X    {"select-extend",	CtwSelectExtend},
+X    {"select-end",	CtwSelectEnd},
+X    {"insert-selection",CtwInsertSelection},
+X*/
+X    {"button_motion",	CtwButtonMotion},
+X    {"button_down",	CtwButtonDown},
+X    {"button_up",	CtwButtonUp},
+X};
+X/*
+X<Btn1Down>:		select-start()\n\
+X<Btn1Motion>:		select-extend()\n\
+X<Btn1Up>:		select-end(PRIMARY, CUT_BUFFER0)\n\
+X*/
+Xstatic char translations[] =
+X"\
+X<KeyPress>:		input()\n\
+X<Expose>:		expose()\n\
+X<GraphicsExpose>:	expose()\n\
+X<Btn1Down>:		button_down()\n\
+X<Btn1Up>:		button_up()\n\
+X<Btn2Up>:		button_up()\n\
+X<Btn2Down>:		button_down()\n\
+X<Btn3Up>:		button_up()\n\
+X<Btn3Down>:		button_down()\n\
+X<BtnMotion>:		button_motion()\n";
+X
+XCtwClassRec ctwClassRec = {
+X  { /* core fields */
+X    /* superclass		*/	(WidgetClass) &widgetClassRec,
+X    /* class_name		*/	"Ctw",
+X    /* widget_size		*/	sizeof(CtwRec),
+X    /* class_initialize		*/	NULL,
+X    /* class_part_initialize	*/	NULL,
+X    /* class_inited		*/	FALSE,
+X    /* initialize		*/	initialize,
+X    /* initialize_hook		*/	NULL,
+X    /* realize			*/	realize,
+X    /* actions			*/	actions,
+X    /* num_actions		*/	XtNumber(actions),
+X    /* resources		*/	resources,
+X    /* num_resources		*/	XtNumber(resources),
+X    /* xrm_class		*/	NULLQUARK,
+X    /* compress_motion		*/	TRUE,
+X    /* compress_exposure	*/	FALSE,
+X    /* compress_enterleave	*/	TRUE,
+X    /* visible_interest		*/	FALSE,
+X    /* destroy			*/	Destroy,
+X    /* resize			*/	Resize,
+X    /* expose			*/	redisplay,
+X    /* set_values		*/	Set_values,
+X    /* set_values_hook		*/	NULL,
+X    /* set_values_almost	*/	XtInheritSetValuesAlmost,
+X    /* get_values_hook		*/	NULL,
+X    /* accept_focus		*/	XtInheritAcceptFocus,
+X    /* version			*/	XtVersion,
+X    /* callback_private		*/	NULL,
+X    /* tm_table			*/	translations,
+X    /* query_geometry		*/	XtInheritQueryGeometry,
+X    /* display_accelerator	*/	XtInheritDisplayAccelerator,
+X    /* extension		*/	NULL
+X  },
+X  { /* ctw fields */
+X    /* empty			*/	0
+X  }
+X};
+X
+XWidgetClass ctwWidgetClass = (WidgetClass)&ctwClassRec;
+X
+X/**********************************************************************/
+X/*   Array of colors corresponding to the ANSI.			      */
+X/**********************************************************************/
+Xstatic Pixel x11_colors[16];
+X
+X/**********************************************************************/
+X/*   Array  of  characters  used  to  map  from  PC character set to  */
+X/*   line-drawing character set.				      */
+X/**********************************************************************/
+Xstatic char pc_chars[256];
+X
+X/**********************************************************************/
+X/*   Index  array  by  char  value  to  see  whether we need special  */
+X/*   processing.						      */
+X/**********************************************************************/
+Xstatic unsigned char	parse_tbl[256];
+X
+X/* ARGSUSED */
+Xstatic void
+Xinitialize(Widget treq, Widget tnew) {
+X	CtwWidget	new = (CtwWidget) tnew;
+X	Display	*dpy = XtDisplay(new);
+X
+X	/***********************************************/
+X	/*   Initialise the parse table.	       */
+X	/***********************************************/
+X	parse_tbl['\0'] = 1;
+X	parse_tbl[BEL] = 1;
+X	parse_tbl['\b'] = 1;
+X	parse_tbl['\t'] = 1;
+X	parse_tbl['\r'] = 1;
+X	parse_tbl['\n'] = 1;
+X	parse_tbl['n' & 0x1f] = 1;
+X	parse_tbl['o' & 0x1f] = 1;
+X	parse_tbl[ESC] = 1;
+X	parse_tbl[XON] = 1;
+X	parse_tbl[XOFF] = 1;
+X
+X	if (setup_x11_colors(dpy) == FALSE) {
+X		/***********************************************/
+X		/*   Monochrome screen.			       */
+X		/***********************************************/
+X		new->ctw.cursor_color = x11_colors[7];
+X		}
+X
+X	/***********************************************/
+X	/*   Set  up  the  PC  charcter  set  mapping  */
+X	/*   matrix.				       */
+X	/***********************************************/
+X	pc_chars[213] = 'l';
+X	pc_chars[184] = 'k';
+X	pc_chars[212] = 'm';
+X	pc_chars[190] = 'j';
+X	pc_chars[179] = 'x';
+X	pc_chars[0xcd] = 'q';
+X	pc_chars[0xd1] = 'w';
+X	pc_chars[0xcf] = 'v';
+X	pc_chars[0xd8] = 'n';
+X	pc_chars[0xb5] = 'u';
+X	pc_chars[0xc6] = 't';
+X
+X	if (new->core.height < 10)
+X		new->core.height = DEFAULT_HEIGHT;
+X	if (new->core.width < 10)
+X		new->core.width = DEFAULT_WIDTH;
+X	new->ctw.win_height_allocated = new->core.height;
+X	new->ctw.win_width_allocated = new->core.width;
+X	/***********************************************/
+X	/*   Set   initial   position  and  state  of  */
+X	/*   cursor.				       */
+X	/***********************************************/
+X	new->ctw.x = new->ctw.y = 0;
+X	new->ctw.cursor_visible = TRUE;	
+X
+X	if ((new->ctw.fontp = XLoadQueryFont(XtDisplay(new), new->ctw.font)) != NULL) {
+X		new->ctw.font_height = new->ctw.fontp->ascent + 
+X				 new->ctw.fontp->descent;
+X		new->ctw.font_width = XTextWidth(new->ctw.fontp, "A", 1);
+X		new->core.height = new->ctw.rows * new->ctw.font_height;
+X		new->core.width = new->ctw.columns * new->ctw.font_width;
+X		new->ctw.win_height_allocated = new->core.height;
+X		new->ctw.win_width_allocated = new->core.width;
+X		}
+X	/***********************************************/
+X	/*   Look  for  focus  related  events on the  */
+X	/*   parent     widget.     We     want    to  */
+X	/*   enable/disable      flashing      cursor  */
+X	/*   depending   on   whether   we  have  the  */
+X	/*   keyboard focus or not.		       */
+X	/***********************************************/
+X	XtAddEventHandler(XtParent(new), FocusChangeMask, FALSE,
+X		HandleFocusChange, new);
+X}
+X/**********************************************************************/
+X/*   Try  and  keep  track of whether we have the focus or not so we  */
+X/*   can avoid flashing cursor when its not our responsibility.	      */
+X/**********************************************************************/
+Xvoid
+XHandleFocusChange(Widget widget, CtwWidget w, XFocusChangeEvent *event) {
+X	if (event->type == FocusIn) {
+X		w->ctw.have_focus = TRUE;
+X		/***********************************************/
+X		/*   If timer isn't running then restart it.   */
+X		/***********************************************/
+X		if (w->ctw.cursor_timer == 0 && w->ctw.flashrate)
+X			cursor_flash_proc(w, (XtIntervalId *) NULL);
+X		}
+X	else {
+X		w->ctw.have_focus = FALSE;
+X		if (w->ctw.cursor_timer && w->ctw.flashrate) {
+X			XtRemoveTimeOut(w->ctw.cursor_timer);
+X			w->ctw.cursor_timer = 0;
+X			turn_on_cursor(w);
+X			}
+X		}
+X}
+X# define	superclass	(&widgetClassRec)
+Xstatic void
+Xrealize(Widget w, XtValueMask *valueMask, XSetWindowAttributes *attributes) {
+X	CtwWidget	new = (CtwWidget) w;
+X	XGCValues	values;
+X	Arg	args[10];
+X	int	n;
+X	XSetWindowAttributes	win_attr;
+X
+X	(*superclass->core_class.realize)(w, valueMask, attributes);
+X	/***********************************************/
+X	/*   Need  graphics  exposure  events because  */
+X	/*   we  support  the  insert and delete line  */
+X	/*   functionality, which uses XCopyArea.      */
+X	/***********************************************/
+X	values.graphics_exposures = TRUE;
+X	values.background = x11_colors[0];
+X	new->ctw.gc = XCreateGC(XtDisplay(new), XtWindow(new), 
+X		GCBackground | GCGraphicsExposures, &values);
+X	XSetWindowBackground(XtDisplay(w), XtWindow(w), x11_colors[0]);
+X	values.graphics_exposures = FALSE;
+X	values.background = new->ctw.cursor_color;
+X	new->ctw.cursor_gc = XCreateGC(XtDisplay(new), XtWindow(new), 
+X		GCBackground | GCGraphicsExposures, &values);
+X	new->ctw.line_gc = XCreateGC(XtDisplay(new), XtWindow(new), GCGraphicsExposures, &values);
+X
+X	/***********************************************/
+X	/*   Make sure we have a sane window size.     */
+X	/***********************************************/
+X	if (new->ctw.rows < 0)
+X		new->ctw.rows = 1;
+X	if (new->ctw.columns < 0)
+X		new->ctw.columns = 1;
+X	reset_font((CtwWidget)w, FALSE);
+X
+X	XSetFont(XtDisplay(new), new->ctw.gc, new->ctw.fontp->fid);
+X	XSetFont(XtDisplay(new), new->ctw.cursor_gc, new->ctw.fontp->fid);
+X
+X	win_attr.bit_gravity = NorthWestGravity;
+X	XChangeWindowAttributes(XtDisplay(w), XtWindow(w),
+X		CWBitGravity, &win_attr);
+X	
+X	n = 0;
+X	XtSetArg(args[n], XtNinput, 1); n++;
+X	XtSetValues(w, args, n);
+X
+X	n = 0;
+X	XtSetArg(args[n], XtNwidthInc, new->ctw.font_width); n++;
+X	XtSetArg(args[n], XtNheightInc, new->ctw.font_height); n++;
+X	XtSetValues(XtParent(w), args, n);
+X
+X	new->ctw.old_top_line = -1;
+X	new->ctw.sel_string = (char *) NULL;
+X	alloc_screen(new, TRUE);
+X
+X	new->ctw.flags[CTW_ERASE_BLACK] = TRUE;
+X	new->ctw.flags[CTW_CUT_NEWLINES] = TRUE;
+X
+X	reset_screen(new);
+X	/***********************************************/
+X	/*   Timer for the flashing cursor.	       */
+X	/***********************************************/
+X	new->ctw.cursor_timer = 0;
+X	if (new->ctw.flashrate)
+X		new->ctw.cursor_timer = XtAppAddTimeOut(
+X			XtWidgetToApplicationContext((Widget)new),
+X			(long) new->ctw.flashrate, cursor_flash_proc, new);
+X}
+X/**********************************************************************/
+X/*   Function called when widget is destroyed.			      */
+X/**********************************************************************/
+Xstatic void
+XDestroy(CtwWidget w) {
+X	Display *dpy;
+X
+X	dpy = XtDisplay(w);
+X	if (w->ctw.memory)
+X		chk_free((void *) w->ctw.memory);
+X	if (w->ctw.lines)
+X		chk_free((void *) w->ctw.lines);
+X	if (w->ctw.sel_string)
+X		chk_free((void *) w->ctw.sel_string);
+X	XFreeGC(dpy, w->ctw.gc);
+X	XFreeGC(dpy, w->ctw.cursor_gc);
+X	XFreeGC(dpy, w->ctw.line_gc);
+X	XtRemoveTimeOut(w->ctw.cursor_timer);
+X
+X	XtRemoveEventHandler(XtParent(w), FocusChangeMask, FALSE,
+X		(XtEventHandler)HandleFocusChange, w);
+X
+X}
+X/* ARGSUSED */
+Xstatic void
+XResize(CtwWidget w) {
+X	int	x, y;
+X
+X	if (!XtIsRealized((Widget)w))
+X		return;
+X	/***********************************************/
+X	/*   Stop   get_xy()   from  stopping  window  */
+X	/*   from getting bigger.		       */
+X	/***********************************************/
+X	w->ctw.rows = 32767;
+X	w->ctw.columns = 32767;
+X	get_xy(w, &y, &x, w->core.width, w->core.height);
+X	if (y < 1)
+X		y = 1;
+X	if (x < 1)
+X		x = 1;
+X	w->ctw.rows = y;
+X	w->ctw.columns = x;
+X	w->ctw.scroll_top = 0;
+X	w->ctw.scroll_bot = y;
+X
+X	alloc_screen(w, FALSE);
+X}
+X/**********************************************************************/
+X/*   Method   called  when  application  wants  to  change  resource  */
+X/*   values. Intercept font change.				      */
+X/**********************************************************************/
+Xstatic Boolean
+XSet_values(CtwWidget cur, CtwWidget req, CtwWidget new, ArgList args, 
+X	Cardinal *num_args) {
+X	int	refresh_needed = FALSE;
+X	XFontStruct	*fp;
+X	Dimension	req_width, req_height;
+X
+X	if (cur->ctw.font != new->ctw.font && 
+X	    strcmp(cur->ctw.font, new->ctw.font) != 0) {
+X		if ((fp = XLoadQueryFont(XtDisplay(new), new->ctw.font)) != NULL) {
+X			new->ctw.fontp = fp;
+X			reset_font(new, FALSE);
+X			XSetFont(XtDisplay(new), new->ctw.gc, fp->fid);
+X			XSetFont(XtDisplay(new), new->ctw.cursor_gc, fp->fid);
+X			refresh_needed = TRUE;
+X			/***********************************************/
+X			/*   Try and resize our window.		       */
+X			/***********************************************/
+X			req_width = new->ctw.columns * new->ctw.font_width;
+X			req_height = new->ctw.rows * new->ctw.font_height;
+X			}
+X		}
+X	return refresh_needed;
+X}
+X/**********************************************************************/
+X/*   Xterm compatable string action routine.			      */
+X/**********************************************************************/
+Xstatic void 
+XCtwString(Widget w, XEvent *event, String *x, Cardinal *y) {
+X	register int	i;
+X	register char	*cp;
+X	ctw_callback_t	reason;
+X
+X	reason.reason = CTW_INPUT;
+X	for (i = 0; i < *y; i++) {
+X		cp = x[i];
+X		reason.ptr = cp;
+X		reason.len = strlen(cp);
+X		XtCallCallbacks((Widget)w, XtNkbdCallback, (caddr_t) &reason);
+X		}
+X}
+X/**********************************************************************/
+X/*   Xterm compatable routine for making a selection.		      */
+X/**********************************************************************/
+Xstatic void 
+XCtwSelectStart(CtwWidget w, XEvent *event, String *x, Cardinal *y) {
+X	int	r, c;
+X	ctw_callback_t	reason;
+X
+X	if ((unsigned long) ((long) event->xbutton.time - w->ctw.timestamp) >
+X		w->ctw.multiClickTime)
+X		w->ctw.num_clicks = 0;
+X	else
+X		w->ctw.num_clicks = (w->ctw.num_clicks + 1) & 3;
+X	w->ctw.timestamp = event->xbutton.time;
+X
+X	/***********************************************/
+X	/*   Unhilite  any  previous selection before  */
+X	/*   starting the new one.		       */
+X	/***********************************************/
+X	if (w->ctw.sel_string) {
+X		if (w->ctw.sel_start_y >= 0)
+X			hilite(w, w->ctw.sel_start_x, w->ctw.sel_start_y,
+X				w->ctw.sel_cur_x, w->ctw.sel_cur_y, FALSE);
+X		chk_free((void *) w->ctw.sel_string);
+X		w->ctw.sel_string = (char *) NULL;
+X		}
+X
+X	get_xy(w, &r, &c, event->xbutton.x, event->xbutton.y);
+X
+X	w->ctw.sel_start_x = c;
+X	w->ctw.sel_start_y = w->ctw.top_line + r;
+X
+X	w->ctw.sel_cur_x = w->ctw.sel_start_x;
+X	w->ctw.sel_cur_y = w->ctw.sel_start_y;
+X
+X	convert_click(w);
+X
+X	/***********************************************/
+X	/*   Turn  off  cursor  and stop the flashing  */
+X	/*   code from turning it back on.	       */
+X	/***********************************************/
+X	turn_off_cursor(w);
+X	w->ctw.cursor_state = CURSOR_HIDDEN;
+X
+X	/***********************************************/
+X	/*   Tell  user  that we're doing a selection  */
+X	/*   so  its  best not to keep adding text to  */
+X	/*   the window to avoid scrolling problems.   */
+X	/***********************************************/
+X	reason.reason = CTW_SELECTION;
+X	XtCallCallbacks((Widget)w, XtNmouseCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Routine   to  convert  co-ordinates  got  via  a  button  click  */
+X/*   depending on how many clicks were typed.			      */
+X/**********************************************************************/
+Xstatic void
+Xconvert_click(CtwWidget w) {
+X	if (w->ctw.num_clicks == CLICK_LINE) {
+X		w->ctw.sel_start_x = 0;
+X		w->ctw.sel_cur_x = w->ctw.columns;
+X		hilite(w, 
+X			w->ctw.sel_start_x, w->ctw.sel_start_y,
+X			w->ctw.sel_cur_x, w->ctw.sel_cur_y, FALSE);
+X		}
+X}
+X/**********************************************************************/
+X/*   Xterm compatable routine for making a selection.		      */
+X/**********************************************************************/
+Xstatic void 
+XCtwSelectExtend(CtwWidget w, XEvent *event, String *str, Cardinal *num) {
+X	int	x, y;
+X	int	start, cur, here;
+X
+X	get_xy(w, &y, &x, event->xbutton.x, event->xbutton.y);
+X	y += w->ctw.top_line;
+X	if (w->ctw.num_clicks == CLICK_LINE) {
+X		x = w->ctw.columns;
+X		}
+X
+X	start = w->ctw.sel_start_y * w->ctw.columns + w->ctw.sel_start_x;
+X	cur = w->ctw.sel_cur_y * w->ctw.columns + w->ctw.sel_cur_x;
+X	here = y * w->ctw.columns + x;
+X	/***********************************************/
+X	/*   Work   out  which  regions  need  to  be  */
+X	/*   hilighted  and  make  the  display  look  */
+X	/*   correct.				       */
+X	/***********************************************/
+X	if (cur < start) {
+X		if (here < cur) {
+X			hilite(w, x, y, w->ctw.sel_cur_x, w->ctw.sel_cur_y, TRUE);
+X			}
+X		else if (here < start) {
+X			hilite(w, w->ctw.sel_cur_x, w->ctw.sel_cur_y, x, y, FALSE);
+X			}
+X		else {
+X			hilite(w, w->ctw.sel_cur_x, w->ctw.sel_cur_y, 
+X				w->ctw.sel_start_x, w->ctw.sel_start_y, FALSE);
+X			hilite(w, w->ctw.sel_start_x, w->ctw.sel_start_y, x, y, TRUE);
+X			}
+X		}
+X	else if (here >= cur) {
+X		if (cur < start)
+X			hilite(w, w->ctw.sel_cur_x, w->ctw.sel_cur_y, 
+X				w->ctw.sel_start_x, w->ctw.sel_start_y, FALSE);
+X		hilite(w, w->ctw.sel_cur_x, w->ctw.sel_cur_y, x, y, TRUE);
+X		}
+X	else if (here >= start && here < cur) {
+X		hilite(w, x, y, w->ctw.sel_cur_x, w->ctw.sel_cur_y, FALSE);
+X		}
+X	else if (here < start) {
+X		hilite(w, w->ctw.sel_start_x, w->ctw.sel_start_y, 
+X			w->ctw.sel_cur_x, w->ctw.sel_cur_y, FALSE);
+X		hilite(w, x, y, w->ctw.sel_start_x, w->ctw.sel_start_y, TRUE);
+X		}
+X	w->ctw.sel_cur_x = x;
+X	w->ctw.sel_cur_y = y;
+X}
+X/**********************************************************************/
+X/*   Routine to hilite a marked area.				      */
+X/**********************************************************************/
+Xstatic void
+Xhilite(CtwWidget w, int x1, int y1, int x2, int y2, int set_flag) {
+X	int	start_x = x1;
+X	int	end_x, x;
+X	int	y = y1;
+X	vbyte_t	*vp;
+X
+X	if (y < 0)
+X		return;
+X
+X	while (y <= y2) {
+X		if (y == y2)
+X			end_x = x2;
+X		else
+X			end_x = w->ctw.columns;
+X		vp = &w->ctw.lines[y][start_x];
+X		x = start_x;
+X		if (set_flag) {
+X			while (start_x++ < end_x) {
+X				vp->vb_attr |= VB_SELECT;
+X				vp++;
+X				}
+X			}
+X		else {
+X			while (start_x++ < end_x) {
+X				vp->vb_attr &= ~VB_SELECT;
+X				vp++;
+X				}
+X			}
+X		update_region(w, y - w->ctw.top_line, x, 
+X			y+1 - w->ctw.top_line, end_x+1);
+X		start_x = 0;
+X		y++;
+X		}
+X}
+X/**********************************************************************/
+X/*   Function  to  compute  the  length  of text in a line ready for  */
+X/*   cutting.							      */
+X/**********************************************************************/
+Xstatic int
+Xcompute_length(CtwWidget w, int row, int start_col, int end_col) {
+X	vbyte_t	*vp;
+X	vbyte_t	*svp;
+X
+X	vp = w->ctw.lines[row] + end_col;
+X	svp = w->ctw.lines[row] + start_col;
+X	while (vp > svp) {
+X		if (vp->vb_byte != ' ')
+X			break;
+X		vp--;
+X		}
+X	return (vp - svp) + 1;
+X}
+X/**********************************************************************/
+X/*   Xterm compatable routine for making a selection.		      */
+X/**********************************************************************/
+Xstatic void 
+XCtwSelectEnd(CtwWidget w, XEvent *event, String *str, Cardinal *num) {
+X	int	r, t, len;
+X	int	y, x, end_x;
+X	vbyte_t	*vp;
+X	int	cur;
+X	int	start;
+X	char	*cp;
+X	int	nl;
+X	Atom	atom;
+X
+X	start = w->ctw.sel_start_y * w->ctw.columns + w->ctw.sel_start_x;
+X	cur = w->ctw.sel_cur_y * w->ctw.columns + w->ctw.sel_cur_x;
+X	if (cur < start) {
+X		t = w->ctw.sel_start_x;
+X		w->ctw.sel_start_x = w->ctw.sel_cur_x;
+X		w->ctw.sel_cur_x = t;
+X
+X		t = w->ctw.sel_start_y;
+X		w->ctw.sel_start_y = w->ctw.sel_cur_y;
+X		w->ctw.sel_cur_y = t;
+X
+X		start = w->ctw.sel_start_y * w->ctw.columns + w->ctw.sel_start_x;
+X		cur = w->ctw.sel_cur_y * w->ctw.columns + w->ctw.sel_cur_x;
+X		}
+X
+X	/***********************************************/
+X	/*   Free up any previous selection.	       */
+X	/***********************************************/
+X	if (w->ctw.sel_string) {
+X		chk_free((void *) w->ctw.sel_string);
+X		}
+X	/***********************************************/
+X	/*   Work  out  how  much  room is needed for  */
+X	/*   copy.  We  may  allocate  too  much  but  */
+X	/*   thats better than too little.	       */
+X	/***********************************************/
+X	if (w->ctw.sel_start_y == w->ctw.sel_cur_y) {
+X		len = compute_length(w, w->ctw.sel_start_y, w->ctw.sel_start_x, w->ctw.sel_cur_x);
+X		}
+X	else {
+X		len = compute_length(w, w->ctw.sel_start_y, w->ctw.sel_start_x, w->ctw.columns);
+X		for (r = w->ctw.sel_start_y + 1; r < w->ctw.sel_cur_y; r++)
+X			len += compute_length(w, r, 0, w->ctw.columns);
+X		len += compute_length(w, 0, w->ctw.sel_cur_x, w->ctw.columns);
+X		}
+X	w->ctw.sel_length = len;
+X	w->ctw.sel_string = (char *) chk_alloc(len);
+X	cp = w->ctw.sel_string;
+X	y = w->ctw.sel_start_y;
+X	x = w->ctw.sel_start_x;
+X	nl = '\0';
+X	while (y <= w->ctw.sel_cur_y) {
+X		if (y == w->ctw.sel_cur_y)
+X			end_x = w->ctw.sel_cur_x - 1;
+X		else {
+X			end_x = w->ctw.columns - 1;
+X			}
+X		vp = &w->ctw.lines[y][x];
+X		/***********************************************/
+X		/*   Remove trailing spaces.		       */
+X		/***********************************************/
+X		len = compute_length(w, y, x, end_x);
+X		if (len != end_x - x + 1)
+X			nl = '\n';
+X		end_x = x + len - 1;
+X		while (x++ <= end_x) {
+X			*cp++ = vp->vb_byte;
+X			vp++;
+X			}
+X		if (nl)
+X			*cp++ = nl;
+X		y++;
+X		x = 0;
+X		if (w->ctw.flags[CTW_CUT_NEWLINES])
+X			nl = '\n';
+X		}
+X	*cp = '\0';
+X	/***********************************************/
+X	/*   Turn cursor back on.		       */
+X	/***********************************************/
+X	w->ctw.cursor_state = CURSOR_OFF;
+X	turn_on_cursor(w);
+X
+X	/***********************************************/
+X	/*   Try and grab ownership of selection.      */
+X	/***********************************************/
+X	atom = XA_PRIMARY;
+X	if (*num > 0 && strcmp(*str, "SECONDARY") == 0)
+X		atom = XA_SECONDARY;
+X	if (XtOwnSelection((Widget)w, atom, event->xbutton.time,
+X		convert_proc, lose_selection, NULL) == FALSE) {
+X		XBell(XtDisplay(w), 100);
+X		}
+X}
+Xstatic Atom
+XFetchAtom(Widget w, String name) {
+X	Atom	a;
+X	XrmValue	source, dest;
+X
+X	source.size = strlen(name) + 1;
+X	source.addr = name;
+X	dest.size = sizeof(Atom);
+X	dest.addr = (caddr_t) &a;
+X
+X	XtConvertAndStore(w, XtRString, &source, XtRAtom, &dest);
+X	return a;
+X}
+X/**********************************************************************/
+X/*   Function   called   when   some  other  application  wants  the  */
+X/*   selection.							      */
+X/**********************************************************************/
+Xstatic Boolean
+Xconvert_proc(CtwWidget w, Atom *selection, Atom *target, Atom *type, 
+X	XtPointer *value, unsigned long *length, int *format) {
+X	static Atom	targets = 0;
+X
+X	if (w->ctw.sel_string == (char *) NULL)
+X		return FALSE;
+X
+X	if (targets == 0) {
+X		targets = FetchAtom((Widget)w, "TARGETS");
+X		}
+X
+X	if (*target == targets) {
+X		*type = XA_ATOM;
+X		*value = (XtPointer) XtNew(Atom);
+X		*(Atom *) *value = XA_STRING;
+X		*length = 1;
+X		*format = 32;
+X		return TRUE;
+X		}
+X
+X	if (*target == XA_STRING) {
+X		*type = XA_STRING;
+X		*value = (XtPointer) XtNewString(w->ctw.sel_string);
+X		*length = strlen(*value);
+X		*format = 8;
+X		return TRUE;
+X		}
+X	return FALSE;
+X}
+X/**********************************************************************/
+X/*   Function  called  when  we lose the selection. Just free up the  */
+X/*   allocated memory.						      */
+X/**********************************************************************/
+Xstatic void
+Xlose_selection(CtwWidget w, Atom *selection) {
+X	if (w->ctw.sel_string) {
+X		chk_free((void *) w->ctw.sel_string);
+X		w->ctw.sel_string = (char *) NULL;
+X		hilite(w, w->ctw.sel_start_x, w->ctw.sel_start_y,
+X			w->ctw.sel_cur_x, w->ctw.sel_cur_y, FALSE);
+X		w->ctw.sel_start_x = -1;
+X		}
+X}
+X/**********************************************************************/
+X/*   Function  to  grab  contents  of  selection  and give to owning  */
+X/*   application.						      */
+X/**********************************************************************/
+Xstatic void 
+XCtwInsertSelection(Widget w, XEvent *event, String *x, Cardinal *y) {
+X	XtGetSelectionValue(w, XA_PRIMARY, XA_STRING, requestor_callback, 
+X		NULL, event->xbutton.time);
+X}
+X/* ARGSUSED */
+Xstatic void
+Xrequestor_callback(Widget w, XtPointer client_data, Atom *selection, 
+X	Atom *type, XtPointer *value, unsigned long *length, int *format) {
+X	ctw_callback_t	reason;
+X
+X	reason.reason = CTW_PASTE;
+X
+X	if (value == NULL || (*value == NULL && *length == 0)) {
+X		return;
+X		}
+X	reason.ptr = (char *) value;
+X	reason.len = (int) *length;
+X	XtCallCallbacks((Widget)w, XtNkbdCallback, (caddr_t) &reason);
+X
+X	/***********************************************/
+X	/*   Free it.				       */
+X	/***********************************************/
+X	XtFree((char *)value);
+X}
+X/**********************************************************************/
+X/*   Convert mouse button presses into pseudo keystrokes.	      */
+X/**********************************************************************/
+Xstatic void 
+XCtwButtonDown(CtwWidget w, XEvent *event, String *x, Cardinal *y) {
+X	ctw_callback_t reason;
+X
+X	if (w->ctw.flags[CTW_APPL_MOUSE]) {
+X		application_mouse(w, event->xbutton.state, 0, event, 
+X			event->xbutton.x,
+X			event->xbutton.y);
+X		return;
+X		}
+X	w->ctw.timestamp = event->xbutton.time;
+X
+X	reason.reason = CTW_BUTTON_DOWN;
+X	reason.event = event;
+X	XtCallCallbacks((Widget)w, XtNmouseCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Function to handle the application mouse mode.		      */
+X/**********************************************************************/
+Xstatic void
+Xapplication_mouse(CtwWidget w, int state, int flag, XEvent *event, 
+X	int x, int y) {
+X	ctw_callback_t	reason;
+X	char	buf[64];
+X	int	r, c;
+X	int	m = 0;
+X
+X	get_xy(w, &r, &c, x, y);
+X	/***********************************************/
+X	/*   Calculate modifer byte value.	       */
+X	/***********************************************/
+X	if (state & ShiftMask)
+X		m |= 0x01;
+X	if (state & ControlMask)
+X		m |= 0x02;
+X	if (state & (Mod1Mask | Mod2Mask | Mod3Mask | Mod4Mask | Mod5Mask))
+X		m |= 0x04;
+X
+X	sprintf(buf, "\033[%d;%d;%d;%d;%dM", 
+X		event->xbutton.button, 
+X		flag,
+X		m, r, c);
+X	reason.reason = CTW_INPUT;
+X	reason.ptr = buf;
+X	reason.len = strlen(buf);
+X	XtCallCallbacks((Widget)w, XtNkbdCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Event  handler  to  handle  the mouse moving whilst a button is  */
+X/*   held down.							      */
+X/**********************************************************************/
+Xstatic void 
+XCtwButtonMotion(CtwWidget w, XEvent *event, String *x, Cardinal *y) {
+X	ctw_callback_t reason;
+X
+X	if (w->ctw.flags[CTW_APPL_MOUSE]) {
+X		application_mouse(w, 
+X			event->xmotion.state & Button1Mask ? Button1 : 
+X			event->xmotion.state & Button2Mask ? Button2 : 
+X			event->xmotion.state & Button3Mask ? Button3 : 
+X			event->xmotion.state & Button4Mask ? Button4 : 
+X				       	Button5,
+X			2, event,
+X			event->xmotion.x,
+X			event->xmotion.y);
+X		return;
+X		}
+X	reason.reason = CTW_BUTTON_MOTION;
+X	reason.event = event;
+X	XtCallCallbacks((Widget)w, XtNmouseCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Convert mouse button presses into pseudo keystrokes.	      */
+X/**********************************************************************/
+Xstatic void 
+XCtwButtonUp(CtwWidget w, XEvent *event, String *x, Cardinal *y) {
+X	ctw_callback_t reason;
+X
+X	if (w->ctw.flags[CTW_APPL_MOUSE]) {
+X		application_mouse(w, event->xbutton.state, 1, event,
+X			event->xbutton.x,
+X			event->xbutton.y);
+X		return;
+X		}
+X	w->ctw.timestamp = event->xbutton.time;
+X	reason.reason = CTW_BUTTON_UP;
+X	reason.event = event;
+X	XtCallCallbacks((Widget)w, XtNmouseCallback, (caddr_t) &reason);
+X}
+X/**********************************************************************/
+X/*   Come here on a keypress event.				      */
+X/**********************************************************************/
+Xstatic void 
+XCtwInput(Widget w, XEvent *event, String *x, Cardinal *y) {
+X	CtwWidget	cw = (CtwWidget) w;
+X	char	buf[BUFSIZ];
+X	char	reply[BUFSIZ];
+X	char	*rp = reply;
+X	static XComposeStatus compose_status;
+X	KeySym	keysym;
+X	int	nbytes;
+X	ctw_callback_t	reason;
+Xstatic char *kypd_num = " XXXXXXXX\tXXX\rXXXxxxxXXXXXXXXXXXXXXXXXXXXX*+,-.\\0123456789XXX=";
+Xstatic char *kypd_apl = " ABCDEFGHIJKLMNOPQRSTUVWXYZ??????abcdefghijklmnopqrstuvwxyzXXX";
+Xstatic char *cur = "DACB";
+X
+X	reason.reason = CTW_INPUT;
+X	reason.len = 0;
+X	reason.ptr = reply;
+X
+X	nbytes = XLookupString((XKeyEvent *) event, buf, sizeof buf,
+X		&keysym, &compose_status);
+X	if (IsPFKey(keysym)) {
+X		*rp++ = ESC;
+X		*rp++ = 'O';
+X		*rp = keysym - XK_KP_F1 + 'P';
+X		reason.len = 3;
+X		}
+X	else if (IsKeypadKey(keysym)) {
+X		if (cw->ctw.flags[CTW_APPL_KEYPAD]) {
+X			*rp++ = ESC;
+X			*rp++ = 'O';
+X			*rp = kypd_apl[keysym - XK_KP_Space];
+X			reason.len = 3;
+X			}
+X		else  {
+X			*rp = kypd_num[keysym - XK_KP_Space];
+X			reason.len = 1;
+X			}
+X		}
+X	else if (IsCursorKey(keysym) && keysym != XK_Prior && keysym != XK_Next) {
+X		*rp++ = ESC;
+X		if (cw->ctw.flags[CTW_CURSOR_KEYPAD])
+X			*rp++ = 'O';
+X		else
+X			*rp++ = '[';
+X		*rp = cur[keysym - XK_Left];
+SHAR_EOF
+echo "End of part 1"
+echo "File ctw.c is continued in part 2"
+echo "2" > s2_seq_.tmp
+exit 0
+-- 
+| Bob Starr (starr@wg2.waii.com) | Western Geophysical | Opinions R mine! |
+
+

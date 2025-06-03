@@ -1,0 +1,94 @@
+#!/opt/bin/perl -s
+#
+#  @(#)facesaddr 1.4 91/11/19
+#
+#  Copyright (c) Steve Kinzler - April 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+# Uncomment this line if you are running a version of faces earlier
+# than version 1.5.0:
+# $oldformat = 1;
+
+$cols = 15; $rows = 15;
+
+# facesaddr - show faces for the given mail addresses
+# usage: facesaddr [ -a ] [ address-file ] ...
+# 	-a = if there are multiple windows, show them simultaneously,
+#	     not in sequence
+#	one mail address per line of stdin or per line in the address files
+#	can be a From: or From_ line including full name
+# Steve Kinzler, kinzler@cs.indiana.edu, April 1991
+
+$format = $oldformat ? "%-20s%-20s%-10s%-10s%-10s%-10s\n" :
+		       "%s\t%s\t%s\t%s\t%s\t%s\n";
+$max = $cols * $rows;
+
+$bg = '&'  if $a;
+$ff = '-F' if $F;
+
+while (<>) {
+	chop;
+	$host = '';
+
+	s/^From:?\s+//;
+
+	s/.*<([^>]*)>.*/\1/;
+	s/\(.*\)//;
+	s/\s.*//;
+
+	s/"//g;
+
+	while (/^@([^:]*):([^:].*)/) { $_ = $2; $host = $1; }
+	while (/(.*)[%@](.*)/)       { $_ = $1; $host = $2; }
+	while (/([^!]*)!(.*)/)       { $_ = $2; $host = $1;
+				       $host .= '.uucp' unless $host =~ /\./; }
+	while (/([^:]*)::(.*)/)      { $_ = $2; $host = $1; }
+
+	y/A-Z/a-z/ unless /[a-z]/;
+	s/^postmaster$/postmaster/i;
+	s/^(.{0,20}).*$/\1/ if $oldformat;
+	$user = $_;
+	s/^(.{0,10}).*$/\1/ if $oldformat;
+	$wind = $_;
+
+	$host =~ y/A-Z/a-z/;
+	if ($oldformat) { $host =~ s/^[^\.]*.// while length $host > 20; }
+	$icon = $host;
+	$icon =~ s/^.*(.{10})$/\1/;
+
+	push(@list, sprintf($format, $user, $host, $wind, '', $icon, ''));
+}
+
+@list = "NOUSERS\n" unless @list;
+
+while (@list) {
+	$tmp = "/tmp/facesaddr$$." . ++$num;
+	open(TMP, "> $tmp") || die "$0: Cannot open $tmp ($!)";
+	chmod(0755, $tmp);
+	print TMP ":\ncat << \\///\n";
+
+	printf TMP "Cols=%d Rows=%d\n", &lesser($#list + 1, $cols),
+					&lesser($#list / $cols + 1, $rows);
+
+	$x = 0;
+	while ($x++ < $max && ($_ = shift @list)) {
+		print TMP;
+#		print if $d;
+	}
+
+	print TMP "///\n";
+	close TMP;
+
+	system "(faces $ff -e $tmp -l facesaddr -p 99999; rm -f $tmp) $bg";
+}
+
+sub lesser {
+	local($a, $b) = @_;
+	($a < $b) ? $a : $b;
+}

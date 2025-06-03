@@ -1,0 +1,62 @@
+# Makefile for rolo - UNIX generic version
+
+# Configure for your type of terminal capability database.  
+#  if you have termcap,  set TERMSTUFF= -DTERMCAP,  and LIBS= -ltermcap
+#  if you have terminfo, set TERMSTUFF= -DTERMINFO, and LIBS= -lterminfo
+#  if you don't have either, leave them both blank (only "clear_screen" is used)
+TERMSTUFF= -DTERMINFO
+LIBS= -lcurses
+#
+CC = cc
+RLIB    = /usr/local/lib/rolo
+ROLOLIB = \"$(RLIB)\"
+TOOLDIR = ./toolsdir
+CFLAGS = -DUNIX -DROLOLIB=$(ROLOLIB) $(TERMSTUFF) -I$(TOOLDIR) -O -s
+DBGFLAG =
+SOURCES = clear.c io.c menuaux.c operatns.c options.c \
+	rlist.c rolo.c search.c update.c
+OBJECTS = clear.o io.o menuaux.o operatns.o options.o \
+	rlist.o rolo.o search.o update.o
+TOOLOBJ = $(TOOLDIR)/mem.o $(TOOLDIR)/args.o $(TOOLDIR)/ctools.o \
+	$(TOOLDIR)/menu.o
+
+BIN = /usr/local/bin
+MS = 1
+MAN = /usr/man/local/man$(MS)
+
+rolo: $(OBJECTS)
+	cd $(TOOLDIR) ; make tools ; cd ..
+	$(CC) -o rolo $(DBGFLAG) $(CFLAGS) $(OBJECTS) $(TOOLOBJ) $(LIBS)
+install: rolo
+	rm -f $(BIN)/rolo
+	mv rolo $(BIN)/rolo
+	chown bin $(BIN)/rolo
+	chgrp bin $(BIN)/rolo
+	chmod 111 $(BIN)/rolo
+
+	- mkdir $(RLIB)
+	- rm -f $(RLIB)/*.*
+	chown bin $(RLIB)
+	chgrp bin $(RLIB)
+	chmod 775 $(RLIB)
+
+	cp helplib/*.* $(RLIB)
+	chown bin $(RLIB)/*.*
+	chgrp bin $(RLIB)/*.*
+	chmod 444 $(RLIB)/*.*
+
+man: 
+	rm -f $(MAN)/rolo.1
+	cp rolo.1 $(MAN)/rolo.$(MS)
+	chown bin $(MAN)/rolo.$(MS)
+	chgrp bin $(MAN)/rolo.$(MS)
+	chmod 444 $(MAN)/rolo.$(MS)
+	man rolo
+
+clean:
+	rm -f $(OBJECTS) rolo *~ foo $(TOOLDIR)/*.o
+
+shar:
+	cshar README rolo.1 Makefile helplib > roloshar1
+	cshar *.[ch] > roloshar2
+	cshar toolsdir > roloshar3

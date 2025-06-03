@@ -1,0 +1,166 @@
+#include "../Imake.Config"
+
+all::
+
+#   CDEBUGFLAGS = -g 
+
+/***************************************************************************/
+/*	You shouldn't have to change anything below this line		   */
+/***************************************************************************/
+
+          FILES = $(SRCS) $(SRCS2) $(HDRS) \
+		  DviPageNEWS.c \
+		  DviPageNEWS.h \
+		  DviPageDPS.c \
+		  DviPageDPS.h \
+		  xtex.man Xtex.AD \
+		  TeXtoXfont.SCRIPT TeXtoXfont.remote.SCRIPT \
+		  xtex.sty \
+		  Imakefile Makefile ChangeLog \
+		  README README.OPENWIN PS-FONT-MAP X11-Font-information
+	
+        VERSION = 2.18.5#
+    RCS_VERSION = 2p185#
+
+#if defined(RsArchitecture) && OSMajorVersion == 3 && OSMinorVersion >1
+        EXTRA_DEFINES = -D_BSD -DVSPRINTF
+#else
+/* Just about anything else. We definitely need VSPRINTF
+ * (Greg Lehey, LEMIS, 16 May 1993) */
+        EXTRA_DEFINES = -DVSPRINTF -DSYSV
+#endif
+
+#ifdef DISPLAY_POSTSCRIPT
+        XTEX_IFDEF_DPS = -DDPS
+           DPS_DEFINES = -DHAVE_DPS
+/* If >=R5  assume that the user has compiled the contrib/lib/DPS stuff */
+#  if ProjectX >= 5
+               DPS_LIB = -ldps
+          DPS_INCLUDES = -I$(INCROOT)/X11
+#  else
+               DPS_LIB = -ldpstk -ldps
+#  endif
+             DPS_SRCS = DviPageDPS.c
+             DPS_HDRS = DviPageDPS.h
+             DPS_OBJS = DviPageDPS.o
+#endif
+
+#  ifdef NEWS
+      XTEX_IFDEF_NEWS = -DNEWS
+         NEWS_DEFINES = -DHAVE_NEWS
+             NEWS_LIB = -L$(OPENWINHOME)/lib -u _xv_psview_pkg -lxvps \
+                        -lxview -lcps -lolgx
+        NEWS_INCLUDES = -I$(OPENWINHOME)/include
+            NEWS_SRCS = DviPageNEWS.c
+            NEWS_HDRS = DviPageNEWS.h
+            NEWS_OBJS = DviPageNEWS.o
+#endif
+
+#  ifdef DISPLAY_GHOSTSCRIPT
+    XTEX_IFDEF_GHOST  = -DGHOST
+        GHOST_DEFINES = -DHAVE_GHOSTSCRIPT
+            GHOST_LIB = 
+       GHOST_INCLUDES = 
+           GHOST_SRCS = DviPageGS-0.c DviPageGS-1.c DviPageGS-2.c
+           GHOST_HDRS = DviPageGS-0.h DviPageGS-1.h DviPageGS-2.h
+           GHOST_OBJS = DviPageGS-0.o DviPageGS-1.o DviPageGS-2.o
+#endif
+
+XTEX_IFDEF_PS_OPTIONS = $(XTEX_IFDEF_DPS) $(XTEX_IFDEF_NEWS) $(XTEX_IFDEF_GHOST)
+   POSTSCRIPT_DEFINES = $(DPS_DEFINES) $(NEWS_DEFINES) $(GHOST_DEFINES)
+       POSTSCRIPT_LIB = $(DPS_LIB) $(NEWS_LIB) $(GHOST_LIB)
+  POSTSCRIPT_INCLUDES = $(DPS_INCLUDES) $(NEWS_INCLUDES) $(GHOST_INCLUDES)
+      POSTSCRIPT_SRCS = $(DPS_SRCS) $(NEWS_SRCS) $(GHOST_SRCS)
+      POSTSCRIPT_HDRS = $(DPS_HDRS) $(NEWS_HDRS) $(GHOST_HDRS)
+      POSTSCRIPT_OBJS = $(DPS_OBJS) $(NEWS_OBJS) $(GHOST_OBJS)
+
+#ifdef SELFILE
+      SELFILE_DEFINES = -DSELFILE
+              SF_SRCS = Dir.c Draw.c Path.c SelFile.c 
+              SF_HDRS = SFinternal.h
+              SF_OBJS = Dir.o Draw.o Path.o SelFile.o
+#else
+      SELFILE_DEFINES = 
+              SF_SRCS =
+              SF_HDRS =
+              SF_OBJS =
+#endif
+
+        DEFINES = $(XVERSION_DEFINES) $(POSTSCRIPT_DEFINES) \
+		  $(SELFILE_DEFINES) \
+		  -DPOPUP_WINDOW_TYPE=$(POPUP_WINDOW_TYPE) \
+		  -DXTEX_VERSION=\"$(VERSION)\"
+
+       INCLUDES	= -I$(LIBTEXROOT) -I$(INCROOT) $(POSTSCRIPT_INCLUDES)
+LOCAL_LIBRARIES = $(LIBTEX) $(POSTSCRIPT_LIB)
+        DEPLIBS = $(DEPLIBTEX) XawClientDepLibs
+/*
+ * XawClientLibs must be here for Ultrix
+ */
+  SYS_LIBRARIES =  XawClientLibs -lm
+
+           SRCS = xtex.c widgets.c \
+                  file.c dialog.c dvi-simple.c \
+                  page.c x11fonts.c mark.c fontpath.c \
+                  DviPage.c DviPage2.c Valuator.c \
+		  EzMenu.c EzME.c ${POSTSCRIPT_SRCS} ${SF_SRCS}
+
+           HDRS = DviPage.h dvi-simple.h mio.h xtex.h x11fonts.h \
+		  DviPageP.h mark.h page.h widgets.h Valuator.h ValuatorP.h \
+		  EzMenu.h EzMenuP.h EzME.h EzMEP.h \
+                  ${POSTSCRIPT_HDRS} ${SF_HDRS}
+
+           OBJS = xtex.o widgets.o \
+                  file.o dialog.o dvi-simple.o \
+                  page.o x11fonts.o mark.o fontpath.o \
+                  DviPage.o DviPage2.o Valuator.o \
+		  EzMenu.o EzME.o ${POSTSCRIPT_OBJS} ${SF_OBJS}
+
+ComplexProgramTarget(xtex)
+InstallScript(TeXtoXfont, $(BINDIR))
+InstallAppDefaults(Xtex)
+InstallNonExec(xtex.sty,$(TEX_INPUTS))
+
+Xtex.ad: Xtex.AD Makefile
+	sed < Xtex.AD \
+		-e "s|XTEX_TFM_PATH|$(XTEX_TFM_PATH)|" \
+		-e "s|XTEX_FONT_PATH|$(XTEX_FONT_PATH)|" \
+		-e "s|XTEX_MAKE_FONT|$(XTEX_MAKE_FONT)|" \
+		-e "s|RESOURCES_VERSION|$(VERSION)|" \
+		-e "s|GHOST_SEARCH_PATH|$(GHOST_SEARCH_PATH)|" | \
+	/lib/cpp -Usun $(XTEX_IFDEF_OPTIONS) $(XTEX_IFDEF_PS_OPTIONS) \
+		$(SELFILE_DEFINES) > Xtex.ad
+clean::
+	rm -f Xtex.ad
+
+TeXtoXfont.script: TeXtoXfont.SCRIPT Makefile
+	sed < TeXtoXfont.SCRIPT > TeXtoXfont.script \
+		-e "s|X_FONT_SUFFIX|$(X_FONT_SUFFIX)|" \
+		-e 's|X_FONT_COMPILER|$(X_FONT_COMPILER)|' \
+		-e "s|X_FONT_MAKE_DIR|$(X_FONT_MAKE_DIR)|" \
+		-e "s|X_FONT_COMPRESS|$(X_FONT_COMPRESS)|" \
+		-e "s|X_FONT_PREPEND|$(X_FONT_PREPEND)|" \
+		-e "s|X_FONT_RESET|$(X_FONT_RESET)|"
+clean::
+	rm -f TeXtoXfont.script
+
+ci:
+	echo "xtex version $(VERSION)" > /tmp/xtex.version
+	ci -l -f -t/tmp/xtex.version -m"xtex $(VERSION)" -n"xtex$(RCS_VERSION)" $(FILES)
+
+new-ad:: Xtex.ad
+	$(INSTALL) -c $(INSTAPPFLAGS) Xtex.ad $(XAPPLOADDIR)/Xtex
+
+tar:
+	cd ../..;\
+	for file in $(FILES); \
+	do \
+	  tar rf $(TARFILE) $(PRODUCT)/Xtex/$$file; \
+	done
+
+xtex-$(VERSION).tar.Z:
+	tar crf xtex-$(VERSION).tar $(FILES)
+	compress xtex-$(VERSION).tar
+
+ftp: xtex-$(VERSION).tar.Z
+	mv xtex-$(VERSION).tar.Z /srl/ftp/pub/SeeTeX

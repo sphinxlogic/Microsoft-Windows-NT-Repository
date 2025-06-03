@@ -1,0 +1,749 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node Overview, Bugs, Installation, Top
+@chapter Overview
+
+@cindex overview
+
+This chapter gives an overview of what you do to create fonts using
+these programs.  It also describes some things which are common to all
+the programs.
+
+Throughout this document, we refer to various source files in the
+implementation.  If you can read C programs, you may find these
+references useful as points of entry into the source when you are
+confused about some program's behavior, or are just curious.
+
+@menu
+* Picture::                     A pictorial overview.
+* Creating fonts::              How to use the programs together.
+* Command-line options::        Many aspects of the command line are
+  				  common to all programs.
+* Font searching::              How fonts and other files are looked for.
+* Font naming::                 How to name fonts.
+@end menu
+
+
+@node Picture, Creating fonts,  , Overview
+@section Picture
+
+@cindex picture of program flow
+@cindex information flow, picture of
+
+Following is a pictorial representation of the typical order in which
+these programs are used, as well as their input and output.
+
+GSrenderfont is not in the picture since it is intended for an entirely
+separate purpose (namely, making bitmaps from PostScript outlines).
+Fontconvert also has many functions which are not needed for the basic
+task of font creation from scanned images.
+
+@smallexample
+                                         ---------------
+                                         | fontconvert |
+                                       / ---------------
+                             /--------/         ^
+scanned                     /                   |
+image                      /                    v
+and IFI   -----------    GF   -------------  TFM, GF   --------  BZR
+========> | imageto | ======> | charspace | =========> | limn | ======...
+  ^       -----------         -------------     ^      --------
+  |                         /                   |               (continued)
+  v                       CMI                   v
+-------------                               --------
+| imgrotate |                               | xbfe |
+-------------                               --------
+
+
+
+                                  Metafont source    ------  GF, TFM
+                             |=====================> | mf | =========
+ (continued)                 |                       ------
+                             |
+      BZR   ---------  TFM,  |   PostScript Type 1 (gsf)
+... ======> | bzrto |========|=======================
+            ---------        |
+          /                  |
+        CCC                  |   PostScript Type 3 (pf3)
+                             |======================
+                             |
+                             |
+                             |    BPL    ------------  BZR
+                             |=========> | bpltobzr | =====
+                                         ------------
+@end smallexample
+
+@xref{File formats}, for more information on these file formats.
+
+
+@node Creating fonts, Command-line options, Picture, Overview
+@section Creating fonts
+
+@cindex creating fonts, overview of
+@cindex font creation, overview of
+@cindex information flow, description of
+@cindex overview of font creation
+
+The previous section described pictorially the usual order in which these
+programs are used.  This section will do the same in words.
+
+Naturally, you may not need to go through all the steps described here.
+For example, if you are not starting with a scanned image, but already
+have a bitmap font, then the first step---running Imageto---is
+irrelevant.
+
+Here is a description of the usual font creation process, starting with
+a scanned image of a type specimen and ending with fonts which can be
+used by Ghostscript, @TeX{}, etc.
+
+@enumerate
+
+@item
+@cindex image file, viewing
+@cindex scanned image, viewing
+To see what an image @var{I} consists of, run Imageto with the
+@samp{-strips} option.  This produces a bitmap font @file{@var{I}sp} in
+which each character is simply a constant number of scanlines from the
+image.
+
+@item
+Run Fontconvert (@pxref{Fontconvert}) on @file{@var{I}sp} with the
+@samp{-tfm} option, to produce a TFM file.  This is because of
+the next step:
+
+@item
+@flindex strips.tex
+Run @TeX{} on @file{imageto/strips.tex}, telling @TeX{} to use the
+font @file{@var{I}sp}.  This produces a DVI file which you can print or
+preview as you usually do with @TeX{} documents.  (If you don't know how
+to do this, you'll have to ask someone knowledgeable at your site, or
+otherwise investigate.)  This will (finally) show you what is in the
+image.
+
+An alternative to the above steps is to run Imageto with the
+@samp{-epsf} option.  This outputs an Encapsulated PostScript file with
+the image given as a simple PostScript bitmap.  Then you can use
+Ghostscript or some other PostScript interpreter to look at the EPS file.
+This method is simpler, but has the disadvantage of using much more
+disk space, and needing a PostScript interpreter.
+
+@item
+If the original was not scanned in the normal orientation, the image
+must be rotated 90 degrees in some direction and/or flipped end for end.
+(Sometimes we have not scanned in the normal orientation because the
+physical construction of the book we were scanning made it difficult or
+impossible.)  In this case, you must rotate the image to be upright.
+The program IMGrotate does this, given the @samp{-flip} or
+@samp{rotate-clockwise} option.  Given an image @var{RI}, this outputs
+the upright image @var{I}.
+
+@item
+Once you have an upright image @var{I}, you can use Imageto
+(@pxref{Imageto}) to extract the characters from the image and make a
+bitmap font @file{@var{I}.@var{dpi}gf}, where @var{dpi} is the
+resolution of the image in pixels per inch.  (If the image itself does
+not contain the resolution, you must specify it on the command line with
+@samp{-dpi}.)  To do this, you must first prepare an IFI file describing
+the image.  @xref{IFI files}, for a description of IFI files.
+
+@item
+@flindex testfont.tex
+To view the resulting GF file, run Fontconvert to make a TFM file, as
+above.  Then run @TeX{} on @file{testfont.tex} and use the @code{\table}
+or @code{\sample} commands to produce a font table.  Next, print or
+preview the DVI file that @TeX{} outputs, as before.  This will probably
+reveal problems in your IFI file, e.g., that not all the characters are
+present, or that they are not in the right positions.  So you need to
+iterate until the image is correctly processed.
+
+@file{testfont.tex} should have come with your @TeX{} distribution.  If
+for some reason you do not have it, you can use the one distributed in
+the @file{data} directory.
+
+@item
+Once all the characters have been properly extracted from the image, you
+have a bitmap font.  Unlike the above, the following steps all interact
+with each other, in the sense that fixing problems found at one stage may
+imply changes in an earlier stage.  As a result, you must expect to
+iterate them several (billion) times.
+
+At any rate, given a bitmap font @var{f} you then run Charspace
+(@pxref{Charspace}) to add side bearings to @var{f}, producing a new
+bitmap font, say @var{g}, and a corresponding TFM file
+@file{@var{g}.tfm}.  To do this, you must prepare a CMI file specifying
+the side bearings.  @xref{CMI files}, for a description of CMI files.
+
+@item
+To fit outlines to the characters in a bitmap font, run Limn
+(@pxref{Limn}).  Given the bitmap font @var{g}, it produces the BZR
+(@pxref{BZR files}) outline font @file{@var{g}.bzr}.  The side bearings
+in @var{g} are carried along.
+
+Although Limn will (should) always be able to fit some sort of outline
+to the bitmaps, you can get the best results only by fiddling with the
+(unfortunately numerous) parameters.  @xref{Invoking Limn}.
+
+@item
+To convert from the BZR file @file{@var{g}.bzr} that Limn outputs to a
+font format that a typesetting program can use, run BZRto
+(@pxref{BZRto}).  While developing a font, we typically convert it to a
+Metafont program (with the @samp{-metafont} option).
+
+As you get closer to a finished font, you may want to prepare a CCC file
+(@pxref{CCC files}) to tell BZRto how construct composite characters
+(pre-accented `A's, for example) to complete the font.
+
+@item
+Given the font in Metafont form, you can then either make
+the font at its true size for some device, or make an enlarged version
+to examine the characters closely.  @xref{Metafont and BZRto}, for the
+full details.
+
+Briefly, to do the former, run Metafont with a @code{mode} of whatever
+device you wish (the mode @code{localfont} will get you the most
+common local device, if Metafont has been installed properly).  Then you
+can use @file{testfont.tex} to get a font sample, as described above.
+
+To do the latter, run Metafont with no assignment to @code{mode}.  This
+should get you @code{proof} mode.  You can then use GFtoDVI to get a DVI
+file with one character per page, showing you the control points Limn
+chose for the outlines.
+
+@item
+Problems can arise at any stage.  For example, the character spacing
+might look wrong; in that case, you should fix the CMI files and rerun
+Charspace (and all subsequent programs, naturally).  Or the outlines
+might not match the bitmaps very well; then you can change the
+parameters to Limn, or use XBfe (@pxref{XBfe}) to hand-edit the bitmaps
+so Limn will do a better job.  (To eliminate some of tedium of fixing
+digitization problems in the scanned image, you might want to use the
+filtering options in Fontconvert before hand-editing; see @ref{Character
+manipulation options}.)
+
+Inevitably, as one problem gets fixed you notice new ones @dots{}
+
+@end enumerate
+
+
+@menu
+* Font creation example::       A real-life example.
+@end menu
+
+@node Font creation example,  ,  , Creating fonts
+@subsection Font creation example
+
+@cindex font creation, example of
+@cindex creating a font, example of
+@cindex example of font creation
+@cindex Garamond roman, creating
+
+@cindex English, Paul
+This section gives a real-life example of font creation for the Garamond
+roman typeface, which we worked on concomitantly with developing the
+programs.  We started from a scanned type specimen of 30 point Monotype
+Garamond, scanned using a Xerox 9700 scanner loaned to us from
+Interleaf, Inc.  (Thanks to Paul English and others at Interleaf for
+this loan.)
+
+@enumerate
+
+To begin, we used Imageto as follows to look at the image file we had
+scanned (@pxref{Viewing an image}).  Each line is a separate command.
+@example
+imageto -strips ggmr.img
+fontconvert -tfm ggmrsp.1200
+echo ggmrsp | tex strips.tex
+xdvi -p 1200 -s 10 strips.dvi
+@end example
+
+@item
+@flindex ggmr.ifi
+Next, we created the file @file{ggmr.ifi} (distributed in the
+@file{data} directory), listing the characters in the order they
+appeared in the image, guessing at baseline offsets and (if necessary)
+including bounding box counts.  Then we ran Imageto again, this time to
+get information about the baselines and spurious blotches in the image.
+We use the @samp{-encoding} option since some of the characters in the
+image are not in the default @code{ASCII} encoding.
+@example
+imageto -print-guidelines -print-clean-info -encoding=gnulatin ggmr.img
+@end example
+
+@item
+Based on the information gleaned from that run, we decided on the final
+baselines, adjusted the bounding box counts for broken-up characters,
+and extracted the font (@pxref{Image to font conversion}).  (In truth,
+this took several iterations.)  The design size of the original image
+was stated in the book to be 30@dmn{pt}.  We noticed several
+blotches in the image we needed to ignore, and so we added
+@code{.notdef} lines to @file{ggmr.ifi} as appropriate.
+@example
+imageto -verbose -baselines=121,130,120 \
+  -designsize=30 -encoding=gnulatin ggmr.img
+@end example
+
+@item
+To smooth some of the rough edges caused by the scanner's rasterization
+errors, we filtered the bitmaps with Fontconvert (@pxref{Fontconvert}).
+@example
+fontconvert -verbose -gf -tfm -filter-passes=3 -filter-size=3 \
+  ggmr30.1200 -output=ggmr30a
+@end example
+
+@item
+For a first attempt at intercharacter and interword spacing, we created
+@file{ggmr.1200cmi} (also distributed in the @file{data} directory) and
+ran Charspace (@pxref{Charspace}), producing @file{ggmr30b.1200gf} and
+@file{ggmr30b.tfm}.  To see the results, we ran @file{ggmr30b} through
+@file{testfont.tex}, modified the CMI file, reran Charspace, etc., until
+the output was somewhat reasonable.  We didn't try to fine-tune the
+spacing here, since we knew the following steps would affect the
+character shapes, which in turn would affect the spacing.
+@example
+charspace -verbose -cmi=ggmr.1200cmi ggmr30a.1200 -output=ggmr30b
+@end example
+
+@item
+Next we ran @file{ggmr30b.1200gf}, created by Charspace, through Limn to
+produce the outline font in BZR form, @file{ggmr30b.bzr}.  We couldn't
+know what the best values of all the fitting parameters were the first
+time, so we just increased the ones which are relative to the
+resolution.
+@example
+limn -verbose -corner-surround=4 -filter-surround=6 \
+  -filter-alternative-surround=3 -subdivide-surround=6 \
+  -tangent-surround=6 ggmr30b.1200
+@end example
+
+@item
+Then we converted @file{ggmr30b.bzr} to a Metafont program using BZRto
+(@pxref{BZRto}), and then ran Metafont to create TFM and GF files we
+could typeset with (@pxref{Metafont and BZRto}).  In order to keep the
+Metafont-generated files distinct from the original TFM and GF files, we
+use the output stem @file{ggmr30B}.  To see the results at the usual
+10@dmn{pt}, we then ran the Metafont output through @file{sample.tex} (a
+one-line wrapper for @file{testfont.tex}: @samp{\input testfont \sample
+\end}).
+@example
+bzrto -verbose -metafont ggmr30b -output=ggmr30B
+mf '\mode:=localfont; input ggmr30B'
+echo ggmr30B | tex sample
+dvips sample
+@end example
+
+@item
+This 10@dmn{pt} output looked too small to us.  So we changed the design
+size to 26@dmn{pt} (finding the value took several iterations) with
+Fontconvert (@pxref{Fontconvert}), then reran Charspace, Limn, BZRto,
+Metafont, etc., as above.  We only show the Fontconvert step here; the
+others have only the filenames changed from the invocations above.
+@example
+fontconvert -verbose -gf -tfm -designsize=26 ggmr30b.1200 -output=ggmr26c
+@end example
+
+@item
+After this, the real work begins.  We ran the Metafont program
+@file{ggmr26D.mf} in @code{proof} mode, followed by GFtoDVI, so we could
+see how well Limn did at choosing the control points for the outlines.
+@xref{Proofing with Metafont}.  (The @code{nodisplays} tells Metafont
+not to bother displaying each character in a window online.)
+@example
+mf '\mode:=proof; nodisplays; input ggmr26D'
+gftodvi ggmr26D.3656gf
+@end example
+
+@item
+From this, we went and hand-edited the font @file{ggmr26d.1200gf} with
+XBfe (@pxref{XBfe}), and/or tinkered with the options to Limn, trying to
+make the outlines reasonable.  We still haven't finished @dots{}
+@end enumerate
+
+
+@node Command-line options, Font searching, Creating fonts, Overview
+@section Command-line options
+
+@cindex arguments, specifying program
+@cindex command-line options, syntax of
+@cindex options, specifying program
+@cindex program arguments, syntax of
+@cindex syntax of command-line options
+
+@findex getopt_long_only
+Since these programs do not have counterparts on historical Unix
+systems, they need not conform to an existing interface.  We chose to
+have all the programs use the GNU function @code{getopt_long_only} to
+parse command lines.
+
+As a result, you can give the options in any order, interspersed as you
+wish with non-option arguments; you can use @samp{-} or @samp{--} to
+start an option; you can use any unambiguous abbreviation for an option
+name; you can separate option names and values with either @samp{=} or
+one or more spaces; and you can use filenames that would otherwise look
+like options by putting them after an option @samp{--}.
+
+By convention, all the programs accept only one non-option argument,
+which is taken to be the name of the main input file.
+
+If a particular option with a value is given more than once, it is the
+last value which is used.
+
+For example, the following command line specifies the options
+@samp{foo}, @samp{bar}, and @samp{verbose}; gives the value @samp{abc}
+to the @samp{baz} option, and the value @samp{xyz} to the @samp{quux}
+option; and specifies the filename @file{-myfile-}.
+
+@example
+-foo --bar -verb -abc=baz -quux karl -quux xyz -- -myfile-
+@end example
+
+@menu
+* Main input file::             Each program operates on a ``main'' font.
+* Options: Common options.      Some options are accepted by all programs.
+* Specifying character codes::  Ways of specifying single characters.
+* Values: Common option values.  Some options need more information.
+@end menu
+
+
+@node Main input file, Common options,  , Command-line options
+@subsection The main input file
+
+@cindex main input files
+@cindex input filename, specifying
+
+By convention, all the programs accept only one non-option argument,
+which they take to be the name of the main input file.
+
+Usually this is the name of a bitmap font.  By their nature, bitmap
+fonts are for a particular resolution.  You can specify the resolution
+in two ways: with the @samp{-dpi} option (see the next section), or by
+giving an extension to the font name on the command line.
+
+For example, you could specify the font @code{foo} at a resolution of
+300@dmn{dpi} to the program @var{program} in either of these two ways
+(@samp{$ } being the shell prompt):
+@example
+$ @var{program} foo.300
+$ @var{program} -dpi=300 foo
+@end example
+
+You can also say, e.g., @samp{@var{program} foo.300gf}, but the @samp{gf} is
+ignored.  These programs always look for a given font in PK format
+before looking for it in GF format, under the assumption that if both
+fonts exist, and have the same stem, they are the same.
+
+If the filename is absolute or explicitly relative, i.e., starts with
+@samp{/} or @samp{./} or @samp{../}, then the programs do not use search
+paths to look for it, as described in @ref{Font searching}.  Instead,
+the fonts are simply searched for in the given directory.
+
+
+@node Common options, Specifying character codes, Main input file, Command-line options
+@subsection Common options
+
+@cindex options, common
+@cindex arguments, common command-line
+
+Certain options are available in all or most of the programs.  Rather
+than writing identical descriptions in the chapters for each of the
+programs, they are described here.
+
+This first table lists common options which do not convey anything about
+the input.  They merely direct the program to print additional output.
+
+@table @samp
+
+@item -help
+@opindex -help
+@cindex help, online
+Prints a usage message listing all available options on standard error.
+The program exits after doing so.
+
+@item -log
+@opindex -log
+@cindex log file
+Write information about everything the program is doing to the file
+@file{@var{foo}.log}, where @var{foo} is the root part of the main input
+file.
+
+@item -verbose
+@opindex -verbose
+@cindex verbose output
+@cindex progress reports
+@cindex status reports
+@cindex standard output, used for verbose output
+@cindex file used for verbose output
+Prints brief status reports as the program runs, typically the character
+code of each character as it is processed.  This usually goes to
+standard output; but if the program is outputting other information
+there, it goes to standard error.
+
+@item -version
+@opindex -version
+@cindex version number, finding
+Prints the version number of the program on standard output.  If a main
+input file is supplied, processing continues; otherwise, the program
+exits normally.
+
+@end table
+
+This second table lists common options which change the program's
+behavior in more substantive ways.
+
+@table @samp
+
+@item -dpi @var{dpi}
+@cindex dpi, specifying explicitly
+@cindex resolution, specifying explicitly
+@opindex -dpi
+Look for the main input font at a resolution of @var{dpi} pixels per
+inch.  The default is to infer the information from the main input
+filename (@pxref{Main input file}).
+
+@item -output-file @var{fname}
+@opindex -output-file
+Write the main output of the program to @var{fname}.  If @var{fname} has
+a suffix, it is used unchanged; otherwise, it is extended with some
+standard suffix, such as @file{@var{resolution}gf}.  Unless @var{fname}
+is an absolute or explicitly relative pathname, the file is written in
+the current directory.
+
+@item -range @code{@var{start}-@var{end}}
+@opindex -range
+Only look at the characters between the character codes @var{start} and
+@var{end}, inclusive.  The default is to look at all characters in the
+font.  @xref{Specifying character codes}, for the precise syntax of
+character codes.
+
+@end table
+
+
+@node Specifying character codes, Common option values, Common options, Command-line options
+@subsection Specifying character codes
+
+@cindex character codes, specifying
+
+@flindex charcode.c
+@flindex charspec.c
+Most of the programs allow you to specify character codes for various
+purposes.  Character codes are always parsed in the same way (using the
+routines in @file{lib/charcode.c} and @file{lib/charspec.c}).
+
+You can specify the character code directly, as a numeric value,
+or indirectly, as a character name to be looked up in an encoding
+vector.
+
+@menu
+* Named character codes::       Character names are looked up in the encoding.
+* Numeric character codes::     Decimal, octal, hex, or ASCII.
+@end menu
+
+
+@node Named character codes, Numeric character codes,  , Specifying character codes
+@subsubsection Named character codes
+
+@cindex character codes, as names
+@cindex naming characters
+
+If a string being parsed as a character code is more than one character
+long, or starts with a non-digit, it is always looked up as a name in
+an encoding vector before being considered as a numeric code.  We do
+this because you can always specify a particular value in one of the
+numeric formats, if that's what you want.
+
+The encoding vector used varies with the program; you can always define
+an explicit encoding vector with the @samp{-encoding} option.  If you
+don't specify one explicitly, programs which must have an encoding
+vector use a default; programs which can proceed without one do not.
+@xref{Encoding files}, for more details on encoding vectors.
+
+As a practical matter, the only character names which have length one
+are the 52 letters, @samp{A}--@samp{Z}, @samp{a}--@samp{z}.  In virtually
+all common cases, the encoding vector and the underlying character set
+both have these in their ASCII positions.  (The exception is machines
+that use the EBCDIC encoding.)
+
+
+@node Numeric character codes,  , Named character codes, Specifying character codes
+@subsubsection Numeric character codes
+
+@cindex character codes, numeric
+
+The following variations for numeric character codes are allowed.  The
+examples all assume the character set is ASCII.
+
+@itemize @bullet
+
+@item
+@cindex octal character code
+Octal numerals preceded by a zero are taken to be an octal number.  For
+example, @kbd{0113} also means decimal 75.  If a would-be character code
+starts with a zero but contains any characters other than the digits
+@samp{0} through @samp{7}, it is invalid.
+
+@item
+@cindex hexadecimal character code
+Hexadecimal ``digits'' preceded by @samp{0x} or @samp{0X} are taken to
+be a hexadecimal number.  Case is irrelevant.  For example, @kbd{0x4b},
+@kbd{0X4b}, @kbd{0x4B}, and @kbd{0X4B} all mean decimal 75.  As with
+octal, a would-be character code starting with @samp{0x} and containing
+any characters other than @samp{0}--@samp{9}, @samp{a}--@samp{f}, and
+@samp{A}--@samp{F} is invalid.
+
+@item
+@cindex decimal character code
+A decimal number (consisting of more than one numeral) is itself.  For
+example, @kbd{75} means the character code decimal 75.  As before, a
+would-be character code starting with @samp{1}--@samp{9} and containing
+any characters other than @samp{0}--@samp{9} is invalid.
+
+@item
+A single digit, or a single character not in the encoding vector as a
+name, is taken to represent its value in the underlying character set.
+For example, @kbd{K} means the character code decimal 75, and @kbd{0}
+(the numeral zero) means the character code decimal 48 (if the machine
+uses ASCII).
+
+@item
+If the string being parsed as a character code starts with a digit, the
+appropriate one of the previous cases is applied.  If it starts with any
+other character, the string is first looked up as a name.
+
+@end itemize
+
+@cindex maximum character code
+Character codes must be between zero and 255 (decimal), inclusive.
+
+
+@node Common option values,  , Specifying character codes, Command-line options
+@subsection Common option values
+
+@cindex common option values
+@cindex option values
+The programs have a few common conventions for how to specify option
+values that are more complicated than simple numbers or strings.
+
+@cindex list as option values
+@cindex option value of a list
+@cindex option values, taking from a file
+Some options take not a single value, but a list.  In this case, the
+individual values are separated by commas or whitespace, as in
+@samp{-omit=1,2,3} or @samp{-omit="1 2 3"}.  Although using whitespace to
+separate the values is less convenient when typing them interactively,
+it is useful when you have a list that is so long you want to put it in
+the file.  Then you can use @file{cat} in conjunction with shell quoting
+to get the value: @samp{-omit="`cat file`"}.
+
+@cindex keyword/value list as option values
+@cindex option value of a keyword/value list
+Other options take a list of values, but each value is a keyword
+and a corresponding quantity, as in @samp{-fontdimens
+@var{name}:@var{real},@var{name},@var{real}}.
+
+@cindex percentages as option values
+@cindex option value of a percentage
+Finally, a few options take percentages, which you specify as an integer
+between 0 and 100, inclusive.
+
+
+@node Font searching, Font naming, Command-line options, Overview
+@section Font searching
+
+@cindex font searching algorithm
+
+These programs use the same environment variables and algorithms for
+finding font files as does (the Unix port of) @TeX{} and its friends.
+
+You specify the default paths in the top-level Makefile.  The
+environment variables @code{TEXFONTS}, @code{PKFONTS}, @code{TEXPKS},
+and @code{GFFONTS} override those paths.  Both the default paths and the
+environment variable values should consist of a colon-separated list of
+directories.
+
+@vindex GFFONTS @r{environment variable}
+@vindex PKFONTS @r{environment variable}
+@vindex TEXFONTS @r{environment variable}
+@vindex TEXPKS @r{environment variable}
+Specifically, a TFM file is looked for along the path specified by
+@code{TEXFONTS}; a GF file along @code{GFFONTS}, then @code{TEXFONTS}; a
+PK file along @code{PKFONTS}, then @code{TEXPKS}, then @code{TEXFONTS}.
+
+A leading or trailing colon in an environment variable value is replaced
+by the default path.
+
+@cindex @samp{~} in paths
+A leading @samp{~} or @samp{~@var{user}} in a path component is replaced
+by the current home directory or @var{user}'s home directory, respectively.
+
+If a directory in a path does not exist, it is simply ignored.
+
+@cindex subdirectory searching for paths
+In either the default value or the environment variable value, if a
+component directory @var{d} ends with two slashes, all subdirectories of
+@var{d} are searched: first those subdirectories directly under @var{d},
+then the subsubdirectories under those, and so on.  At each level, the
+order in which the directories are searched is unspecified.
+
+@cindex symbolic links, in path searching
+@cindex font search, slow startup
+@cindex startup time, excessive
+@cindex leaf directories, in path searching
+The subdirectory searching has one known deficiency, for which we know
+of no good solution.  If a directory @var{d} being searched for
+subdirectories contains plain files and symbolic links to other
+directories, but no real subdirectories, @var{d} will be considered a
+leaf directory, i.e., the symbolic links will not be followed.  The only
+@findex stat
+way we know of to fix this is to invoke @code{stat} (an expensive system
+call) on every directory entry.  Since font directories often contain
+hundreds of files, this would make the startup time unacceptably slow.
+
+A directory @var{d} explicitly named with two trailing slashes, however,
+is always searched for subdirectories, even if it is a ``leaf''.  We do
+this since presumably you would not have asked @var{d} to be searched
+for subdirectories if you didn't want it to be, and therefore you don't
+have hundreds of files in @var{d}.
+
+For example, the following value for an environment variable says to
+search the following: all subdirectories of the current user's @file{fonts}
+directory in his or her home directory, then the directory @file{fonts}
+in the user @samp{karl}s home directory, and finally the system default
+directories specified at compilation time.
+
+@example
+~/fonts//:~karl/fonts:
+@end example
+
+
+@node Font naming,  , Font searching, Overview
+@section Font naming
+
+@cindex naming font files
+@cindex font files, naming
+
+Naming font files has always been a difficult proposition at best.  On
+the one hand, the names should be as portable as possible, so the
+fonts themselves can be used on almost any platform.  On the
+other hand, the names should be as descriptive and comprehensive as
+possible.  The best compromise we have been able to work out is
+described in a separate document: @ref{Top, , Introduction, fontname,
+Filenames for @TeX{} fonts}.  @xref{Archives}, for where to obtain.
+
+Filenames for GNU project fonts should start with @samp{g}, for the
+``source'' abbreviation of ``GNU''.
+
+@cindex fonts, versions of
+Aside from a general font naming scheme, when @emph{developing} fonts
+you must keep the different versions straight.  We do this by appending
+a ``version letter'' @samp{a}, @samp{b}, @dots{} to the main bitmap
+filename.  For example, the original Garamond roman font we scanned was
+a 30 point size, so the main filename was @file{ggmr30} (@samp{g} for
+GNU, @samp{gm} for Garamond, @samp{r} for roman).  As we ran the font
+through the various programs, we named the output @file{ggmr30b},
+@file{ggmr30c}, and so on.
+
+@cindex outline fonts, naming
+Since the outline fonts produced by BZRto are scalable, we do not
+include the design size in their names.  (BZRto removes a trailing
+number from the input name by default.)

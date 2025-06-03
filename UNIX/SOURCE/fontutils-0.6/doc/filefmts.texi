@@ -1,0 +1,442 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node File formats, Imageto, Bugs, Top
+@chapter File formats
+
+@cindex file formats
+@cindex auxiliary files
+@cindex data files
+
+These programs use various data files to specify font encodings,
+auxliary information for a font, and other things.  Some of these data
+files are distributed in the directory @file{data}; others must be
+constructed on a font-by-font basis.
+
+@vindex FONTUTIL_LIB @r{environment variable}
+@cindex data file searching
+If the environment variable @code{FONTUTIL_LIB} is set, data files are
+looked up along the path it specifies, using the same algorithm as is
+used for font searching (@pxref{Font searching}).  Otherwise, the
+default path is set in the top-level Makefile.
+
+The following sections (in other chapters of the manual) also describe
+file formats:
+
+@itemize @bullet
+
+@item
+@ref{BZR files}.
+
+@item
+@ref{CCC files}.
+
+@item
+@ref{CMI files}.
+
+@item
+@ref{IFI files}.
+
+@end itemize
+
+@menu
+* File format abbreviations::   The alphabet soup of font formats.
+* Common file syntax::          Some elements of auxiliary files are constant.
+* Encoding files::              The character code-to-shape mapping.
+* Coding scheme map file::      The coding scheme string-to-filename mapping.
+@end menu
+
+
+@node File format abbreviations, Common file syntax,  , File formats
+@section File format abbreviations
+
+@cindex abbreviations, of file formats
+@cindex file format abbreviations
+@cindex meaning, of file format abbreviations
+
+For the sake of brevity, we do not spell out every abbreviation
+(typically of file format names) in the manual every time we use it.
+This section collects and defines all the common abbreviations we use.
+
+@table @asis
+
+@cindex BPL abbrevation
+@item BPL
+The `Bezier property list' format output by BZRto and read by BPLtoBZR.
+This is a transliteration of the binary BZR format into human-readable
+(and -editable) text.  @xref{BPL files}.
+
+@cindex BZR abbrevation
+@item BZR
+The `Bezier' outline format output by Limn and read by BZRto.  We
+invented this format ourselves.  @xref{BZR files}.
+
+@cindex CCC abbreviation
+@item CCC
+The `cookie-cutter character' (er, `composite character construction')
+files read by BZRto to add pre-accented and other such characters to a
+font.  @xref{CCC files}.
+
+@cindex CMI abbreviation
+@item CMI
+The `character metric information' files read by Charspace to add side
+bearings to a font.  @xref{CMI files}.
+
+@cindex GF abbreviation
+@item GF
+The `generic font' bitmap format output by Metafont (and by most of
+these programs).  See the sources for Metafont or one of the other
+@TeX{} font utility programs (GFtoPK, etc.) for the definition.
+
+@cindex DVI abbreviation
+@item DVI
+The `device independent' format output by @TeX{}, GFtoDVI, etc.  Many
+``DVI driver'' programs have been written to translate DVI format to
+something that can actually be printed or previewed.  See sources for
+@TeX{} or DVItype for the definition.
+
+@cindex EPS abbreviation
+@cindex advertising
+@item EPS
+The `Encapsulated PostScript' format output by many programs, including
+Imageto (@pxref{Viewing an image}) and Fontconvert (@pxref{Fontconvert
+output options}).  An EPS file differs from a plain PostScript file in
+that it contains information about the PostScript image it produces: its
+bounding box, for example.  (This information is contained in comments,
+since PostScript has no good way to express such information directly.)
+
+@cindex IFI abbreviation
+@item IFI
+The `image font information' files read by Imageto when making a font
+from an image.  @xref{IFI files}.
+
+@cindex GSF abbrevation
+@pindex bdftops
+@cindex Ghostscript font format
+@item GSF
+The `Ghostscript font' format output by BZRto and the @file{bdftops}
+program in the Ghostscript distribution.  This is nothing more than the
+Adobe Type 1 font format, unencrypted.  The Adobe Type 1 format is
+defined in a book published by Adobe.  (Many PostScript interpreters
+cannot read unencrypted Type 1 fonts, despite the fact that the
+definition says encryption is not required.  Ghostscript can read both
+encrypted and unencrypted Type 1 fonts.)
+
+@cindex IMG abbreviation
+@cindex GEM
+@cindex DOS image format
+@item IMG
+The `image' format used by some GEM (a window system sometimes used
+under DOS) programs; specifically, by the program which drives our
+scanner.
+
+@cindex MF abbreviation
+@cindex Knuth, Donald E.
+@item MF
+The `Meta-Font' programming language for designing typefaces invented by
+Donald Knuth.  His @cite{Metafontbook} is the only manual written to
+date (that we know of).
+
+@cindex PBM abbreviation
+@cindex Poskanzer, Jef
+@item PBM
+The `portable bitmap' format used by the PBMplus programs,
+Ghostscript, Imageto, etc.  It was invented by Jef Poskanzer (we
+believe), the author of PBMplus.
+
+@cindex PFA abbreviation
+@item PFA
+The `printer font ASCII' format in which Type 1 PostScript fonts are
+sometimes distributed.  This format uses the ASCII hexadecimal
+characters @samp{0} to @samp{9} and @samp{a} to @samp{f} (and/or
+@samp{A} to @samp{F}) to represent an @code{eexec}-encrypted Type 1
+font.
+
+@cindex PFB abbreviation
+@item PFB
+The `printer font binary' format in which Type 1 PostScript fonts are
+sometimes distributed.  This format is most commonly used on DOS
+systems.  (Personally, we find the existence of this format truly
+despicable, as one of the major advantages of PostScript is its being
+defined entirely in terms of plain text files (in Level 1 PostScript,
+anyway).  Having an unportable binary font format completely defeats
+this.)
+
+@cindex PK abbreviation
+@cindex Rokicki, Tom
+@pindex gftopk
+@item PK
+The `packed font' bitmap format output by GFtoPK.  PK format has (for
+all practical purposes) the same information as GF format, and does a
+better job of packing: typically a font in PK format will be one-half to
+two-thirds of the size of the same font in GF format.  It was invented
+by Tom Rokicki as part of the @TeX{} project.  See the GFtoPK source for
+the definition.
+
+@cindex PL abbreviation
+@cindex property list format
+@cindex editing TFM files
+@pindex tftopl
+@item PL
+The `property list' format output by TFtoPL.  This is a transliteration
+of the binary TFM format into human-readable (and -editable) text.  Some
+of these programs output a PL file and call PLtoTF to make a TFM from
+it.  (For technical reasons it is easier to do this than to output a TFM
+file directly.)  See the PLtoTF source for the details.
+
+@cindex TFM abbreviation
+@cindex @TeX{} font metric format
+@cindex font metrics
+@pindex pltotf
+@item TFM
+The `@TeX{} font metric' format output by Metafont, PLtoTF, and other
+programs, and read by @TeX{}.  TFM files include only character
+dimension information (widths, heights, depths, and italic corrections),
+kerns, ligatures, and font parameters; in particular, there is no
+information about the character shapes.  See the @TeX{} or Metafont
+source for the definition.
+
+@end table
+
+
+@node Common file syntax, Encoding files, File format abbreviations, File formats
+@section Common file syntax
+
+@cindex syntax, common data file
+@cindex common data file syntax
+@cindex file syntax, common
+@cindex data file syntax, common
+
+Data files read by these programs are text files that share certain
+syntax elements:
+
+@itemize @bullet
+
+@cindex comments in data files
+@cindex data files, comments in
+@item
+Comments begin with a @samp{%} character and continue to the end of the
+line.  The content of comments is entirely ignored.
+
+@cindex blank lines in data files
+@cindex data files, blank lines in
+@cindex whitespace characters in data files
+@cindex data files, whitespace characters in 
+@findex isspace
+@item
+Blank lines are allowed, and ignored.  Whitespace characters (as
+defined by the C facility @code{isspace}) are ignored at the beginning of
+a line.
+
+@cindex null byte in data files
+@cindex ASCII NUL in data files
+@cindex data files, valid characters in
+@item
+Any character except ASCII NUL---character zero---is acceptable in data
+files.  (We would allow NULs, too, at the expense of complicating the
+code, if we knew of any useful purpose for them.)
+
+@end itemize
+
+@cindex line length in data files
+A line can be as long as you want.
+
+
+@node  Encoding files, Coding scheme map file, Common file syntax, File formats
+@section Encoding files
+
+@cindex encoding files
+@cindex font encoding, files for
+@cindex character mapping
+@cindex mapping, of characters
+
+The @dfn{encoding} of a font specifies the mapping from character codes
+(an integer, typically between zero and 255) to the characters
+themselves; e.g., does a character with code 92 wind up printing as a
+backslash (as it does under the ASCII encoding) or as a double left
+quote (as it does under the most common @TeX{} font encoding)?  Put
+another way, the encoding is the arrangement of the characters in the
+font.
+
+It is sad but true that no single encoding has been widely adopted, even
+for basic text fonts.  (Text fonts and, say, math fonts or symbol fonts
+will clearly have different encodings.)  Every typesetting program
+and/or font source seems to come up with a new encoding; GNU is no
+exception (see below).  Therefore, when you decide on the encoding for
+the fonts you create, you should choose whatever is most convenient for
+the typesetting programs you intend to run it with.  (Decent typesetting
+systems would make it trivial to set font encodings; unfortunately,
+almost nothing is decent in that regard!)
+
+@flindex .enc @r{suffix}
+The @dfn{encoding file} format we invented is a font-format-independent
+representation of an encoding.  Encoding files are ``data files'' which
+have the basic syntax elements described above (@pxref{Common file
+syntax}).  They are usually named with the extension @code{.enc}.
+
+The first nonblank non-comment line in an encoding file is a string to
+put into TFM files as the ``coding scheme'' to describe the encoding;
+some common coding schemes are @samp{TeX text}, @samp{TeX math symbol},
+@samp{Adobe standard}.  Case is irrelevant; that is, any programs which
+use the coding scheme should pay no attention to its case.
+
+Thereafter, each nonblank non-comment line defines the character for the
+corresponding code: the first such line defines the character with code
+zero, the next with code one, and so on.
+
+Each character consists of a name, optionally followed by ligature
+information.  (All fonts using the same encoding should have the same
+ligatures, it seems to us.)
+
+@menu
+* Character names::             How to write character names.
+* Ligature definitions::        How to define ligatures.
+* GNU encodings::               Why we invented new encodings for GNU.
+@end menu
+
+
+@node Character names, Ligature definitions,  , Encoding files
+@subsection Character names
+
+@cindex character names
+@cindex names of characters
+
+The @dfn{character name} in an encoding file is an arbitrary sequence of
+nonblank characters (except it can't include a @code{%}, since that
+starts a comment).  Conventionally, it consists of only lowercase
+letters, except where an uppercase letter is actually involved.  (For
+example, @code{eacute} is a lowercase @code{e} with an acute accent;
+@code{Eacute} is an uppercase @code{E} with an acute accent.
+
+@vindex .notdef
+@cindex blank positions in fonts
+@cindex undefined characters in fonts
+@cindex fonts, undefined characters in
+If a character code has no equivalent character in the font, i.e., the
+font table has a ``blank spot'', you should use the name @code{.notdef}
+for that code.  This is the only name you can usefully give more than
+once.  If any other name is used more than once, the results are
+undefined.
+
+To avoid unnecessary proliferation of character names, you should use
+names from existing @file{.enc} files where possible.  All the
+@file{.enc} files we have created are distributed in the @file{data}
+directory.
+
+
+@node Ligature definitions, GNU encodings, Character names, Encoding files
+@subsection Ligature definitions
+
+@cindex ligature definitions
+@cindex defining ligatures
+@cindex encoding, ligatures in
+
+The ligature information for a character in an encoding file is
+optional.  More than one ligature specification may be given.  Each
+specification looks like:
+
+@example
+lig @var{second-char} =: @var{lig-char}
+@end example
+
+This means that a ligature character @var{lig-char} should be present in
+the font for the current character (the one being defined on this line
+of the encoding file) followed by @var{second-char}.  You give
+@var{second-char} and @var{lig-char} as character codes
+(@pxref{Specifying character codes}).  For example, in most text
+encodings (which involve Latin characters), some variation on the
+following line will be present:
+
+@example
+f       lig f =: 013  lig i =: 014  lig l =: 015
+@end example
+
+This will produce a ligature in the font such that when a typesetting
+program sees the two character sequence @samp{ff} in the input, it
+replaces those two characters in the output with the single character at
+position octal 13 (presumably the `fi' ligature) of the font; when it
+sees @samp{fi}, the character at position octal 14 is output; when
+it sees @samp{fl}, the character at position octal 15 is output.
+
+@cindex ligatures in Metafont 2
+Metafont version 2 allows a more general ligature scheme; if there is a
+demand for it, it wouldn't be hard to add.
+
+
+@node GNU encodings,  , Ligature definitions, Encoding files
+@subsection GNU encodings
+
+@cindex encodings, GNU
+@cindex GNU encodings
+
+@cindex Cork encoding
+@cindex PostScript encodings
+@cindex Adobe encodings
+@cindex @TeX{} encodings
+When we started making fonts for the GNU project, we had to decide on
+some font encoding.  We hoped to use an existing one, but none that we
+found seemed suitable: the @TeX{} font encodings, including the ``Cork
+encoding'' described in TUGboat 11#4, lacked many standard PostScript
+characters; conversely, the standard PostScript encodings lacked useful
+@TeX{} characters.  Since we knew that Ghostscript and @TeX{} would be
+the two main applications using the fonts, we thought it unacceptable to
+favor one at the expense of the other.
+
+@flindex gnulatin.enc
+Therefore, we invented two new encodings.  The first one, ``GNU Latin
+text'' (distributed in @file{data/gnulatin.enc}), is based on ISO Latin
+1, and is close to a superset of both the basic @TeX{} text encoding and
+the Adobe standard text encoding.  We felt it was best to use ISO Latin
+1 as the foundation, since some existing systems actually use ISO Latin
+1 instead of ASCII.  We also left the first eight positions open, so
+particular fonts could add more ligatures or other unusual characters.
+
+@cindex expert encoding
+The second, ``GNU Latin text complement'' (distributed in
+@file{data/gnulcomp.enc}), includes the remaining pre-accented
+characters from the Cork encoding, the PostScript expert encoding, swash
+characters, small caps, etc.
+
+@c todo discuss encodings in more detail, show tables, etc.
+
+
+@node Coding scheme map file,  , Encoding files, File formats
+@section Coding scheme map file
+
+@cindex coding scheme mapping
+@cindex finding encodings
+
+When a program reads a TFM file, it's given an arbitrary string (at
+best) for the coding scheme.  To be useful, it needs to find the
+corresponding encoding file.  We couldn't think of any way to name our
+@file{.enc} files that would allow the filename to be guessed
+automatically.  Therefore, we invented another data file which maps the
+TFM coding scheme strings to our @file{.enc} filenames.
+
+@flindex encoding.map
+This file is distributed as @file{data/encoding.map}.  @xref{Common file
+syntax}, for a description of the common syntax elements.
+
+Each nonblank non-comment line in @file{encoding.map} has two entries:
+the first word (contiguous nonblank characters) is the @file{.enc}
+filename; the rest of the line, after ignoring whitespace, is the string
+in the TFM file.  This should be the same string that appears on the
+first line of the @file{.enc} file (@pxref{Encoding files}).
+
+Programs should ignore case when using the coding scheme string.
+
+Here is the coding scheme map file we distribute:
+
+@example
+adobestd 	Adobe standard
+ascii		ASCII
+dvips		dvips
+dvips		TeX text + adobestandardencoding
+gnulatin	GNU Latin text
+gnulcomp 	GNU Latin text complement
+psymbol 	PostScript Symbol
+texlatin	Extended TeX Latin
+textext		TeX text
+zdingbat	Zapf Dingbats
+@end example

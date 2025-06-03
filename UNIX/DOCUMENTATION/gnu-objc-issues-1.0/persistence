@@ -1,0 +1,430 @@
+Date: Tue, 15 Sep 92 15:22:38 -0700
+From: Dennis Glatting <seattle-ni-srvr!dglattin@trirex.com>
+To: uunet!lehigh.edu!gdb0@uunet.uu.net (GLENN BLANK)
+Subject: Re: Automatic input/output, persistence
+Cc: gnu-objc@prep.ai.mit.edu
+Reply-To: dennis_glatting@trirex.com
+
+> A key difference between the NeXT and StepStone
+> foundation class libraries is the latter supports a much
+> more convenient scheme for storing objects to and
+> reading them back from files. The NeXT version, as I
+> understand it (I don't have a NeXT; I have a Sun running
+> Stepstone's version), only supports what I would call
+> "semi-automatic" input/output--that is, the
+> implementor of each subclass must implement methods to
+> archive objects of this subclass.  The Stepstone library
+> does not require any new implementation at all.  If your
+> object is a subclass of Stepstone's Object, it
+> automatically inherits Object's hooks automatic
+> input/output--providing you explicitly link in the
+> relevant code.  
+>
+
+Doesn't this break the concept of encapsulation?  Shouldn't the object itself be responsible for what it contains and what is relevant rather than an outside entity?  How does one automatically store a void*? 
+
+-dpg
+
+Date: Thu, 17 Sep 92 08:58:43 CDT
+From: shirley@gothamcity.jsc.nasa.gov (Bill Shirley [CSC])
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: Automatic input/output, persistence
+
+
+ I tried to send this easlier, but it bounced at the source.  I hope
+I'm not repeating something you already got:
+
+]] From shirley Fri Sep 11 13:47:30 1992
+
+
+|> From: gdb0@lehigh.edu (GLENN BLANK)
+
+I don't understand most of this, I may need more explaining to.
+
+|> A key difference between the NeXT and StepStone foundation class
+|> libraries is the latter supports a much more convenient scheme
+|> for storing objects to and reading them back from files.
+
+|> The NeXT version, as I understand it (I don't have a NeXT; I have
+|> a Sun running Stepstone's version), only supports what I would call
+|> "semi-automatic" input/output--that is, the implementor of each subclass
+|> must implement methods to archive objects of this subclass.  The
+
+On NeXTs, the implementor must archive the instance variables
+(that he wants archived)
+
+|> Stepstone library does not require any new implementation at all.  If
+|> your object is a subclass of Stepstone's Object, it automatically
+|> inherits Object's hooks automatic input/output--providing you
+|> explicitly link in the relevant code.  
+
+What does this *mean*?
+   "automatically... providing..."?
+
+What relevant code?
+
+|> Semi-automatic input/output is about all C++ libraries can do:
+|> since C++ does not support metaclass information at run-time.
+|> Automatic input/output is one of the very nice features of Smalltalk,
+|> which Objective-C can imitate, because it does support metaclasses,
+|> and so can know how to allocate instances of some class when it
+|> reads one from a file.
+
+What happens if I have modified the Class in the interim?
+(This is a problem that all implementations have to deal with,
+ I am interested in how Stepstone does (or you (pl) would) in this case)
+
+|> Needless to say, automatic input/output
+|> can save a lot of work, especially in continually evolving
+|> applications like mine.
+
+By continually evolving, do you mean class implementations are changing?
+
+|> I'd sure like to see support for it in the 
+|> GNU version, rather than settle for the NeXT interface.
+
+I'll wait to vote until I understand it :-)
+
+|> May I point out that automatic input/output also opens the door
+|> for object persistence.  This need not imply a full blown OODB,
+|> with query capabilities, etc.
+
+What does "object persistence" mean?  I'll have to plead ignorant
+on much DB theory.
+
+|> The StepStone implementation stores 
+|> one whole object per file
+
+That does sound like a limitation
+
+|>				 --the object can be arbitrarily complex,
+|> e.g., the filer will handle vanilla C instance variables, 
+|> chase object ids, yet avoid duplicating objects to which there
+|> is more than one pointer.  A more flexible design might allow one 
+|> to store/access many objects per file.  
+
+like NIB files.
+
+What if an object creates a large amount of instance variables that it
+doesn't NEED to archive.  (It could create this extra data for algorithmic
+efficiency, for example).
+
+(A string object may keep the number of characters,
+the size of the storage it allocated, the number of words, whether the
+characters are all numeric, alphabetic,..., but you would only NEED to
+archive the actual sequence of characters, the other information can
+be computed after the string is unarchived.)
+
+ -Bill S.
+
+Date: Thu, 17 Sep 1992 11:12:05 EDT
+From: gdb0@lehigh.edu (GLENN BLANK)
+Subject: Re: Automatic input/output, persistence
+To: shirley@gothamcity.jsc.nasa.gov (Bill Shirley [CSC])
+Cc: gnu-objc@prep.ai.mit.edu
+
+> I tried to send this easlier, but it bounced at the source.  I hope
+>I'm not repeating something you already got:
+
+No repetition.
+
+>]] From shirley Fri Sep 11 13:47:30 1992
+>
+>|> From: gdb0@lehigh.edu (GLENN BLANK)
+>
+I don't understand most of this, I may need more explaining to.
+>
+>|> A key difference between the NeXT and StepStone foundation class
+>|> libraries is the latter supports a much more convenient scheme
+>|> for storing objects to and reading them back from files.
+>
+>|> The NeXT version, as I understand it (I don't have a NeXT; I have
+>|> a Sun running Stepstone's version), only supports what I would call
+>|> "semi-automatic" input/output--that is, the implementor of each subclass
+>|> must implement methods to archive objects of this subclass.  The
+>
+>On NeXTs, the implementor must archive the instance variables
+>(that he wants archived)
+
+In other words, on NeXTs, the implementor needs to explicitly
+implement methods for each class of object that he wants to archive.
+
+>
+>|> Stepstone library does not require any new implementation at all.  If
+>|> your object is a subclass of Stepstone's Object, it automatically
+>|> inherits Object's hooks automatic input/output--providing you
+>|> explicitly link in the relevant code.
+>
+>What does this *mean*?
+>   "automatically... providing..."?
+>What relevant code?
+>
+
+Using Stepstone's library, you never have to write, or modify, code
+for storing objects to and reading them from files.  Providing you
+force the compiler to explicitly link in the some code, e.g., by 
+having the following statements in your main():
+	[AsciiFiler self];  //Force linking of this code into your program
+You need to force linking of any classes (and their methods) that
+aren't  explicitly mentioned in your code, but will be invoked when
+you invoke a method which in turn invokes a method of AsciiFiler.
+E.g., [myObject storeOn:"filename"] invokes the storeOn method, which
+MyClass inherits from Object.  Object's storeOn method in turn invokes
+a method in AsciiFiler...  Other than this slightly annoying step
+(which a smarter compiler should be able to figure out for itself, IMHO)
+storeOn:/readFrom: are automatic, just as in Smalltalk.
+
+>|> Semi-automatic input/output is about all C++ libraries can do:
+>|> since C++ does not support metaclass information at run-time.
+>|> Automatic input/output is one of the very nice features of Smalltalk,
+>|> which Objective-C can imitate, because it does support metaclasses,
+>|> and so can know how to allocate instances of some class when it
+>|> reads one from a file.
+>
+>What happens if I have modified the Class in the interim?
+>(This is a problem that all implementations have to deal with,
+> I am interested in how Stepstone does (or you (pl) would) in this case)
+>
+
+Good point.  Stepstone doesn't handle this particularly well--if
+your program tries to readFrom: an object whose structure does not
+match the structure compiled into your program (you made a change
+since your last storeOn:), your program crashes, dumping a backwards
+trace indiciting that readFrom: fails at some point.  (Earlier, your
+program failed without even a backwards trace!)  An improvement would
+involve version control.  Each time you change the structure of a
+class, it gets a new version number, and readFrom: first checks for
+a corresponding version number.  Versioning might also support
+automatic conversion of an old version of an object in a file to the
+new version format.
+
+>|> Needless to say, automatic input/output
+>|> can save a lot of work, especially in continually evolving
+>|> applications like mine.
+>
+>By continually evolving, do you mean class implementations are changing?
+
+Yes.  I add new instance variables, but don't need to add new I/O code.
+
+>|> I'd sure like to see support for it in the
+>|> GNU version, rather than settle for the NeXT interface.
+>
+>I'll wait to vote until I understand it :-)
+
+What do you say now?  Would you still rather have to write all your
+own input/output code--a source of tedious bugs?
+
+>|> May I point out that automatic input/output also opens the door
+>|> for object persistence.  This need not imply a full blown OODB,
+>|> with query capabilities, etc.
+>
+>What does "object persistence" mean?  I'll have to plead ignorant
+>on much DB theory.
+
+Persistence means that an object continues to exist after the program
+that created it terminates (usually in a file somewhere).  Temporary
+objects are deallocated when a block or program terminates.  Persistent
+objects can be accessed by subsequent programs, and thus provide a
+basis for OODBs.  OODBs raise a host of other issues beyond simple
+persistence, such as efficient access, query languages, etc.  But
+simple persistence is a good place to start.
+
+>|> The StepStone implementation stores
+>|> one whole object per file
+>
+>That does sound like a limitation
+
+Yes--especially for OODBs, or even if you just want to append elements
+to a collection object.
+
+>|>				 --the object can be arbitrarily complex,
+>|> e.g., the filer will handle vanilla C instance variables,
+>|> chase object ids, yet avoid duplicating objects to which there
+>|> is more than one pointer.  A more flexible design might allow one
+>|> to store/access many objects per file.
+>
+>like NIB files.
+
+Sorry, what's a NIB file?
+>
+>What if an object creates a large amount of instance variables that it
+>doesn't NEED to archive.  (It could create this extra data for algorithmic
+>efficiency, for example).
+
+>(A string object may keep the number of characters,
+>the size of the storage it allocated, the number of words, whether the
+>characters are all numeric, alphabetic,..., but you would only NEED to
+>archive the actual sequence of characters, the other information can
+>be computed after the string is unarchived.)
+>
+Good point--I believe this may be another shortcoming of Stepstone's 
+algorithm.  Automaticity always involves tradeoffs--how much control
+do we want to give the programmer?  Keeping it simple may involve
+extra storage, but it seems to me that if you're storing this data
+in memory, you shouldn't worry too much about storing it redundantly
+in a file.  At least it saves you the trouble of recomputing these data.
+
+> -Bill S.
+>
+
+Glenn B.
+
+Date: Thu, 17 Sep 1992 12:26:02 EDT
+From: gdb0@lehigh.edu (GLENN BLANK)
+Subject: Re: read/write  - NIB
+To: shirley@gothamcity.jsc.nasa.gov (Bill Shirley [CSC])
+Cc: gnu-objc@prep.ai.mit.edu
+
+>|> Sorry, what's a NIB file?
+>
+>whoops, sorry, I might as well share this with all just for knowledge's
+>sake.
+>
+>NeXT's Interface Builder (which some tout and others scorn)
+>creates NIB files, which are loaded in by the Application
+>Object (usually) before an [App run] message is sent.
+>
+>It is basically an archive of all the instanciated objects that
+>were created in the Interface Builder.  Thus is contains "more
+>than one object" which the previous discussion was about.
+>
+>Multiple NIB files are often used for parts of the program that
+>may or (usually) may not be brought into play.  Such as a window
+>with detailed help features or an "info box".
+>
+>-Bill
+
+For clarity, the Stepstone storeOn:/readFrom: methods can store
+multiple objects, so long as they are embedded in one root object.
+So, I usually storeOn: an object which is a subclass of a collection
+class, which in turn holds a directed graph of other objects.
+
+But there's no way to store or access individual objects in a
+collection in a file.  You get the whole thing.  Persistent
+collections should not necessarily involve retrieving the whole
+collection (which may be prohibitive if the collection is large), 
+but should support random access to elements or subsets of elements.
+
+
+Date: Fri, 18 Sep 92 09:40:37 -0400
+From: michael@afs.com
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: Automatic input/output, persistence
+
+Please explain if I've misinterpreted the discussion, but it seems to me that automatic archiving in all cases cannot determine whether or not an ivar should be written to disk.  I have several objects that have constructs that are built at runtime, but it makes no sense to store them to disk if I want to archive the object because they would have no value when read back in.  Sure, I can read in the obsolete values and write over them, but if the obsolete data is large then I'm wasting a lot of disk space.  I'd rather have my object, and not the root class, decide which ivars should and should not be archived.
+
+Thanx,
+Michael
+
+Michael_Pizolato@afs.com
+
+Date: Fri, 18 Sep 92 09:49 PDT
+From: michael@stb.info.com (Michael Gersten)
+To: ucla-cs!prep.ai.mit.edu!gnu-objc@cs.ucla.edu
+Subject: Automatic input/output, persistence
+
+Begin forwarded message:
+
+Please explain if I've misinterpreted the discussion, but it seems to me that automatic archiving in all cases cannot determine whether or not an ivar should be written to disk.  I have several objects that have constructs that are built at runtime, but it makes no sense to store them to disk if I want to archive the object because they would have no value when read back in.  Sure, I can read in the obsolete values and write over them, but if the obsolete data is large then I'm wasting a lot of disk space.  I'd rather have my object, and not the root class, decide which ivars should and should not be archived.
+
+Michael_Pizolato@afs.com
+------
+
+That is exactly correct. It is not possible to determine in all cases what needs to be saved. However, it is possible to do it correctly in most cases.
+
+The point of having default archiving is that if the default does not work, you can override it the same way you override anything else in the inheritance chain. If you have strictly manual archiving (such as the NeXT), you can forget to put the routines in, or the routines might be out of date compared to the current data structure.
+
+Besides, although you *can* write code to output a version number, and on input read the version number and then read the corresponding data, all of the read: or write: routines I've seen just do a standard save or restore of all the instance variables, and nothing else. This is the type of default behavior that can be provided automatically.
+
+		Michael
+--
+		Michael Gersten		michael@stb.info.com
+HELLO! I'm a signature virus! Join in the fun and copy me into yours!
+ex:.-1,. w $HOME/.signature
+
+Date: Sat, 19 Sep 92 19:30:24 -0400
+From: Steve Naroff
+Subject: Re: Automatic input/output, persistence
+To: <Steve_Naroff@next.com>
+To: gsk@marble.com
+To: dglattin@gnu.ai.mit.edu
+Cc: uunet!lehigh.edu!gdb0@uunet.uu.net (GLENN BLANK), gnu-objc@prep.ai.mit.edu
+
+
+> Shouldn't the object itself be responsible for what it contains and what is relevant rather than an outside entity? 
+
+Absolutely...here are three reasons that come to mind:
+
+1) Control over what is persistent (vs. transient). This feature can dramatically effect the size of the composite object (and associated cost to activate it from disk).
+2) Data that needs to be converted on read/write (e.g. ports, file descriptors...i.e. any data that has different meanings across process boundaries).
+3) Version control for converting old objects to new objects...the object database folks call this "schema evolution" (sounds fancy). NeXTSTEP objects can read old versions of themselves without any problem...we don't force the application to evolve all nib files in concert. This flexibility is very hard to achieve without involving the object.
+
+Schemes that do not have these capabilities are usually not very useful for building real applications.
+
+snaroff
+
+Date: Wed, 24 Feb 93 11:28:45 -0600
+From: burchard@geom.umn.edu
+To: Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Help with the runtime
+Cc: Bill Dudney <dudney@pencom.com>, rms@gnu.ai.mit.edu, gsk@marble.com,
+        lupson@geom.umn.edu
+
+Kresten Krab Thorup <krab@iesd.auc.dk> writes:
+> the code in typedstreams?.  We also need someone to
+> actually code things like typed streams.  This is not
+> critical for the core runtime, and could be done later. 
+
+
+I'm for putting this off.  The whole issue of transport and  
+persistence of objects is currently being overhauled by NeXT in light  
+of, first, distributed objects, and second, object databases.  At the  
+moment we have two different protocols serving this area  
+(-read:/-write: and NXTransport), and when the ODI stuff comes on  
+line I'm sure that further revision will be needed.
+
+I want to see a unified protocol for transport/persistence of  
+objects, with the details of connecting to files/sockets/OODBs/Mach  
+ports/etc left to the run time.  Until we have that protocol, I say  
+hold off.
+
+> (2) The type encoding format needs revision/redesign.
+> 
+
+> One problem not exactly solved yet, is how to manage
+> translations to and from machine independent format,
+> and who's resplonsibility it should be to do so -- the
+> runtime? the compiler? 
+
+> 
+
+
+Here is briefly, my current proposal:
+
+1. There should be both a string encoding format, intended as a  
+transportable specification; and a binary encoding format (i.e.,  
+structure), intended for efficient local use only.
+
+2. The required elements of the string format should express only  
+language-level concepts.  Optional size fields may be inserted by  
+transport mechanisms to ensure consistent interpretation of basic  
+types.  The format should be as compatible with NeXT Obj-C as  
+possible.
+
+3. The binary encoding is a private structure which contains compiler  
+and system-specific information that will enable library functions to  
+perform low-level operations on the corresponding types (e.g.,  
+feeding them as arguments to a function). 
+
+
+4. Translation from string to binary format is done by a library  
+function __builtin_classify_typedesc() which comes with the compiler  
+and so knows what it has to know.  This is very similar to the  
+current __builtin_classify_type(); it just works with different  
+formats for the information.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+

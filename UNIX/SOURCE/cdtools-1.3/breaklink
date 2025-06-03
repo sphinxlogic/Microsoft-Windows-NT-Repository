@@ -1,0 +1,40 @@
+# Breaklink: replace symbolic links by copies.
+#
+# Greg Lehey, 17 January 1994
+#
+# Usage: breaklink <file> ...
+#
+# if <file> is a directory, a new directory will be created and
+# symlinks for all members created. If it is a file, a copy will be made.
+#
+recursive=0			# not recursive until told otherwise
+if [ "$1" = "-r" ]; then	# do it recursively
+  recursive=1
+  shift
+fi
+if [ $recursive -ne 0 ]; then
+  echo $0 -r $*, now in dir: `pwd`
+else
+  echo $0 $*, now in dir: `pwd`
+fi
+for i in $*; do
+  echo looking at $i
+  if [ -L $i ]; then		# symlink
+    linkname=`ls -l $i | sed 's/^.* //'`
+    rm $i
+    if [ -d $linkname ]; then 	# directory
+      echo making $i, linked to $linkname
+      mkdir $i
+      for j in $linkname/*; do
+        echo directory entry $j
+        ln -s $j $i
+      done
+    else
+      cp -p $linkname $i
+echo      cp -p $linkname $i
+    fi
+    if [ $recursive -ne 0 ]; then	# now look at the subdirectories
+      (cd $i; breaklink $i/*)
+    fi
+  fi
+done

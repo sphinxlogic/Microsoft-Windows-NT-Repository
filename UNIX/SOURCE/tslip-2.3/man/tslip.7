@@ -1,0 +1,169 @@
+.\" @(#)tslip.7	1.4 (13 Oct 1993)
+.\"..........................................................................
+.\" Copyright 1993, Jim Avera.  All Rights Reserved.
+.\" 
+.\" This file contains new material owned by the above copyright holder, and
+.\" may also contain portions derived from existing works used by permission.
+.\"
+.\" You are prohibited from copying, distributing, modifying, or using this
+.\" file (or the portions owned by the above copyright holder) except as 
+.\" described in the file "COPYRIGHT" which accompanies this program.
+.\"..........................................................................
+.\"
+.\"             Copyright 1991, Intel Corporation
+.\"                   All rights reserved.
+.\"
+.\" Permission to use, copy, modify, and distribute this software and
+.\" its documentation for any purpose and without fee is hereby granted,
+.\" provided that the above copyright notice appear in all copies and
+.\" that both the copyright notice appear in all copies and that both
+.\" the copyright notice and this permission notice appear in
+.\" supporting documentation, and that the name of Intel Corporation
+.\" not be used in advertising or publicity pertaining to distribution
+.\" of the software without specific, written prior permission.
+.\" 
+.\" COMPANY AND/OR INTEL DISCLAIM ALL WARRANTIES WITH REGARD TO
+.\" THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE. IN NO
+.\" EVENT SHALL COMPANY NOR INTEL BE LIABLE FOR ANY SPECIAL,
+.\" INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+.\" RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+.\" ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
+.\" OF THIS SOFTWARE.
+.\" 
+.TH TSLIP 7  "Network Drivers"
+.SH NAME
+%DRIVER_NAME% \- Serial Link Internet Protocol (SLIP)
+.SH SYNOPSIS
+.nf
+.ft B
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stream.h>
+#include <net/if.h>
+#include <sys/%DRIVER_NAME%.h>
+
+s = open ("/dev/%DRIVER_NAME%", O_RDWR);
+.ft R
+.fi
+.SH DESCRIPTION
+.PP
+\fBTslip\fP is a multiplexing STREAMS driver that implements the "SLIP"
+packet framing protocol specified in RFC1055.
+.PP
+The \fB%DRIVER_NAME%\fP driver is interposed between
+the \fIip\fP driver and serial port driver(s), e.g., \fIasy\fP, when
+serial ports are used as SLIP links.
+.PP
+The \fIslattach\fP command constructs the required \fIip\fP 
+to \fB%DRIVER_NAME%\fP to
+\fIasy\fP STREAMS stack so that a serial line can be used 
+as a network interface.
+.PP
+Serial ports may be statically assigned to slip interfaces, or dynamically
+linked and unlinked on demand by an auto-dial daemon.  For on-demand dialup
+links, the \fB%DRIVER_NAME%\fP driver is initially linked under \fIip\fP 
+without a serial device below.
+When packets appear the \fB%DRIVER_NAME%\fP driver notifies a 
+daemon process which dials out and then links the appropriate serial device 
+below the \fB%DRIVER_NAME%\fP module.
+When no packets flow for an idle period \fB%DRIVER_NAME%\fP notifies the 
+daemon, which unlinks the serial device and frees it for other uses.
+An autodial parameter string is stored in the driver (via \fIslattach\fP) and
+sent to the daemon with each connection request.
+.SH "DEVICE FILES"
+.PP
+Normally /dev/%DRIVER_NAME% is a clone driver device.
+This means that each \fIopen\fP call indirectly invokes %DRIVER_NAME% to
+locate an unused %DRIVER_NAME% "minor device" and returns a new stream to 
+that device, which exists until it is closed.  The minor device number
+may be determined using \f2fstat\fP(2).
+.PP
+Interal state data is dyanmically allocated and released, and
+there is no hard limit on the number of %DRIVER_NAME% minor devices.  
+If kernel memory is not available, open fails with ENXIO.
+.PP
+Additional streams may be opened to existing, i.e., currently open minor
+devices using direct (non-clone) device files, with major number
+specifying \fI%DRIVER_NAME%\fP and minor number specifying which existing
+device to access.  Such direct device files do not normally exist.
+.SH "IOCTL COMMANDS"
+.PP
+Several \fII_STR\fP ioctl commands are implemented by the \fB%DRIVER_NAME%\fP
+driver.  The command opcodes, defined in <\fIsys/%DRIVER_NAME%.h\fP>,
+are as follows:
+.PP
+.TP 6
+.B REG_SLIPD
+Registers the file descriptor as the daemon communication stream.
+The request fails if another file descriptor is currently registered.
+After registration, the \fB%DRIVER_NAME%\fP driver sends messages
+which may be read using the \fIgetmsg\fP(2) system call.  The "control" 
+part of each message is a \fIslipd_t\fP structure (defined
+in <sys/%DRIVER_NAME%.h>), and the "data" part is the auto-dial parameter
+string, if any, stored using the SLP_SET_CONNP ioctl.
+Messages are sent to request
+auto-dial connections, to notify that an idle timeout has expired, and
+when a line has detected a hangup.  Ioctl data: None.
+.sp 0.5v
+When M_HANGUP is received from the serial driver, \fB%DRIVER_NAME%\fP does not
+pass it up-stream to \fIip\fP but instead notifies the daemon.
+The daemon normally sends SIGHUP to the \fIslattach\fP process which opened 
+the affected slip device
+(the opening process's PID is saved by the driver and passed to the daemon).
+.TP 6
+.B UNREG_SLIPD
+This ioctl undoes REG_SLIPD.  Simply closing the daemon's slip file descriptor
+has the same effect.  Ioctl data: None.
+.TP 6
+.B SLP_DO_COMPRESS
+enables transmission and reception of "compressed slip" packets 
+(Van Jacobson header compression).  Ioctl data: None.
+.TP 6
+.B SLP_DO_AUTOCOMP
+Automatically enables "compressed slip" when and if a compressed packet 
+is received from the other end.  Ioctl data: None.
+.TP 6
+.B SLP_SET_MTU
+sets the Maximum Transfer Unit (in bytes),
+used to limit packet sizes to get good interactive response.  
+Ioctl data: The MTU value as a \fIint\fP.
+.TP 6
+.B SLP_SET_IDLETO
+sets the idle timeout value (in seconds).  Zero disables idle timeouts
+for the stream.
+When a driver is linked below the slip device and no packets flow for
+this time, a message is sent to the daemon (if registered).  The timer
+is not re-started until the serial device is unlinked and linked again.
+Ioctl data: The timeout value as a \fItime_t\fP.
+.TP 6
+.B SLP_SET_CONNP
+sets the auto-connect parameter string, which will be later passed to
+the daemon process when a dial-out is needed.
+Ioctl data: The string, including a terminating zero byte.
+.TP 6
+.B SLP_MOVE_LOWER
+relocates the device driver linked below the stream to another stream.
+This is used by the daemon to transfer a serial driver from it's supervisory
+stream to an active stream which requested an auto-connect.
+Ioctl data: The target minor number as a \fIminor_t\fP.
+.TP 6
+.B SLP_CONNFAIL	
+is used by the deamon to notify the driver that a previous connection 
+request failed (i.e., SLP_CONNFAIL is sent instead of I_LINK + SLP_MOVE_LOWER).
+Ioctl data: The minor number of the slip device
+which could not be connected, as a \fIminor_t\fP.
+.TP 6
+.B SLP_GETSTATE
+returns state information about a specified minor device.
+Ioctl data in: The minor device number as a \fIminor_t\fP
+Ioctl data out: A tslip_t structure, containing (among other things)
+the interface name and the link index of the serial driver linked
+below (or zero if none is currently linked).
+.SH SEE ALSO
+slattach(1M), slipd(1M), asy(7), ip(7)
+.SH FILES
+/dev/%DRIVER_NAME%
+.SH AUTHORS
+Jim Avera, Roe Peterson, Van Jacobson, Sudji Husodo (in reverse order)

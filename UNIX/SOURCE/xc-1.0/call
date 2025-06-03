@@ -1,0 +1,42 @@
+: <<AH_SO
+	"call": @(#) JPRadley Mon Jun 01 20:49:48 EDT 1992 v. 0.3
+	This file uses 8-character tabstops.
+  An ecological recycling program for obsolete modems.
+  Uses 'xc' to dial on port M, giving a key ($1) to look up in file P, whose
+lines have the format "one or more keys<TAB>number"
+  Thus, if P has "mom dad hometown<TAB>1-234-567-8900", this will dial that
+number by typing "call mom", "call dad", "call home", "call town"; pick up
+the handset within 10 seconds, talk to the folks.
+  If $1 isn't a valid key in P, then dial $1 itself, so that "call 12024561000"
+will dial the White House in DC.
+  "call grklfitch" does no harm: the modem won't react to ATDTgrklfitch.
+  Unless you have version 3.3 or higher of 'xc', do NOT hit the BREAK key while
+this script is running; you may be left with scads of orphaned 'xc' processes.
+AH_SO
+
+[ $# -lt 1 ] && exit    # one argument, key or number, needed
+M=ttyA07                # voice line with a modem on it
+P=/pub/jpr/lib/numbers  # data file
+                        # next line: <TAB> between '*' and '/'
+N=`sed -n "/$1/{s/.*$1.*	//p
+q
+}" $P`
+N=${N:-$1}              # if $1 wasn't a key, use $1 itself
+S=/usr/tmp/call_$$      # temporary script for xc to use
+
+trap "rm $S" 0          # clean up
+
+cat >$S <<JPR
+set bps 300             # override whatever the .xc startup file sets
+set cfile "/dev/tty"    # set up a hack for screen display, since later we
+capture "on"            #  redirect the usual xc output to the bit bucket
+file echo "dialing $N"  # spring the hack
+dial "W$N"              # precede by a 'w' to wait for dial tone
+pause 10                # give a human a chance to pick up the handset
+#hangup                 # dropping DTR may not work on old modems
+transmit "ath^m"        #   so use this instead
+pause 1                 # it's an old modem, give it a chance to react
+quit                    # xc quits and the modem is off the voice line
+JPR
+
+xc -l$M -s$S 2>/dev/null     # shut off normal xc screen output

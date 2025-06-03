@@ -1,0 +1,119 @@
+#!/opt/bin/perl -P
+;#
+;#  @(#)from.faces 1.4 91/11/19
+;#
+;#  Copyright (c) Steve Kinzler - April 1991.
+;#
+;#  Permission is given to distribute these sources, as long as the
+;#  copyright messages are not removed, and no monies are exchanged.
+;#
+;#  No responsibility is taken for any errors on inaccuracies inherent
+;#  either to the comments or the code of this program, but if reported
+;#  to me, then an attempt will be made to fix them.
+
+;# Uncomment this line if you are running a version of faces earlier
+;# than version 1.5.0:
+;# $oldformat = 1;
+
+$cols = 7;
+
+;# from.faces - alternate, experimental faces script to monitor one's mail
+;#		spool file
+;# Steve Kinzler, kinzler@cs.indiana.edu, 28 Jan 1991
+
+$format = $oldformat ? "%-20s%-20s%-10s%-10s%-10s%-10s\n" :
+		       "%s\t%s\t%s\t%s\t%s\t%s\n";
+
+$ENV{'MAIL'} = "/var/mail/$ENV{'USER'}" unless defined $ENV{'MAIL'};
+
+print("Cols=1 Rows=1\nNOMAIL\n"), exit unless -s $ENV{'MAIL'};
+
+%cal = ('Jan',   0, 'Feb',  31, 'Mar',  59, 'Apr',  90, 'May', 120,
+	'Jun', 151, 'Jul', 181, 'Aug', 212, 'Sep', 243, 'Oct', 273,
+	'Nov', 304, 'Dec', 334);
+
+($sec, $min, $hour, $mday, $mon, $year, $wday, $yday, $isdst) = localtime time;
+$now = int((1900 + $year - 1) * 365.25) + $yday + ($hour * 60 + $min) / 1440;
+
+open(MAIL, $ENV{'MAIL'});
+
+while (<MAIL>) {
+	if (/^From /) {
+		%hdr = ();
+		$host = '';
+
+		DO:
+			/^(\S*)\s*(.*)/;
+			$f = $1; $v = $2;
+			if ($f =~ /./) {
+				$field = $f;
+				$field =~ y/A-Z/a-z/;
+				$hdr{$field} = $v;
+			} else {
+				$hdr{$field} .= " $v";
+			}
+			$_ = <MAIL>;
+		goto DO unless eof || /^$/;
+
+		($from, $wday, $mon, $mday, $time, $year) =
+		    split(/\s+/, $hdr{'from'});
+
+#include "/opt/lib/faces/allrc";
+
+		$from =~ s/.*<([^>]*)>.*/\1/;
+		$from =~ s/\(.*\)//;
+		$from =~ s/\s.*//;
+
+		while ($from =~ /^@([^:]*):([^:].*)/) {
+			$from = $2; $host = $1;
+		}
+		while ($from =~ /(.*)[%@](.*)/) {
+			$from = $1; $host = $2;
+		}
+		while ($from =~ /([^!]*)!(.*)/) {
+			$from = $2; $host = $1;
+			$host .= '.uucp' unless $host =~ /\./;
+		}
+		while ($from =~ /([^:]*)::(.*)/) {
+			$from = $2; $host = $1;
+		}
+
+		$from =~ s/^(.{0,20}).*/\1/ if $oldformat;
+		$from =~ y/A-Z/a-z/ unless $from =~ /[a-z]/;
+		$from =~ s/^postmaster$/postmaster/i;
+		$wind = $from;
+		$wind =~ s/^(.{0,10}).*/\1/ if $oldformat;
+
+		if ($oldformat) {
+			$host =~ s/^[^\.]*.// while length $host > 20;
+		}
+		$host =~ y/A-Z/a-z/;
+
+		$day = $cal{$mon};
+		if ($year % 4 == 0 && $day > 31) { $day++; }
+		$time =~ /(.*):(.*):.*/;
+		$then = int(($year - 1) * 365.25) +
+			$day + $mday - 1 + ($1 * 60 + $2) / 1440;
+
+		$days = int($now - $then);
+		$hrs  = ($now - $then - $days) * 24;
+		$mins = int(($hrs - int($hrs)) * 60);
+		$hrs  = int($hrs);
+
+		$hrs  = "0$hrs"  if  $hrs < 10;
+		$mins = "0$mins" if $mins < 10;
+		$icon = "$days,$hrs:$mins";
+		$icon =~ s/^(.{0,10}).*/\1/ if $oldformat;
+
+		$n++;
+		$output .= sprintf($format, $from, $host, $wind, '', $icon, '');
+	}
+}
+
+close(MAIL);
+
+printf("Cols=1 Rows=1\nNOMAIL\n"), exit if $n <= 0;
+
+printf $format, $from, $host, $wind, $n, '', '';
+printf "Cols=%d Rows=%d\n", ($n > $cols) ? $cols : $n, ($n - 1) / $cols + 1;
+print $output;

@@ -1,0 +1,142 @@
+#
+# .xsession/.xinitrc - sample file
+#
+# Version 1.0 - 6/12/92
+#   David E. Wexelblat <dwex@goblin.org>
+#
+# Version 1.1 - 6/30/92
+#   Added support for all standard xdm authentication formats
+#
+# Version 1.2 - 8/26/92
+#   Added xrdb line for resources to be loaded
+#
+# Version 1.3 - 10/7/93
+#   Clean up authentication stuff
+#
+
+if [ -f ${HOME}/.Xdefaults ]
+then
+	xrdb -merge ${HOME}/.Xdefaults
+fi
+
+#
+# ${HOME}/.profile will set DOTPROFILE=1 and export it.  This allows
+# the same file to be used for both .xsession and .xinitrc.
+#
+if [ "$DOTPROFILE" != "1" ]
+then
+	#
+	# Default window manager
+	#
+	WM=/usr/X386/bin/twm
+
+	#
+	# Kill off the xconsole that's run by the xdm setup.  This will be
+	# a no-op if there's no xconsole running.
+	#
+	/usr/X386/bin/xkill\
+		-id `/usr/X386/bin/xwininfo -tree -root | grep xconsole |\
+		awk '{print $1}'` > /dev/null 2>&1
+
+	#
+	# Prompt for a window manager.  The xmessage client is part of
+	# the contributed software, not the core clients.
+	#
+	/usr/X386/bin/xmessage -geometry +400+250\
+		-buttons "MWM:1,OLWM:2,TWM:3,XDT:4"\
+		"Select Window Manager"
+	case "$?" in
+	1)
+		WM=/usr/bin/X11/mwm
+		;;
+	2)
+		. $HOME/.olsetup
+		WM=/usr/X/bin/olwsm
+		OLWM=1
+		;;
+	3)
+		WM=/usr/X386/bin/twm
+		;;
+	4)
+		XDT=1
+		;;
+	esac
+else
+	XMERGE=vga
+	export XMERGE
+fi
+
+#
+# Add .Xauthority entries for display :1, for use with xscope
+#
+MYHOST=`uname -n`
+for i in MIT-MAGIC-COOKIE-1 XDM-AUTHORIZATION-1 SUN-DES-1
+do
+	xauth list | grep $i >/dev/null 2>&1
+	if [ "$?" = "0" ]
+	then
+		KEY=`xauth -q list | grep $i | awk '{print $3; exit}'`
+		if [ "$KEY" != "" ]
+		then
+			xauth -q add ${MYHOST}:1 $i $KEY 2>/dev/null
+			xauth -q add ${MYHOST}/unix:1 $i $KEY 2>/dev/null
+		fi
+	fi
+done
+
+#
+# Now do things based on window-manager selection made above
+#
+if [ "$XDT" = "1" ]
+then
+	#
+	# Run X.desktop 3.0
+	#
+	/usr/X/bin/mwm -xrm "Mwm*configFile: /home/dwex/.xdtmwmrc" &
+	/usr/X/bin/xdt3 -xrm "XDesktop3*isRoot: True"
+else
+	if [ "$OLWM" = "1" ]
+	then
+		#
+		# Goddam Open Look session manager stomps on .Xdefaults,
+		# whether you tell it to or not!
+		#
+		xrdb -load .Xdefaults
+		cp .Xdefaults .SaveXdefaults
+		cp .OLXdefaults .Xdefaults
+	fi
+	xsetroot -solid gray60
+	xterm -geometry +0+100 &
+	xterm -geometry +360+100 -iconic&
+	xterm -geometry +360+425&
+	xterm -geometry +0+425 -iconic&
+	xconsole -geometry +0+0 -verbose &
+	xclock -geometry +425+0 &
+	xpostme -geometry +522+0 &
+	$WM
+	if [ "$OLWM" = "1" ]
+	then
+		#
+		# Undo Open Look stupidity
+		#
+		cp .Xdefaults .OLXdefaults
+		cp .SaveXdefaults .Xdefaults
+	fi
+fi
+
+#
+# Remove .Xauthority entries for display :1
+#
+for i in MIT-MAGIC-COOKIE-1 XDM-AUTHORIZATION-1 SUN-DES-1
+do
+	xauth list | grep $i >/dev/null 2>&1
+	if [ "$?" = "0" ]
+	then
+		KEY=`xauth -q list | grep $i | awk '{print $3; exit}'`
+		if [ "$KEY" != "" ]
+		then
+			xauth -q remove ${MYHOST}:1 
+			xauth -q remove ${MYHOST}/unix:1 
+		fi
+	fi
+done

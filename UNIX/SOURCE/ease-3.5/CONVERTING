@@ -1,0 +1,190 @@
+=====================================================================
+	Converting a sendmail file into ease
+
+
+Step 1.  Use cfc to convert the sendmail file into ease.
+	You may want to use "make convert" in the top Makefile
+
+	As a start, use the following arguments to cfc 
+
+	SunOS 4.0, /usr/lib/sendmail.subsidiary.cf
+		=> cfc -s -C V < /usr/lib/sendmail.subsidiary.cf>sendmail.ease
+
+	SunOS 4.0, /usr/lib/sendmail.main.cf
+
+		=> cfc -s < /usr/lib/sendmail.main.cf>sendmail.ease
+
+
+	Ultrix 3.0: 
+
+		=> cfc -d -C SDIZFN </etc/sendmail.cf >sendmail.ease
+
+	IDA sendmail
+
+		=> cfc -i
+
+	4.2 sendmail
+
+		=> cfc -c
+
+	4.3 sendmail
+
+		=> cdc -u
+
+	HP/UX
+		=> cfc -i -CGUS
+
+	A/UX
+		=> cfc -i -CUNI
+
+	CGI IRIS
+		=> cfc -i -C FKSVN  
+
+	smail
+
+		=> cfc -C DUET
+
+Step 2.  Convert the ease file to cf: 
+
+	% et <sendmail.ease >sendmail.cf
+
+	Look at the errors and warnings.
+
+	Most of these errors can be eliminated by using the right
+	flags on cfc. Make sure that you specify all of the
+	classes (using the -C flag ) that you need, which generate
+	the matching field definitions for any_in_? fields.
+	Then repeat the cf-> ease translation with the necessary
+	-C XYZ flags.
+
+	The remaining errors are either warnings or mistakes
+	in the translation. 
+	Let's look at some examples:
+
+		line 1598: Warning: Ruleset not defined: RULESET_12
+
+	This says there is a line that has
+		RULESET_12 = ruleset 12;
+
+	Comment it out if you wish.
+
+
+	case 2)
+
+		line 1598: Warning: Macro not defined: Y
+	or
+		line 1598: Warning: Class not defined: Y
+
+	This is just a warning and is probably okay. There may be a rule that 
+	does different actions if the macro is set or not. Example:
+
+	if ( one_or_more )	/* add local domain */
+		next (concat ("$1<@",ifset (Y, "${Y}", "${m_sitename}"))>);
+
+	If this bothers you, rewrite to rule to not need the Y macro:
+
+	if ( one_or_more )	/* add local domain */
+		next ("$1<@${m_sitename}"))>);
+
+	Do not define them, even to define them to be nothing!
+	An empty string is still defined, and may break your sendmail rules.
+
+	case 3)
+
+		line 88 near ";": Warning: Appending to previously defined class T.
+	This is okay. Sendmail allows you to define a class over several lines.
+	combine them into one line if you wish.
+
+	case 4)
+
+	line 1485: Warning: Mailer not defined: ERROR
+
+	Ease treats upper and lower case letters as different.
+	Sendmail does not. Change the case to be consistent
+
+	case 5)
+
+	warning: Unknown option 'M' on line 387
+	
+	cfc found an unusual option. It tries to convert it into
+		an asm("...') string.
+
+
+	.....
+	So look at the warnings and errors, and repeat step 1 until you 
+	feel comfortable with the change.
+
+	If you can't get cfc/ease to accept the new syntax, use the
+	asm(" ") construct to work around it and report the bugs.
+
+Step 3. Verify the ease output matches the original sendmail
+
+	You can use  "make test_conversion" it you wish
+
+	At this point, you should verify that the ease output is identical to
+	the original sendmail.cf file. Use the script cfdiff to
+	compare the original sendmail.cf file with the ease output file.
+
+	That is, if your original sendmail file is /etc/sendmail.cf,
+	and the new one is ./sendmail.cf, do a
+
+	 set path = ( $cwd/bin $path );rehash;cfdiff /etc/sendmail.cf ./sendmail.cf
+
+	You may see some differences. Examples:
+
+	< Odbackground
+	---
+	> Odb
+
+	Okay: ease outputs the full name instead of the abbreviation
+
+	< Muucp,	P=/usr/bin/uux, F=sDFhuU, S=13, R=23, M=100000,
+	< 	A=uux - $h!rmail ($u)
+	---
+	> Muucp, P=/usr/bin/uux, F=sDFhuU, S=13, R=23, M=100000, A=uux - $h!rmail ($u)
+
+	Okay: this is on two lines instead of one.
+
+	< CTuucp UUCP arpa ARPA bitnet BITNET csnet CSNET mailnet MAILNET decnet DECNET rscs RSCS
+	---
+	> CTuucp UUCP arpa ARPA bitnet BITNET csnet CSNET mailnet
+	> CTMAILNET decnet DECNET rscs RSCS
+	
+	OKAY: this is just a different number of lines.
+
+
+	Differences in the spaces in the rules)
+	The syntax of sendmail specifies that there are tabs between the 
+	left hand side and the right hand side, and a tab between the right 
+	hand side and the comments.
+
+	Any spaces in the middle of the rules are cosmetic. Ignore differences.
+
+	If there is any other difference, 
+	please send me a bug report, and see if you can make changes to your
+	ease input file to match the original file. You may need the asm("")
+	command.
+
+	If your diff program has the -w option, you can ignore spaces in the
+	cf files. Occasionally ease inserts some extra spaces. Or the
+	original sendmail file has extra spaces. (e.g. SunOS).
+	See the script cfdiff.
+
+Step 4. Once you have the ease file in good form, put it under sccs
+	control, and put the version number (%W% in the V macro
+	definition, so the "Received-by" header line reflects the revision.)
+
+You are now ready to debug your sendmail file.
+See the file TESTING
+============================================================================
+
+If you find these programs useful, or if you have suggestions or changes,
+please drop me a line.
+
+	Bruce Barnett
+	General Electric
+	Corporate Research and Development
+	P. O. Box 8, 1 River Road
+	Schenectady, NY 12302
+
+	barnett@crdgw1.ge.com

@@ -1,0 +1,114 @@
+# Script to print package documentation
+# Greg Lehey, LEMIS, 4 October 1993
+#
+# Usage:
+#
+# printdoc [-d spooldir] package [package ...]
+#
+# spooldir is the directory in which the installable packages reside, and
+# defaults to /cdrom
+
+if [ -t 1 ]; then
+  if [ "$PAGER" = "" ]; then
+    if [ -f /opt/bin/less ]; then
+      PAGER=/opt/bin/less
+    else
+      if [ -f /usr/bin/more ]; then
+        PAGER=/usr/bin/more
+      else
+        PAGER=cat                     # can't even rely on `more' being there :-(
+      fi
+    fi
+    export PAGER
+  fi
+else
+  PAGER=cat
+fi
+spooldir=/cdrom
+if [ "$1" = "-d" ]; then        # spool directory specified
+   spooldir=$2
+   shift
+   shift
+fi
+for i in $*; do                         # for each specified package
+package=$spooldir/$i
+  if [ -f $package/root/opt/README/* ]; then  # found a README.LEMIS file
+     $PAGER $package/root/opt/README/*
+     if [ -t 1 ]; then			# output to terminal
+       echo -n "Hit <return> to continue viewing "
+       read nonsense
+     fi
+  fi
+  if [ -d $package ]; then      # found the package
+     find $package -type f -print|grep man/cat[0-9]/* >/tmp/manpages
+     if [ -s /tmp/manpages ]; then  # we have formatted man pages
+       xargs -n1 </tmp/manpages $PAGER
+     fi
+     find $package -type f -print|grep man/man[0-9]/* >/tmp/manpages
+     if [ -s /tmp/manpages ]; then  # we have unformatted man pages
+       xargs -n1 </tmp/manpages nroff -man | $PAGER
+     fi
+    if [ -t 1 ]; then
+      interested=1
+    else
+      interested=0		# no ps/.dvi stuff on file output
+    fi
+    hardcopy=$spooldir/DOCUMENTATION/$i
+    if [ -d $hardcopy ]; then   # more documentation available
+      while [ $interested -ne 0 ]; do
+        echo Hardcopy documentation is available for $i:
+        echo
+        ls -l $hardcopy
+        echo
+        echo -n "Enter the name of a document, or <return> to quit: "
+        read docname
+        if [ "$docname" = "" ]; then
+          interested=0          # lost interest
+        else 
+          if [ ! -f $hardcopy/$docname ]; then
+            echo $docname does not exist
+          else
+            echo $docname|grep .dvi &>/dev/null
+            if [ $? -eq 0 ]; then
+              pkginfo -q SeeTeX &>/dev/null
+              if [ $? -ne 0 ]; then
+                echo "It doesn't look as if you have installed SeeTeX. Do you want to"
+                echo -n "try to view $docname anyway? "
+                read response
+                if [ "response" -eq "y" ]; then
+                  echo Viewing $docname using texx 
+                  texx $hardcopy/$docname
+                fi
+              else                      # should be OK
+                echo Viewing $docname using texx 
+                texx $hardcopy/$docname
+              fi
+            else
+              echo $docname|grep .ps &>/dev/null
+              if [ $? -eq 0 ]; then
+                pkginfo -q ghostview &>/dev/null
+                if [ $? -ne 0 ]; then
+                  echo "It doesn't look as if you have installed ghostview. Do you want to"
+                  echo -n "try to view $docname anyway? "
+                  read response
+                  if [ "response" -eq "y" ]; then
+                    echo Viewing $docname with ghostview
+                    ghostview $hardcopy/$docname
+                  fi
+                else                      # should be OK
+                  echo Viewing $docname with ghostview
+                  ghostview $hardcopy/$docname
+                fi
+              else
+                echo "I don't know how to display $i"
+              fi
+            fi
+          fi
+        fi
+      done
+    fi
+  else                          # can't find the package,
+    echo "Can't find package $package"
+  fi
+done
+

@@ -1,0 +1,1623 @@
+@c -*-texinfo-*-
+@c This is part of the GNU Emacs Lisp Reference Manual.
+@c Copyright (C) 1990, 1991, 1992, 1993 Free Software Foundation, Inc. 
+@c See the file elisp.texi for copying conditions.
+@setfilename ../info/debugging
+@node Debugging, Streams, Byte Compilation, Top
+@chapter Debugging Lisp Programs
+
+  There are three ways to investigate a problem in an Emacs Lisp program,
+depending on what you are doing with the program when the problem appears.
+
+@itemize @bullet
+@item
+If the problem occurs when you run the program, you can use
+the Lisp debugger to investigate what is happening during execution.
+
+@item
+If the problem is syntactic, so that Lisp cannot even read the program,
+you can use the Emacs facilities for editing Lisp to localize it.
+
+@item
+If the problem occurs when trying to compile the program with the byte
+compiler, you need to know how to examine the compiler's input buffer.
+@end itemize
+
+@menu
+* Debugger::            How the Emacs Lisp debugger is implemented.
+* Syntax Errors::       How to find syntax errors.
+* Compilation Errors::  How to find errors that show up in byte compilation.
+* Edebug::		A source-level Emacs Lisp debugger.
+@end menu
+
+  Another useful debugging tool is a dribble file.  When a dribble file
+is open, Emacs copies all keyboard input characters to that file.
+Afterward, you can examine the file to find out what input was used.
+@xref{Terminal Input}.
+
+  For debugging problems in terminal descriptions, the
+@code{open-termscript} function can be useful.  @xref{Terminal Output}.
+
+@node Debugger
+@section The Lisp Debugger
+@cindex debugger
+@cindex Lisp debugger
+@cindex break
+
+  The @dfn{Lisp debugger} provides you with the ability to suspend
+evaluation of a form.  While evaluation is suspended (a state that is
+commonly known as a @dfn{break}), you may examine the run time stack,
+examine the values of local or global variables, or change those values.
+Since a break is a recursive edit, all the usual editing facilities of
+Emacs are available; you can even run programs that will enter the
+debugger recursively.  @xref{Recursive Editing}.
+
+@menu
+* Error Debugging::       Entering the debugger when an error happens.
+* Infinite Loops::	  Stopping and debugging a program that doesn't exit.
+* Function Debugging::    Entering it when a certain function is called.
+* Explicit Debug::        Entering it at a certain point in the program.
+* Using Debugger::        What the debugger does; what you see while in it.
+* Debugger Commands::     Commands used while in the debugger.
+* Invoking the Debugger:: How to call the function @code{debug}.
+* Internals of Debugger:: Subroutines of the debugger, and global variables.
+@end menu
+
+@node Error Debugging
+@subsection Entering the Debugger on an Error
+@cindex error debugging
+@cindex debugging errors
+
+  The most important time to enter the debugger is when a Lisp error
+happens.  This allows you to investigate the immediate causes of the
+error.
+
+  However, entry to the debugger is not a normal consequence of an
+error.  Many commands frequently get Lisp errors when invoked in
+inappropriate contexts (such as @kbd{C-f} at the end of the buffer) and
+during ordinary editing it would be very unpleasant to enter the
+debugger each time this happens.  If you want errors to enter the
+debugger, set the variable @code{debug-on-error} to non-@code{nil}.
+
+@defopt debug-on-error
+This variable determines whether the debugger is called when a error is
+signaled and not handled.  If @code{debug-on-error} is @code{t}, all
+errors call the debugger.  If it is @code{nil}, none call the debugger.
+
+The value can also be a list of error conditions that should call the
+debugger.  For example, if you set it to the list
+@code{(void-variable)}, then only errors about a variable that has no
+value invoke the debugger.
+@end defopt
+
+  To debug an error that happens during loading of the @file{.emacs}
+file, use the option @samp{-debug-init}, which binds
+@code{debug-on-error} to @code{t} while @file{.emacs} is loaded.
+
+  If your @file{.emacs} file sets @code{debug-on-error}, the effect
+lasts only until the end of loading @file{.emacs}.  (This is an
+undesirable by-product of the @samp{-debug-init} feature.)  If you want
+@file{.emacs} to set @code{debug-on-error} permanently, use
+@code{after-init-hook}, like this:
+
+@example
+(add-hook 'after-init-hook
+          '(lambda () (setq debug-on-error t)))
+@end example
+
+@node Infinite Loops
+@subsection Debugging Infinite Loops
+@cindex infinite loops
+@cindex loops, infinite
+@cindex quitting from infinite loop
+@cindex stopping an infinite loop
+
+  When a program loops infinitely and fails to return, your first
+problem is to stop the loop.  On most operating systems, you can do this
+with @kbd{C-g}, which causes quit.
+
+  Ordinary quitting gives no information about why the program was
+looping.  To get more information, you can set the variable
+@code{debug-on-quit} to non-@code{nil}.  Quitting with @kbd{C-g} is not
+considered an error, and @code{debug-on-error} has no effect on the
+handling of @kbd{C-g}.  Contrariwise, @code{debug-on-quit} has no effect
+on errors.@refill
+
+  Once you have the debugger running in the middle of the infinite loop,
+you can proceed from the debugger using the stepping commands.  If you
+step through the entire loop, you will probably get enough information
+to solve the problem.
+
+@defopt debug-on-quit
+This variable determines whether the debugger is called when @code{quit}
+is signaled and not handled.  If @code{debug-on-quit} is non-@code{nil},
+then the debugger is called whenever you quit (that is, type @kbd{C-g}).
+If @code{debug-on-quit} is @code{nil}, then the debugger is not called
+when you quit.  @xref{Quitting}.
+@end defopt
+
+@node Function Debugging
+@subsection Entering the Debugger on a Function Call
+@cindex function call debugging
+@cindex debugging specific functions
+
+  To investigate a problem that happens in the middle of a program, one
+useful technique is to cause the debugger to be entered when a certain
+function is called.  You can do this to the function in which the
+problem occurs, and then step through the function, or you can do this
+to a function called shortly before the problem, step quickly over
+the call to that function, and then step through its caller.
+
+@deffn Command debug-on-entry function-name
+  This function requests @var{function-name} to invoke the debugger each time
+it is called.  It works by inserting the form @code{(debug 'debug)} into
+the function definition as the first form.
+
+  Any function defined as Lisp code may be set to break on entry,
+regardless of whether it is interpreted code or compiled code.  Even
+functions that are commands may be debugged---they will enter the
+debugger when called inside a function, or when called interactively
+(after the reading of the arguments).  Primitive functions (i.e., those
+written in C) may not be debugged.
+
+  When @code{debug-on-entry} is called interactively, it prompts
+for @var{function-name} in the minibuffer.
+
+  Caveat: if @code{debug-on-entry} is called more than once on the same
+function, the second call does nothing.  If you redefine a function
+after using @code{debug-on-entry} on it, the code to enter the debugger
+is lost.
+
+  @code{debug-on-entry} returns @var{function-name}.
+
+@example
+@group
+(defun fact (n)
+  (if (zerop n) 1
+      (* n (fact (1- n)))))
+     @result{} fact
+@end group
+@group
+(debug-on-entry 'fact)
+     @result{} fact
+@end group
+@group
+(fact 3)
+     @result{} 6
+@end group
+
+@group
+------ Buffer: *Backtrace* ------
+Entering:
+* fact(3)
+  eval-region(4870 4878 t)
+  byte-code("...")
+  eval-last-sexp(nil)
+  (let ...)
+  eval-insert-last-sexp(nil)
+* call-interactively(eval-insert-last-sexp)
+------ Buffer: *Backtrace* ------
+@end group
+
+@group
+(symbol-function 'fact)
+     @result{} (lambda (n)
+          (debug (quote debug))
+          (if (zerop n) 1 (* n (fact (1- n)))))
+@end group
+@end example
+@end deffn
+
+@deffn Command cancel-debug-on-entry function-name
+This function undoes the effect of @code{debug-on-entry} on
+@var{function-name}.  When called interactively, it prompts for
+@var{function-name} in the minibuffer.
+
+If @code{cancel-debug-on-entry} is called more than once on the same
+function, the second call does nothing.  @code{cancel-debug-on-entry}
+returns @var{function-name}.
+@end deffn
+
+@node Explicit Debug
+@subsection Explicit Entry to the Debugger
+
+  You can cause the debugger to be called at a certain point in your
+program by writing the expression @code{(debug)} at that point.  To do
+this, visit the source file, insert the text @samp{(debug)} at the
+proper place, and type @kbd{C-M-x}.  Be sure to undo this insertion
+before you save the file!
+
+  The place where you insert @samp{(debug)} must be a place where an
+additional form can be evaluated and its value ignored.  (If the value
+isn't ignored, it will alter the execution of the program!)  Usually
+this means inside a @code{progn} or an implicit @code{progn}
+(@pxref{Sequencing}).
+
+@node Using Debugger
+@subsection Using the Debugger
+
+  When the debugger is entered, it displays the previously selected
+buffer in one window and a buffer named @samp{*Backtrace*} in another
+window.  The backtrace buffer contains one line for each level of Lisp
+function execution currently going on.  At the beginning of this buffer
+is a message describing the reason that the debugger was invoked (such
+as the error message and associated data, if it was invoked due to an
+error).
+
+  The backtrace buffer is read-only and uses a special major mode,
+Debugger mode, in which letters are defined as debugger commands.  The
+usual Emacs editing commands are available; thus, you can switch windows
+to examine the buffer that was being edited at the time of the error,
+switch buffers, visit files, or do any other sort of editing.  However,
+the debugger is a recursive editing level (@pxref{Recursive Editing})
+and it is wise to go back to the backtrace buffer and exit the debugger
+(with the @kbd{q} command) when you are finished with it.  Exiting
+the debugger gets out of the recursive edit and kills the backtrace
+buffer.
+
+@cindex current stack frame
+  The contents of the backtrace buffer show you the functions that are
+executing and the arguments that were given to them.  It also allows
+you to specify a stack frame by moving point to the line describing
+that frame.  (A stack frame is the place where the Lisp interpreter
+records information about a particular invocation of a function.  The
+frame whose line point is on is considered the @dfn{current frame}.)
+Some of the debugger commands operate on the current frame.
+
+  The debugger itself should always be run byte-compiled, since it
+makes assumptions about how many stack frames are used for the
+debugger itself.  These assumptions are false if the debugger is
+running interpreted.
+
+@need 3000
+
+@node Debugger Commands
+@subsection Debugger Commands
+@cindex debugger command list
+
+  Inside the debugger (in Debugger mode), these special commands are
+available in addition to the usual cursor motion commands.  (Keep in
+mind that all the usual facilities of Emacs, such as switching windows
+or buffers, are still available.)
+
+  The most important use of debugger commands is for stepping through
+code, so that you can see how control flows.  The debugger can step
+through the control structures of an interpreted function, but cannot do
+so in a byte-compiled function.  If you would like to step through a
+byte-compiled function, replace it with an interpreted definition of the
+same function.  (To do this, visit the source file for the function and
+type @kbd{C-M-x} on its definition.)
+
+@table @kbd
+@item c
+Exit the debugger and continue execution.  When continuing is possible,
+it resumes execution of the program as if the debugger had never been
+entered (aside from the effect of any variables or data structures you
+may have changed while inside the debugger).
+
+Continuing is possible after entry to the debugger due to function entry
+or exit, explicit invocation, quitting or certain errors.  Most errors
+cannot be continued; trying to continue an unsuitable error causes the
+same error to occur again.
+
+@item d
+Continue execution, but enter the debugger the next time any Lisp
+function is called.  This allows you to step through the
+subexpressions of an expression, seeing what values the subexpressions
+compute, and what else they do.
+
+The stack frame made for the function call which enters the debugger in
+this way will be flagged automatically so that the debugger will be
+called again when the frame is exited.  You can use the @kbd{u} command
+to cancel this flag.
+
+@item b
+Flag the current frame so that the debugger will be entered when the
+frame is exited.  Frames flagged in this way are marked with stars
+in the backtrace buffer.
+
+@item u
+Don't enter the debugger when the current frame is exited.  This
+cancels a @kbd{b} command on that frame.
+
+@item e
+Read a Lisp expression in the minibuffer, evaluate it, and print the
+value in the echo area.  This is the same as the command @kbd{M-@key{ESC}},
+except that @kbd{e} is not normally disabled like @kbd{M-@key{ESC}}.
+
+@item q
+Terminate the program being debugged; return to top-level Emacs
+command execution.
+
+If the debugger was entered due to a @kbd{C-g} but you really want
+to quit, and not debug, use the @kbd{q} command.
+
+@item r
+Return a value from the debugger.  The value is computed by reading an
+expression with the minibuffer and evaluating it.
+
+The @kbd{r} command makes a difference when the debugger was invoked due
+to exit from a Lisp call frame (as requested with @kbd{b}); then the
+value specified in the @kbd{r} command is used as the value of that
+frame.
+
+You can't use @kbd{r} when the debugger was entered due to an error.
+@end table
+
+@node Invoking the Debugger
+@subsection Invoking the Debugger
+
+  Here we describe fully the function used to invoke the debugger.
+
+@defun debug &rest debugger-args
+  This function enters the debugger.  It switches buffers to a buffer
+named @samp{*Backtrace*} (or @samp{*Backtrace*<2>} if it is the second
+recursive entry to the debugger, etc.), and fills it with information
+about the stack of Lisp function calls.  It then enters a recursive
+edit, leaving that buffer in Debugger mode and displayed in the selected
+window.
+
+  Debugger mode provides a @kbd{c} command which operates by exiting the
+recursive edit, switching back to the previous buffer, and returning to
+whatever called @code{debug}.  The @kbd{r} command also returns from
+@code{debug}.  These are the only ways the function @code{debug} can
+return to its caller.
+
+  If the first of the @var{debugger-args} passed to @code{debug} is
+@code{nil} (or if it is not one of the following special values), then
+the rest of the arguments to @code{debug} are printed at the top of the
+@samp{*Backtrace*} buffer.  This mechanism is used to display a message
+to the user.
+
+  However, if the first argument passed to @code{debug} is one of the
+following special values, then it has special significance.  Normally,
+these values are passed to @code{debug} only by the internals of Emacs
+and the debugger, and not by programmers calling @code{debug}.
+
+  The special values are:
+
+@table @code
+@item lambda
+@cindex @code{lambda} in debug
+  When the first argument is @code{lambda}, the debugger displays
+@samp{Entering:} as a line of text at the top of the buffer.  This means
+that a function is being entered when @code{debug-on-next-call} is
+non-@code{nil}.
+
+@item debug
+  When the first argument is @code{debug}, the debugger displays
+@samp{Entering:} just as in the @code{lambda} case.  However,
+@code{debug} as the argument indicates that the reason for entering the
+debugger is that a function set to debug on entry is being entered.
+
+  In addition, @code{debug} as the first argument directs the debugger
+to mark the function that called @code{debug} so that it will invoke the
+debugger when exited.  (When @code{lambda} is the first argument, the
+debugger does not do this, because it has already been done by the
+interpreter.)
+
+@item t
+  When the first argument is @code{t}, the debugger displays the following
+as the top line in the buffer:
+
+@smallexample
+Beginning evaluation of function call form:
+@end smallexample
+
+@noindent
+This indicates that it was entered due to the evaluation of a list form
+at a time when @code{debug-on-next-call} is non-@code{nil}.
+
+@item exit
+  When the first argument is @code{exit}, it indicates the exit of a
+stack frame previously marked to invoke the debugger on exit.  The
+second argument given to @code{debug} in this case is the value being
+returned from the frame.  The debugger displays @samp{Return value:} on
+the top line of the buffer, followed by the value being returned.
+
+@item error
+@cindex @code{error} in debug
+  When the first argument is @code{error}, the debugger indicates that
+it is being entered because an error or @code{quit} was signaled and not
+handled, by displaying @samp{Signaling:} followed by the error signaled
+and any arguments to @code{signal}.  For example,
+
+@example
+@group
+(let ((debug-on-error t))
+     (/ 1 0))
+@end group
+
+@group
+------ Buffer: *Backtrace* ------
+Signaling: (arith-error)
+  /(1 0)
+...
+------ Buffer: *Backtrace* ------
+@end group
+@end example
+
+  If an error was signaled, presumably the variable
+@code{debug-on-error} is non-@code{nil}.  If @code{quit} was signaled,
+then presumably the variable @code{debug-on-quit} is non-@code{nil}.
+
+@item nil
+  Use @code{nil} as the first of the @var{debugger-args} when you want
+to enter the debugger explicitly.  The rest of the @var{debugger-args}
+are printed on the top line of the buffer.  You can use this feature to
+display messages---for example, to remind yourself of the conditions
+under which @code{debug} is called.
+@end table
+@end defun
+
+@need 5000
+
+@node Internals of Debugger
+@subsection Internals of the Debugger
+
+  This section describes functions and variables used internally by the
+debugger.
+
+@defvar debugger
+  The value of this variable is the function to call to invoke the
+debugger.  Its value must be a function of any number of arguments (or,
+more typically, the name of a function).  Presumably this function will
+enter some kind of debugger.  The default value of the variable is
+@code{debug}.
+
+  The first argument that Lisp hands to the function indicates why it
+was called.  The convention for arguments is detailed in the description
+of @code{debug}.
+@end defvar
+
+@deffn Command backtrace
+@cindex run time stack
+@cindex call stack
+  This function prints a trace of Lisp function calls currently active.
+This is the function used by @code{debug} to fill up the
+@samp{*Backtrace*} buffer.  It is written in C, since it must have access
+to the stack to determine which function calls are active.  The return
+value is always @code{nil}.
+
+  In the following example, @code{backtrace} is called explicitly in a
+Lisp expression.  When the expression is evaluated, the backtrace is
+printed to the stream @code{standard-output}: in this case, to the
+buffer @samp{backtrace-output}.  Each line of the backtrace represents
+one function call.  If the arguments of the function call are all known,
+they are displayed; if they are being computed, that fact is stated.
+The arguments of special forms are elided.
+
+@smallexample
+@group
+(with-output-to-temp-buffer "backtrace-output"
+  (let ((var 1))
+    (save-excursion
+      (setq var (eval '(progn
+                         (1+ var)
+                         (list 'testing (backtrace))))))))
+
+     @result{} nil
+@end group
+
+@group
+----------- Buffer: backtrace-output ------------
+  backtrace()
+  (list ...computing arguments...)
+  (progn ...)
+  eval((progn (1+ var) (list (quote testing) (backtrace))))
+  (setq ...)
+  (save-excursion ...)
+  (let ...)
+  (with-output-to-temp-buffer ...)
+  eval-region(1973 2142 #<buffer *scratch*>)
+  byte-code("...  for eval-print-last-sexp ...")
+  eval-print-last-sexp(nil)
+* call-interactively(eval-print-last-sexp)
+----------- Buffer: backtrace-output ------------
+@end group
+@end smallexample
+
+The character @samp{*} indicates a frame whose debug-on-exit flag is
+set.
+@end deffn
+
+@ignore @c Not worth mentioning
+@defopt stack-trace-on-error
+@cindex stack trace
+  This variable controls whether Lisp automatically displays a
+backtrace buffer after every error that is not handled.  A quit signal
+counts as an error for this variable.  If it is non-@code{nil} then a
+backtrace is shown in a pop-up buffer named @samp{*Backtrace*} on every
+error.  If it is @code{nil}, then a backtrace is not shown.
+
+  When a backtrace is shown, that buffer is not selected.  If either
+@code{debug-on-quit} or @code{debug-on-error} is also non-@code{nil}, then
+a backtrace is shown in one buffer, and the debugger is popped up in
+another buffer with its own backtrace.
+
+  We consider this feature to be obsolete and superseded by the debugger
+itself.
+@end defopt
+@end ignore
+
+@defvar debug-on-next-call
+@cindex @code{eval}, and debugging
+@cindex @code{apply}, and debugging
+@cindex @code{funcall}, and debugging
+This variable determines whether the debugger is called before the
+next @code{eval}, @code{apply} or @code{funcall}.  It is automatically
+reset to @code{nil} when the debugger is entered.  
+
+The @kbd{d} command in the debugger works by setting this variable.
+@end defvar
+
+@defun backtrace-debug level flag
+  This function sets the debug-on-exit flag of the eval frame
+@var{level} levels down to @var{flag}.  If @var{flag} is non-@code{nil},
+this will cause the debugger to be entered when that frame exits.
+Even a nonlocal exit through that frame will enter the debugger.
+
+  The debug-on-exit flag is an entry in the stack frame of a
+function call.  This flag is examined on every exit from a function.
+
+  Normally, this function is only called by the debugger.
+@end defun
+
+@defvar command-debug-status
+This variable records the debugging status of current interactive
+command.  Each time a command is called interactively, this variable is
+bound to @code{nil}.  The debugger can set this variable to leave
+information for future debugger invocations during the same command.
+
+The advantage of using this variable rather that defining another global
+variable is that the data will never carry over to a later other command
+invocation.
+@end defvar
+
+@defun backtrace-frame frame-number
+The function @code{backtrace-frame} is intended for use in Lisp
+debuggers.  It returns information about what computation is happening
+in the eval frame @var{level} levels down.
+
+If that frame has not evaluated the arguments yet (or is a special
+form), the value is @code{(nil @var{function} @var{arg-forms}@dots{})}.
+
+If that frame has evaluated its arguments and called its function
+already, the value is @code{(t @var{function}
+@var{arg-values}@dots{})}.
+
+In the return value, @var{function} is whatever was supplied as @sc{car}
+of evaluated list, or a @code{lambda} expression in the case of a macro
+call.  If the function has a @code{&rest} argument, that is represented
+as the tail of the list @var{arg-values}.
+
+If the argument is out of range, @code{backtrace-frame} returns
+@code{nil}.
+@end defun
+
+@node Syntax Errors
+@section Debugging Invalid Lisp Syntax
+
+  The Lisp reader reports invalid syntax, but cannot say where the real
+problem is.  For example, the error ``End of file during parsing'' in
+evaluating an expression indicates an excess of open parentheses (or
+square brackets).  The reader detects this imbalance at the end of the
+file, but it cannot figure out where the close parenthesis should have
+been.  Likewise, ``Invalid read syntax: ")"'' indicates an excess close
+parenthesis or missing open parenthesis, but not where the missing
+parenthesis belongs.  How, then, to find what to change?
+
+  If the problem is not simply an imbalance of parentheses, a useful
+technique is to try @kbd{C-M-e} at the beginning of each defun, and see
+if it goes to the place where that defun appears to end.  If it does
+not, there is a problem in that defun.
+
+  However, unmatched parentheses are the most common syntax errors in
+Lisp, and we can give further advice for those cases.
+
+@menu
+* Excess Open::     How to find a spurious open paren or missing close.
+* Excess Close::    How to find a spurious close paren or missing open.
+@end menu
+
+@node Excess Open
+@subsection Excess Open Parentheses
+
+  The first step is to find the defun that is unbalanced.  If there is
+an excess open parenthesis, the way to do this is to insert a
+close parenthesis at the end of the file and type @kbd{C-M-b}
+(@code{backward-sexp}).  This will move you to the beginning of the
+defun that is unbalanced.  (Then type @kbd{C-@key{SPC} C-_ C-u
+C-@key{SPC}} to set the mark there, undo the insertion of the
+close parenthesis, and finally return to the mark.)
+
+  The next step is to determine precisely what is wrong.  There is no
+way to be sure of this except to study the program, but often the
+existing indentation is a clue to where the parentheses should have
+been.  The easiest way to use this clue is to reindent with @kbd{C-M-q}
+and see what moves.
+
+  Before you do this, make sure the defun has enough close parentheses.
+Otherwise, @kbd{C-M-q} will get an error, or will reindent all the rest
+of the file until the end.  So move to the end of the defun and insert a
+close parenthesis there.  Don't use @kbd{C-M-e} to move there, since
+that too will fail to work until the defun is balanced.
+
+  Then go to the beginning of the defun and type @kbd{C-M-q}.  Usually
+all the lines from a certain point to the end of the function will shift
+to the right.  There is probably a missing close parenthesis, or a
+superfluous open parenthesis, near that point.  (However, don't assume
+this is true; study the code to make sure.)  Once you have found the
+discrepancy, undo the @kbd{C-M-q}, since the old indentation is probably
+appropriate to the intended parentheses.
+
+  After you think you have fixed the problem, use @kbd{C-M-q} again.  It
+should not change anything, if the problem is really fixed.
+
+@node Excess Close
+@subsection Excess Close Parentheses
+
+  To deal with an excess close parenthesis, first insert an
+open parenthesis at the beginning of the file and type @kbd{C-M-f} to
+find the end of the unbalanced defun.  (Then type @kbd{C-@key{SPC} C-_
+C-u C-@key{SPC}} to set the mark there, undo the insertion of the
+open parenthesis, and finally return to the mark.)
+
+  Then find the actual matching close parenthesis by typing @kbd{C-M-f}
+at the beginning of the defun.  This will leave you somewhere short of
+the place where the defun ought to end.  It is possible that you will
+find a spurious close parenthesis in that vicinity.
+
+  If you don't see a problem at that point, the next thing to do is to
+type @kbd{C-M-q} at the beginning of the defun.  A range of lines will
+probably shift left; if so, the missing open parenthesis or spurious
+close parenthesis is probably near the first of those lines.  (However,
+don't assume this is true; study the code to make sure.)  Once you have
+found the discrepancy, undo the @kbd{C-M-q}, since the old indentation
+is probably appropriate to the intended parentheses.
+
+@node Compilation Errors
+@section Debugging Problems in Compilation
+
+  When an error happens during byte compilation, it is normally due to
+invalid syntax in the program you are compiling.  The compiler prints a
+suitable error message in the @samp{*Compile-Log*} buffer, and then
+stops.  The message may state a function name in which the error was
+found, or it may not.  Regardless, here is how to find out where in the
+file the error occurred.
+
+  What you should do is switch to the buffer @w{@samp{ *Compiler Input*}}.
+(Note that the buffer name starts with a space, so it does not show
+up in @kbd{M-x list-buffers}.)  This buffer contains the program being
+compiled, and point shows how far the byte compiler was able to read.
+
+  If the error was due to invalid Lisp syntax, point shows exactly where
+the invalid syntax was @emph{detected}.  The cause of the error is not
+necessarily near by!  Use the techniques in the previous section to find
+the error.
+
+  If the error was detected while compiling a form that had been read
+successfully, then point is located at the end of the form.  In this
+case, it can't localize the error precisely, but can still show you
+which function to check.
+
+@node Edebug
+@section Edebug
+@cindex Edebug mode
+
+  Edebug is a source-level debugger for Emacs Lisp programs that
+provides the following features:
+
+@itemize @bullet
+@item
+Step through evaluation, stopping before and after each expression.
+
+@item
+Set conditional or unconditional breakpoints.
+
+@item
+Trace slow or fast stopping briefly at each stop point, or
+each breakpoint.
+
+@item
+Evaluate expressions as if outside of Edebug.
+
+@item 
+Automatically reevaluate a list of expressions and
+display their results each time Edebug updates the display.
+
+@item
+Output trace info on function enter and exit.
+@end itemize
+
+The first three sections of this chapter should tell you enough about
+Edebug to enable you to use it.
+
+@menu
+* Using Edebug::		Introduction to use of Edebug.
+* Prepare: Edebug Prepare.	You must prepare a function or macro definition
+				  in order to debug it with Edebug.
+* Edebug Modes::		Execution modes, stopping more or less often.
+* Stepping::			Commands to step to a specified place.
+* Breakpoints::			Setting breakpoints to make the program stop.
+* Views::			Viewing the outside buffer and window status.
+* Eval: Edebug Eval.		Evaluating expressions within Edebug.
+* Eval List::			Expressions whose values are displayed
+				  each time you enter Edebug.
+* Misc: Edebug Misc.		Miscellaneous
+* Printing::			Printing circular structure in Edebug.
+* The Outside Context::		Data that Edebug saves and restores.
+* Macro Calls::			Explaining how to handle macro calls.
+* Options: Edebug Options.	Option variables for customizing Edebug.
+@end menu
+
+@node Using Edebug
+@subsection Using Edebug
+
+To debug a Lisp program with Edebug, you must first @dfn{prepare} the
+Lisp functions that you want to debug.  @xref{Edebug Prepare}.
+
+Once a function is prepared, any call to the function activates Edebug.
+This involves entering a recursive edit which is a level of Edebug
+activation.
+
+Activating Edebug may stop execution and let you step through the
+function, or it may continue execution while checking for debugging
+commands, depending on the selected Edebug execution mode.  @xref{Edebug
+Modes}.
+
+Within Edebug, you normally view an Emacs buffer showing the source of
+the Lisp function you are debugging.  We call this the @dfn{Edebug
+buffer}---but note that it is not always the same buffer, and it is not
+reserved for Edebug use.
+
+An arrow at the left margin indicates the line where the function is
+executing.  Point initially shows where within the line the function is
+executing, but this ceases to be true if you move point yourself.
+
+If you prepare the definition of @code{fac} (shown below) for Edebug and
+then execute @code{(fac 3)}, here is what you normally see.  Point is at
+the open-parenthesis before @code{if}.
+
+@example
+(defun fac (n)
+=>@point{}(if (< 0 n)
+      (* n (fac (1- n)))
+    1))
+@end example
+
+@cindex stop points
+The places within a function where Edebug can stop execution are called
+@dfn{stop points}.  These occur both before and after each subexpression
+that is a list, and also after each variable reference.  Stop points
+before variables are optional, under the control of the value of
+@code{edebug-stop-before-symbols}.  Here we show with periods the stop
+points normally found in the function @code{fac}:
+
+@example
+(defun fac (n)
+  .(if .(< 0 n.).
+      .(* n. .(fac (1- n.).).).
+    1).)
+@end example
+
+While a buffer is the Edebug buffer, the special commands of Edebug are
+available in it, instead of many usual editing commands.  Type @kbd{?}
+to display a list of Edebug commands.  In particular, you can exit the
+innermost Edebug activation level with @kbd{C-]}, and you can return
+all the way to top level with @kbd{q}.
+
+For example, you can type the Edebug command @key{SPC} to execute until
+the next stop point.  If you type @key{SPC} once after entry to
+@code{fac}, here is the state that you get:
+
+@example
+(defun fac (n)
+=>(if @point{}(< 0 n)
+      (* n (fac (1- n)))
+    1))
+@end example
+
+When Edebug stops execution after an expression, it displays the
+expression's value in the echo area.  Use the @kbd{r} command to display
+the value again later.
+
+@vindex debugger
+@vindex debug-on-error
+@vindex debug-on-quit
+While Edebug is active, it catches all errors (if @code{debug-on-error} is
+non-@code{nil}) and quits (if @code{debug-on-quit} is non-@code{nil})
+instead of the standard debugger.  When this happens, Edebug displays the
+last stop point that it knows about.  This may be the location of a call
+to a function which was not prepared for Edebug debugging, within which
+the error actually occurred.
+
+@node Edebug Prepare
+@subsection Preparing Functions for Edebug
+
+  In order to use Edebug to debug a function, you must first @dfn{prepare}
+the function.  Preparing a function inserts additional code into it which
+invokes Edebug at the proper places.
+
+  Any call to an Edebug-prepared function activates Edebug.  This may or
+may not stop execution, depending on the Edebug execution mode in use.
+Some Edebug modes only update the display to indicate the progress of
+the evaluation without stopping execution.  The default initial Edebug
+mode is @code{step} which does stop execution.  @xref{Edebug Modes}.
+
+@findex edebug-all-defuns
+  Once you have loaded Edebug, the command @kbd{C-M-x} is redefined so
+that when used on a function or macro definition, it prepares the
+function or macro if given a prefix argument.  If the variable
+@code{edebug-all-defuns} is non-@code{nil}, that inverts the meaning of
+the prefix argument: then @kbd{C-M-x} prepares the function or macro
+@emph{unless} it has a prefix argument.  The default value of
+@code{edebug-all-defuns} is @code{nil}.  The command @kbd{M-x
+edebug-all-defuns} toggles the value of the variable
+@code{edebug-all-defuns}.
+
+  If @code{edebug-all-defuns} is non-@code{nil}, then the commands 
+@code{eval-region} and @code{eval-current-buffer} also prepare any
+functions and macros whose definitions they evaluate.
+
+  Loading a file does not prepare functions and macros for Edebug.
+
+See @ref{Evaluation} for discussion of other evaluation functions available
+inside of Edebug.
+
+@node Edebug Modes
+@subsection Edebug Modes
+
+@cindex Edebug modes
+Edebug supports several execution modes for running the program you are
+debugging.  We call these alternatives @dfn{Edebug modes}; do not
+confuse them with major modes or minor modes.  The current Edebug mode
+determines how Edebug displays the progress of the evaluation, whether
+it stops at each stop point, or continues to the next breakpoint, for
+example.
+
+Normally, you specify the Edebug mode for execution by typing a command
+to continue the program in a certain mode.  Here is a table of these
+commands.  All except for @kbd{S} resume execution of the program, at
+least for a certain distance.
+
+@table @kbd
+@item S
+Stop: don't execute any more of the program for now, just wait for more
+Edebug commands.
+
+@item @key{SPC}
+Step: stop at the next stop point encountered.
+
+@item t
+Trace: pause one second at each Edebug stop point.
+
+@item T
+Rapid trace: mention each stop point, but don't actually
+pause.
+
+@item g
+Go: run until the next breakpoint.  @xref{Breakpoints}.
+
+@item c
+Continue: pause for one second at each breakpoint, but don't stop.
+
+@item C
+Continue: mention each breakpoint, but don't actually pause.  
+
+@item G
+Non-stop: ignore breakpoints.  You can still stop the program by typing
+@kbd{S}.
+@end table
+
+In general, the execution modes earlier in the above list run the
+program more slowly or stop sooner.
+
+When you enter a new Edebug level, the mode comes from the value of the
+variable @code{edebug-initial-mode}.  By default, this specifies
+@dfn{step} mode.  If the mode thus specified is not stop mode, then the
+Edebug level executes the program (or part of it).
+
+While executing or tracing, you can interrupt the execution by typing
+any Edebug command.  Edebug stops the program at the next stop point and
+then executes the command that you typed.  For example, typing @kbd{t}
+during execution switches to trace mode at the next stop point.
+
+You can use the @kbd{S} command to stop execution without doing anything else.
+
+If your function happens to read input, a character you hit intending to
+interrupt execution may be read by the function instead.  You can avoid
+such unintended results by paying attention to when your program wants
+input.
+
+Keyboard macros containing the commands in this section do not
+completely work: exiting from Edebug, to resume the program, loses
+track of the keyboard macro.  This is not easy to fix.
+
+@node Stepping
+@subsection Stepping
+
+@table @kbd
+@item f
+Run the program forward over one expression.  More precisely, set a
+temporary breakpoint at the position that @kbd{C-M-f} would reach,
+then execute in go mode so that the program will stop at breakpoints.
+See @ref{Breakpoints} for the details on breakpoints.
+
+With a prefix argument @var{n}, the temporary breakpoint is placed
+@var{n} sexps beyond point.  If the containing list ends before @var{n}
+more elements, then the place to stop is after the containing
+expression.
+
+Be careful that the position @kbd{C-M-f} finds is a place that the
+program will really get to; this may not be true in a
+@code{condition-case}, for example.
+
+This command does @code{forward-sexp} starting at point rather than the
+stop point, thus providing more flexibility.  If you want to execute one
+expression from the current stop point, type @kbd{w} first, to move
+point there.
+
+@item o
+Run the program until the end of the containing sexp.  If the containing
+sexp is the top level defun, run until just before the function returns.
+If that is where you are now, return from the function and then stop.
+
+This command does not exit the currently executing function unless you
+are positioned after the last sexp of the function.
+
+If the program does a non-local exit, it may fail to reach the temporary
+breakpoint that this command sets.
+
+@item i
+Step into the function about to be called.  Use this command before any
+of the arguments of the function call are evaluated, since otherwise it
+is too late.
+
+One undesirable side effect of using @code{edebug-step-in} is that the
+next time the stepped-into function is called, Edebug will be called
+there as well.
+
+@item h
+Proceed to the stop point near where point
+is.  This uses a temporary breakpoint.
+@end table
+
+
+The @kbd{f} command runs the program forward over one expression.  More
+precisely, set a temporary breakpoint at the position that @kbd{C-M-f}
+would reach, then execute in go mode so that the program will stop at
+breakpoints.  See @ref{Breakpoints} for the details on breakpoints.
+
+With a prefix argument @var{n}, the temporary breakpoint is placed
+@var{n} sexps beyond point.  If the containing list ends before @var{n}
+more elements, then the place to stop is after the containing
+expression.
+
+Be careful that the position @kbd{C-M-f} finds is a place that the
+program will really get to; this may not be true in a
+@code{condition-case}, for example.
+
+The @kbd{f} command uses the existing value of point as the basis for
+setting the breakpoint, because that is more flexible.  To execute one
+expression @emph{from the current stop point}, type @kbd{w} and then
+@kbd{f}.
+
+The @kbd{o} command continues ``out of'' an expression.  It places a
+temporary breakpoints at the end of the containing sexp.  If the
+containing sexp is the top level defun, it continues until just before
+the function returns.  If that is where you are now, it returns from the
+function and then stops.
+
+This command does not exit the currently executing function unless you
+are positioned after the last sexp of the function.
+
+The @kbd{i} command steps into the function about to be called.  Use
+this command before any of the arguments of the function call are
+evaluated, since otherwise it is too late.
+
+One undesirable side effect of using @kbd{i} is that the next time the
+stepped-into function is called, Edebug will be called there as well.
+
+The @kbd{h} command proceeds to the stop point near where point is,
+using a temporary breakpoint.
+
+All the commands in this section may fail to work as expected in case
+of nonlocal exit, because a nonlocal exit can bypass the temporary
+breakpoint where you expected the program to stop.
+
+@node Edebug Misc
+@subsection Miscellaneous
+
+Some miscellaneous commands are described here.
+
+@table @kbd
+@item C-]
+Abort one level of Edebug activity.
+
+@item q
+Return to the top level editor command loop.  This exits all recursive
+editing levels, including all levels of Edebug activity.
+
+@item r
+Redisplay the result of the previous expression in the echo area.
+
+@item d
+Display a backtrace, excluding Edebug's own functions for clarity.
+
+You cannot use debugger commands in the backtrace buffer in Edebug as
+you would in the standard debugger.
+
+The backtrace buffer is killed automatically when you continue
+execution.
+@end table
+
+@node Breakpoints
+@subsection Breakpoints
+
+@cindex breakpoints
+While using Edebug, you can specify @dfn{breakpoints} in the program you
+are testing: points where execution should stop.  You can set a
+breakpoint at any stop point, as defined in @ref{Using Edebug}---even
+before a symbol.  For setting and unsetting breakpoints, the stop point
+that is affected is the first one at or after point in the Edebug
+buffer.  Here are the Edebug commands for breakpoints:
+
+@table @kbd
+@item b
+Set a breakpoint at the stop point at or after point.  If you use a
+prefix argument, the breakpoint is temporary (it turns off the first
+time it stops the program).
+
+@item u
+Unset the breakpoint (if any) at the stop point at or after the current
+point.
+
+@item x @var{cond} @key{RET}
+Set a conditional breakpoint which stops the program only if @var{cond}
+evaluates to a non-@code{nil} value.  If you use a prefix argument, the
+breakpoint is temporary (it turns off the first time it stops the
+program).
+
+@item B
+Move point to the next breakpoint in the current function definition.
+@end table
+
+While in Edebug, you can set a breakpoint with @kbd{b}
+(@code{edebug-set-breakpoint}) and unset one with @kbd{u}
+(@code{edebug-unset-breakpoint}).  First you must move point to a
+position at or before the desired Edebug stop point, then hit the key to
+change the breakpoint.  Unsetting a breakpoint that has not been set
+does nothing.
+
+Reevaluating the function with @code{edebug-defun} clears all
+breakpoints in the function.
+
+A @dfn{conditional breakpoint} tests a condition each time the program
+gets there, to decide whether to stop.  To set a conditional breakpoint,
+use @kbd{x}, and specify the condition expression in the minibuffer.
+
+You can make both conditional and unconditional breakpoints
+@dfn{temporary} by using a prefix arg to the command to set the
+breakpoint.  After breaking at a temporary breakpoint, it is
+automatically cleared.
+
+Edebug always stops or pauses at a breakpoint except when the Edebug
+mode is Go-nonstop.  In that mode, it ignores breakpoints entirely.
+
+To find out where your breakpoints are, use the @kbd{B}
+(@code{edebug-next-breakpoint}) command, which moves point to the next
+breakpoint in the function following point, or to the first breakpoint
+if there are no following breakpoints.  This command does not continue
+execution---it just moves point in the buffer.
+
+@node Views
+@subsection Views
+
+These Edebug commands let you view aspects of the buffer and window
+status that obtained before entry to Edebug.
+
+@table @kbd
+@item v
+View the outside window configuration.
+
+@item p
+Temporarily display the outside current buffer with point at its outside
+position.
+
+@item w
+Switch back to the buffer showing the currently executing function, and
+move point back to the current stop point.
+
+@item W
+Forget the saved outside window configuration---so that the current
+window configuration will remain unchanged when you next exit Edebug (by
+continuing the program).  Also toggle the @code{edebug-save-windows}
+variable.
+@end table
+
+@node Edebug Eval
+@subsection Evaluation
+
+While within Edebug, you can evaluate expressions ``as if'' Edebug were
+not running.  Edebug tries to be invisible to the expression's
+evaluation.
+
+@table @kbd
+@item e @var{exp} @key{RET}
+Evaluate expression @var{exp} in the context outside of Edebug.
+That is, Edebug tries to avoid altering the effect of @var{exp}.
+
+@item M-@key{ESC} @var{exp} @key{RET}
+Evaluate expression @var{exp} in the context of Edebug itself.
+
+@item C-x C-e
+Evaluate the expression in the buffer before point, in the context
+outside of Edebug.
+@end table
+
+@node Eval List
+@subsection Evaluation List Buffer
+
+You can use the @dfn{evaluation list buffer}, called @samp{*edebug*}, to
+evaluate expressions interactively.  You can also set up the
+@dfn{evaluation list} of expressions to be evaluated automatically each
+time Edebug is reentered.
+
+@table @kbd
+@item E
+Switch to the evaluation list buffer @samp{*edebug*}.
+@end table
+
+In the @samp{*edebug*} buffer you can use the commands of Lisp
+Interaction as well as these special commands:
+
+@table @kbd
+@item LFD
+Evaluate the expression before point, in the context outside of Edebug,
+and insert the value in the buffer.
+
+@item C-x C-e
+Evaluate the expression before point, in the context outside of Edebug.
+
+@item C-c C-u
+Build a new evaluation list from the first expression of each group,
+reevaluate and redisplay.  Groups are separated by a line starting with
+a comment.
+
+@item C-c C-d
+Delete the evaluation list group that point is in.
+
+@item C-c C-w
+Switch back to the Edebug buffer at the current stop point.
+@end table
+
+You can evaluate expressions in the evaluation list window with
+@kbd{LFD} or @kbd{C-x C-e}, just as you would in @samp{*scratch*};
+but they are evaluated in the context outside of Edebug.
+
+@cindex evaluation list group
+The expressions you enter interactively (and their results) are lost
+when you continue execution of your function unless you add them to the
+evaluation list with @kbd{C-c C-u} (@code{edebug-update-eval-list}).
+This command builds a new list from the first expression of each
+@dfn{evaluation list group}.  Groups are separated by a line starting
+with a comment.
+
+When the evaluation list is redisplayed, each expression is displayed
+followed by the result of evaluating it, and a comment line.  If an
+error occurs during an evaluation, the error message is displayed in a
+string as if it were the result.  Therefore expressions that use
+variables not currently valid do not interrupt your debugging.
+
+Here is an example of what the evaluation list window looks like after
+several expressions have been added to it:
+
+@smallexample
+(current-buffer)
+#<buffer *scratch*>
+;---------------------------------------------------------------
+(point-min)
+1
+;---------------------------------------------------------------
+(point-max)
+2
+;---------------------------------------------------------------
+edebug-outside-point-max
+"Symbol's value as variable is void: edebug-outside-point-max"
+;---------------------------------------------------------------
+(recursion-depth)
+0
+;---------------------------------------------------------------
+this-command
+eval-last-sexp
+;---------------------------------------------------------------
+@end smallexample
+
+To delete a group, move point into it and type @kbd{C-c C-d}
+(@code{edebug-delete-eval-item}), or simply delete the text for it and
+update the evaluation list with @kbd{C-c C-u}.  When you add a new
+group, be sure to add a comment at the beginning.
+
+After selecting @samp{*edebug*}, you can return to the source code
+buffer (the Edebug buffer) with @kbd{C-c C-w}.  The @code{*edebug*}
+buffer is killed when you continue execution of your function, and
+recreated next time it is needed.
+
+@node Printing
+@subsection Printing
+
+If the results of your expressions contain circular references to other
+parts of the same structure, you can print them more usefully with the
+@file{custom-print}.
+
+To load the package and activate custom printing only for Edebug, simply
+use the command @code{edebug-install-custom-print-funcs}.  Then set the
+variable @code{print-circle} to enable special handling of circular
+structure.  To restore the standard print functions, use
+@code{edebug-reset-print-funcs}.
+
+@node The Outside Context
+@subsection The Outside Context
+
+Edebug tries to be transparent to the program you are debugging, but it
+does not succeed completely.  In addition, most evaluations you do
+within Edebug (see @ref{Evaluation}) occur in the same outside context
+which is temporarily restored for the evaluation.  This section explains
+precisely how use Edebug fails to be completely transparent.
+
+@menu
+* Just Checking::		Just Checking
+* Outside Window Configuration::  Outside Window Configuration
+* Recursive Edit::		Recursive Edit
+* Side Effects::		Side Effects
+@end menu
+
+@node Just Checking
+@subsubsection Just Checking
+
+Whenever Edebug is entered just to think about whether to take some
+action, it needs to save and restore certain data.
+
+@itemize @bullet
+@item 
+@code{max-lisp-eval-depth} and @code{max-specpdl-size} are both
+incremented for each @code{edebug-enter} call so that your code should
+not be impacted by Edebug frames on the stack.
+
+@item 
+The state of keyboard macro execution is saved and cleared out.
+@end itemize
+
+@node Outside Window Configuration
+@subsubsection Outside Window Configuration
+
+When Edebug needs to display something (e.g., in trace mode), it saves
+the current window configuration from ``outside'' Edebug (@pxref{Window
+Configurations}).  When you exit Edebug (by continuing the program), it
+restores the previous window configuration.
+
+Emacs redisplays only when it pauses.  Usually, when you continue
+Edebug, the program comes back into Edebug at a breakpoint or after
+stepping, without pausing or reading input in between.  In such cases,
+Emacs never gets a chance to redisplay the ``outside'' configuration.
+What you see is the window configuration for within Edebug, with no
+interruption. 
+
+The window configuration proper does not include which buffer is current
+or where point and mark are in the current buffer, but Edebug saves and
+restores these also.
+
+Entry to Edebug for displaying something also saves and restores the
+following data.  (Some of these variables are deliberately not restored
+if an error or quit signal occurs.)
+
+@itemize @bullet
+@item 
+@cindex point in edebug buffer
+The position of point in the Edebug buffer is saved and restored if the
+outside current buffer is the same as the Edebug buffer.
+
+@item 
+@cindex window configuration
+@findex save-excursion
+@vindex edebug-save-windows
+@cindex window start of Edebug buffer
+The outside window configuration, as described above, is saved and
+restored if @code{edebug-save-windows} is non-@code{nil}.
+
+@item 
+@cindex current buffer point and mark
+The current buffer, and point and mark in the current buffer are
+normally saved and restored even if the current buffer is the same as
+the Edebug buffer.
+
+@item
+The value of point in each displayed buffers is saved and restored if
+@code{edebug-save-displayed-buffer-points} is non-@code{nil}.
+
+@item
+The variables @code{overlay-arrow-position} and
+@code{overlay-arrow-string} are saved and restored.  This permits
+recursive use of Edebug, and use of Edebug while using GUD.
+
+@item 
+@code{cursor-in-echo-area} is locally bound to @code{nil} so that
+the cursor shows up in the window.
+@end itemize
+
+@node Recursive Edit
+@subsubsection Recursive Edit
+
+When Edebug is entered and actually reads commands from the user, it
+saves (and later restores) these additional data:
+
+@itemize @bullet
+@item
+The current match data, for whichever buffer was current.
+
+@item
+@code{last-command}, @code{this-command}, @code{last-command-char}, and
+@code{last-input-char}.  Commands used within Edebug do not affect these
+variables outside of Edebug.
+
+But note that it is not possible to preserve the status reported by
+@code{(this-command-keys)} and the variable @code{unread-command-char}.
+
+@item
+@code{standard-output} and @code{standard-input}.
+@end itemize
+
+@node Side Effects
+@subsubsection Side Effects
+
+Edebug operation unavoidably alters some data in Emacs, and this
+can interfere with debugging certain programs.
+
+@itemize @bullet
+@item
+Lisp stack usage is increased, but the limits,
+@code{max-lisp-eval-depth} and @code{max-specpdl-size}, are also
+increased proportionally.
+
+@item
+The key sequence returned by @code{this-command-keys} is changed by
+executing commands within Edebug and there appears to be no way to reset
+the key sequence from Lisp.
+
+@item
+Edebug cannot save and restore the value of @code{unread-command-char}
+or @code{unread-command-events}.  Entering Edebug while these variables
+have nontrivial values can interfere with execution of the program you
+are debugging.
+
+@item
+Complex commands executed while in Edebug are added to the variable
+@code{command-history}.  In rare cases this can alter execution.
+
+@item
+Within Edebug, the recursion depth appears one deeper than the recursion
+depth outside Edebug.
+
+@item
+Horizontal scrolling of the Edebug buffer is not recovered.
+@end itemize
+
+@node Macro Calls
+@subsection Macro Calls
+
+When Edebug prepares for stepping through an expression that uses a Lisp
+macro, it needs additional advice to do the job properly.  This is
+because there is no way to tell which parts of the macro call are forms
+to be evaluated.  You must explain the format of calls to each macro to
+enable Edebug to handle it.  To do this, use @code{def-edebug-form-spec}
+to define the format of calls to a given macro.
+
+@deffn Macro def-edebug-form-spec macro argpattern
+Specify which parts of a call to macro @var{macro} are subexpressions to
+be evaluated.  The second argument, @var{argpattern}, details what the
+argument list looks like.
+@end deffn
+
+Here is a table of the possibilities for @var{argpattern} and its
+subexpressions:
+
+@table @code
+@item t
+A list of any number of evaluated arguments.
+
+@item 0
+A list of unevaluated arguments.
+
+@item sexp
+A single unevaluated object.
+
+@item form
+A single evaluated expression.
+
+@item symbolp
+An unevaluated symbol.
+
+@item integerp
+An unevaluated number.
+
+@item stringp
+An unevaluated string.
+
+@item vectorp
+An unevaluated vector.
+
+@item atom
+An unevaluated object that is not a cons cell.
+
+@item function
+A function argument: a quoted symbol, a quoted lambda expression, or a
+form (that should evaluate to a function or lambda expression).  Edebug
+treats the body of a lambda expression treated as evaluated.
+
+@item @var{function}
+A function serves as a predicate---it designates the set of possible
+arguments for which it would return non-@code{nil}.
+
+@item '@var{object}
+The precise object @var{object}, treated as unevaluated.
+
+@item (@var{patterns})
+A list whose elements are described by @var{patterns}.
+A sublist of the same format as the top level, processed recursively.
+
+@item [@var{patterns}]
+A sequence of arguments that are described by @var{patterns}.
+
+@item &optional
+@cindex &optional
+This symbol serves as a flag saying that all following elements in the
+specification list at this level are optional.  They may or may not
+match arguments; as soon as one does not match, processing of the
+specification list at this level terminates.  To make just one item
+optional, use @code{[&optional @var{pattern}]}.
+
+@item &rest
+@cindex &rest
+This symbol serves as a flag saying that the following elements in the
+specification list at this level may be repeated, in order, zero or more
+times.  Only one @code{&rest} may appear at the same level of a
+specification list, and @code{&rest} must not be followed by
+@code{&optional}.
+
+To specify repetition of certain types of arguments, followed by
+dissimilar arguments, use @code{[&rest @var{patterns}@dots{}]}.
+
+@item &or
+@cindex &or
+This symbol serves as an operator saying that the following elements in
+the specification list at this level are alternatives.  To group two or
+more list elements as one alternative, bracket them in
+@code{[@dots{}]}.  Only one @code{&or} may appear in a list, and it may
+not be followed by @code{&optional} or @code{&rest}.  One of the
+alternatives must match, unless the @code{&or} is preceded by
+@code{&optional} or @code{&rest}.
+@end table
+
+If the actual arguments of a macro call fail to match the specification,
+taking account of alternatives, optional arguments and repeated arguments,
+Edebug reports a syntax error in use of the macro.
+
+The combination of backtracking, @code{&optional}, @code{&rest},
+@code{&or}, and @code{[@dots{}]} for grouping provides the equivalent of
+regular expressions.  The @code{(@dots{})} lists require balanced
+parentheses, which is the only context free (finite state with stack)
+construct supported.
+
+Here are some examples of using @code{def-edebug-form-spec}.  First, for
+the @code{let} special form:
+
+@example
+(def-edebug-form-spec let
+  '((&rest
+    &or symbolp (symbolp &optional form))
+   &rest form))
+@end example
+
+Here's the spec for the @code{for} loop macro (@pxref{Problems with
+Macros}) and for the @code{case} and @code{do} macros in @file{cl.el}:
+
+@example
+(def-edebug-form-spec for
+  '(symbolp 'from form 'to form 'do &rest form))
+
+(def-edebug-form-spec case
+  '(form &rest (sexp form)))
+
+(def-edebug-form-spec do
+  '((&rest &or symbolp (symbolp &optional form form))
+    (form &rest form)
+    &rest body))
+@end example
+
+Finally, the functions @code{mapcar}, @code{mapconcat}, @code{mapatoms},
+@code{apply}, and @code{funcall} all take function arguments, and Edebug
+defines specifications for them.  Here's one example:
+
+@example
+(def-edebug-form-spec apply '(function &rest form))
+@end example
+
+The backquote (@kbd{`}) macro results in an expression that is not
+necessarily evaluated.  Edebug cannot step through code generated by use
+of backquote.
+
+@node Edebug Options
+@subsection Edebug Options
+
+These options affect the behavior of Edebug:
+
+@defopt edebug-all-defuns
+If non-@code{nil}, normal evaluation of @code{defun} and @code{defmacro}
+forms prepares the functions and macros for stepping with Edebug.  This
+applies to @code{eval-defun}, @code{eval-region} and
+@code{eval-current-buffer}.
+
+The default value is @code{nil}.
+@end defopt
+
+@defopt edebug-stop-before-symbols
+If non-@code{nil}, Edebug places stop points before symbols as well as
+after.
+
+This option takes effect for a function when you prepare it for stepping
+with Edebug.  Changing the option's value during execution of Edebug has
+no effect on the functions already set up for Edebug execution.
+@end defopt
+
+@defopt edebug-save-windows
+If non-@code{nil}, save and restore window configuration on Edebug calls.
+It takes some time to save and restore, so if your program does not care
+what happens to the window configurations, it is better to set this
+variable to @code{nil}.
+
+The default value is @code{t}.
+@end defopt
+
+@defopt edebug-save-point
+If non-@code{nil}, Edebug saves and restores point and the mark in
+source code buffers.  The default value is @code{t}.
+@end defopt
+
+@defopt edebug-save-displayed-buffer-points
+If non-@code{nil}, save and restore point in all buffers when entering
+Edebug mode.
+
+Saving and restoring point in other buffers is necessary if you are
+debugging code that changes the point of a buffer which is displayed in
+a non-selected window.  If Edebug or the user then selects the window,
+the buffer's point will be changed to the window's point.
+
+Saving and restoring is an expensive operation since it visits each
+window and each displayed buffer twice for each Edebug call, so it is
+best to avoid it if you can.
+
+The default value is @code{nil}.
+@end defopt
+
+@defopt edebug-initial-mode
+If this variable is non-@code{nil}, it specifies an Edebug mode to start
+in each time the program enters a new Edebug recursive-edit level.
+Possible values are @code{step}, @code{go}, @code{Go-nonstop},
+@code{trace}, @code{Trace-fast}, @code{continue}, and
+@code{Continue-fast}.
+
+The default value is @code{step}.
+@end defopt
+
+@defopt edebug-trace
+@findex edebug-print-trace-entry
+@findex edebug-print-trace-exit
+Non-@code{nil} means display a trace of function entry and exit.
+Tracing output is displayed in a buffer named @samp{*edebug-trace*}, one
+function entry or exit per line, indented by the recursion level.  You
+can customize this display by replacing the functions
+@code{edebug-print-trace-entry} and @code{edebug-print-trace-exit}.
+
+The default value is @code{nil}.
+@end defopt

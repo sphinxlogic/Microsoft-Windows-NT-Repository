@@ -1,0 +1,80 @@
+Extension Language
+
+aXe's extension language is Tcl. As Tcl is a separate package with its own documentation, which should be available locally, it is not described here. 
+
+In order to integrate Tcl into aXe a new action routine, execute, has been introduced. It takes a Tcl command as argument. Thus Tcl commands can be bound to keystrokes, e.g.
+
+    *ed.translations:#override \n\
+                     Ctrl<Key>x,<Key>r:execute(prefix)
+
+where "prefix" might be the following procedure:
+
+    proc prefix {{text {> }}} {
+        loopSel action insert-string $text
+    }
+
+loopSel is a general purpose procedure that loops over the lines in the current selection applying the procedure and its arguments passed as arguments to each line in turn
+
+    proc loopSel {func {args {}}} {
+        set selection [getSelection]
+        set start [lindex $selection 0]
+        set end   [lindex $selection 1]
+        set lines [lindex $selection 2]
+    
+        if {$start == $end} {return}
+    
+        setPos $start
+        for {set line 0} {$line < $lines} {incr line} {
+            action beginning-of-line
+            eval $func $args
+            action next-line
+        }
+        action beginning-of-line
+    }
+
+By default prefix prepends "> " to each line in the selection, but by supplying an argument a different prefix can be employed, e.g.
+
+    prefix "! "
+    prefix "    "
+
+prefix and loopSel make use of the following builtin commands that have so far defined:
+
+    action
+    getSelection
+    getPos
+    setPos
+
+action 
+    enables action routines to be executed from within Tcl commands. Action routine arguments are separated by spaces, not enclosed in parentheses, e.g. search forward, not search(forward).
+
+getSelection 
+    returns a list consisting of the starting and finishing positions of the selection, and the number of lines spanned by it. 
+
+getPos 
+    returns the value of the insertion point.
+
+setPos 
+    sets the insertion point to the value of its argument.
+
+A small collection of commands built using the builtins and action routines should have been loaded when aXe was was started up. It consists of, in addition to prefix and loopSel, the commands 
+
+    strip
+    join
+    format
+
+strip
+    removes a number of characters equal to the value of its argument from the beginning of each line in the selection. If no argument is given the default is 1.
+
+join 
+    joins together the next n lines as given by the first argument (default 1) to the current line, and inserts the text given by the second argument (default " ") at the join.
+
+format
+    formats the entire buffer by applying the action form-paragraph to successive paragraphs. On completion, the caret is restored to the character position it was originally at, but of course that is likely to be correspond to a different place in the text.
+
+The easiest way to execute Tcl commands is to type them into the minibuffer. Thus the example given at the beginning could equally well be executed by typing  prefix  in the minibuffer, and making a selection and typing  prefix "    "  in the minibuffer will cause each line in the selection to be indented by 4 spaces. 
+
+If you wish to look at the implementation of the Tcl commands loaded at startup, then, assuming your system administrator has not installed aXe in a non-standard way, you can do this by performing a load from this window and selecting axe.tcl from the file nominator's list.
+
+User-defined commands that are to be loaded at startup should be stored in the file axe.tcl in the user's home directory. Commands can also be loaded dynamically at runtime from a file by executing  source pathname  in the minibuffer. If the file does not exist then the command will fail, and that failure will be reported identically to all other errors, i.e. the keyboard bell will be rung and the text "Invalid command" displayed in the information bar.
+
+As the extension language is very much an experiment I would be interested in hearing your views of its usefulness. 

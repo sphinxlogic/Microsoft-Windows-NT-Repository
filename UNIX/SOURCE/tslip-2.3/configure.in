@@ -1,0 +1,148 @@
+dnl @(#)configure.in	1.5 (13 Oct 1993)
+dnl Process this file with autoconf to produce a configure script.
+dnl
+AC_INIT(utils/slipd.c)
+AC_CONFIG_HEADER(config.h)
+
+# Define the name of the driver as known to idinstall 
+DRIVER_NAME=tslip
+AC_SUBST(DRIVER_NAME)
+
+# Locate the Taylor UUCP source directory.  Set taylorsrc and taylorobj vars.
+eval `sh guess_tuucpsrc`
+if test "X$taylorobj" = X ; then taylorobj="$taylorsrc" ; fi
+echo
+if test "X$taylorsrc" != X ; then
+	echo Found Taylor UUCP source in $taylorsrc
+	egrep -l INIT_NOCLOSEFILES ${taylorsrc}/unix/init.c >/dev/null  2>&1
+	if test $? -ne 0 ; then
+		echo 'However, the necessary patch has not been applied.'
+		echo 
+	        echo '********************************************************'
+		echo Please apply the patch in PATCHES_TO_STOCK_TAYLOR*
+		echo 'and then re-run configure.'
+	        echo '********************************************************'
+		echo '(If configure found the wrong version of Taylor UUCP,'
+		echo "then edit $tuucp_guesses to list the correct version first)"
+		exit 1
+	else
+		echo '    ...it appears to have the proper patches.'
+	fi
+	if test "X$taylorsrc" = "X$taylorobj" ; then
+		echo '    ...and has been compiled.'
+	else
+		echo 'However, object files were NOT found in that directory,'
+		echo but in $taylorobj .
+		echo '...assuming the .o files in' $taylorobj are the result of
+		echo compiling $taylorsrc .
+	fi
+else
+	myparent=`pwd | sed -e 's@\(.*/\).*@\1@'`
+	echo 
+	echo 'configure could not find the Taylor UUCP source directory.'
+	echo '****************************************************************'
+	echo 'Taylor UUCP must be obtained (and compiled) before building tslip.'
+	echo 'If the Taylor UUCP source directory is called "uucp-*" and is in'
+	echo "the same parent directory as tslip (${myparent}), then configure"
+	echo 'will find it automatically.  Otherwise please edit the file'
+	echo "$tuucp_guesses to list the correct path."
+	echo '****************************************************************'
+	exit 1
+fi
+AC_SUBST(taylorsrc)dnl
+AC_SUBST(taylorobj)
+
+# Tell user about the patch to the SAS serial driver, if it appears relevant
+sh warn_of_sasbug
+
+AC_PROG_CC
+AC_PROG_CPP
+AC_PROG_INSTALL
+AC_PROG_RANLIB
+
+CFLAGS=${CFLAGS--O}
+LDFLAGS=${LDFLAGS--O}
+
+AC_SUBST(CFLAGS)dnl
+AC_SUBST(LDFLAGS)dnl
+
+AC_MINIX
+AC_ISC_POSIX
+AC_AIX
+
+AC_CONST
+AC_STDC_HEADERS
+AC_UNISTD_H
+AC_RETSIGTYPE
+
+AC_COMPILE_CHECK([void], [], 
+	[extern void foo (); (void) exit (0);],
+	have_void=yes;
+	AC_DEFINE([HAVE_VOID]))
+
+AC_COMPILE_CHECK([void], [
+#include <sys/types.h>
+#include <netinet/in.h>
+#undef NOERROR	/* clash between sys/stream.h and arpa/nameser.h */
+#include <arpa/nameser.h>
+#include <resolv.h>
+], [ _res.options |= RES_USEVC; ],
+	AC_DEFINE([HAVE_RESOLVER]))
+
+test -n "$have_void" && {
+AC_COMPILE_CHECK([void \*], [], [
+#if ! __STDC__ 
+#define volatile
+#endif
+	volatile void *p; char c; int i; p = &c; p = &i;],
+	AC_DEFINE([HAVE_VOID_POINTER]))
+
+AC_COMPILE_CHECK([ANSI prototype support], 
+	[static int foo (int,int, ...);
+	 static int foo (int a,int b, ...) {}], 
+	[foo(1,2,"abc",4,5); ],
+	AC_DEFINE([HAVE_ANSI_PROTOS]))
+
+}
+
+AC_PID_T
+AC_UID_T
+AC_SIZE_T
+AC_OFF_T
+AC_MODE_T
+AC_TIME_WITH_SYS_TIME
+AC_HAVE_HEADERS(string.h memory.h fcntl.h sys/wait.h sys/time.h)
+AC_HAVE_HEADERS(termio.h termios.h)
+
+AC_ALLOCA
+AC_VFORK
+AC_SETVBUF_REVERSED
+
+dnl 
+dnl  look for library needed by taylor uucp dialing code
+dnl
+changequote(,)dnl
+trfrom='[a-z]' trto='[A-Z]'
+changequote([,])dnl
+for i in socket t_open; do
+  def=HAVE_`echo $i|tr "$trfrom" "$trto"`
+  AC_FUNC_CHECK([$i],[AC_DEFINE($def)],[missing=1])dnl
+  for lib in "-lsocket" "-lsocket -lnsl" "-lnsl" "-lxti"; do
+    if test -n "$missing"; then
+      case $LIBS in
+      *${lib}*) ;;
+      *)
+	SAVELIBS="$LIBS"
+	LIBS="$LIBS $lib"
+	missing=
+	AC_COMPILE_CHECK([$i with $lib], , [extern char $i(); $i();],
+			 [AC_DEFINE($def)],
+			 [missing=1; LIBS="$SAVELIBS"])dnl
+	;;
+      esac
+    fi
+  done
+done
+dnl
+
+AC_OUTPUT(Makefile utils/Makefile dialin/Makefile dialin/Makefile.real driver/io/Makefile driver/ID/mk_idfiles.sh man/Makefile)

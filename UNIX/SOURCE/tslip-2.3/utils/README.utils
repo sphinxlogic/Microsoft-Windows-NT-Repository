@@ -1,0 +1,54 @@
+@(#)README.utils	1.1 (11 Oct 1993)
+
+The utils subdirectory contains:
+
+slattach - configures a slip interface, specifying the interface name
+	   used by IP (e.g., "sl0").  
+		   
+   For dial-IN use (i.e., slip server hosts), a tty device such as stdin is 
+   converted to slip use until the slattach process exits after getting 
+   a hangup signal.
+
+   For dial-OUT use, autodial parameters are specified which are later given 
+   to the slipd daemon to dial on demand.
+
+   In either case, ifconfig must then be used to configure the IP address for 
+   the slip interface (so packets will be routed to it when appropriate).
+
+   For a single dial-OUT slip with no other network connection, 
+   /etc/inet/rc.inet should contain lines similar to these:
+
+	slattach -p -a 'systemA' -t120 sl0
+	ifconfig sl0 sl0_ip_addr systemA_ip_addr up -trailers
+	slipd -v >/var/adm/slip.log 2>&1
+	/usr/sbin/route add default systemA_ip_addr 0
+
+   The above will configure a slip device as interface "sl0", and route
+   packets for systemA_ip_addr to that interface.  When traffic appears,
+   the uucp "systemA" will be called (and logged in to).  When no traffic
+   flows for 120 seconds the modem connection will be dropped.  The default
+   gateway is set so that packets to unknown IP addresses will be sent
+   over the slip link.
+   
+   Note that each slip link is a point-to-point NETWORK, and as such
+   each end (i.e., slip network interface) must have an IP address.
+
+
+slipd - auto-dial daemon
+   One slipd process should be running at all times.  It registers itself
+   with the slip driver and receives messages when dial-outs are needed or
+   a link as remained idle for the timeout period.
+
+   Slipd can also be used to passively test whether a modem connection 
+   currently exists for a specified slip interface.
+
+
+slipcmd - a perl script which executes a command if a slip interface is
+   currently connected, otherwise defers the command for later execution.
+   This can be used to run low-priority work (such as polling for mail/news)
+   which should only be done if the link is already active (i.e., to avoid 
+   a dial-out just for low-priority work except at infrequent intervals).
+   
+Man pages for all are available in ../man/man1.
+
+-Jim Avera

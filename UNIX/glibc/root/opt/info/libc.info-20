@@ -1,0 +1,1247 @@
+This is Info file libc.info, produced by Makeinfo-1.55 from the input
+file libc.texinfo.
+
+   This file documents the GNU C library.
+
+   This is Edition 0.05, last updated 30 August 1993, of `The GNU C
+Library Reference Manual', for Version 1.07 Beta.
+
+   Copyright (C) 1993 Free Software Foundation, Inc.
+
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the section entitled "GNU Library General Public License" is
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the text of the translations of the section
+entitled "GNU Library General Public License" must be approved for
+accuracy by the Foundation.
+
+
+File: libc.info,  Node: Signaling Yourself,  Next: Signaling Another Process,  Up: Generating Signals
+
+Signaling Yourself
+------------------
+
+   A process can send itself a signal with the `raise' function.  This
+function is declared in `signal.h'.
+
+ - Function: int raise (int SIGNUM)
+     The `raise' function sends the signal SIGNUM to the calling
+     process.  It returns zero if successful and a nonzero value if it
+     fails.  About the only reason for failure would be if the value of
+     SIGNUM is invalid.
+
+ - Function: int gsignal (int SIGNUM)
+     The `gsignal' function does the same thing as `raise'; it is
+     provided only for compatibility with SVID.
+
+   One convenient use for `raise' is to reproduce the default behavior
+of a signal that you have trapped.  For instance, suppose a user of your
+program types the SUSP character (usually `C-z'; *note Special
+Characters::.) to send it an interactive stop stop signal (`SIGTSTP'),
+and you want to clean up some internal data buffers before stopping.
+You might set this up like this:
+
+     #include <signal.h>
+     
+     /* When a stop signal arrives, set the action back to the default
+        and then resend the signal after doing cleanup actions. */
+     
+     void
+     tstp_handler (int sig)
+     {
+       signal (SIGTSTP, SIG_DFL);
+       /* Do cleanup actions here. */
+       ...
+       raise (SIGTSTP);
+     }
+     
+     /* When the process is continued again, restore the signal handler. */
+     
+     void
+     cont_handler (int sig)
+     {
+       signal (SIGCONT, cont_handler);
+       signal (SIGTSTP, tstp_handler);
+     }
+     /* Enable both handlers during program initialization. */
+     
+     int
+     main (void)
+     {
+       signal (SIGCONT, cont_handler);
+       signal (SIGTSTP, tstp_handler);
+       ...
+     }
+
+   *Portability note:* `raise' was invented by the ANSI C committee.
+Older systems may not support it, so using `kill' may be more portable.
+*Note Signaling Another Process::.
+
+
+File: libc.info,  Node: Signaling Another Process,  Next: Permission for kill,  Prev: Signaling Yourself,  Up: Generating Signals
+
+Signaling Another Process
+-------------------------
+
+   The `kill' function can be used to send a signal to another process.
+In spite of its name, it can be used for a lot of things other than
+causing a process to terminate.  Some examples of situations where you
+might want to send signals between processes are:
+
+   * A parent process starts a child to perform a task--perhaps having
+     the child running an infinite loop--and then terminates the child
+     when the task is no longer needed.
+
+   * A process executes as part of a group, and needs to terminate or
+     notify the other processes in the group when an error or other
+     event occurs.
+
+   * Two processes need to synchronize while working together.
+
+   This section assumes that you know a little bit about how processes
+work.  For more information on this subject, see *Note Child
+Processes::.
+
+   The `kill' function is declared in `signal.h'.
+
+ - Function: int kill (pid_t PID, int SIGNUM)
+     The `kill' function sends the signal SIGNUM to the process or
+     process group specified by PID.  Besides the signals listed in
+     *Note Standard Signals::, SIGNUM can also have a value of zero to
+     check the validity of the PID.
+
+     The PID specifies the process or process group to receive the
+     signal:
+
+    `PID > 0'
+          The process whose identifier is PID.
+
+    `PID == 0'
+          All processes in the same process group as the sender.  The
+          sender itself does not receive the signal.
+
+    `PID < -1'
+          The process group whose identifier is -PID.
+
+    `PID == -1'
+          If the process is privileged, send the signal to all
+          processes except for some special system processes.
+          Otherwise, send the signal to all processes with the same
+          effective user ID.
+
+     A process can send a signal SIGNUM to itself with a call like
+     `kill (getpid(), SIGNUM)'.  If `kill' is used by a process to send
+     a signal to itself, and the signal is not blocked, then `kill'
+     delivers at least one signal (which might be some other pending
+     unblocked signal instead of the signal SIGNUM) to that process
+     before it returns.
+
+     The return value from `kill' is zero if the signal can be sent
+     successfully.  Otherwise, no signal is sent, and a value of `-1' is
+     returned.  If PID specifies sending a signal to several processes,
+     `kill' succeeds if it can send the signal to at least one of them.
+     There's no way you can tell which of the processes got the signal
+     or whether all of them did.
+
+     The following `errno' error conditions are defined for this
+     function:
+
+    `EINVAL'
+          The SIGNUM argument is an invalid or unsupported number.
+
+    `EPERM'
+          You do not have the privilege to send a signal to the process
+          or any of the processes in the process group named by PID.
+
+    `ESCRH'
+          The PID argument does not refer to an existing process or
+          group.
+
+ - Function: int killpg (int PGID, int SIGNUM)
+     This is similar to `kill', but sends signal SIGNUM to the process
+     group PGID.  This function is provided for compatibility with BSD;
+     using `kill' to do this is more portable.
+
+   As a simple example of `kill', the call `kill (getpid (), SIG)' has
+the same effect as `raise (SIG)'.
+
+
+File: libc.info,  Node: Permission for kill,  Next: Kill Example,  Prev: Signaling Another Process,  Up: Generating Signals
+
+Permission for using `kill'
+---------------------------
+
+   There are restrictions that prevent you from using `kill' to send
+signals to any random process.  These are intended to prevent antisocial
+behavior such as arbitrarily killing off processes belonging to another
+user.  In typical use, `kill' is used to pass signals between parent,
+child, and sibling processes, and in these situations you normally do
+have permission to send signals.  The only common execption is when you
+run a setuid program in a child process; if the program changes its
+real UID as well as its effective UID, you may not have permission to
+send a signal.  The `su' program does this.
+
+   Whether a process has permission to send a signal to another process
+is determined by the user IDs of the two processes.  This concept is
+discussed in detail in *Note Process Persona::.
+
+   Generally, for a process to be able to send a signal to another
+process, either the sending process must belong to a privileged user
+(like `root'), or the real or effective user ID of the sending process
+must match the real or effective user ID of the receiving process.  If
+the receiving process has changed its effective user ID from the
+set-user-ID mode bit on its process image file, then the owner of the
+process image file is used in place of its current effective user ID.
+In some implementations, a parent process might be able to send signals
+to a child process even if the user ID's don't match, and other
+implementations might enforce other restrictions.
+
+   The `SIGCONT' signal is a special case.  It can be sent if the
+sender is part of the same session as the receiver, regardless of user
+IDs.
+
+
+File: libc.info,  Node: Kill Example,  Prev: Permission for kill,  Up: Generating Signals
+
+Using `kill' for Communication
+------------------------------
+
+   Here is a longer example showing how signals can be used for
+interprocess communication.  This is what the `SIGUSR1' and `SIGUSR2'
+signals are provided for.  Since these signals are fatal by default,
+the process that is supposed to receive them must trap them through
+`signal' or `sigaction'.
+
+   In this example, a parent process forks a child process and then
+waits for the child to complete its initialization.  The child process
+tells the parent when it is ready by sending it a `SIGUSR1' signal,
+using the `kill' function.
+
+     #include <signal.h>
+     #include <stdio.h>
+     #include <sys/types.h>
+     #include <unistd.h>
+     
+     /* When a `SIGUSR1' signal arrives, set this variable. */
+     volatile sig_atomic_t usr_interrupt = 0;
+     
+     void
+     synch_signal (int sig)
+     {
+       usr_interrupt = 1;
+     }
+     
+     /* The child process executes this function. */
+     void
+     child_function (void)
+     {
+       /* Perform initialization. */
+       printf ("I'm here!!!  My pid is %d.\n", (int) getpid ());
+     
+       /* Let parent know you're done. */
+       kill (getppid (), SIGUSR1);
+     
+       /* Continue with execution. */
+       puts ("Bye, now....");
+       exit (0);
+     }
+     
+     int
+     main (void)
+     {
+       struct sigaction usr_action;
+       sigset_t block_mask;
+       pid_t child_id;
+     
+       /* Establish the signal handler. */
+       sigfillset (&block_mask);
+       usr_action.sa_handler = synch_signal;
+       usr_action.sa_mask = block_mask;
+       usr_action.sa_flags = 0;
+       sigaction (SIGUSR1, &usr_action, NULL);
+     
+       /* Create the child process. */
+       child_id = fork ();
+       if (child_id == 0)
+         child_function ();          /* Does not return. */
+     /* Busy wait for the child to send a signal. */
+       while (!usr_interrupt)
+         ;
+     
+       /* Now continue execution. */
+       puts ("That's all, folks!");
+     
+       return 0;
+     }
+
+   This example uses a busy wait, which is bad, because it wastes CPU
+cycles that other programs could otherwise use.  It is better to ask the
+system to wait until the signal arrives.  See the example in *Note
+Waiting for a Signal::.
+
+
+File: libc.info,  Node: Blocking Signals,  Next: Waiting for a Signal,  Prev: Generating Signals,  Up: Signal Handling
+
+Blocking Signals
+================
+
+   Blocking a signal means telling the operating system to hold it and
+deliver it later.  Generally, a program does not block signals
+indefinitely--it might as well ignore them by setting their actions to
+`SIG_IGN'.  But it is useful to block signals briefly, to prevent them
+from interrupting sensitive operations.  For instance:
+
+   * You can use the `sigprocmask' function to block signals while you
+     modify global variables that are also modified by the handlers for
+     these signals.
+
+   * You can set `sa_mask' in your `sigaction' call to block certain
+     signals while a particular signal handler runs.  This way, the
+     signal handler can run without being interrupted itself by signals.
+
+* Menu:
+
+* Why Block::                           The purpose of blocking signals.
+* Signal Sets::                         How to specify which signals to
+                                         block.
+* Process Signal Mask::                 Blocking delivery of signals to your
+				         process during normal execution.
+* Testing for Delivery::                Blocking to Test for Delivery of
+                                         a Signal.
+* Blocking for Handler::                Blocking additional signals while a
+				         handler is being run.
+* Checking for Pending Signals::        Checking for Pending Signals
+* Remembering a Signal::                How you can get almost the same
+                                         effect as blocking a signal, by
+                                         handling it and setting a flag
+                                         to be tested later.
+
+
+File: libc.info,  Node: Why Block,  Next: Signal Sets,  Up: Blocking Signals
+
+Why Blocking Signals is Useful
+------------------------------
+
+   Temporary blocking of signals with `sigprocmask' gives you a way to
+prevent interrupts during critical parts of your code.  If signals
+arrive in that part of the program, they are delivered later, after you
+unblock them.
+
+   One example where this is useful is for sharing data between a signal
+handler and the rest of the program.  If the type of the data is not
+`sig_atomic_t' (*note Atomic Data Access::.), then the signal handler
+could run when the rest of the program has only half finished reading
+or writing the data.  This would lead to confusing consequences.
+
+   To make the program reliable, you can prevent the signal handler from
+running while the rest of the program is examining or modifying that
+data--by blocking the appropriate signal around the parts of the
+program that touch the data.
+
+   Blocking signals is also necessary when you want to perform a certain
+action only if a signal has not arrived.  Suppose that the handler for
+the signal sets a flag of type `sig_atomic_t'; you would like to test
+the flag and perform the action if the flag is not set.  This is
+unreliable.  Suppose the signal is delivered immediately after you test
+the flag, but before the consequent action: then the program will
+perform the action even though the signal has arrived.
+
+   The only way to test reliably for whether a signal has yet arrived
+is to test while the signal is blocked.
+
+
+File: libc.info,  Node: Signal Sets,  Next: Process Signal Mask,  Prev: Why Block,  Up: Blocking Signals
+
+Signal Sets
+-----------
+
+   All of the signal blocking functions use a data structure called a
+"signal set" to specify what signals are affected.  Thus, every
+activity involves two stages: creating the signal set, and then passing
+it as an argument to a library function.
+
+   These facilities are declared in the header file `signal.h'.
+
+ - Data Type: sigset_t
+     The `sigset_t' data type is used to represent a signal set.
+     Internally, it may be implemented as either an integer or structure
+     type.
+
+     For portability, use only the functions described in this section
+     to initialize, change, and retrieve information from `sigset_t'
+     objects--don't try to manipulate them directly.
+
+   There are two ways to initialize a signal set.  You can initially
+specify it to be empty with `sigemptyset' and then add specified
+signals individually.  Or you can specify it to be full with
+`sigfillset' and then delete specified signals individually.
+
+   You must always initialize the signal set with one of these two
+functions before using it in any other way.  Don't try to set all the
+signals explicitly because the `sigset_t' object might include some
+other information (like a version field) that needs to be initialized as
+well.  (In addition, it's not wise to put into your program an
+assumption that the system has no signals aside from the ones you know
+about.)
+
+ - Function: int sigemptyset (sigset_t *SET)
+     This function initializes the signal set SET to exclude all of the
+     defined signals.  It always returns `0'.
+
+ - Function: int sigfillset (sigset_t *SET)
+     This function initializes the signal set SET to include all of the
+     defined signals.  Again, the return value is `0'.
+
+ - Function: int sigaddset (sigset_t *SET, int SIGNUM)
+     This function adds the signal SIGNUM to the signal set SET.  All
+     `sigaddset' does is modify SET; it does not block or unblock any
+     signals.
+
+     The return value is `0' on success and `-1' on failure.  The
+     following `errno' error condition is defined for this function:
+
+    `EINVAL'
+          The SIGNUM argument doesn't specify a valid signal.
+
+ - Function: int sigdelset (sigset_t *SET, int SIGNUM)
+     This function removes the signal SIGNUM from the signal set SET.
+     All `sigdelset' does is modify SET; it does not block or unblock
+     any signals.  The return value and error conditions are the same
+     as for `sigaddset'.
+
+   Finally, there is a function to test what signals are in a signal
+set:
+
+ - Function: int sigismember (const sigset_t *SET, int SIGNUM)
+     The `sigismember' function tests whether the signal SIGNUM is a
+     member of the signal set SET.  It returns `1' if the signal is in
+     the set, `0' if not, and `-1' if there is an error.
+
+     The following `errno' error condition is defined for this function:
+
+    `EINVAL'
+          The SIGNUM argument doesn't specify a valid signal.
+
+
+File: libc.info,  Node: Process Signal Mask,  Next: Testing for Delivery,  Prev: Signal Sets,  Up: Blocking Signals
+
+Process Signal Mask
+-------------------
+
+   The collection of signals that are currently blocked is called the
+"signal mask".  Each process has its own signal mask.  When you create
+a new process (*note Creating a Process::.), it inherits its parent's
+mask.  You can block or unblock signals with total flexibility by
+modifying the signal mask.
+
+   The prototype for the `sigprocmask' function is in `signal.h'.
+
+ - Function: int sigprocmask (int HOW, const sigset_t *SET, sigset_t
+          *OLDSET)
+     The `sigprocmask' function is used to examine or change the calling
+     process's signal mask.  The HOW argument determines how the signal
+     mask is changed, and must be one of the following values:
+
+    `SIG_BLOCK'
+          Block the signals in `set'--add them to the existing mask.  In
+          other words, the new mask is the union of the existing mask
+          and SET.
+
+    `SIG_UNBLOCK'
+          Unblock the signals in SET--remove them from the existing
+          mask.
+
+    `SIG_SETMASK'
+          Use SET for the mask; ignore the previous value of the mask.
+
+     The last argument, OLDSET, is used to return information about the
+     old process signal mask.  If you just want to change the mask
+     without looking at it, pass a null pointer as the OLDSET argument.
+     Similarly, if you want to know what's in the mask without changing
+     it, pass a null pointer for SET (in this case the HOW argument is
+     not significant).  The OLDSET argument is often used to remember
+     the previous signal mask in order to restore it later.  (Since the
+     signal mask is inherited over `fork' and `exec' calls, you can't
+     predict what its contents are when your program starts running.)
+
+     If invoking `sigprocmask' causes any pending signals to be
+     unblocked, at least one of those signals is delivered to the
+     process before `sigprocmask' returns.  The order in which pending
+     signals are delivered is not specified, but you can control the
+     order explicitly by making multiple `sigprocmask' calls to unblock
+     various signals one at a time.
+
+     The `sigprocmask' function returns `0' if successful, and `-1' to
+     indicate an error.  The following `errno' error conditions are
+     defined for this function:
+
+    `EINVAL'
+          The HOW argument is invalid.
+
+     You can't block the `SIGKILL' and `SIGSTOP' signals, but if the
+     signal set includes these, `sigprocmask' just ignores them instead
+     of returning an error status.
+
+     Remember, too, that blocking program error signals such as `SIGFPE'
+     leads to undesirable results for signals generated by an actual
+     program error (as opposed to signals sent with `raise' or `kill').
+     This is because your program may be too broken to be able to
+     continue executing to a point where the signal is unblocked again.
+     *Note Program Error Signals::.
+
+
+File: libc.info,  Node: Testing for Delivery,  Next: Blocking for Handler,  Prev: Process Signal Mask,  Up: Blocking Signals
+
+Blocking to Test for Delivery of a Signal
+-----------------------------------------
+
+   Now for a simple example.  Suppose you establish a handler for
+`SIGALRM' signals that sets a flag whenever a signal arrives, and your
+main program checks this flag from time to time and then resets it.
+You can prevent additional `SIGALRM' signals from arriving in the
+meantime by wrapping the critical part of the code with calls to
+`sigprocmask', like this:
+
+     /* This variable is set by the SIGALRM signal handler. */
+     volatile sig_atomic_t flag = 0;
+     
+     int
+     main (void)
+     {
+       sigset_t block_alarm;
+     
+       ...
+     
+       /* Initialize the signal mask. */
+       sigemptyset (&block_alarm);
+       sigaddset (&block_alarm, SIGALRM);
+     while (1)
+         {
+           /* Check if a signal has arrived; if so, reset the flag. */
+           sigprocmask (SIG_BLOCK, &block_alarm, NULL);
+           if (flag)
+             {
+               ACTIONS-IF-NOT-ARRIVED
+               flag = 0;
+             }
+           sigprocmask (SIG_UNBLOCK, &block_alarm, NULL);
+     
+           ...
+         }
+     }
+
+
+File: libc.info,  Node: Blocking for Handler,  Next: Checking for Pending Signals,  Prev: Testing for Delivery,  Up: Blocking Signals
+
+Blocking Signals for a Handler
+------------------------------
+
+   When a signal handler is invoked, you usually want it to be able to
+finish without being interrupted by another signal.  From the moment the
+handler starts until the moment it finishes, you must block signals that
+might confuse it or corrupt its data.
+
+   When a handler function is invoked on a signal, that signal is
+automatically blocked (in addition to any other signals that are already
+in the process's signal mask) during the time the handler is running.
+If you set up a handler for `SIGTSTP', for instance, then the arrival
+of that signal forces further `SIGTSTP' signals to wait during the
+execution of the handler.
+
+   However, by default, other kinds of signals are not blocked; they can
+arrive during handler execution.
+
+   The reliable way to block other kinds of signals during the
+execution of the handler is to use the `sa_mask' member of the
+`sigaction' structure.
+
+   Here is an example:
+
+     #include <signal.h>
+     #include <stddef.h>
+     
+     void catch_stop ();
+     
+     void
+     install_handler (void)
+     {
+       struct sigaction setup_action;
+       sigset_t block_mask;
+     
+       sigemptyset (&block_mask);
+       /* Block other terminal-generated signals while handler runs. */
+       sigaddset (&block_mask, SIGINT);
+       sigaddset (&block_mask, SIGQUIT);
+       setup_action.sa_handler = catch_stop;
+       setup_action.sa_mask = block_mask;
+       setup_action.sa_flags = 0;
+       sigaction (SIGTSTP, &setup_action, NULL);
+     }
+
+   This is more reliable than blocking the other signals explicitly in
+the code for the handler.  If you block signals explicity in the
+handler, you can't avoid at least a short interval at the beginning of
+the handler where they are not yet blocked.
+
+   You cannot remove signals from the process's current mask using this
+mechanism.  However, you can make calls to `sigprocmask' within your
+handler to block or unblock signals as you wish.
+
+   In any case, when the handler returns, the system restores the mask
+that was in place before the handler was entered.
+
+
+File: libc.info,  Node: Checking for Pending Signals,  Next: Remembering a Signal,  Prev: Blocking for Handler,  Up: Blocking Signals
+
+Checking for Pending Signals
+----------------------------
+
+   You can find out which signals are pending at any time by calling
+`sigpending'.  This function is declared in `signal.h'.
+
+ - Function: int sigpending (sigset_t *SET)
+     The `sigpending' function stores information about pending signals
+     in SET.  If there is a pending signal that is blocked from
+     delivery, then that signal is a member of the returned set.  (You
+     can test whether a particular signal is a member of this set using
+     `sigismember'; see *Note Signal Sets::.)
+
+     The return value is `0' if successful, and `-1' on failure.
+
+   Testing whether a signal is pending is not often useful.  Testing
+when that signal is not blocked is almost certainly bad design.
+
+   Here is an example.
+
+     #include <signal.h>
+     #include <stddef.h>
+     
+     sigset_t base_mask, waiting_mask;
+     
+     sigemptyset (&base_mask);
+     sigaddset (&base_mask, SIGINT);
+     sigaddset (&base_mask, SIGTSTP);
+     
+     /* Block user interrupts while doing other processing. */
+     sigprocmask (SIG_SETMASK, &base_mask, NULL);
+     ...
+     
+     /* After a while, check to see whether any signals are pending. */
+     sigpending (&waiting_mask);
+     if (sigismember (&waiting_mask, SIGINT)) {
+       /* User has tried to kill the process. */
+     }
+     else if (sigismember (&waiting_mask, SIGTSTP)) {
+       /* User has tried to stop the process. */
+     }
+
+   Remember that if there is a particular signal pending for your
+process, additional signals of that same type that arrive in the
+meantime might be discarded.  For example, if a `SIGINT' signal is
+pending when another `SIGINT' signal arrives, your program will
+probably only see one of them when you unblock this signal.
+
+   *Portability Note:* The `sigpending' function is new in POSIX.1.
+Older systems have no equivalent facility.
+
+
+File: libc.info,  Node: Remembering a Signal,  Prev: Checking for Pending Signals,  Up: Blocking Signals
+
+Remembering a Signal to Act On Later
+------------------------------------
+
+   Instead of blocking a signal using the library facilities, you can
+get almost the same results by making the handler set a flag to be
+tested later, when you "unblock".  Here is an example:
+
+     /* If this flag is nonzero, don't handle the signal right away. */
+     volatile sig_atomic_t signal_pending;
+     
+     /* This is nonzero if a signal arrived and was not handled. */
+     volatile sig_atomic_t defer_signal;
+     
+     void
+     handler (int signum)
+     {
+       if (defer_signal)
+         signal_pending = signum;
+       else
+         ... /* ``Really'' handle the signal. */
+     }
+     
+     ...
+     
+     void
+     update_mumble (int frob)
+     {
+       /* Prevent signals from having immediate effect. */
+       defer_signal++;
+       /* Now update `mumble', without worrying about interruption. */
+       mumble.a = 1;
+       mumble.b = hack ();
+       mumble.c = frob;
+       /* We have updated `mumble'.  Handle any signal that came in. */
+       defer_signal--;
+       if (defer_signal == 0 && signal_pending != 0)
+         raise (signal_pending);
+     }
+
+   Note how the particular signal that arrives is stored in
+`signal_pending'.  That way, we can handle several types of
+inconvenient signals with the same mechanism.
+
+   We increment and decrement `defer_signal' so that nested critical
+sections will work properly; thus, if `update_mumble' were called with
+`signal_pending' already nonzero, signals would be deferred not only
+within `update_mumble', but also within the caller.  This is also why
+we do not check `signal_pending' if `defer_signal' is still nonzero.
+
+   The incrementing and decrementing of `defer_signal' require more
+than one instruction; it is possible for a signal to happen in the
+middle.  But that does not cause any problem.  If the signal happens
+early enough to see the value from before the increment or decrement,
+that is equivalent to a signal which came before the beginning of the
+increment or decrement, which is a case that works properly.
+
+   It is absolutely vital to decrement `defer_signal' before testing
+`signal_pending', because this avoids a subtle bug.  If we did these
+things in the other order, like this,
+
+       if (defer_signal == 1 && signal_pending != 0)
+         raise (signal_pending);
+       defer_signal--;
+
+then a signal arriving in between the `if' statement and the decrement
+would be effetively "lost" for an indefinite amount of time.  The
+handler would merely set `defer_signal', but the program having already
+tested this variable, it would not test the variable again.
+
+   Bugs like these are called "timing errors".  They are especially bad
+because they happen only rarely and are nearly impossible to reproduce.
+You can't expect to find them with a debugger as you would find a
+reproducible bug.  So it is worth being especially careful to avoid
+them.
+
+   (You would not be tempted to write the code in this order, given the
+use of `defer_signal' as a counter which must be tested along with
+`signal_pending'.  After all, testing for zero is cleaner than testing
+for one.  But if you did not use `defer_signal' as a counter, and gave
+it values of zero and one only, then either order might seem equally
+simple.  This is a further advantage of using a counter for
+`defer_signal': it will reduce the chance you will write the code in
+the wrong order and create a subtle bug.)
+
+
+File: libc.info,  Node: Waiting for a Signal,  Next: BSD Signal Handling,  Prev: Blocking Signals,  Up: Signal Handling
+
+Waiting for a Signal
+====================
+
+   If your program is driven by external events, or uses signals for
+synchronization, then when it has nothing to do it should probably wait
+until a signal arrives.
+
+* Menu:
+
+* Using Pause::                 The simple way, using `pause'.
+* Pause Problems::              Why the simple way is often not very good.
+* Sigsuspend::                  Reliably waiting for a specific signal.
+
+
+File: libc.info,  Node: Using Pause,  Next: Pause Problems,  Up: Waiting for a Signal
+
+Using `pause'
+-------------
+
+   The simple way to wait until a signal arrives is to call `pause'.
+Please read about its disadvantages, in the following section, before
+you use it.
+
+ - Function: int pause ()
+     The `pause' function suspends program execution until a signal
+     arrives whose action is either to execute a handler function, or to
+     terminate the process.
+
+     If the signal causes a handler function to be executed, then
+     `pause' returns.  This is considered an unsuccessful return (since
+     "successful" behavior would be to suspend the program forever), so
+     the return value is `-1'.  Even if you specify that other
+     primitives should resume when a system handler returns (*note
+     Interrupted Primitives::.), this has no effect on `pause'; it
+     always fails when a signal is handled.
+
+     The following `errno' error conditions are defined for this
+     function:
+
+    `EINTR'
+          The function was interrupted by delivery of a signal.
+
+     If the signal causes program termination, `pause' doesn't return
+     (obviously).
+
+     The `pause' function is declared in  `unistd.h'.
+
+
+File: libc.info,  Node: Pause Problems,  Next: Sigsuspend,  Prev: Using Pause,  Up: Waiting for a Signal
+
+Problems with `pause'
+---------------------
+
+   The simplicity of `pause' can conceal serious timing errors that can
+make a program hang mysteriously.
+
+   It is safe to use `pause' if the real work of your program is done
+by the signal handlers themselves, and the "main program" does nothing
+but call `pause'.  Each time a signal is delivered, the handler will do
+the next batch of work that is to be done, and then return, so that the
+main loop of the program can call `pause' again.
+
+   You can't safely use `pause' to wait until one more signal arrives,
+and then resume real work.  Even if you arrange for the signal handler
+to cooperate by setting a flag, you still can't use `pause' reliably.
+Here is an example of this problem:
+
+     /* `usr_interrupt' is set by the signal handler.  */
+     if (!usr_interrupt)
+       pause ();
+     
+     /* Do work once the signal arrives.  */
+     ...
+
+This has a bug: the signal could arrive after the variable
+`usr_interrupt' is checked, but before the call to `pause'.  If no
+further signals arrive, the process would never wake up again.
+
+   You can put an upper limit on the excess waiting by using `sleep' in
+a loop, instead of using `pause'.  (*Note Sleeping::, for more about
+`sleep'.)  Here is what this looks like:
+
+     /* `usr_interrupt' is set by the signal handler.
+     while (!usr_interrupt)
+       sleep (1);
+     
+     /* Do work once the signal arrives.  */
+     ...
+
+   For some purposes, that is good enough.  But with a little more
+complexity, you can wait reliably until a particular signal handler is
+run, using `sigsuspend'.  *Note Sigsuspend::.
+
+
+File: libc.info,  Node: Sigsuspend,  Prev: Pause Problems,  Up: Waiting for a Signal
+
+Using `sigsuspend'
+------------------
+
+   The clean and reliable way to wait for a signal to arrive is to
+block it and then use `sigsuspend'.  By using `sigsuspend' in a loop,
+you can wait for certain kinds of signals, while letting other kinds of
+signals be handled by their handlers.
+
+ - Function: int sigsuspend (const sigset_t *SET)
+     This function replaces the process's signal mask with SET and then
+     suspends the process until a signal is delivered whose action is
+     either to terminate the process or invoke a signal handling
+     function.  In other words, the program is effectively suspended
+     until one of the signals that is not a member of SET arrives.
+
+     If the process is woken up by deliver of a signal that invokes a
+     handler function, and the handler function returns, then
+     `sigsuspend' also returns.
+
+     The mask remains SET only as long as `sigsuspend' is waiting.  The
+     function `sigsuspend' always restores the previous signal mask
+     when it returns.
+
+     The return value and error conditions are the same as for `pause'.
+
+   With `sigsuspend', you can replace the `pause' or `sleep' loop in
+the previous section with something completely reliable:
+
+     sigset_t mask, oldmask;
+     
+     ...
+     
+     /* Set up the mask of signals to temporarily block. */
+     sigemptyset (&mask);
+     sigaddset (&mask, SIGUSR1);
+     
+     ...
+     
+     /* Wait for a signal to arrive. */
+     sigprocmask (SIG_BLOCK, &mask, &oldmask);
+     while (!usr_interrupt)
+       sigsuspend (&oldmask);
+     sigprocmask (SIG_UNBLOCK, &mask, NULL);
+
+   This last piece of code is a little tricky.  The key point to
+remember here is that when `sigsuspend' returns, it resets the process's
+signal mask to the original value, the value from before the call to
+`sigsuspend'--in this case, the `SIGUSR1' signal is once again blocked.
+The second call to `sigprocmask' is necessary to explicitly unblock
+this signal.
+
+   One other point: you may be wondering why the `while' loop is
+necessary at all, since the program is apparently only waiting for one
+`SIGUSR1' signal.  The answer is that the mask passed to `sigsuspend'
+permits the process to be woken up by the delivery of other kinds of
+signals, as well--for example, job control signals.  If the process is
+woken up by a signal that doesn't set `usr_interrupt', it just suspends
+itself again until the "right" kind of signal eventually arrives.
+
+   This technique takes a few more lines of preparation, but that is
+needed just once for each kind of wait criterion you want to use.  The
+code that actually waits is just four lines.
+
+
+File: libc.info,  Node: BSD Signal Handling,  Next: BSD Handler,  Prev: Waiting for a Signal,  Up: Signal Handling
+
+BSD Signal Handling
+===================
+
+   This section describes alternative signal handling functions derived
+from BSD Unix.  These facilities were an advance, in their time; today,
+they are mostly obsolete, and supported mainly for compatibility with
+BSD Unix.
+
+   They do provide one feature that is not available through the POSIX
+functions: You can specify a separate stack for use in certain signal
+handlers.  Using a signal stack is the only way you can handle a signal
+caused by stack overflow.
+
+* Menu:
+
+* POSIX vs BSD::                Overview comparing BSD and POSIX signal
+                                 functions.
+
+
+File: libc.info,  Node: POSIX vs BSD,  Up: BSD Signal Handling
+
+POSIX and BSD Signal Facilities
+-------------------------------
+
+   There are many similarities between the BSD and POSIX signal handling
+facilities, because the POSIX facilities were inspired by the BSD
+facilities.  Besides having different names for all the functions to
+avoid conflicts, the main differences between the two are:
+
+   * BSD Unix represents signal masks as an `int' bit mask, rather than
+     as a `sigset_t' object.
+
+   * The BSD facilities use a different default for whether an
+     interrupted primitive should fail or resume.  The POSIX facilities
+     make system calls fail unless you specify that they should resume.
+     With the BSD facility, the default is to make system calls resume
+     unless you say they should fail.  *Note Interrupted Primitives::.
+
+   * BSD Unix has a concept of a "signal stack".  This is an alternate
+     stack that is used during the execution of signal handler
+     functions, instead of its normal execution stack.
+
+   The BSD facilities are declared in `signal.h'.
+
+
+File: libc.info,  Node: BSD Handler,  Prev: BSD Signal Handling,  Up: Signal Handling
+
+BSD Function to Establish a Handler
+===================================
+
+ - Data Type: struct sigvec
+     This data type is the BSD equivalent of `struct sigaction' (*note
+     Advanced Signal Handling::.); it is used to specify signal actions
+     to the `sigvec' function.  It contains the following members:
+
+    `sighandler_t sv_handler'
+          This is the handler function.
+
+    `int sv_mask'
+          This is the mask of additional signals to be blocked while
+          the handler function is being called.
+
+    `int sv_flags'
+          This is a bit mask used to specify various flags which affect
+          the behavior of the signal.  You can also refer to this field
+          as `sv_onstack'.
+
+   These symbolic constants can be used to provide values for the
+`sv_flags' field of a `sigvec' structure.  This field is a bit mask
+value, so you bitwise-OR the flags of interest to you together.
+
+ - Macro: int SV_ONSTACK
+     If this bit is set in the `sv_flags' field of a `sigvec'
+     structure, it means to use the signal stack when delivering the
+     signal.
+
+ - Macro: int SV_INTERRUPT
+     If this bit is set in the `sv_flags' field of a `sigvec'
+     structure, it means that system calls interrupted by this kind of
+     signal should not be restarted if the handler returns; instead,
+     the system calls should return with a `EINTR' error status.  *Note
+     Interrupted Primitives::.
+
+ - Macro: int SV_RESETHAND
+     If this bit is set in the `sv_flags' field of a `sigvec'
+     structure, it means to reset the action for the signal back to
+     `SIG_DFL' when the signal is received.
+
+ - Function: int sigvec (int SIGNUM, const struct sigvec *ACTION,struct
+          sigvec *OLD_ACTION)
+     This function is the equivalent of `sigaction' (*note Advanced
+     Signal Handling::.); it installs the action ACTION for the signal
+     SIGNUM, returning information about the previous action in effect
+     for that signal in OLD_ACTION.
+
+ - Function: int siginterrupt (int SIGNUM, int FAILFLAG)
+     This function specifies which approach to use when certain
+     primitives are interrupted by handling signal SIGNUM.  If FAILFLAG
+     is false, signal SIGNUM restarts primitives.  If FAILFLAG is true,
+     handling SIGNUM causes these primitives to fail with error code
+     `EINTR'.  *Note Interrupted Primitives::.
+
+* Menu:
+
+* Blocking in BSD::             BSD Functions for Blocking Signals.
+* Signal Stack::                Using a Separate Signal Stack.
+
+
+File: libc.info,  Node: Blocking in BSD,  Next: Signal Stack,  Up: BSD Handler
+
+BSD Functions for Blocking Signals
+----------------------------------
+
+ - Macro: int sigmask (int SIGNUM)
+     This macro returns a signal mask that has the bit for signal SIGNUM
+     set.  You can bitwise-OR the results of several calls to `sigmask'
+     together to specify more than one signal.  For example,
+
+          (sigmask (SIGTSTP) | sigmask (SIGSTOP)
+           | sigmask (SIGTTIN) | sigmask (SIGTTOU))
+
+     specifies a mask that includes all the job-control stop signals.
+
+ - Function: int sigblock (int MASK)
+     This function is equivalent to `sigprocmask' (*note Process Signal
+     Mask::.) with a HOW argument of `SIG_BLOCK': it adds the signals
+     specified by MASK to the calling process's set of blocked signals.
+     The return value is the previous set of blocked signals.
+
+ - Function: int sigsetmask (int MASK)
+     This function equivalent to `sigprocmask' (*note Process Signal
+     Mask::.) with a HOW argument of `SIG_SETMASK': it sets the calling
+     process's signal mask to MASK.  The return value is the previous
+     set of blocked signals.
+
+ - Function: int sigpause (int MASK)
+     This function is the equivalent of `sigsuspend' (*note Waiting for
+     a Signal::.):  it sets the calling process's signal mask to MASK,
+     and waits for a signal to arrive.  On return the previous set of
+     blocked signals is restored.
+
+
+File: libc.info,  Node: Signal Stack,  Prev: Blocking in BSD,  Up: BSD Handler
+
+Using a Separate Signal Stack
+-----------------------------
+
+   A signal stack is a special area of memory to be used as the
+execution stack during signal handlers.  It should be fairly large, to
+avoid any danger that it will overflow in turn; the macro `SIGSTKSZ' is
+defined to a canonical size for signal stacks.  You can use `malloc' to
+allocate the space for the stack.  Then call `sigaltstack' or
+`sigstack' to tell the system to use that space for the signal stack.
+
+   You don't need to write signal handlers differently in order to use a
+signal stack.  Switching from one stack to the other happens
+automatically.  However, some debuggers on some machines may get
+confused if you examine a stack trace while a handler that uses the
+signal stack is running.
+
+   There are two interfaces for telling the system to use a separate
+signal stack.  `sigstack' is the older interface, which comes from 4.2
+BSD.  `sigaltstack' is the newer interface, and comes from 4.4 BSD.
+The `sigaltstack' interface has the advantage that it does not require
+your program to know which direction the stack grows, which depends on
+the specific machine and operating system.
+
+ - Data Type: struct sigaltstack
+     This structure describes a signal stack.  It contains the
+     following members:
+
+    `void *ss_sp'
+          This points to the base of the signal stack.
+
+    `size_t ss_size'
+          This is the size (in bytes) of the signal stack which `ss_sp'
+          points to.  You should set this to however much space you
+          allocated for the stack.
+
+          There are two macros defined in `signal.h' that you should
+          use in calculating this size:
+
+         `SIGSTKSZ'
+               This is the canonical size for a signal stack.  It is
+               judged to be sufficient for normal uses.
+
+         `MINSIGSTKSZ'
+               This is the amount of signal stack space the operating
+               system needs just to implement signal delivery.  The
+               size of a signal stack *must* be greater than this.
+
+               For most cases, just using `SIGSTKSZ' for `ss_size' is
+               sufficient.  But if you know how much stack space your
+               program's signal handlers will need, you may want to use
+               a different size.  In this case, you should allocate
+               `MINSIGSTKSZ' additional bytes for the signal stack and
+               increase `ss_size' accordinly.
+
+    `int ss_flags'
+          This field contains the bitwise OR of these flags:
+
+         `SA_DISABLE'
+               This tells the system that it should not use the signal
+               stack.
+
+         `SA_ONSTACK'
+               This is set by the system, and indicates that the signal
+               stack is currently in use.  If this bit is not set, then
+               signals will be delivered on the normal user stack.
+
+ - Function: int sigaltstack (const struct sigaltstack *STACK, struct
+          sigaltstack *OLDSTACK)
+     The `sigaltstack' function specifies an alternate stack for use
+     during signal handling.  When a signal is received by the process
+     and its action indicates that the signal stack is used, the system
+     arranges a switch to the currently installed signal stack while
+     the handler for that signal is executed.
+
+     If OLDSTACK is not a null pointer, information about the currently
+     installed signal stack is returned in the location it points to.
+     If STACK is not a null pointer, then this is installed as the new
+     stack for use by signal handlers.
+
+     The return value is `0' on success and `-1' on failure.  If
+     `sigaltstack' fails, it sets `errno' to one of these values:
+
+    `'
+    `EINVAL'
+          You tried to disable a stack that was in fact currently in
+          use.
+
+    `ENOMEM'
+          The size of the alternate stack was too small.  It must be
+          greater than `MINSIGSTKSZ'.
+
+   Here is the older `sigstack' interface.  You should use
+`sigaltstack' instead on systems that have it.
+
+ - Data Type: struct sigstack
+     This structure describes a signal stack.  It contains the
+     following members:
+
+    `void *ss_sp'
+          This is the stack pointer.  If the stack grows downwards on
+          your machine, this should point to the top of the area you
+          allocated.  If the stack grows upwards, it should point to
+          the bottom.
+
+    `int ss_onstack'
+          This field is true if the process is currently using this
+          stack.
+
+ - Function: int sigstack (const struct sigstack *STACK, struct
+          sigstack *OLDSTACK)
+     The `sigstack' function specifies an alternate stack for use during
+     signal handling.  When a signal is received by the process and its
+     action indicates that the signal stack is used, the system
+     arranges a switch to the currently installed signal stack while
+     the handler for that signal is executed.
+
+     If OLDSTACK is not a null pointer, information about the currently
+     installed signal stack is returned in the location it points to.
+     If STACK is not a null pointer, then this is installed as the new
+     stack for use by signal handlers.
+
+     The return value is `0' on success and `-1' on failure.
+
+
+File: libc.info,  Node: Process Startup,  Next: Child Processes,  Prev: Signal Handling,  Up: Top
+
+Process Startup and Termination
+*******************************
+
+   "Processes" are the primitive units for allocation of system
+resources.  Each process has its own address space and (usually) one
+thread of control.  A process executes a program; you can have multiple
+processes executing the same program, but each process has its own copy
+of the program within its own address space and executes it
+independently of the other copies.
+
+   This chapter explains what your program should do to handle the
+startup of a process, to terminate its process, and to receive
+information (arguments and the environment) from the parent process.
+
+* Menu:
+
+* Program Arguments::           Parsing your program's command-line arguments.
+* Environment Variables::       How to access parameters inherited from
+				 a parent process.
+* Program Termination::         How to cause a process to terminate and
+				 return status information to its parent.
+
+
+File: libc.info,  Node: Program Arguments,  Next: Environment Variables,  Up: Process Startup
+
+Program Arguments
+=================
+
+   The system starts a C program by calling the function `main'.  It is
+up to you to write a function named `main'--otherwise, you won't even
+be able to link your program without errors.
+
+   You can define `main' either to take no arguments, or to take two
+arguments that represent the command line arguments to the program, like
+this:
+
+     int main (int ARGC, char *ARGV[])
+
+   The command line arguments are the whitespace-separated tokens given
+in the shell command used to invoke the program; thus, in `cat foo
+bar', the arguments are `foo' and `bar'.  The only way a program can
+look at its command line arguments is via the arguments of `main'.  If
+`main' doesn't take arguments, then you cannot get at the command line.
+
+   The value of the ARGC argument is the number of command line
+arguments.  The ARGV argument is a vector of C strings; its elements
+are the individual command line argument strings.  The file name of the
+program being run is also included in the vector as the first element;
+the value of ARGC counts this element.  A null pointer always follows
+the last element: `ARGV[ARGC]' is this null pointer.
+
+   For the command `cat foo bar', ARGC is 3 and ARGV has three
+elements, `"cat"', `"foo"' and `"bar"'.
+
+   If the syntax for the command line arguments to your program is
+simple enough, you can simply pick the arguments off from ARGV by hand.
+But unless your program takes a fixed number of arguments, or all of the
+arguments are interpreted in the same way (as file names, for example),
+you are usually better off using `getopt' to do the parsing.
+
+* Menu:
+
+* Argument Syntax::       By convention, options start with a hyphen.
+* Parsing Options::       The `getopt' function.
+* Example of Getopt:: 	  An example of parsing options with `getopt'.
+* Long Options::	  GNU suggests utilities accept long-named options.
+			   Here is how to do that.
+* Long Option Example::   An example of using `getopt_long'.
+

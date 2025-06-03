@@ -1,0 +1,187 @@
+case $CONFIG in
+'')
+	if test ! -f config.sh; then
+		ln ../config.sh . || \
+		ln ../../config.sh . || \
+		ln ../../../config.sh . || \
+		(echo "Can't find config.sh."; exit 1)
+	fi 2>/dev/null
+	. ./config.sh
+	;;
+esac
+case "$0" in
+*/*) cd `expr X$0 : 'X\(.*\)/'` ;;
+esac
+
+# $Id: minikit.SH,v 2.0.1.1 92/04/20 17:38:35 ram Exp $
+#
+# $Log:	minikit.SH,v $
+# Revision 2.0.1.1  92/04/20  17:38:35  ram
+# patch15: minikit now extracted via a .SH file
+# patch15: added acknowledgment support
+# patch15: replaced space indentation with tabs
+# 
+
+echo "Extracting kit/minikit (with variable substitutions)"
+$spitshell >minikit <<!GROK!THIS!
+#! /bin/sh
+export PATH || exec sh \$0
+ver='$VERSION'
+pl='$PATCHLEVEL'
+!GROK!THIS!
+
+$spitshell >>minikit <<'!NO!SUBS!'
+trap "rm -f mini_unkit mini_code.c core mini_code; exit 1" 1 2 3 15
+echo "Minikit [version $ver PL$pl]"
+echo "Extracting mini kit..."
+cat >mini_code.c <<'EOP'
+#include <stdio.h>
+#define reg register
+#define streq(s0, s1)  strcmp(s0, s1) == 0
+#define times85(x)	((((((x<<2)+x)<<2)+x)<<2)+x)
+#define DE(c) ((c) - '!')
+long int Ceor = 0;
+long int Csum = 0;
+long int Crot = 0;
+long int w = 0;
+long int b = 0;
+fatal()
+{
+	fprintf(stderr, "bad format or Csum to atob\n");
+	exit(1);
+}
+decode(c) reg c;
+{
+	if (c == 'z') {
+		if (b != 0) {
+			fatal();
+		} else {
+			bo(0); bo(0); bo(0); bo(0);
+		}
+	} else if ((c >= '!') && (c < ('!' + 85))) {
+		if (b == 0) {
+			w = DE(c);
+			++b;
+		} else if (b < 4) {
+			w = times85(w);
+			w += DE(c);
+			++b;
+		} else {
+			w = times85(w) + DE(c);
+			bo((int)((w >> 24) & 255));
+			bo((int)((w >> 16) & 255));
+			bo((int)((w >> 8) & 255));
+			bo((int)(w & 255));
+			w = 0;
+			b = 0;
+		}
+	} else {
+		fatal();
+	}
+}
+FILE *t;
+bo(c) reg c;
+{
+	Ceor ^= c;
+	Csum += c;
+	Csum += 1;
+	if ((Crot & 0x80000000)) {
+		Crot <<= 1;
+		Crot += 1;
+	} else
+		Crot <<= 1;
+	Crot += c;
+	putc(c, t);
+}
+main(argc, argv) char **argv;
+{
+	reg c;
+	reg long int i;
+	char n[100];
+	char buf[100];
+	long int n1, n2, oeor, osum, orot;
+
+	if (argc != 1) {
+		fprintf(stderr,"bad args to %s\n", argv[0]);
+		exit(2);
+	}
+	sprintf(n, "/usr/tmp/atob.%x", getpid());
+	t = fopen(n, "w+");
+	if (t == NULL)
+		fatal();
+	unlink(n);
+	for (;;) {
+		if (fgets(buf, sizeof buf, stdin) == NULL)
+			fatal();
+		if (streq(buf, "xbtoa Begin\n"))
+			break;
+	}
+
+	while ((c = getchar()) != EOF) {
+		if (c == '\n')
+			continue;
+		else if (c == 'x')
+			break;
+		else
+			decode(c);
+	}
+	if(scanf("btoa End N %ld %lx E %lx S %lx R %lx\n",&n1,&n2,&oeor,&osum,&orot)!=5)
+		fatal();
+	if ((n1 != n2) || (oeor != Ceor) || (osum != Csum) || (orot != Crot))
+		fatal();
+	else {
+		fseek(t, 0L, 0);
+		for (i = n1; --i >= 0;)
+			putchar(getc(t));
+	}
+	exit(0);
+}
+EOP
+cat >mini_unkit<<EOP
+ver='$ver'
+pl='$pl'
+EOP
+cat >>mini_unkit <<'EOP'
+if tar -cf - /dev/null 2>/dev/null | tar -xof - >/dev/null 2>&1; then
+	tar_opt='xvof'
+else
+	tar_opt='xvf'
+fi
+if test -f zag.ba.aa; then
+	cat `ls zag.ba.??` | ./mini_code | zcat | tar $tar_opt - || exit 1
+else
+	echo >&2 "Sorry, I can only deal with plain ascii-encoded kits"
+	exit 1
+fi
+if test -f zzz.ack -a -f /usr/lib/sendmail; then
+	s=`cat zzz.ack`
+	sb=`cat zzz.subject`
+	echo "Sending acknowledgment to $s..."
+	u=`(logname) 2>/dev/null || whoami`
+	h=`(uname -n) 2>/dev/null || hostname 2>/dev/null`
+	d=`date`
+	/usr/lib/sendmail $s <<EOM
+Subject: Kit received [$sb]
+To: $s
+Precedence: junk
+X-Mailer: minikit [version $ver PL$pl]
+
+Your kit archive labeled '$sb' has been
+unpacked by $u@$h on $d.
+EOM
+fi
+test -f zzz.minikit && rm -f `cat zzz.minikit` zzz.minikit
+rm -f z??.[hb][ea]*.??
+EOP
+echo "Compiling mini kit..."
+if cc -o mini_code mini_code.c >/dev/null 2>&1; then
+	echo "Running mini kit..."
+	sh mini_unkit
+else
+	echo "Error in C compilation--aborting."
+fi
+rm -f core mini_code mini_code.c mini_unkit
+echo "Done."
+!NO!SUBS!
+chmod 755 minikit
+$eunicefix minikit

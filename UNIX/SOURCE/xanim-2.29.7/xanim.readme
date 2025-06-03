@@ -1,0 +1,216 @@
+
+
+XAnim was written to display various types of animations in an X11 
+environment. Currently it supports most TrueColor, PseudoColor and
+1 bit Monochrome displays. The intent was/is to develop a base player
+that allows new animation types to be added as they are developed.
+
+Before you compile, edit the Makefile to choose your favorite compiler,
+optimization flags and to indicate where the X11 libraries are located.
+
+Also edit the file xanim_config.h to setup up your favorite default
+conditions. Most of these can be overridden at run time.
+ 
+Once compiled, xanim can display the following:
+
+    1) FLI anims (including larger than 320x200 flis).
+    2) FLC anims (chunks 4 and 7).
+    2) IFF type 3,5,J and l(small L not 1) anims.
+    3) IFF color cycling.
+    4) IFF images (EHB included, but HAM shown as 332 or True Color)
+    5) GIF87a and GIF89a files(include multiple images). 
+    6) GIF89a animation files.
+    6) a kludgy text file listing gifs and what order to show them in.
+    7) DL animations, fairly untested.
+    8)  any combination of the above on the same command line.
+
+NOTES:  This source code is still changing rapidly as new display
+	types are supported. Comments are being added, but are still
+	lacking.
+
+
+Usage and Options:
+
+xanim [ [+|-]opts ...] animfile [ [ [+|-opts] animfile] ... ]
+
+A + turns an option on and a - turns it off. 
+NOTE: you can reverse the meaning of + and -  by editing xanim_congif.h. 
+      Read the comment by DEFAULT_PLUS_IS_ON.
+
+Options d,f,j and l ignore leading + and -'s.
+Leave a space after #'s
+
+Options:
+
+	Cl	This will cause new cmaps to being sorted by luminance.
+		  This sometimes reduces cmap flickering between images.
+	Ct	This tries to fit each new cmap into the previous one.
+		  For example if you display has 256 cmap entries and you
+		  have a sequence of images, each with 8 entry cmaps, then
+		  at least 32 of them will share one cmap. Possibly more,
+		  if colors are shared. 
+	Cf	This will forcibly map new cmaps into the 1st one. If the
+		  Ct option is set, then this is done only if Ct fails.
+		  Currently, images aren't dithered on a forced remapping.
+NOTE:	currently Cl,Ct and Cf do not affect FLI or IFF colormaps, but
+	FLI(not IFF) colormaps can be considered a previous cmap.
+	(don't ask :^), this will probably change).
+
+	F	Floyd-Steinberg dithering on Mono Displays.
+
+	b	uncompress animations up front. GIFs are automatically
+		  uncompressed.  Careful, use of this flag can eat up a
+		  lot of memory. NOTE: IFF type J animations can now be
+		  buffered, sort of. :^)  Type J animations that make
+		  multiple use of deltas will display incorrectly.
+	          (I know how to correct this, but it's a fair bit of
+		   code and I haven't had time).
+
+	c	This is used to tell XAnim that an IFF type 3,5 or l
+		  animation is non-looping and that it needs to treat
+		  it a bit differently. If an IFF type 3,5 or l animation
+		  looks right the 1st time and is screwed up on the 2nd
+		  loop, you probably need to use this flag.
+
+	d#	debug. Spews a lot of stuff to the screen.
+		  # is level(1-5) 1 being least amount of stuff.
+
+	f#	Adds fading between animation files. The colormap
+		  which fade to black in 16 frames. # is the delay
+		  of each of these frames. -f0 turns off fading.
+
+	i	Scale image vertically by 1/2.(Odd display lines
+		  aren't displayed). Only for IFFs. 
+
+        j#	# is number of milliseconds between frames
+		  (default is 17 unless specified inside the
+		  the animation itself).
+
+	l#	loop following files # number of times before moving 
+		  on to the next file.
+		
+	o	turns on certain optimizations. Turning this off would 
+		  only be useful if you are buffering the anim and wish
+		  to run the anim backwards. NOTE: On Monochrome displays
+		  with Floyd-Steinberg dithering, optimization is forced off.
+
+	p	Use Pixmap instead of Image in X11.  default is off.
+		  A Pixmap on most machines won't actually be in offscreen
+		  memory. It will usually be in main memory, but on
+		  most servers and Image is copied somewhere and then to
+		  the screen, where a Pixmap is copied directly to the
+		  screen. This can amount to quite a bit of speed up.
+		  Also, if you are running across a network, the Pixmap
+		  is kept on the local machine, which usually speeds 
+		  things up as well.
+		  NOTE: if you don't buffer(+b) an fli or amiga anim, pixmap
+		  won't buy you anything. Pixmaps are only implemented
+		  for uncompressed image data.
+
+	r 	turns color cycling off(IFF cycling images).
+
+        s	prevents window from resizing to match image
+		  size. Window is the size of largest image.
+		  default is on.
+
+	u	when single stepping, anim is played until image is 
+		  updated/changed.(a new cmap is not considered an update).
+		  default is on.
+
+	v	verbose. Tells you image sizes, number of deltas etc.
+
+Anim Window Commands:
+
+	q	quits.
+	g	move to anim file after a cycling IFF image.
+	s	stop color cycling if started.
+	r	restore original color once stopped (s).	
+	space	toggle. starts/stops animation
+	,	go back one frame within file
+	.	go forward one frame within file
+	<	go back to start of previous file
+	>	go forward to start of next file
+
+
+Examples:
+
+	To display a single animation:
+
+		xanim iff3.anim
+
+	To display a nonlooping IFF animation:
+
+		xanim +c iff3.anim
+
+	To display A.fli 3 times, B.anim and C.movie 2 times each and D.fli
+	once before repeating:
+
+		xanim -l3 A.fli -l2 B.anim C.movie -l1 D.fli
+	or 
+		xanim +l3 A.fli +l2 B.anim C.movie +l1 D.fli
+
+	To fade to black after A.fli B.fli and C.fli but not after D.fli:
+
+		xanim +f3 A.fli B.fli C.fli +f0 D.fli
+
+	To see A.anim real slow:
+
+		xanim +j50 A.anim
+
+	To display title image for a while then fade into an animation at
+	normal speed:
+
+		xanim +f3 +j200 title.gif +j0 anim.gifanim
+
+	To show 1st anim unbuffered at half height and 2nd anim buffered
+	at full height:
+
+		xanim +i first.anim -i+b second.anim
+	or
+		xanim +i first.anim -i +b second.anim
+	
+
+
+A series of GIF's can be displayed as:
+
+	xanim im_0.gif im_1.gif im_2.gif ... im_36.gif
+
+ or
+
+	xanim im_*.gif
+
+ or
+
+	xanim im.txt
+
+ or
+
+	xanim im.gifanim
+
+where im.txt is a txt file(a list of images, see xanim.doc for more details).
+and im.gifanim is one gif file composed of im_0.gif through im_36.gif.
+(see txtmerge to create a single gif file from a txt file).
+
+
+Machine Specific and Compiler Notes:
+--------------------------------------
+
+1) Error: xanim.c, line 1464: HZ undefined
+   HZ is supposed to be defined as the number of clock ticks per second for
+   your system. This is used for timing between frames. 
+
+
+   vi xanim.h and add uncomment the following line
+
+   /* 
+   #define HZ 60
+   */
+
+   Alternatively, you can do a "man times" on your system in order to find
+   out what units times() returns. Typically, it's either [CLK_TCK]ths or
+   [HZ]ths of a second. Contact me if you're having problems.
+
+
+
+Mark Podlipec  podlipec@dgxyris.webo.dg.com
+

@@ -1,0 +1,121 @@
+#!/opt/bin/perl -s
+#
+#  @(#)facesall 1.5 91/11/25
+#
+#  Copyright (c) Steve Kinzler - April 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+# Uncomment this line if you are running a version of faces earlier
+# than version 1.5.0:
+# $oldformat = 1;
+
+# Uncomment this line if you are running a version of faces earlier
+# than version v1.6.0:
+#$olddb = 1;
+
+$cols = 15; $rows = 13;
+$FACEDIR = '/opt/lib/faces';
+
+# facesall - show all available faces in the given faces bitmap directory
+# usage: facesall [ -a ] [ bitmap_directory ]
+#	-a = if there are multiple windows, show them simultaneously,
+#	     not in sequence
+#	default directory is $FACEDIR above
+#	creating a .index file at the root of a bitmap directory by
+#	    running mkfacesindex will speed the execution of this program
+# Steve Kinzler, kinzler@cs.indiana.edu, April 1991
+
+$format = $oldformat ? "%-20s%-20s%-10s%-10s%-10s%-10s\n" :
+		       "%s\t%s\t%s\t%s\t%s\t%s\n";
+$max = $cols * $rows;
+
+$bg = '&' if $a;
+
+if ($dir = $ARGV[0]) {
+	$dir = $FACEDIR . '/' . $dir unless $dir =~ /^\// || -d $dir;
+	$FACEDIR = $dir;
+}
+chdir $FACEDIR || die "$0: Cannot chdir $FACEDIR ($!)";
+
+if (open(INDEX, "< .index")) {
+	while (<INDEX>) {
+		chop;
+		push(@list, $_);
+	}
+	close INDEX;
+} else {
+	if ($olddb) {
+		foreach $dir (`ls`) {
+			chop $dir;
+			if (-d $dir && ! -l $dir) {
+				foreach (`ls $dir`) {
+					chop;
+					push(@list, "$dir/$_");
+				}
+			}
+		}
+	} else {
+		open(FIND, 'find . -type f \( -name face.xbm -o -name 48x48x1 \
+			    -o -name sun.icon -o -name face.ps \) -print |');
+		while (<FIND>) {
+			s,^\./+,,;
+			s,/+[^/]*$,,;
+			/^(.*)\/+([^\/]+)$/;
+			$aindom = $1; $user = $2;
+			$domain = join('.', reverse(split(/\/+/, $aindom)));
+			$index{"$domain/$user"}++;
+		}
+		close FIND;
+		for (sort keys %index) {
+			push(@list, $_);
+		}
+	}
+}
+
+@list = '/NOUSERS' unless @list;
+
+while (@list) {
+	$tmp = "/tmp/facesall$$." . ++$num;
+	open(TMP, "> $tmp") || die "$0: Cannot open $tmp ($!)";
+	chmod(0755, $tmp);
+	print TMP ":\ncat << \\///\n";
+
+	printf TMP "Cols=%d Rows=%d\n", &lesser($#list + 1, $cols),
+					&lesser($#list / $cols + 1, $rows);
+
+	$x = 0;
+	while ($x++ < $max && ($_ = shift @list)) {
+		($host, $user) = split(/\//);
+		if ($oldformat) {
+			$host =~ s/^[^\.]*.// while length $host > 20;
+			$user =~ s/^(.{0,20}).*$/\1/;
+			$host =~ /.{0,10}/; $h = $&;
+			$user =~ /.{0,10}/; $u = $&;
+		} else {
+			$h = $host;
+			$u = $user;
+		}
+		$u = '' if $u eq 'NOUSERS';
+		$host = 'unknown' if $h eq 'MISC';
+		$line = sprintf($format, $user, $host, $u, '', $h, '');
+
+		print TMP $line;
+#		print $line if $d;
+	}
+
+	print TMP "///\n";
+	close TMP;
+
+	system "(faces -e $tmp -f . -l facesall -p 99999; rm -f $tmp) $bg";
+}
+
+sub lesser {
+	local($a, $b) = @_;
+	($a < $b) ? $a : $b;
+}

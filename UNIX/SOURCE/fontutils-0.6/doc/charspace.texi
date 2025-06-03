@@ -1,0 +1,848 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node Charspace, Limn, Fontconvert, Top
+@chapter Charspace
+
+@pindex charspace
+@cindex side bearings, adding
+@cindex spacing, character
+@cindex character spacing
+
+Charspace lets you add @dfn{side bearings} (the blank spaces on either
+side of a character) to a bitmap font.  This is necessary because
+scanned images typically do not include side bearing information, and
+therefore Imageto (@pxref{Imageto}) cannot determine it.
+
+The input is a bitmap (GF or PK) font, together with one or more CMI
+files (@pxref{CMI files}), which specify character metric information.  If a
+corresponding TFM file exists, it is read to get default values for the
+character dimensions (Charspace promptly overwrites the widths).  The
+output is a TFM file and (typically) a revised GF file with the new
+width information.
+
+@cindex Smith, Harry
+@cindex Tracy, Walter
+@cindex Letters of Credit
+The basic idea for Charspace came from Harry Smith, via Walter Tracy's
+book @cite{Letters of Credit}.  See @file{charspace/README} for the full
+citation.
+
+@menu
+* Charspace usage::             Details on improving the character metrics.
+* CMI files::                   You specify the metrics in a separate file.
+* Invoking Charspace::          Command-line options.
+@end menu
+
+
+@node Charspace usage, CMI files,  , Charspace
+@section Charspace usage
+
+@cindex Charspace usage
+@cindex usage of Charspace
+
+Charspace makes no attempt to be intelligent about the side bearings it
+computes; it just follows the instructions in the CMI files.
+
+The CMI files must be created by human hands, since the information they
+contain usually cannot be determined automatically.  See the next
+section for the details on what CMI files contain.
+
+@flindex common.cmi
+We supply one CMI file, @file{common.cmi} (distributed in the
+@file{data} directory), which defines more-or-less typeface-independent
+definitions for most common characters.  Charspace reads
+@file{common.cmi} before any of the CMI files you supply, so your
+definitions override its.
+
+@file{common.cmi} can be used for all typefaces because its definitions
+are entirely symbolic; therefore, your CMI file must define actual
+values for the identifiers it uses.  For example, @file{common.cmi}
+defines the right side bearing of @samp{K} to be @code{uc-min-sb}; you
+yourself must define @code{uc-min-sb}.
+
+You must also define side bearings for characters not in
+@file{common.cmi}.  And you can redefine side bearings that @emph{are}
+in @file{common.cmi}, if you find its definitions unsuitable.
+
+Once you have prepared a CMI file, you can run Charspace, e.g.:
+@example
+charspace -verbose -encoding=@var{enc-file} @var{fontname}.@var{dpi} \
+  -output-file=@var{out-fontname}
+@end example
+
+@noindent where @var{enc-file} specifies the encoding,
+@var{fontname} the input font, @var{dpi} the resolution, and
+@var{out-fontname} the name of the output font.
+
+@flindex testfont.tex
+With these options, Charspace will write files
+@file{@var{out-fontname}.tfm} and @file{@var{out-fontname}.@var{dpi}gf}.
+You can then run @TeX{} on @file{testfont.tex}, telling @TeX{} to use
+the font @var{out-fontname}.  This produces a DVI file which you can
+print or preview as you usually do with @TeX{} documents.
+
+This will probably reveal problems in your CMI file, e.g., the spacing
+for some characters or character combinations will be poor.  So you need
+to iterate.
+
+However, if you are planning to eventually run your bitmap font through
+Limn (@pxref{Limn}) and BZRto (@pxref{BZRto}) to make an outline font,
+there's little point in excessively fine-tuning the spacing of the
+original bitmap font.  The reason is that the generated outline font
+will inevitably rasterize differently than the original bitmaps, and the
+change in character shapes will almost certainly affect the spacing.
+
+
+@node CMI files, Invoking Charspace, Charspace usage, Charspace
+@section CMI files
+
+@cindex CMI files
+@cindex character metric information files
+@cindex side bearing information files
+@cindex side bearings, definition of
+
+@dfn{Character metric information} (CMI) files are free-format text
+files which (primarily) describe the side bearings for characters in a
+font.  @dfn{Side bearings} are the blank spaces to the left and right of
+a character which makeprinted type easier to read, as well as more pleasing
+visually.
+
+In addition to side bearing definitions, CMI files can also contain
+@dfn{kerns}, which insert or remove space between particular letter
+pairs; and font dimensions, global information about the font which is
+stored in the TFM file (@pxref{TFM fontdimens}).
+
+If your font is named @file{@var{foo}.300gf} (or @file{@dots{} pk}), it
+is customary to name the corresponding CMI file @file{@var{foo}.300cmi}.
+That is what Charspace looks for by default.  If you name it something
+else, you must use the @samp{-cmi-files} option to tell Charspace its
+name.  It is reasonable to use the resolution as part of the CMI
+filename, since the values written in it are (for the most part) in
+pixels.
+
+@xref{Common file syntax}, for a precise description of syntax elements
+common to all data files processed by these programs, including
+comments.
+
+In the following sections, we describe the individual commands, the
+tokens that comprise them, and the way Charspace processes them.
+
+@menu
+* CMI tokens::                  The building blocks of CMI files.
+* char command::                Defining a character's side bearings.
+* char-width command::          Defining side bearings via the set width.
+* define command::              Introducing a new identifier.
+* kern command::                Defining a kerning pair.
+* codingscheme command::        Specifying the font encoding.
+* fontdimen command::           Defining additional font parameters.
+* CMI processing::              How Charspace reads CMI files.
+@end menu
+
+
+@node CMI tokens, char command,  , CMI files
+@subsection CMI tokens
+
+@cindex tokens in CMI files
+@cindex CMI file tokens
+Tokens in a CMI file are one of the following.
+
+@enumerate
+
+@cindex real constants
+@cindex floating-point constants
+@cindex numbers
+@item
+A numeric constant consists of (in order) an optional sign, zero or more
+digits, an optional decimal point, and zero or more digits---but at
+least one digit must be present.  For example, @samp{+0}, @samp{-0},
+@samp{0}, @samp{.0}, and @samp{-0.0} are all valid ways to write the
+number zero.
+
+@cindex string constants
+@item
+A string constant consists of all characters between two double-quote
+characters @samp{"}.  We made no provision for quoting @samp{"}, because
+our particular uses for string constants never need quote characters.
+
+@cindex comma token
+@item
+A comma is a self-terminating token.  It serves merely to separate two
+expressions.
+
+@cindex identifiers
+@cindex names
+@findex isspace
+@item
+An identifier is any number of characters starting with a non-whitespace
+character (whitespace being defined by the C facility @code{isspace})
+not listed above, and terminated by a whitespace character.
+
+@cindex character names
+In some contexts, an identifier is taken as a @dfn{character name}---a name
+from the encoding file Charspace is using, either the default or one you
+specified with @samp{-encoding} (@pxref{Invoking Charspace}).
+@xref{Encoding files}, for the definition of encoding files.
+
+In all other cases, identifiers are internal to Charspace.  The particular
+commands describe the semantics which apply to them.
+
+@cindex reserved words
+@cindex keywords
+Some identifiers are @dfn{reserved}, i.e., they cannot be used in any
+context except as described in the following sections.  Reserved words
+are always shown in typewriter type.
+
+@end enumerate
+
+@cindex expressions @r{in CMI files}
+An expression in a CMI file is one of: a number, an identifier, or a
+number followed by an identifier.  This last, as in @samp{.75 foo},
+denotes multiplication.
+
+
+@node char command, char-width command, CMI tokens, CMI files
+@subsection @code{char} command
+
+@cmindex char @r{CMI command}
+@cindex side bearings, defining in CMI files
+
+The @code{char} command specifies both side bearings for a single
+character.  It has the form:
+
+@example
+char @var{charname} @var{expr1} , @var{expr2}
+@end example
+
+@noindent where: 
+
+@table @var
+
+@item charname
+is a character name from the font encoding.  @xref{Invoking Charspace},
+for how to specify the encoding file.
+
+@cindex left side bearing in @code{char} command
+@cindex right side bearing in @code{char} command
+@cindex side bearings in @code{char} command
+@itemx expr1
+@item expr2
+specify the left and right side bearings, in pixels, respectively: the
+character widths in the output TFM and GF files are @math{@var{expr1} +
+@var{expr2} + @code{width} (@var{charname})}.  If these
+expressions contain identifiers, the values of those identifiers are not
+resolved until after Charspace has read all the CMI files.
+
+@end table
+
+Giving the side bearings symbolically is useful when the character
+definition is intended to be used for more than one typeface.  For
+example, @file{common.cmi} (@pxref{Charspace usage}) contains:
+
+@example
+char K H-sb , uc-min-sb
+char L H-sb , uc-min-sb
+@end example
+
+Then the CMI file you write for a particular font can define @code{H-sb}
+and @code{uc-min-sb}, and not have to redefine the side bearings for
+@code{K} and @code{L}.
+
+
+@node char-width command, define command, char command, CMI files
+@subsection @code{char-width} command
+
+@cmindex char-width @r{CMI command}
+@cindex side bearings, defining in CMI files
+
+The @code{char-width} command specifies the set width and left side
+bearing as a percentage of the total remaining space for a single
+character.  It has the form:
+
+@example
+char-width @var{charname} @var{width-expr} , @var{lsb-%-expr}
+@end example
+
+@noindent where:
+
+@table @var
+
+@item charname
+is a character name from the font encoding.  @xref{Invoking Charspace},
+for how to specify the encoding file.
+
+@cindex width in @code{char-width} command
+@cindex character width in @code{char-width} command
+@cindex set width in @code{char-width} command
+@item width-expr
+specifies the set width of the character in pixels.  The @dfn{set width}
+is the sum of the bitmap width, left side bearing, and right side
+bearing.
+
+@cindex left side bearing in @code{char-width} command
+@item lsb-%-expr
+specifies the left side bearing as a percentage of @var{width-expr}
+minus the bitmap width of the character.  Expressing the lsb as a
+percentage means that you need not think about the width of the
+character image: if you want to center a character, for example,
+@samp{.5} for @var{lsb-%-expr} will always work.
+
+@end table
+
+The @code{char-width} command is useful when you want a character to
+have a particular set width, since it's much simpler to specify that
+width and the left side bearing (and let the program compute the right
+side bearing) than to somehow estimate the bitmap width and then choose
+the side bearings to add up to the desired set width.
+
+@cindex widths of numerals
+@cindex numeral widths
+@vindex numeral-width @r{variable in @file{common.cmi}}
+@flindex common.cmi@r{, numerals in}
+For example, in most fonts, the numerals all have the same width, to
+ease typesetting of columns of them in tables.  Thus, @file{common.cmi}
+defines @code{eight} (the name for the numeral @samp{8}) as follows:
+
+@example
+char-width eight numeral-width , eight-lsb-percent
+@end example
+
+@noindent Since the numeral width is traditionally one-half the em width of
+the font, @file{common.cmi} defines @code{numeral-width} as
+@code{enspace}, which in turn is defined to be half the @code{quad}
+fontdimen.
+
+@code{eight-lsb-percent} is defined to be @samp{.5}, thus centering the
+@samp{8}.
+
+The other numerals are also defined to have width @code{numeral-width},
+but the @code{lsb-percent}s vary according to the character shapes.
+
+
+@node define command, kern command, char-width command, CMI files
+@subsection @code{define} command
+
+@cmindex define @r{CMI command}
+@cindex identifier, defining in CMI files
+
+The @code{define} command defines an identifier as a number.  This is
+useful to give a symbolic name to a constant used in more than one
+character or fontdimen definition, for ease of change.
+It has the form:
+
+@example
+define @var{id} @var{expr}
+@end example
+
+The identifier @var{id} is defined to be the expression @var{expr}.  Any
+previous definition of @var{id} is replaced.  The @var{id} can be used
+prior to the @code{define} command; Charspace doesn't try to resolve any
+definitions in the CMI files until after all files have been read.
+
+
+@node kern command, codingscheme command, define command, CMI files
+@subsection @code{kern} command
+
+@cmindex kern @r{CMI command}
+@cindex kerns, defining in CMI files
+
+The @code{kern} command defines a space to insert or remove between two
+particular characters.  The kerning information is written only to the
+TFM file.  It has the form:
+
+@example
+kern @var{name1} @var{name2} @var{expr}
+@end example
+
+@noindent where @var{name1} and @var{name2} are character names, as in
+the @code{char} command (@pxref{char command}), and @var{expr} is the
+amount of the kern in pixels.
+
+For example:
+
+@example
+kern F dot -7.5
+@end example
+
+@noindent would put an entry in the TFM file's kerning table such that
+when @TeX{} typesets a @samp{F} followed by a @samp{.}, it inserts
+an additional space equivalent to @math{-7.5} pixels in the resolution of
+Charspace's input font, i.e., it moves the two characters closer together.
+
+
+@node codingscheme command, fontdimen command, kern command, CMI files
+@subsection @code{codingscheme} command
+
+@cmindex codingscheme @r{CMI command}
+@cindex encoding scheme, specifying
+@cindex font encoding, specifying
+
+The @code{codingscheme} command defines the encoding scheme to be used
+for the output files.  (@xref{Encoding files}, for a full description of
+font encodings.)  It has the form:
+
+@example
+codingscheme @var{string-constant}
+@end example
+
+@flindex encoding.map
+@noindent where @var{string-constant} is a coding scheme string; for
+example, @samp{"GNU Latin text"}.  This string is looked up in the data
+file @file{encoding.map} to find the name of the corresponding encoding
+file (@pxref{Coding scheme map file}).
+
+
+@node fontdimen command, CMI processing, codingscheme command, CMI files
+@subsection @code{fontdimen} command
+
+@cmindex fontdimen @r{CMI command}
+@cindex fontdimens in CMI files
+
+The @code{fontdimen} command defines a font parameter to be put in the
+TFM file.  It has the form:
+
+@example
+fontdimen @var{fontdimen-name} @var{expr}
+@end example
+
+@noindent where @var{fontdimen-name} is any of the fontdimen names
+listed in the section below, and @var{expr} gives the new value of the
+fontdimen, in pixels.
+
+For example, @file{common.cmi} (@pxref{Charspace usage}) makes the
+following definitions:
+
+@example
+fontdimen quad designsize
+fontdimen space .333 quad
+@end example
+
+@noindent This defines the fontdimen @code{quad}, which determines the
+width of the @code{em} dimension in @TeX{}, to be the same as the design
+size of the font.  (This is traditionally the case, although it is not a
+hard-and-fast rule.)  Then it defines the fontdimen @code{space}, which
+is the normal interword space in @TeX{}, to be one-third of the quad.
+
+Because of the way that Charspace processes the CMI files
+(@pxref{CMI processing}), if you redefine the @code{quad} fontdimen in
+another CMI file, the value of @code{space} will change correspondingly.
+
+The section below lists all the TFM fontdimen names Charspace
+recognizes, and their meaning to @TeX{}.
+
+@menu
+* TFM fontdimens::              All the valid fontdimens.
+@end menu
+
+
+@node TFM fontdimens,  ,  , fontdimen command
+@subsubsection TFM fontdimens
+
+@cindex fontdimens in TFM files
+@cindex TFM fontdimens
+@cindex global font parameters
+@cindex parameters, global in TFM files
+
+This section lists all the TFM fontdimens recognized by these programs:
+all those recognized by @TeX{}, plus a few others we thought would prove
+useful when writing @TeX{} macros.
+
+A @dfn{fontdimen} is an arbitrary number, in all cases but one
+(@code{slant}, see below) measured in printer's points, which is
+associated with a particular font.  Their values are stored in the TFM
+file for the font.  We also refer, context permitting, to fontdimens as
+``font parameters'', or simply ``parameters''.
+
+Fontdimens affect many aspects of @TeX{}'s behavior: the interword
+spacing, accent placement, and math formula construction.  The math
+fontdimens in particular are fairly obscure; if you don't have a firm
+grasp on how @TeX{} constructs math formulas, the explanations below
+will probably be meaningless to you, and---unless you're making a font
+for math typesetting---can be ignored.
+
+@flindex common.cmi
+The @file{common.cmi} file which Charspace reads sets reasonable
+defaults for the fontdimens relevant to normal text typesetting.
+
+@cindex fontdimens, scaled fonts and
+When @TeX{} (or other programs) scale a font, its fontdimen values are
+scaled proportionally to the design size.  For example, suppose the
+designsize of some font @var{f} is 10@dmn{pt}, and some fontdimen in
+@var{f} has the value 7.5@dmn{pt}.  Then if the font is used scaled to
+20@dmn{pt}, the fontdimen's value is scaled to 15@dmn{pt}.
+
+@pindex pltotf
+You can get the table of fontdimen values in a particular TFM file by
+running the standard @TeX{} utility program PLtoTF and inspecting its
+(human-readable text) output.
+
+In our programs and in PLtoTF, fontdimens are typically shown by their
+names.  But each also has a number, starting at 1.  You can use either
+the number or the name on the command line (in the argument to the
+@samp{-fontdimens} option).  The numbers are given in parentheses after
+the name in the table below.
+
+@cindex math symbol fonts
+@cindex math extension fonts
+@cindex extension, math fonts
+@cindex math families in @TeX{}
+In a few cases (fontdimens 8--13), the same number fontdimen has two
+different names, and two different meanings.  This does not cause
+problems in practice, because these fontdimens are used only in the
+@TeX{} math symbol and math extension fonts, which @TeX{} can
+distinguish via its ``math families'' (see @cite{The @TeX{}book} for
+the details).
+
+@c The variable index doesn't seem quite right for the fontdimen names,
+@c but I can't think of anything better, and it doesn't make any
+@c practical difference, since we conglomerate all the indices into one anyway.
+@table @code
+
+@vindex slant @r{fontdimen}
+@cindex font slant
+@item slant @r{(1)}
+Unlike all other fontdimens, the @code{slant} parameter is not scaled
+with the font when it is loaded.  It defines the ``slant per pt'' of the
+font; for example, a @code{slant} of 0.2 means a 1@dmn{pt}-high
+character stem would end 0.2@dmn{pt} to the right of where it began.
+This value is typical for slanted or italic fonts; for normal upright
+fonts, @code{slant} is zero, naturally.  @TeX{} uses this to position
+accents.
+
+@vindex space @r{fontdimen}
+@cindex font spacing
+@cindex interword space
+@item space @r{(2)}
+The @code{space} parameter defines the normal interword space of the
+font.  This is typically about one-third of the design size, but it
+varies according to the type design: a narrow, spiky typeface will
+have a small interword space relative to a wide, regular one.
+Exception: in math fonts, the interword space is zero.
+
+@vindex stretch @r{fontdimen}
+@item stretch @r{(3)}
+The @code{stretch} parameter defines the interword stretch of the font.
+This is typically about one-half of the @code{space} parameter.  @TeX{}
+is reluctant to increase interword spacing beyond the width
+@math{@code{space} + @code{stretch}}.  In monospaced fonts, the stretch
+is typically zero.
+
+@vindex shrink @r{fontdimen}
+@item shrink @r{(4)}
+The @code{shrink} parameter defines the interword shrink of the font.
+This is typically about one-third of the @code{space} parameter.  @TeX{}
+does not decrease interword spacing beyond the width @math{@code{space}
+- @code{shrink}}.  In monospaced fonts, the shrink is typically zero.
+
+@vindex xheight @r{fontdimen}
+@item xheight @r{(5)}
+The @code{xheight} parameter defines the x-height of the font, i.e., the
+main body size.  The height of the lowercase `x' is often used for this,
+since neither the top nor the bottom of `x' are curves.  There is no
+hard-and-fast rule in @TeX{} that the x-height must equal the height of
+`x', however.
+
+@vindex ex @r{@TeX{} dimension}
+This fontdimen defines the value of the @code{ex} dimension in @TeX{}.
+@TeX{} also uses this to position: it assumes the accents in the font
+are properly positioned over a character that is exactly 1@dmn{ex} high.
+
+@vindex quad @r{fontdimen}
+@vindex em @r{@TeX{} dimension}
+@item quad @r{(6)}
+The @code{quad} fontdimen defines the value of the @code{em} dimension
+in @TeX{}.  This is often the same as the design size of the font, but
+as usual, that's not an absolute requirement.
+
+Typesetters often use @code{em}s and @code{ex}s instead of hardwiring
+dimensions in terms of (say) points; that way, experimenting with
+different fonts for a particular job does not require changing the
+dimensions.
+
+@vindex extraspace @r{fontdimen}
+@cindex sentence-ending space
+@findex \spacefactor
+@item extraspace @r{(7)}
+The @code{extraspace} fontdimen defines the space @TeX{} puts at the end
+of sentence.  (Technically, when the @code{\spacefactor} is 20000 or
+more.)  This is typically about one-sixth of the normal interword space.
+
+@vindex num1 @r{fontdimen}
+@item num1 @r{(8)}
+
+(Sorry, we haven't written a description of the math fontdimens yet.)
+
+@vindex num2 @r{fontdimen}
+@item num2 @r{(9)}
+
+@vindex num3 @r{fontdimen}
+@item num3 @r{(10)}
+
+@vindex denom1 @r{fontdimen}
+@item denom1 @r{(11)}
+
+@vindex denom2 @r{fontdimen}
+@item denom2 @r{(12)}
+
+@vindex sup1 @r{fontdimen}
+@item sup1 @r{(13)}
+
+@vindex sup2 @r{fontdimen}
+@item sup2 @r{(14)}
+
+@vindex sup3 @r{fontdimen}
+@item sup3 @r{(15)}
+
+@vindex sub1 @r{fontdimen}
+@item sub1 @r{(16)}
+
+@vindex sub2 @r{fontdimen}
+@item sub2 @r{(17)}
+
+@vindex supdrop @r{fontdimen}
+@item supdrop @r{(18)}
+
+@vindex subdrop @r{fontdimen}
+@item subdrop @r{(19)}
+
+@vindex delim1 @r{fontdimen}
+@item delim1 @r{(20)}
+
+@vindex delim2 @r{fontdimen}
+@item delim2 @r{(21)}
+
+@vindex axisheight @r{fontdimen}
+@item axisheight @r{(22)}
+
+@vindex defaultrulethickness @r{fontdimen}
+@item defaultrulethickness @r{(8)}
+
+@vindex bigopspacing1 @r{fontdimen}
+@item bigopspacing1 @r{(9)}
+
+@vindex bigopspacing2 @r{fontdimen}
+@item bigopspacing2 @r{(10)}
+
+@vindex bigopspacing3 @r{fontdimen}
+@item bigopspacing3 @r{(11)}
+
+@vindex bigopspacing4 @r{fontdimen}
+@item bigopspacing4 @r{(12)}
+
+@vindex bigopspacing5 @r{fontdimen}
+@item bigopspacing5 @r{(13)}
+
+@vindex leadingheight @r{fontdimen}
+@cindex leading
+@cindex interline space
+@cindex space, between lines
+@cindex strut height
+@findex \strutbox
+@item leadingheight @r{(23)}
+The @code{leadingheight} parameter defines the height component of the
+recommended leading for this font.  @dfn{Leading} is the
+baseline-to-baseline distance when setting lines of type.
+
+@TeX{} does not automatically use this fontdimen, and the standard
+@TeX{} fonts do not define it, but you may wish to include it in new
+fonts for the benefit of future @TeX{} macro.  This fontdimen is a GNU
+extension.
+
+@vindex leadingdepth @r{fontdimen}
+@item leadingdepth @r{(24)}
+The @code{leadingdepth} parameters defines the depth of the recommended
+leading for this font.  See @code{leadingheight} directly above.  This
+fontdimen is a GNU extension.
+
+@vindex fontsize @r{fontdimen}
+@item fontsize @r{(25)}
+The @code{fontsize} parameter is the design size of the font.  This is
+needed for @TeX{} macros to find the font's design size.  This fontdimen
+is a GNU extension.
+
+@vindex version @r{fontdimen}
+@cindex character dimensions, changing
+@cindex ligkern table, changing
+@cindex compatibility of fonts
+@item version @r{(26)}
+The @code{version} parameter identifies a particular version of the TFM
+file.  Whenever the character dimensions, kerns, or ligature table for a
+font changes, it is good to increment the version number.  It is also good
+to keep such changes to a minimum, since they can change the line breaks
+and page breaks in documents typeset with previous versions.  This
+fontdimen is a GNU extension.
+@end table
+
+
+@node CMI processing,  , fontdimen command, CMI files
+@subsection CMI processing
+
+@cindex CMI files, processing
+
+Here are some further details on how Charspace processes the CMI files:
+
+@itemize @bullet
+
+@cindex namespace in CMI files
+@cindex redefining identifiers in CMI files
+@cindex identifiers, redefining in CMI files
+@item
+Charspace uses a single @dfn{namespace}; i.e., each defined identifier,
+whether it be a character name, an internal identifier, a fontdimen
+name, or whatever, is stored in the same table.  Furthermore, Charspace
+does not complain, or even warn, about redefinition of identifiers: as
+we build up CMI files to be shared among different fonts, we felt such
+redefinition would be common.
+
+@cindex use-before-definition in CMI files
+@cindex definition-before-use in CMI files
+@item
+Charspace does not insist that identifiers be used before they are
+defined.  For example, the following sequence:
+
+@example
+define foo bar
+define bar 1.0
+char A foo , bar
+@end example
+
+@noindent is valid, and defines both side bearings of @samp{A} to be
+1.0.  (See the preceding sections for the definition of the various
+commands allowed in CMI files.)
+
+@cindex resolution of definitions
+@item
+Charspace only tries to resolve the definitions of those identifiers
+which are actually used to produce the output files (i.e., those in a
+sidebearing definition, a kern value, or a fontdimen value).  Thus,
+something like
+
+@example
+define foo bar
+@end example
+
+@noindent will elicit no complaint, if @samp{foo} is not needed to make
+the output files.
+
+@item
+Charspace reads the contents of all the CMI files before attempting to
+resolve any definitions.  Thus, it is the last definition which counts.
+For example:
+
+@example
+define bar 100
+define foo 2 bar
+define bar 1
+char A foo , foo
+@end example
+
+@noindent defines both side bearings of @samp{A} to be 2, not 200.
+
+@vindex designsize @r{predefined for CMI files}
+@item
+Charspace predefines one identifier, @code{designsize}, to be the
+design size of the input font (in pixels).  It can be redefined like any
+other identifier.
+
+@end itemize
+
+@flindex char.c
+@flindex cmi.y
+If you can read programs in the C language, you may find it instructive
+to examine the implementation of CMI file processing in the source files
+@file{charspace/char.c} and @file{charspace/cmi.y}.  The source provides
+the full details of CMI processing.
+
+
+@node Invoking Charspace,  , CMI files, Charspace
+@section Invoking Charspace
+
+@cindex Charspace options
+@cindex invocation of Charspace
+@cindex options for Charspace
+
+This section describes the options that Charspace accepts.
+@xref{Command-line options}, for general option syntax.
+
+The root of the main input fontname is called @var{font-name} below.
+
+@table @samp
+
+@opindex -cmi-files
+@item -cmi-files @var{file1},@var{file2},@dots{}
+read the CMI files @file{@var{file1}.@var{dpi}cmi},
+@file{@var{file2}.@var{dpi}cmi}, etc., where @var{dpi} is the resolution
+of the main input font.  Default is to read
+@file{@var{font-name}.@var{dpi}cmi}.  The @file{.@var{dpi}cmi} is not
+appended to any of the @var{file}s which already have a suffix.
+
+@flindex common.cmi
+@file{common.cmi} is read before any of these files.
+
+@opindex -dpi
+@item -dpi @var{unsigned}
+The resolution, in pixels per inch.  @xref{Common options}.
+
+@opindex -encoding
+@item -encoding @var{enc-file}
+The encoding file to read for the mapping between character codes in the
+input font and character names.  @xref{Encoding files}.  If
+@var{enc-file} has no suffix, @samp{.enc} is appended.  The default is
+to read the encoding file specified via the @code{codingscheme} command
+(@pxref{codingscheme command}).
+
+If a TFM file @file{@var{font-name}.tfm} exists, it is also read for
+default ligature, headerbyte, and fontdimen information.  Definitions in
+the CMI files override those in such a TFM file.
+
+@opindex -fontdimens
+@item -fontdimens @var{fd1}:@var{value1},@var{fd2}:@var{value2},@dots{}
+@xref{TFM fontdimens}.
+
+@opindex -help
+@item -help
+Print a usage message.  @xref{Common options}.
+
+@opindex -no-gf
+@item -no-gf
+Don't output a revised GF file.  This is primarily useful while
+debugging the TFM output, since without a bitmap font to match the TFM
+output, you can't actually print anything reliably.
+
+@opindex -output-file
+@cindex output file, naming
+@item -output-file @var{filename}
+If @var{filename} does not have a suffix, write the output to
+@file{@var{filename}.tfm} and (if @samp{-no-gf} was not specified)
+@file{@var{filename}.@var{dpi}gf}.  If this would overwrite an input
+file, prepend an @samp{x} to the output name.
+
+If @var{filename} has a suffix, and @samp{-no-gf} was not specified,
+Charspace complains and gives up, since it can't output two files with
+the same name.
+
+By default, use the name of the main input font for @var{filename}.
+
+@opindex -range
+@item -range @var{char1}-@var{char2}
+Only output characters with codes between @var{char1} and @var{char2},
+inclusive.  (@xref{Common options}, and @ref{Specifying character codes}.)
+
+@opindex -verbose
+@item -verbose
+Output progress reports.
+
+@opindex -version
+@item -version
+Print the version number.
+
+@opindex -xheight-char
+@item -xheight-char @var{code}
+Use the TFM height of @var{code} for the @code{xheight} fontdimen
+(@pxref{TFM fontdimens}); default is 120 (ASCII @samp{x}).  (It is
+reasonable to use 120 instead of whatever @samp{x} is in the underlying
+character set because most font encoding schemes are based on ASCII
+regardless of the host computer's character set.)
+
+@end table

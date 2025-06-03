@@ -1,0 +1,540 @@
+#! /bin/sh
+
+trap "rm -f tmp*; exit 0" 0
+trap "rm -f tmp*; exit 1" 1 2 3 15
+
+die()
+{
+    echo "$*"
+    exit 1
+}
+
+yorn()
+{
+    while :
+    do
+        read ans
+
+	case "${ans:-$1}" in
+	[Yy]*)	return 0
+		;;
+	[Nn]*)	return 1
+		;;
+	*)	nonl "Please respond 'Y' or 'N': "
+		;;
+	esac
+    done
+}
+
+find_exe()
+{
+for i in `echo $PATH |
+	  sed -e 's/^:/.:/' \
+		  -e 's/::/:.:/g' \
+		  -e 's/:$/:./' \
+		  -e 's/:/ /g`
+do
+	if [ -x "$i/$1" ]
+	then
+		return 0
+	fi
+done
+return 1
+}
+
+case `echo -n` in
+-n)	nonl() { echo "$*\c"; };;
+*)	nonl() { echo -n "$*"; };;
+esac
+
+echo
+echo "XC Configuration Utility -- written by lar3ry gensch, ESQ"
+echo
+echo "When a default answer is suggested [in brackets],"
+echo "you may accept it by just hitting <ENTER>."
+echo
+
+need_answers=true
+
+if [ -f configure.out ]
+then
+    echo "Configure has already been run."
+    nonl "Do you wish to use the previous results? (Y/N) [N]: "
+    if yorn N
+    then
+		. ./configure.out
+		need_answers=false
+    fi
+fi
+
+if $need_answers
+then
+    UUCPLIBDIR=/usr/lib/uucp
+
+    if [ ! -d "$UUCPLIBDIR" ]
+    then
+		echo "*** Warning:  Cannot determine UUCP lib directory"
+		echo "***           Using $UUCPLIBDIR"
+		echo
+    fi
+
+    if [ -f $UUCPLIBDIR/ungetty -a -f /xenix ]
+    then
+		DIDO="2"	
+    elif [ -d /var/spool/locks -a -f /usr/include/sys/mkdev.h ]
+    then
+		DIDO="4"
+    elif [ -f /unix ]
+    then
+		DIDO="3"
+    else
+		DIDO="0"
+    fi
+
+    echo
+    echo "Determining compile environment..."
+
+    CC=""
+    COPTS=""
+
+	while :
+	do
+		if find_exe gcc
+		then
+			CC=gcc
+			COPTS="-O2"
+		elif find_exe cc
+		then
+			CC=cc
+			COPTS="-O"
+		else
+			CC=""
+		fi
+
+		nonl "C compiler to use [${CC}]: "
+		read cc
+
+		[ -n "$cc" ] && CC="$cc"
+
+		if find_exe $CC
+		then
+		   break
+		fi
+	done
+
+    echo
+    echo "C Compiler is $CC"
+
+    default="$COPTS"
+    while :
+    do
+		echo
+		nonl "Enter compiler options [$default]: "
+		read ans
+
+		[ -n "$ans" ] && COPTS="$ans"
+
+		echo "main() { }" >tmp.c
+		$CC $COPTS tmp.c -o tmp >/dev/null 2>&1 && break
+
+		echo "Those options don't seem quite right... try again."
+    done
+
+	echo
+	echo "Determining where to find screen control functions..."
+
+	echo "main() { tgetent(); }" >tmp.c
+	for LDFLAGS in -ltermcap -ltinfo -lcurses ""
+	do
+		$CC tmp.c -o tmp $LDFLAGS >/dev/null 2>&1 && break
+	done
+		
+	if [ ! $LDFLAGS ]
+	then
+		echo
+		echo "*** We tried -ltermcap, -ltinfo, and -lcurses without success."
+		while :
+		do
+			nonl "Enter a '-lLIB' option for a screen control library: "
+			read LDFLAGS
+
+			$CC tmp.c -o tmp $LDFLAGS >/dev/null 2>&1 && break
+
+			echo "That isn't finding the tgetent() function... try again."
+			echo
+		done
+	fi
+
+    if [ -f /lib/libc_s.a -o -f /usr/lib/libc_s.a ]
+    then
+		LDFLAGS="$LDFLAGS -lc_s"
+    fi
+
+	echo
+    echo "LDFLAGS = $LDFLAGS"
+
+    echo
+    echo "Checking run time library for functions..."
+
+    eval `for i in "dup2(i,j)" \
+		   "memset(s,c,i)" \
+		   "strchr(s,c)" \
+		   "strrchr(s,c)" \
+		   "strdup(s)" \
+		   "strstr(s,t)"
+    do
+		funct=\`echo "$i" | sed 's/(.*$//'\`
+
+		cat >tmp.c <<!
+int i,j;
+char *s,*t;
+char c;
+main() { $i; }
+!
+
+		$CC $COPTS -o tmp tmp.c $LDFLAGS >/dev/null 2>&1 || rm -f tmp
+		if [ -f tmp ]
+		then
+			val="1"
+			echo "    $funct was found" 1>&2
+		else
+			val="0"
+			echo "    $funct was not found" 1>&2
+		fi
+
+		rm -f tmp*
+		echo "have_${funct}=$val"
+    done`
+
+    echo
+    echo "Checking <sys/types.h> for typedefs..."
+
+    eval `for i in pid_t ulong unchar ushort
+    do
+		if [ ! -f /usr/include/sys/types.h ]
+		then
+			echo "have_$i=false"
+			continue
+		fi
+
+		cat >tmp.c <<!
+#include <sys/types.h>
+$i foo;
+!
+
+		$CC $COPTS -c tmp.c >/dev/null 2>&1
+		if [ -f tmp.o ]
+		then
+			val=1
+			echo "    $i was found" 1>&2
+		else
+			val=0
+			echo "    $i was not found" 1>&2
+		fi
+
+		echo "have_$i=$val"
+		rm -f tmp*
+    done`
+
+    echo
+    echo "XC Local Configuration Section"
+
+    while :
+    do
+		nonl "Enter user name to own xc [uucp]: "
+
+		read ans
+
+		OWNER="${ans:-uucp}"
+
+		case "$OWNER" in
+		*:*)	echo "Invalid user name"
+			;;
+		*)	grep "^${OWNER}:" /etc/passwd >/dev/null 2>&1 && break
+			echo "User $OWNER not found in /etc/passwd"
+			;;
+		esac
+    done
+
+    while :
+    do
+		nonl "Enter group name to own xc [uucp]: "
+
+		read ans
+
+		GROUP="${ans:-uucp}"
+
+		case "$GROUP" in
+		*:*)	echo "Invalid group name"
+			;;
+		*)	grep "^${GROUP}:" /etc/group >/dev/null 2>&1 && break
+			echo "Group $GROUP not found in /etc/group"
+		;;
+		esac
+    done
+
+    while :
+    do
+		nonl "Enter permissions for xc executable [4755]: "
+
+		read ans
+
+		BINMODE="${ans:-4755}"
+
+		case "$BINMODE" in
+		[0-1][0-7][0-7][0-7]|[0-7][0-7][0-7])
+			echo "*** Warning permissions are not SUID or SGID"
+			INSTALL="install"
+			break
+			;;
+
+		[2-7][0-7][0-7][0-7])
+			INSTALL="install.suid"
+			INSTPREF="su to 'root', and then "
+			break
+			;;
+		*)	echo "Invalid permissions"
+			;;
+		esac
+    done
+
+    echo
+
+    MDIR=""
+    MANDIR=""
+    MANEXT=""
+
+    for i in /usr/local/man /usr/catman /usr/man
+    do
+        if [ -d "$i" ]
+	then
+	    MANDIR=$i
+	    break
+	fi
+    done
+
+    if [ -z "$MANDIR" ]
+    then
+		echo "*** Warning:  Cannot determine MANDIR"
+		echo "              Using /usr/man/mann"
+		MANDIR=/usr/man
+		MDIR=mann
+		MANEXT=n
+	else
+        eval `for i in cat man
+		do
+			for j in n l 1 L LOCAL
+			do
+				dir=${i}${j}
+				if [ -d "$MANDIR/$dir" ]
+				then
+					echo MDIR=$dir
+					echo MANEXT=$j
+					break 2
+				fi
+				dir=${i}.${j}
+				if [ -d "$MANDIR/$dir" ]
+				then
+					echo MDIR=$dir
+					echo MANEXT=$j
+					break 2
+				fi
+			done
+		done`
+
+		if [ -z "$MDIR" ]
+		then
+			echo "*** Warning: Could not locate online man pages"
+			MDIR=mann
+			MANEXT=n
+		fi
+    fi
+
+    echo "Using MANDIR $MANDIR/$MDIR ..."
+    echo
+
+    case "$MDIR" in
+    cat*)	CATMAN=true
+		;;
+    *)		CATMAN=false
+		;;
+    esac
+
+    default=""
+	for i in /usr/local/bin /pub/bin /usr/lbin /usr/bin/local /u/bin
+	do
+		if [ -d "$i" ]
+		then
+			default="$i"
+			break
+		fi
+	done
+
+    while :
+    do
+		nonl "Enter installation directory [$default]: "
+		read ans
+
+		INSDIR="${ans:-$default}"
+
+		case "$INSDIR" in
+		/*)	[ -d "$INSDIR" ] && break
+			echo "Directory $ans was not found"
+			;;
+		*)	echo "Directory $ans is not an absolute path"
+			;;
+		esac
+	done
+
+    echo
+    nonl "Do you wish to add DEBUG code into XC? (Y/N) [Y]: "
+    if yorn Y
+	then
+		DEBUG="1"
+    else
+		DEBUG="0"
+    fi
+
+    echo
+    nonl "Do you wish to disallow shell escapes? (Y/N) [N]: "
+
+    if yorn N
+	then
+		NOSHELL="1"
+    else
+		NOSHELL="0"
+    fi
+
+    echo
+    nonl "Does dropping carrier cause your modem to hang up? (Y/N) [Y]: "
+
+    if yorn Y
+	then
+		DTR_DROPS_CARRIER="1"
+    else
+		DTR_DROPS_CARRIER="0"
+    fi
+
+    default=""
+    for i in /usr/local/lib /usr/lib/local /usr/lib /u/lib
+    do
+        if [ -d "$i" ]
+	then
+	    default="$i/xc"
+	    break
+	fi
+    done
+
+    echo
+    while :
+    do
+		nonl "Enter default XC data file directory [$default]: "
+
+		read ans
+
+		LIBDIR=${ans:-$default}
+
+		case "$LIBDIR" in
+		/*)	[ -d "$LIBDIR" ] && break
+			parent=`dirname $LIBDIR`
+			[ -d "$parent" -a ! -f $LIBDIR ] && break
+			if [ -d "$parent" ]
+			then
+				echo "$LIBDIR is not a directory"
+			else
+				echo "Parent directory $parent not found"
+			fi
+			;;
+		*)	echo "Directory $LIBDIR is not an absolute path"
+			;;
+		esac
+	done
+
+    DATE=`date`
+	USER=`id | sed -e 's/[^(]*(//' -e s'/).*$//'`
+
+    cat >./configure.out <<!
+BINMODE="$BINMODE"
+CATMAN="$CATMAN"
+CC="$CC"
+COPTS="$COPTS"
+DATE="$DATE"
+DEBUG="$DEBUG"
+DIDO="$DIDO"
+DTR_DROPS_CARRIER="$DTR_DROPS_CARRIER"
+GROUP="$GROUP"
+have_dup2="$have_dup2"
+have_memset="$have_memset"
+have_pid_t="$have_pid_t"
+have_strchr="$have_strchr"
+have_strdup="$have_strdup"
+have_strrchr="$have_strrchr"
+have_strstr="$have_strstr"
+have_ulong="$have_ulong"
+have_unchar="$have_unchar"
+have_ushort="$have_ushort"
+INSDIR="$INSDIR"
+INSTALL="$INSTALL"
+INSTPREF="$INSTPREF"
+LDFLAGS="$LDFLAGS"
+LIBDIR="$LIBDIR"
+MANDIR="$MANDIR"
+MANEXT="$MANEXT"
+MDIR="$MDIR"
+NOSHELL="$NOSHELL"
+OWNER="$OWNER"
+USER="$USER"
+!
+fi
+
+set -e
+
+echo
+echo "Creating xc.h ..."
+
+sed "
+s;{{DATE}};$DATE;g
+s;{{DEBUG}};$DEBUG;g
+s;{{DIDO}};$DIDO;g
+s;{{DTR_DROPS_CARRIER}};$DTR_DROPS_CARRIER;g
+s;{{HAVE_DUP2}};$have_dup2;g
+s;{{HAVE_MEMSET}};$have_memset;g
+s;{{HAVE_PID_T}};$have_pid_t;g
+s;{{HAVE_STRCHR}};$have_strchr;g
+s;{{HAVE_STRDUP}};$have_strdup;g
+s;{{HAVE_STRRCHR}};$have_strrchr;g
+s;{{HAVE_STRSTR}};$have_strstr;g
+s;{{HAVE_ULONG}};$have_ulong;g
+s;{{HAVE_UNCHAR}};$have_unchar;g
+s;{{HAVE_USHORT}};$have_ushort;g
+s;{{LIBDIR}};$LIBDIR;g
+s;{{NOSHELL}};$NOSHELL;g
+s;{{USER}};$USER;g
+" xc.h.in >xc.h
+
+echo
+echo "Creating Makefile.xc ..."
+
+sed "
+s;{{BINMODE}};$BINMODE;g
+s;{{CATMAN}};$CATMAN;g
+s;{{CC}};$CC;g
+s;{{COPTS}};$COPTS;g
+s;{{DATE}};$DATE;g
+s;{{GROUP}};$GROUP;g
+s;{{INSDIR}};$INSDIR;g
+s;{{INSTALL}};$INSTALL;g
+s;{{INSTPREF}};$INSTPREF;g
+s;{{LDFLAGS}};$LDFLAGS;g
+s;{{LIBDIR}};$LIBDIR;g
+s;{{MANDIR}};$MANDIR;g
+s;{{MANEXT}};$MANEXT;g
+s;{{MDIR}};$MDIR;g
+s;{{OWNER}};$OWNER;g
+s;{{USER}};$USER;g
+" Makefile.in >Makefile.xc
+
+echo
+echo "XC Configuration is now complete..."
+
+exit 0

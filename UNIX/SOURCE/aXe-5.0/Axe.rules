@@ -1,0 +1,79 @@
+/* Borrowed from R5 for R4 case */
+/* if [ -d ] or [ ! -d ] causes make to fail, define this as - */
+#ifndef DirFailPrefix
+#define DirFailPrefix
+#endif
+
+#ifndef MakeDir
+#define MakeDir(dir) DirFailPrefix@if [ -d dir ]; then set +x; \        @@\
+		else (set -x; $(MKDIRHIER) dir); fi
+#endif
+/* End of R5 borrowing */
+
+#define MakeAxeDefaults(helpdir,interp)					@@\
+all::	Axe.ad								@@\
+									@@\
+Axe.ad:	Axe.ad.sed version.h Imakefile					@@\
+	sed -e "s/VERSION/`sed -e 's/.*VERSION \(.*\)/\1/;q' <version.h`/" \@@\
+	    -e "s+EXTENSION+interp+"				       \@@\
+            -e "s+AXELIBDIR+helpdir+" <Axe.ad.sed >Axe.ad		@@\
+									@@\
+clean::									@@\
+	$(RM) Axe.ad
+
+#define InstallAxeDefaults(class,dest)                                  @@\
+install:: class.ad                                                      @@\
+	MakeDir($(DESTDIR)dest)			                        @@\
+	$(INSTALL) -c $(INSTAPPFLAGS) class.ad $(DESTDIR)dest/class
+
+#define ComplaxeProgramTarget(program,bindest,appdest,mandest,helpdest)	@@\
+        PROGRAM = program                                               @@\
+                                                                        @@\
+all::									@@\
+	@echo Making in .						@@\
+									@@\
+AllTarget(program)			                                @@\
+									@@\
+program: $(OBJS) $(DEPLIBS)                                             @@\
+	RemoveTargetProgram($@)                                         @@\
+	$(CC) -o $@ $(OBJS) $(LDOPTIONS) $(LOCAL_LIBRARIES) $(LDLIBS) $(EXTRA_LOAD_FLAGS) @@\
+                                                                        @@\
+SaberProgramTarget(program,$(SRCS),$(OBJS),$(LOCAL_LIBRARIES),NullParameter) @@\@@\
+install::								@@\
+	MakeDir($(DESTDIR)bindest)					@@\
+	MakeDir($(DESTDIR)appdest)					@@\
+	MakeDir($(DESTDIR)mandest)					@@\
+	MakeDir($(DESTDIR)helpdest)					@@\
+									@@\
+InstallProgram(program,bindest)		                                @@\
+InstallManPage(program,mandest)						@@\
+DependTarget()                                                          @@\
+LintTarget()                                                            @@\
+                                                                        @@\
+clean::                                                                 @@\
+	$(RM) $(PROGRAM)						@@\
+									@@\
+Xaw3d::									@@\
+	${RM} ${XAW3D_DEPS}						@@\
+	make includes							@@\
+	make								@@\
+									@@\
+extension::								@@\
+	${RM} ${EXTN_DEPS}						@@\
+	make
+
+#define InstallCoaxe(bindest)						@@\
+InstallProgram(coaxe,bindest)						@@\
+install::								@@\
+	if [ -f bindest/faxe ]; then set +x; \				@@\
+	else (set -x; $(LN) bindest/coaxe bindest/faxe); fi		@@\
+	if [ -f bindest/poleaxe ]; then set +x; \			@@\
+	else (set -x; $(LN) bindest/coaxe bindest/poleaxe); fi		@@
+
+#define BuildThreeDIncludes(incdir)		                        @@\
+includes::                                                              @@\
+        MakeDir(X11/Xaw3d/X11)                                		@@\
+        @(set -x; cd X11/Xaw3d/X11; for i in Xaw Xaw3d; do \		@@\
+                $(RM) $$i; \                                            @@\
+                ln -s incdir $$i; \   					@@\
+        done)

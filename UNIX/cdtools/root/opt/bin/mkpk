@@ -1,0 +1,53 @@
+#!/opt/bin/bash
+# Helper script for mkpackage. Do not run this script directly,
+# lt leaves a lot of checks to mkpackage.
+if [ "$CDROM" = "" ]; then
+  CDROM=/cdcopy
+fi
+
+cd $1/package.LEMIS
+if [ $? -ne 0 ]; then
+  exit
+fi
+# Now strip any binaries. Since we don't know if they're binaries
+# or not, go the hard way and try to strip everything,
+# and since this might strip some libraries too, rebuild them
+# if [ "$STRIP" != "" ]; then
+  awk <prototype '/^f.*\/opt/ {print "strip " $3 "; ar -ts " $3}'|sh &>/dev/null
+# fi
+grep  uninitialised\! pkginfo >/dev/null 2>/dev/null
+if [ $? -eq 0 ]; then
+  echo package information needs to be entered first
+  exit
+fi
+PACKAGE=`grep PKG pkginfo|sed 's/PKG=//'`
+if [ "$PACKAGE" = "" -o "$PACKAGE" = "uninitialised!" ]; then
+  echo Invalid `pwd`/package.LEMIS/pkginfo
+  exit
+fi
+echo mv $CDROM/$PACKAGE  $CDROM/$PACKAGE.old
+mv $CDROM/$PACKAGE  $CDROM/$PACKAGE.old
+for i in * ; do
+  rm -f ../$i			# remove any old version
+  ln $i ..
+done
+cd ..
+pwd=`pwd`
+pkgmk -r / -b $pwd -o -d $CDROM
+if [ $? -ne 0 ]; then
+  echo Restoring old version of $PACKAGE
+  rm -rf $CDROM/$PACKAGE
+  mv $CDROM/$PACKAGE.old $CDROM/$PACKAGE
+  exit 1
+fi
+
+echo +++ Cleaning up linked config files
+cd $1/package.LEMIS
+for i in * ; do
+  if [ -f $i ] ; then
+    rm ../$i
+  fi
+done
+rm -rf $CDROM/$PACKAGE.old
+echo +++ Installation of $PACKAGE complete, storage:
+df -k /$CDROM

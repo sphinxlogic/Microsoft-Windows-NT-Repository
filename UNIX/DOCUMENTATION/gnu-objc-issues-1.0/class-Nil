@@ -1,0 +1,89 @@
+Date: Mon, 1 Mar 1993 14:00:34 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Introducing class Nil
+Cc: krab@iesd.auc.dk
+
+Hi again
+
+I have been considering the possibility to introduce class Nil as a
+full featured class, just as any other class.  Since the special nil
+object (currently defined as "(id)0") actually has some object-like
+behavior, it would be nice to encapsulate it in a real class.
+
+Right now I can think of two actions that is expected from the nil
+object:  Ignoring messages send to it, and being able to be stored on
+persistent storage.  People on the list could possibly come up with
+more `behavior' bound to the nil object.
+
+I think of class Nil, as a special class, which has exactly one
+instance, the `nilObject'.  For the matter of ignoring messages send
+to it, this could be done by overwriting `doesNotRecognize:' to simply
+not print any warning.  The messenger should redirect all messages
+send to a null pointer to this nilObject.  Like this:
+
+  IMP objc_mesgSend(id receiver, SEL operation) 
+  {
+    if(receiver==0)
+      receiver = nilObject;
+    return perform_lookup(receiver->class, operation);
+  }
+
+The messenger will have to handle a null pointer especially anyway, so
+this will not cost anything.
+
+Another benefit from having a such `nilObject' is that the programmer
+could perhaps optionally set a flag indicating weither
+`doesNotRecognize:' should actually print a warning message when
+invoked.  This would be nice to have when locating bugs.
+
+For the matter of storing instances, this will come immediately as a
+result of changing the messenger like above -- we will simply define
+storeOn: etc methods directly in class Nil.  
+
+I think `nil' would still have to be defined as `(id)0', since a lot
+of things depend on this.  The only place to take special care about
+the nil class would be in the messenger as far as I can se.
+
+Other methods which could possibly defined in class nil is `isNil'
+like Smalltalk does.
+
+I have included a proposed interface for class Nil below.
+
+Thanks,
+
+Kresten
+
+------------------------------------------------------------
+
+extern id nilObject;
+extern Class_t nilClass;
+
+@interface Nil:Object
+{
+  BOOL ignoreNilMessages;       /* global flag */
+}
+
++ new;                          /* allways return `nilObject' */
+
++ initialize;                   /* allocate `nilObject' using 
+                                   class_createInstance()     */
+
+- storeOn: aStream;             /* print a nil object */
+
++ catchMessages;                /* set flag indicating if
++ ignoreMessages;                  doesNotRecognize: should warn */
+
+- doesNotRecognize:(SEL)aSel;   /* ignore or warn as prescribed
+                                   by the global flag */
+
+- ( BOOL ) isNil;		/* always answers YES */
+
+@end
+
+@interface Object (isNil)
+- ( BOOL ) isNil;		/* always answers NO */
+@end
+
+------------------------------------------------------------
+

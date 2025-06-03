@@ -1,0 +1,75 @@
+#   This is a makfile for the public domain VMS version of MAKE by Nelson
+#   H.F. Beebe dated 20-Feb-88.  Below you will find a paragraph cut out
+#   of the MAKE.DOC file.  If you have this program and want to use it
+#   instead of the MAKE_PCAL.COM, rename this file from MAKEFILE.VMS to
+#   MAKEFILE.  and type
+#       MAKE pcal               ! for the program
+#       MAKE help               ! for the help library
+#       MAKE clean              ! to clean up the directory
+#
+#   The original version of MAKE  was done by Stuart Feldman  in
+#   1978.  This  multi-operating-system version  is based  on  a
+#   public-domain posting  of 3-Dec-86  to the  Usenet  bulletin
+#   board  mod.sources,  its  author  known  only  by  an  EMAIL
+#   address: Caret@FAIRLIGHT.OZ.  It contained support for Unix,
+#   OS9, and  EON  operating  systems.  The  TOPS-20,  VMS,  and
+#   MS-DOS   support   was   added   by   Nelson   H.F.    Beebe
+#   (BEEBE@UTAH-SCIENCE).
+#
+
+# Set the configuration variables below to taste.
+
+CFLAGS	= /NoList
+COPTS	= VAXCRTL.OPT /Option
+OBJECTS = exprpars.obj moonphas.obj pcalutil.obj readfile.obj writefil.obj
+OBJLIST = exprpars,moonphas,pcalutil,readfile,writefil
+
+pcal:	pcal.exe
+
+pcal.exe:	pcal.obj $(OBJECTS)
+	$(CC) $(CFLAGS) pcal
+	Link pcal,$(OBJLIST),$(COPTS)
+	Set Protection = (System:RWE, Owner:RWE, Group:RE, World:RE) *.*
+
+exprpars.obj:	exprpars.c pcaldefs.h
+	$(CC) $(CFLAGS) exprpars.c
+
+moonphas.obj:	moonphas.c pcaldefs.h pcalglob.h
+	$(CC) $(CFLAGS) moonphas.c
+
+pcal.obj:	pcal.c pcaldefs.h pcalglob.h pcallang.h
+	$(CC) $(CFLAGS) pcal.c
+
+pcalutil.obj:	pcalutil.c pcaldefs.h pcalglob.h pcallang.h
+	$(CC) $(CFLAGS) pcalutil.c
+
+readfile.obj:	readfile.c pcaldefs.h pcalglob.h pcallang.h
+	$(CC) $(CFLAGS) readfile.c
+
+writefil.obj:	writefil.c pcaldefs.h pcalglob.h pcallang.h pcalinit.h
+	$(CC) $(CFLAGS) writefil.c
+
+pcalinit:	pcalinit.exe
+
+pcalinit.exe:	pcalinit.c
+	$(CC) $(CFLAGS) pcalinit.c
+	Link $(LDFLAGS) pcalinit,$(COPTS)
+
+pcalinit.h:	pcalinit.exe pcalinit.ps
+	MCR Sys$$Disk:[]pcalinit pcalinit.ps pcalinit.h
+
+help:	pcal.hlb
+
+pcal.hlb:	pcal.hlp
+	Library /Log /Create /Help PCAL.HLB PCAL.HLP
+	Set Protection = (System:RWE, Owner:RWE, Group:RE, World:RE) PCAL.HLB
+	Set File /Truncate PCAL.HLB
+
+clean:
+	Set Protection = Owner:RWED *.*;-1
+	Purge /Log /NoConfirm pcal.exe,pcalinit.exe
+	Set Protection = Owner:RWED *.obj
+	Delete /Log /NoConfirm *.obj;*
+	Set Protection = Owner:RWED pcalinit.h
+	Delete /Log /NoConfirm pcalinit.h;
+	Set Protection = (System:RWE, Owner:RWE) *.*

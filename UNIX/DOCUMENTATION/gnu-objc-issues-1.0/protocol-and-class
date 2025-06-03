@@ -1,0 +1,491 @@
+Date: Tue, 8 Sep 92 19:55:00 -0700
+From: Timothy J. Wood <bungi.cpac.washington.edu!bungi@bungi.cpac.washington.edu>
+To: <MKK2@psuvm.psu.edu>
+Subject: Re: Your mission, should you choose to accept it. . .
+Cc: gnu-objc@prep.ai.mit.edu
+
+  It would be *really* nice to get gcc up to speed on the new
+features in the NeXT compiler before this project gets to far along,
+mainly the @protocol and @class directives.  For those of you not in
+the know,
+
+@class Foo;
+
+  is a forward declaration of a class, while
+
+@protocol FooProtocol
+- fooMethod: fooArg;
+@end
+
+  declares a protocol that any object can adopt:
+
+#import "FooProtocol.h"
+
+@interfrace FooClass : Object <FooProtocol, AnotherProtocol>
+...
+@end
+
+
+  Then at run time, you can use Object's conformsTo: method to
+determine if a particular class declares support for a protocol (the
+"<...>" thing) and then respondsTo: to determine if it implements
+optional methods in the protocol.  Note that instance variables may
+not be declared as part of a protocol.
+  This is the clean alternative to C++'s multiple inheritence.
+
+
+Tim Wood
+The Omni Group
+
+Date: Wed, 9 Sep 92 17:47:35 -0400
+From: athan@object.com (Andrew Athan)
+To: gnu-objc@prep.ai.mit.edu
+Subject: NeXT objc extentions (Was: Your mission, should you choose to accept it. . .)
+Cc: athan@uunet.uu.net
+
+
+[Previous discussion about @class, @protocol, etc.]
+
+There are other issues besides whether or not the compiler code will
+become available from NeXT.  I personally feel that the @protocol
+extension has not been completely thought out by NeXT; I don't claim
+to know everything about it yet, nor do I claim to be doing everything
+right, but I feel certain pieces are missing/broken/not well thought
+out.
+
+To elaborate: Though I can only guess, I'd say that NeXT put in
+@protocol largely as support for their distributed objects paradigm
+(so an NXProxy can say, conformsTo:@protocol(SOMETHING) instead of
+isKindOf:[Something class]) .. much like they added keywords like
+"out," "in," and "inout."  An @protocol (sometimes) builds a structure
+describing the methods; that structure is then tacked on to the Class
+object and can be used at runtime w/ distributed objects.  This is all
+fine, as far as distributed objects go.
+
+As a language tool, I've begun to use @protocols in the code itself,
+much like a previous poster mentioned: to claim that some object
+conforms to some set of methods.  The first problem I ran into was
+that NeXT's @protocol support does not integrate class methods very
+well:
+
+@protocol Controllers
++ someClassMethod;
+- someInstanceMethod;
+@end
+
+Things work fine when I use Controllers to declare that a class or
+category compies:
+
+@interface SomeControllerClass <Controllers>
+{}
+@end
+
+The compiler correctly complains when I don't implement both
+someClassMethod and someInstanceMethod.  However, there is a problem
+in trying to (quietly) declare that some id conforms to the protocol
+because there is no way to tell the compiler if that id is pointing to
+a Class object or to some other object (this is especially sticky
+since Class objects are also subclasses of Object).
+
+id <Controllers> x=[SomeControllerClass new];
+[x someClassMethod]			<--- Generates compiler warning that
+					"x" does not respond to
+					"someClassMethod"
+
+This makes sense, since I never said "x is pointing to a class object."
+
+Next, there is a problem with the way NeXT's compiler handles the
+@interface declaration above (IMHO).  Given that declaration, I am now
+forced to implement the entire Controllers protocol in the
+@implementation of SomeControllerClass.  I cannot (quietly) split it
+between various categories; *even if all the categories appear in the
+same .m!!*
+
+E.g.,
+@implementation SomeConrollerClass
+- someInstanceMethod { return self; }
+@end
+@implementation SomeControllerClass(Category1)
++ someClassMethod;
+@end
+
+yields compiler warnings.
+
+An additional problem that I see with @protocol is the question of
+versioning.  Protocol checking is to some degree a compile-time event
+(and therefore versioning is not as important).  @protocol is,
+however, often used as a run-time tool: it is possible to ask an
+object if it conforms to a protocol.  Currently, I cannot attach a
+version number to a protocol.  Because of this, if someone writes and
+compiles an object given the Controllers protocol above, and I then at
+a later time write code which does:
+
+if([someController conformsTo:@protocol(Controllers)])
+
+in the meantime, having changed the Controllers protocol, I am in
+trouble.  This is partly because of NeXT's implementation of
+"conformsTo:" and partly because of the more fundamental versioning
+question.  NeXT only checks that "Controllers" is in the protocol list
+for "someController."  Nothing at all is to say that "someController"
+has the same concept of what the "Controllers" protocol *is* as I do.
+Whoever wrote "someController" might have ignored the compiler
+warnings and may in fact not have implemented *any* of the methods.
+This could be fixed by having a more robust strictConformsTo: method
+which would also verify "respondsTo:" status on all the methods in the
+protocol.  I still have a problem, however, if the semantics of the
+protocol have changed and I'd like to know what version of
+"Controllers" "someController" thinks it is responding to.
+
+So, I think it is at least clear that there are "features" in the
+current implementation.  There are other ramifications as well, but I
+leave them to the floor...
+
+Andrew Athan
+
+Date: Thu, 10 Sep 1992 15:12:40 -0700
+From: Bruce Nilo <bruce@ictv.com>
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: Your mission, should you choose to accept it. . .
+
+I think that NeXT's use of objective C should be just one factor in
+guiding the GNU objective C project. The fact of the matter is that
+NeXT's implementation of objective C can be improved upon and
+interface compatibility can be more or less maintained. Here are some
+things which I think can and should be improved.
+
+PROTOCOL IMPROVEMENT: Previous postings have referred to NeXT
+protocols as lacking in certain respects. Part of the problem is in
+specifying exactly what problem they are suppose to solve. I do not
+think that distributed objects was the primary reason for their
+introduction. Seperating interface from implementation has been a
+topic in OOP for a long time. My personal opinion is that two
+compelling reasons for protocols is better compile time error
+reporting, and clearer more self documenting code. Runtime support,
+although useful, seems less of raison d'etre.
+
+[moved ERROR HANDLING]
+[moved BETTER RUNTIME SUPPORT FOR MULTI-THREADED PROGRAMS]
+[moved GENERAL DATA STRUCTURES]
+
+- Bruce D. Nilo
+
+VP Software Systems
+ICTV
+
+From: Steve_Naroff@next.com (Steve Naroff)
+Date: Fri, 11 Sep 92 12:14:25 -0700
+To: gnu-objc@prep.ai.mit.edu
+Subject: NeXT implementation of protocols
+
+
+I'm glad to see some folks are reading the documentation (it saves time)! Just to summarize, protocols definitely serve two purposes, they are:
+
+(1) As a language feature, protocols provide a better way to declare pure, abstract data types (independent of the class hierarchy). We feel this encourages the reuse of design and provides better type checking (without compromising the flexibility of "id").
+
+(2) As for distributed objects, protocols provide the runtime support to improve the efficiency and expressiveness of doing distributed programming, where the "class" may reside in another application. Note that we do not "force" you to use protocols, it is just slower and less descriptive than if you do.
+
+Here are some brief comments on the headbutts that have been mentioned:
+
+(1) Integration with class methods. The example given was was flawed, however...here is a slightly modified version:
+
+@protocol Controllers
++ (void)someClassMethod;
+- (void)someInstanceMethod;
+@end
+
+@interface SomeControllerClass : Object <Controllers>
++ (void)anotherClassMethod;
+@end
+
+main()
+{
+	id <Controllers> buggy = [SomeControllerClass new];
+	id <Controllers> notBuggy = [SomeControllerClass class];
+
+	[notBuggy someClassMethod]; // but produces bogus warning
+	[buggy someClassMethod]; // this was a flawed example
+}
+
+The "real bug" is there is no way to declare "a class object for type SomeControllerClass", hence the bogus warning. This is where Objective-C's heritage of totally anonymous objects shines through! We were aware of this, it isn't hard to fix.
+
+(2) Integration with categories. Category can adopt protocols just like classes. Here is a simple example that illustrates two possible organizations of a class.
+
+@protocol Read
+- read:aStream;
+@end
+
+@protocol Write
+- write:aStream;
+@end
+
+@protocol Archiving <Read, Write>
+@end
+
+@interface OneWayToOrganize : Object <Archiving>
+@end
+@implementation OneWayToOrganize
+- read:aStream { ... }
+- write:aStream { ... }
+@end
+
+@interface AnotherWayToOrganize : Object
+@end
+
+@interface AnotherWayToOrganize(ReadMethods) <Read>
+@end
+@implementation AnotherWayToOrganize(ReadMethods)
+- read:aStream { ... }
+@end
+@interface AnotherWayToOrganize(WriteMethods) <Write>
+@end
+@implementation AnotherWayToOrganize(WriteMethods)
+- write:aStream { ... }
+@end
+
+I'm not sure this solves your problem, however I thought you might be interested in this capability. The suggestion that the compiler treat language elements (like classes/categories) differently, based on whether or not they happen to be in the same ".m" is flawed.
+
+(3) Protocol versioning. We are well aware of this problem and didn't have time to come up with a solution we felt comfortable with. The problem is we don't do any type checking across module boundaries (either at linktime or runtime). Each ".o" module that references a protocol (via @protocol) gets a copy of the protocol object (the linker does not unique them) used by the runtime system for that module. Since protocols are "abstract", they have no obvious "home" (i.e. place to generate them, like there is for classes)...as a result, attaching a version # is tricky. I'm glad there are other folks thinking about solutions to this problem.
+
+In summary, I am glad to see support for improving the NeXT implementation of protocols and hope some of this info helps. We are using protocols quite extensively within NeXT and have some ideas for future enhancements (I will keep you posted).
+
+bye, snaroff.
+
+Date: Fri, 11 Sep 92 15:28:07 -0400
+From: athan@object.com (Andrew Athan)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: NeXT implementation of protocols
+
+In response to my having complained about spurious compiler warnings when some protocol is implemented in whole in one .m file, but the various methods in the protocol are actually split between multiple categories in that .m,  Steve_Naroff@NeXT.com writes:
+>(2) Integration with categories. Category can adopt protocols just like classes. Here is a
+>simple example that illustrates two possible organizations of a class.
+
+and gives an example illustrating the ability to declare that a *category* responds to some protocol:
+
+@protocol Read
+- read:aStream;
+@end
+
+@protocol Write
+- write:aStream;
+@end
+
+@protocol Archiving <Read, Write>
+@end
+
+@interface OneWayToOrganize : Object <Archiving>
+@end
+@implementation OneWayToOrganize
+- read:aStream { ... }
+- write:aStream { ... }
+@end
+
+@interface AnotherWayToOrganize : Object
+@end
+
+@interface AnotherWayToOrganize(ReadMethods) <Read>
+@end
+@implementation AnotherWayToOrganize(ReadMethods)
+- read:aStream { ... }
+@end
+@interface AnotherWayToOrganize(WriteMethods) <Write>
+@end
+@implementation AnotherWayToOrganize(WriteMethods)
+- write:aStream { ... }
+@end
+
+
+
+
+Stated as I have in the first sentence of this email, Steve's example does not solve the problem.  It is useful when the protocol you are trying to implement happens to be "decomposable."  It has the disadvantage that "AnotherWayToOrganize" no longer responds to the <Archiving> protocol, only to the <Read> and to the <Write> protocols.  I am under the impression that asking conformsTo:@protocol(Archiving) to the object will then yield NO (am I right Steve?)
+
+I think the compiler should not issue warnings regarding non-conformance to protocols until the entire .m file has been processed.
+
+Andrew Athan
+
+From: Steve_Naroff@next.com (Steve Naroff)
+Date: Sun, 13 Sep 92 08:28:35 -0700
+To: athan@object.com (Andrew Athan)
+Subject: Re: NeXT implementation of protocols
+Cc: gnu-objc@prep.ai.mit.edu
+
+
+> I am under the impression that asking conformsTo:@protocol(Archiving) to the object will then yield NO (am I right Steve?)
+
+You are right...my original email said "I'm not sure this solves your problem, however I thought you might be interested in this capability." I guess you weren't.
+
+> I think the compiler should not issue warnings regarding non-conformance to protocols until the entire .m file has been processed.
+
+I'm not sure I understand your suggestion. In general, I don't like "file boundaries" to effect language semantics. The unit of modularity in Objective-C is the class, category, protocol, etc...what files these entities reside in is irrelevant to the compiler. Context dependencies make it hard to reorganize various aspects of your program. I'm not saying your desire to implement a protocol across class/category boundaries is superfluous, I just don't like relying on file boundaries to implement it.
+
+snaroff.
+
+Date: Mon, 14 Sep 92 10:35:38 CDT
+From: billb@jupiter.fnbc.com
+To: gnu-objc@prep.ai.mit.edu
+Subject: Protocols, Reflection
+
+At first blush the idea of versioning protocols seemed appropriate.  Now, after thinking more about protocols I believe that perhaps I would like a better implementation, to wit:  Why are protocols checked by name and not by _value_?  This is yet another barrier between us and code reuse.  When I write a class I cannot possibly imagine all of the protocols that that class responds to (combination of all methods it implements), yet that class _does_ respond to any protocol which specifies some subset of that class' methods.  Please, someone, correct me if I am wrong about the way that protocol conformance is determined at runtime.  Protocols should _eliminate_ the version dependence of our code!  Protocols should be interfaces.  If an object has the same interface, then I don't care what version it is.  Of course this may be naive of me.
+
+Also, while I have your ear, wouldn't it be nice to have some more powerful reflective facilities in the language.  Maybe I just need to dig deeper into Obj-C++, but I haven't seen the kind of facilities that I really need.  If such changes are _off_limits_ for this projects then just stop reading _now_.
+
+An example of a useful reflective capability would be the ability to override an Object method that would automatically get invoked every time any method is entered; I would also like a similar method for method exit.  I would like to be able to override these methods for a given class, and additionally for particular instances of a class.
+
+see:
+[Graube 89] N. Graube, "Metaclass Compatibility" OOPSLA '89 Conference Proceedings, Special Issue of Sigplan Notices, Vol. 24 No. 10, October 1989.
+
+[Ferber 89] J. Ferber, "Computational Reflection in Class based Object Oriented Languages" OOPSLA '89 Conference Proceedings, Special Issue of Sigplan Notices, Vol. 24 No. 10, October 1989.
+
+[Foote & Johnson 89] B. Foote and R.E. Johnson, "Reflective Facilities in Smalltalk-80" OOPSLA '89 Conference Proceedings, Special Issue of Sigplan Notices, Vol. 24 No. 10, October 1989.
+
+(gimme a break -- I _do_ _to_ have more than one book!)
+That's all.
+
+Bill
+
+Date: Tue, 15 Sep 92 11:07:21 CDT
+From: billb@jupiter.fnbc.com
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: Protocols, Reflection (forgive my rambling)
+
+> billb@fnbc.com writes:
+> > <<stuff omitted>>
+> > Please, someone, correct me if I am wrong about the way
+> > that protocol conformance is determined at runtime. 
+> > Protocols should _eliminate_ the version dependence of
+> > our code!  Protocols should be interfaces.  If an object
+> > has the  same interface, then I don't care what version it
+> > is.  Of course this may be naive of me. 
+> >  <<stuff omitted>>
+>
+> athan@object.com (Andrew Athan) writes:
+> The question is, what assumption do we want to make?  If I
+> respond to someMethod, shall I assume that its semantics
+> will  always remain the same?  If so, then what you say is
+> true.  However, if between version1 of someProtocol and
+> version2,  the method setStringValue: starting doing
+> something differently (e.g., updating a database as
+> well as the object itself)  then I could conceivably need
+> to know that version I'm talking to.
+>
+> An additional point is:  Is what I've described a question
+> of protocol or object versioning?  Does anyone have
+> arguments  pro/con this?
+
+I see your point.  I didn't really understand what was bugging me until I read your response.  So, do we add semantic information to protocols?!?  No, because that puts us right back where we started -- if we could express the semantics in the protocol then we would already have an implementation.
+
+Your point brings up the following problem:  we are talking about two distinct entities here.  One is already implemented by the Obj-C protocol.  The other is a semantic specification (currently in the implementors head) of the semantics of those methods.  Version numbers on protocols really have nothing to do w/ Obj-C protocols, but everything to do w/ identifying some (currently undocumented) semantic description of objects.  It would be just as valid to change the protocol name each time the protocol was rev'd (add a vers count to the end of the name if you like) as it would be to have a seperate version number.  Its all just a naming problem -- just like so many of our problems.
+
+[[billb putPropellorOnHead] mountSoapbox]
+IMHO we should do away w/ our one-dimensional programming paradigms in which we use names to refer to _things_, and instead actually specify to those _things_ directly, as we program.  There should be no `symbol table' in a compiler.  I should be able to annotate (or not) any entity in my program.  How long am I going to have to suffer the lowest common denominator (vi) for program entry.  We all have GUI's now don't we?
+
+Bill
+
+From: Charles Lloyd <wiltel!clloyd@uunet.uu.net>
+Date: Tue, 15 Sep 92 13:53:40 -0500
+To: uunet!prep.ai.mit.edu!gnu-objc@uunet.uu.net
+Subject: Re: Protocols, Reflection...objc_msgSend()
+
+RE: Overriding objc_msgSend().
+
+I want to strongly second the motion that Kim Christensen has suggested!  The particular problem solved by this solution is not as important as the fact that we need the ability to override objc_msgSend().  I was thinking of sending an almost identical suggestion myself, but Kim has saved me the trouble (as well as verified my thinking).
+
+We have encountered many problems here at WilTel which could have been easily handled if we had the ability to "override" the objc_msgSend() function.  For example, we have an approach to persistant object storage which is far more complicated (and inefficient) than it need be if we had the ability to augment obj_msgSend().  Kim's suggestion is an excellent one which can handle numerous problems.  Of course, there may be hidden problems which I'm not seeing, but something like this is sorely needed.
+
+Charles Lloyd.
+
+ps:  I hope this discussion is considered to be germane to the project.  This gnu effort has an opportunity to correct some of the deficiencies in the NeXT implementation and I think its wise to get these ideas heard early in this forum.
+
+
+Date: Tue, 15 Sep 92 08:10:31 +0100
+From: Kim Harding Christensen <uunet!dannug.dk!khc>
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re:Protocols, Reflection
+
+
+<stuff deleted>
+
+We could do all these things (and a lot more) if the messenger function is implemented as a pointer to a function:
+
+id objc_msgSend(id self, SEL theSelector, ...)
+{
+	....
+}
+
+theMessenger = objc_msgSend;
+
+<stuff deleted>
+
+Date: Tue, 15 Sep 92 08:10:31 +0100
+From: Kim Harding Christensen <khc@dannug.dk>
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re:Protocols, Reflection
+
+Bill writes:
+
+> .... Also, while I have your ear, wouldn't it be nice to have
+> some more powerful reflective facilities in the
+> language.  Maybe I just need to dig deeper into Obj-C++,
+> but I haven't seen the kind of facilities that I really
+> need.  If such changes are _off_limits_ for this projects
+> then just stop reading _now_.
+
+> An example of a useful
+> reflective capability would be the ability to override
+> an Object method that would automatically get invoked
+> every time any method is entered; I would also like a
+> similar method for method exit.  I would like to be able to
+> override these methods for a given class, and
+> additionally for particular instances of a class.
+>
+
+We could do all these things (and a lot more) if the messenger function is implemented as a pointer to a function:
+
+id objc_msgSend(id self, SEL theSelector, ...)
+{
+	....
+}
+
+theMessenger = objc_msgSend;
+
+To implement pre- and post-condition we could write something like:
+
+id preAndPostMessenger(id self, SEL theSelector, ...)
+{
+	String *preSel = [[String newSTR:"pre_"]
+				catSTR:sel_getName(theSelector)];
+	String *postSel = [[String newSTR:"post_"]
+				catSTR:sel_getName(theSelector)];
+	id retval;
+	
+	if ([self respondsTo:sel_getUid([preSel str])])
+	{
+		if (!(BOOL)objc_msgSend(self,
+				sel_getUid([preSel str]), ...))
+		{
+			return objc_msgSend(self, @selector(error:),
+				"pre condition failed");
+		}
+	}
+	retval = objc_msgSend(self, theSelector, ...);
+	if ([self respondsTo:sel_getUid([postSel str])])
+	{
+		if (!(BOOL)objc_msgSend(self,
+				sel_getUid([postSel str]), ...))
+		{
+			return objc_msgSend(self, @selector(error:),
+				"post condition failed");
+		}
+	}
+	return retval;
+}
+
+...
+
+main()
+{
+	theMessenger = preAndPostMessenger;
+	...
+}
+
+/kim
+

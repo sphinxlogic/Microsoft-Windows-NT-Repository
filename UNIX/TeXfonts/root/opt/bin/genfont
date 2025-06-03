@@ -1,0 +1,65 @@
+# This script generates a Metafont font for a Linotronic [13][03]0 typesetter 
+# or a LaserJet
+# 
+# call: 
+# 
+# cd $TEXPATH/mf/scripts
+# $0 font-name magstep [l]
+# 
+# font-name is the base font name (e.g. cmb10)
+# magstep is the magstep value
+# l is l for Linotype, nothing for LaserJet
+# 
+prefix=/opt
+if [ $# = 0 ] ; then
+  echo Usage:
+  echo genfont font-name magstep
+  echo 
+  echo font-name is the base font name \(e.g. cmb10\)
+  echo magstep is the magstep value
+  echo 
+  echo To work out the correct info from TeX error messages: magstep
+  echo  should be calculated as log \(\mag_value/1500\) / log 1.2
+  exit
+fi
+device=laserjet
+if [ $# -ge 3 ]; then	# more parms
+  if [ "$3" = "l" ]; then	# Linotype
+     device=LinotypeOneZeroZero
+     magstep=`gensizes -l -m $2`
+     scale=`gensizes -l $2`
+  fi
+else			# must be Laserjet
+  if [ $# = 1 ] ; then		# no scale, 
+    magstep=0
+    scale=`gensizes 0`
+  else
+    magstep=`gensizes -m $2`
+    scale=`gensizes $2`
+  fi
+fi
+echo Generating font $1 at magstep $magstep \(scale $scale\)
+# make sure we have a directory to put this stuff in
+mkdir $prefix/lib/tex/fonts$scale
+# ?? cd $prefix/lib/mf/script
+echo mf "local; \input modes.mf; \mode:=$device; \nodisplays; \mag=1.2**$magstep; input $1"
+mf "local; \input modes.mf; \mode:=$device; \nodisplays; \mag=1.2**$magstep; input $1"
+if [ $? != 0 ] ; then
+  echo mf failed
+  exit
+fi
+echo "gftopk ./local.$scale\gf $prefix/lib/tex/fonts$scale/$1.pk"
+gftopk ./local.$scale\gf $prefix/lib/tex/fonts$scale/$1.pk
+if [ $? != 0 ] ; then
+  echo gftopk failed
+  exit
+fi
+echo ln $prefix/lib/tex/fonts$scale/$1.pk $prefix/lib/tex/fonts/pk/$1."$scale"pk
+ln $prefix/lib/tex/fonts$scale/$1.pk $prefix/lib/tex/fonts/pk/$1."$scale"pk
+rm ./local.$scale\gf
+mv local.tfm $prefix/lib/tex/fonts
+if [ $? != 0 ] ; then
+  echo mv failed
+  exit
+fi
+rm local.log

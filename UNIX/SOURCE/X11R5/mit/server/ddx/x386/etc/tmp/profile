@@ -1,0 +1,102 @@
+#
+# .profile - sample file
+#
+# Version 1.0 - 6/12/92
+#   David E. Wexelblat <dwex@goblin.org>
+#
+# Version 1.1 - 6/24/92
+#   Add XFilePaths file
+#
+
+#
+# ${HOME}/.login_env contains all of the environment settings that you
+# want to make available whether running from xdm or from a normal login.
+#
+if [ -f ${HOME}/.login_env ]
+then
+    . ${HOME}/.login_env
+else
+    MAIL=/usr/mail/${LOGNAME:?}; export MAIL
+    ENV=${HOME}/.kshrc; export ENV
+fi
+
+#
+# This variable lets you use the same file for .xsession (xdm) and 
+# .xinitrc (startx) (i.e. link them together).  You can check this
+# variable and you will know which login method was used.
+#
+DOTPROFILE=1; export DOTPROFILE
+
+t=`tty`
+if [ "$t" = "/dev/console" ]
+then
+    #
+    # Logged in on the console - check if xdm is running.  If not,
+    # see if the user wants to start up X.
+    #
+    if [ ! -f /usr/X386/lib/X11/xdm/xdm-pid ]
+    then
+    	WINSYSTEM=2
+	XDT=0
+	OLWM=0
+    	echo "Choose window system:"
+    	echo "	None      - 0"
+    	echo "	Open Look - 1"
+    	echo "	Motif     - 2"
+    	echo "	MIT/X386  - 3"
+	echo "	X.desktop - 4 [default=$WINSYSTEM]: \c"
+    	read t
+    	if [ "$t" != "" ]
+    	then
+            WINSYSTEM=$t
+        fi
+	
+        case $WINSYSTEM in
+    	0)
+    	    WM=none
+    	    ;;
+    	1)
+    	    . $HOME/.olsetup	 #!@ Do not edit this line !@
+      	    WM=/usr/X/bin/olwsm
+	    OLWM=1
+	    ;;
+	2)
+	    WM=/usr/X/bin/mwm
+	    ;;
+	3)
+	    WM=/usr/X386/bin/twm
+	    ;;
+	4)
+	    XDT=1
+	    ;;
+	esac
+	export WM XDT OLWM
+	if [ "$WM" != "none" ]
+	then
+	    PATH=$PATH:/usr/X386/bin:/usr/bin/X11
+
+            #
+	    # Get file search paths
+	    #
+	    if [ -f /usr/X386/lib/X11/XFilePaths ]
+	    then
+		. /usr/X386/lib/X11/XFilePaths
+	    fi
+
+ 	    startx &
+	fi
+    fi
+elif [ "${t##/dev/vt}" = "$t" -a "${t##/dev/pts}" = "$t" ]
+then
+    #
+    # Not /dev/console, not /dev/vt??, and not /dev/pts???
+    #
+    echo "TERM=($TERM): \c"
+    read t
+    if [ "$t" != "" ]
+    then
+    	TERM=$t
+    fi
+    export TERM
+fi
+

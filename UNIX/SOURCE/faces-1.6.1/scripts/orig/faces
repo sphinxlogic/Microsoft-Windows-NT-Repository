@@ -1,0 +1,83 @@
+#!/bin/sh -
+#
+#  @(#)faces 1.2 91/05/06
+#
+#  Copyright (c) Steve Kinzler - April 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+PATH=/usr/ucb:/bin:/usr/bin:/usr/local/bin; export PATH
+
+# faces - example installation front-end for faces
+#
+# This is a shell script front-end to the faces binary.  If you share your
+# faces databases across machines of different architectures via NFS, you
+# can also share binaries compiled for each architecture likewise, and use
+# this script as the installed faces to run the appropriate one.  You need
+# an "arch" command that outputs the machine's architecture (for example,
+# "mips", "sun3", "sun4", "vax").
+#
+# Also, you can specify the default FACEPATH here and change it without
+# having to recompile faces.
+#
+# Lastly, you can extend faces with "-e" applications and implement them
+# as options to faces with appropriate default FACEPATHs via this script.
+#
+# If no FACEPATH is defined in the environment and no FACEPATH is
+# specified via -f, then this script changes directory to /usr/local/faces
+# and specifies FACEPATH directories as relative to the there.  This can
+# speed up faces' bitmap lookups considerably.  However, programs given
+# with -e will have to be in the PATH, given with an absolute pathname, or
+# given with a pathname relative to /usr/local/faces.  Also, they will be
+# invoked with /usr/local/faces as the current directory.
+#
+# You'll probably have to hack this script to work at your site.  It's
+# intended primarily as an example of one way to install faces.
+#
+# Steve Kinzler, kinzler@cs.indiana.edu, 9 April 1991
+
+arch=`arch` || exit
+faces=/usr/local/faces
+
+ facepath=$HOME/etc/faces:local:xface:logos
+facepath2=$HOME/etc/faces:local:xface:facedir:facesaver:logos
+facepath3=news
+
+for arg
+do
+	case "$arg" in
+	-LOCAL)		exec $faces/bin/facesall -a $faces/local;;
+	-LOGOS)		exec $faces/bin/facesall -a $faces/logos;;
+	-NEWS)		exec $faces/bin/facesall -a $faces/news;;
+	-XFACE)		exec $faces/bin/facesall -a $faces/xface;;
+	-FACEDIR)	exec $faces/bin/facesall    $faces/facedir;;
+	-FACESAVER)	exec $faces/bin/facesall    $faces/facesaver;;
+
+	-F)	facepath=$facepath2;;
+
+	-alt)	args="$args -e $faces/bin/from.faces -l from";;
+	-N)	facepath=$facepath3
+		args="$args -e $faces/bin/newscheck.faces -l newscheck";;
+	-NF)	args="$args -e $faces/bin/newsfrom.faces -l newsfrom";;
+	-P)	args="$args -l lpq $arg";;
+	-PA)	args="$args -e $faces/bin/lpqall.faces -l lpqall";;
+	-Q)	args="$args -e $faces/bin/mailq.faces -l mailq";;
+	-Q2)	args="$args -e $faces/bin/mailqto.faces -l mailqto";;
+	-R)	args="$args -e $faces/bin/rotary.faces -l rotary";;
+	-f)	f=true
+		args="$args '$arg'";;
+	*)	args="$args '$arg'";;
+	esac
+done
+
+if test -z "$FACEPATH" -a -z "$f"
+then	cd $faces || exit
+	FACEPATH=$facepath; export FACEPATH
+fi
+
+eval exec $faces/bin/faces.$arch $args

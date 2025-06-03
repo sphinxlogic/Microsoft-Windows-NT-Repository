@@ -1,0 +1,741 @@
+.\"
+.\"	Xkal : Graphical appointment calendar
+.\"
+.\"	George Ferguson, ferguson@cs.rochester.edu,  27 Oct 1990.
+.\"	Version 1.1 - 27 Feb 1991.
+.\"
+.\"	$Id: xkal.man,v 2.2 91/03/13 13:36:09 ferguson Exp $
+.\"
+.TH XKAL 1 "26/10/90"
+.ds ]W U of Rochester
+.SH NAME
+xkal \- graphical appointment calendar
+.SH SYNOPSIS
+.B xkal
+[X\ Toolkit\ options]
+[-appoints\ filename]
+[-date\ date]
+[-listOnly]
+[-silent]
+[-numMonths\ 1|2|3|12]
+[-[no]exitUsesLevels]
+[-[no]bothShown]
+[-[no]opaqueDates]
+[-[no]dowLabels]
+[-[no]titlebar]
+[-version]
+[-help]
+.SH DESCRIPTION
+.PP
+Xkal is a graphical appointment calendar that allows you to maintain
+many types of reminders, displays them in several different formats,
+and allows you to add and edit them. Silent and non-graphic modes are
+provided to allow xkal to be used to check for appointments without
+interaction.
+.PP
+The general behaviour of xkal is to display one or more months. Clicking
+Button1 on a particular day displays that day's reminder information,
+either next to the month or in a popup window (see the
+.B bothShown
+resource, below). The reminders can be edited within this window, and
+changes are automatically saved when the tool is exited. Changes can be
+aborted or the appointments can be saved immediately using other actions.
+Most available actions are provided by a set of menuButtons above the month
+display. Clicking and holding on these buttons displays a menu from which the
+desired action can be selected. (See below under Translation Actions for a
+list of the actions and ways to customize xkal's behaviour.)
+.PP
+Reminders can come from two different sources:
+.B system
+reminders cannot be edited or deleted;
+.B personal
+reminders can. See below under OPTIONS, FILE FORMATS, and FILES for more
+details about these files. When appointments conflict (ie. there is more
+than one reminder that applies for a given day and time), xkal moves one
+of them to a different time (see the
+.B rearrangeSilently
+resource).
+.PP
+Each reminder can have a "criticality level" associated with it, indicating
+its importance. This is reflected in the month display by shading (on
+monochrome displays) or coloring (on color displays) days depending on the
+total criticality of their appointments. Typically, frequent or regular
+reminders would be given level zero, and only more important or unique
+reminders would influence the display (although they would all be displayed
+when the day is selected).
+.PP
+Double-clicking on a reminder will pop up a window in which the entry can
+be edited, changing things such as the criticality level as desired. Other
+fields can also be changed, for example to make the reminder weekly or
+monthly rather than for that specific day.
+Clicking on the applyButton adds the appointment, the revertButton resets
+the text items but does NOT undo the effects of previous "apply"s, the
+deleteButton deletes any reminders matching the given information exactly,
+and the dismissButton pops down the window.
+.PP
+Xkal is designed to be completely customizable. The section below,
+CUSTOMIZING XKAL, describes the widget hierarchies and other relevant
+resources to help with this. In particular, the relative positions of most
+of xkal's main components is completely flexible. This version of xkal
+also supports full customization of names for use with languages other than
+English.
+.SH OPTIONS
+.PP
+The following non-widget resources can be set on the command line as well
+as in a resource file. As usual, when given on the command line they can be
+abbreviated to their shortest unique prefix, often the first letter.
+Furthermore, xkal accepts all the standard X Toolkit options.
+.IP "\fB-appoints\fP filename"
+Uses the given filename as the name of the personal appointment file.
+The format of this file is described below under FILE FORMATS. A leading
+tilde (`~') is expanded to the value of $HOME. The default is `~/.appoints'.
+This option corresponds to the resource
+.BR personalAppoints .
+.IP "\fB-date\fP date"
+Changes xkal's notion of the current date (usually obtained from the
+system). The date string should be as described below under DATE FORMATS,
+with whitespace escaped if given on the command line.
+.IP "\fB-listOnly\fP"
+If given, then xkal simply lists the appointments and weekly reminders
+to stdout, and exits without interaction. The exit status is the number of
+appointments for the day. See also
+.BR exitUsesLevels ,
+below.
+.IP "\fB-silent\fP"
+Like above, but simply sets the exit status and doesn't print anything.
+Useful for checking whether there are any appointments. See also
+.BR -exitUsesLevels ,
+below.
+.IP "\fB-exitUsesLevels\fP"
+If given, then the exit status returned in
+.B listOnly
+and
+.B silent
+modes is the total of the criticality levels of the day's appointments,
+rather than the number of them.
+.IP "\fB-noexitUsesLevels\fP"
+The opposite of
+.BR -exitUsesLevels.
+The exit status is the number of appointments, rather than their
+criticality total. This is the default.
+.IP "\fB-numMonths\fP 1|3|12"
+Determines whether xkal will start displaying one, three, or twelve months.
+This can be changed while xkal is running using the
+.B xkal-numMonths()
+action described below under Translation Actions. The default is to show one
+month.
+.IP "\fB-bothShown\fP"
+If given, then the day's appointments are displayed in the main tool
+window, otherwise a popup window is created for them. When a day window is
+popped up, it becomes the selected window and subsequent appointment updates
+are done in it. It can be selected and deselected using the buttons. If no
+popup window is selected when a day is clicked on, then a new popup window
+will be created. The
+.B Dismiss
+button destroys the popup window. When this option is given (the default), no
+popup windows are ever created.
+.IP "\fB-nobothShown\fP"
+The opposite of
+.BR -bothShown .
+.IP "\fB-opaqueDates\fP"
+If given, then the numbers in the dayButtons are drawn opaquely, which
+some people find easier to read when the day is stippled. This is the
+default.
+.IP "\fB-noopaqueDates\fP"
+The opposite of
+.BR -opaqueDates .
+.IP "\fB-dowLabels\fP"
+If given, labels are provided at the top of each column in each month
+indicating the day of the week.
+.IP "\fB-nodowLabels\fP"
+The opposite of
+.BR -dowLabels .
+The default is
+.BR nodowLabels .
+.IP "\fB-titlebar\fP"
+If true, the titlebar of the main window and any popup day windows is
+changed to reflect the selected day. This is the default. This option
+corresponds to the resource
+.BR useTitlebar .
+.IP "\fB-notitlebar\fP"
+The opposite of
+.BR -useTitlebar .
+.IP "\fB-updateInterval\fP mins"
+The number of minutes between automatic checkpointing (saving) of the
+appointments. If this is zero, then no automatic checkpointing is done.
+The default is to checkpoint every five minutes.
+.IP "\fB-version\fP"
+Prints the current version of xkal to stdout and exits.
+.IP "\fB-help\fP"
+Prints the usage message, summarizing these options.
+.SH "CUSTOMIZING XKAL"
+.PP
+Xkal has a default set of resources built in. If you wish to customize the
+tool, take a copy of the default application defaults file (see
+FILES below) and modify it. Then, before invoking xkal, set the environment
+variable
+.B XAPPLRESDIR
+to the directory containing your private copy. Alternatively, you can place
+entries in your .Xdefaults file or provide them with the -xrm toolkit
+option.
+.SH "Other Non-Widget Resources"
+.PP
+The following resources customize xkal's file operations:
+.IP "\fBsystemAppoints\fP"
+The file for system (non-editable) reminders. Default is to not have a
+system reminder file.
+.IP "\fBbackupExtension\fP"
+The suffix used when the personal appointments file is backed up before
+saving it. If this is empty then the file is not backed up. The default is
+to append a tilde (`~').
+.IP "\fBoutputFormat\fP"
+This resource specifies the desired "canonical" output format. It should
+be a string with printf-style escapes that are replaced with parts of the
+reminder as follows:
+.nf
+.na
+	%w	short form of day of the week
+	%W	long form of day of the week
+	%d	day
+	%m	short form of month
+	%M	long form of month
+	%n	numeric form of month
+	%y	year
+	%Y	year modulo 100
+	%t	time
+	%l	criticality level
+	%~	space iff previous pattern was printed
+	%/	slash iff previous pattern was printed
+.ad
+.fi
+The default is "%w%~%d%~%m%~%y%~%t%~%l%~". Another possibility might be
+"~%n%/%d%/%Y%~%w%~%t%~%l%~" (see
+.BR daySlashMonth ,
+below).
+.IP "\fBdaySlashMonth\fP"
+This resource controls how dates with slashes are interpreted. If it is
+True, then these dates are interpreted as "day/month" or "day/month/year"
+rather than the default "mon/day" or "mon/day/year".
+.IP "\fBlevelDelim\fP"
+This resource specifies the characters that, when encountered while parsing
+a reminder, indicate its criticality level. If it is one character, then
+that character is used for both the opening and the closing delimiter. The
+default is to have the criticality level enclosed in ampersands (`@').
+.IP "\fBdefaultLevel\fP"
+The default criticality level for newly-created appointments. This can be
+changed by editing the appointment. The default is one (`1').
+.PP
+The following resources customize various aspects of dates:
+.IP "\fBlongDowStrings\fP"
+This resource should be a whitespace-separated list of seven strings
+(sorry, no escapes for blanks yet) specifying the full names
+of the days of the week, in order from Sunday to Saturday.
+.IP "\fBshortDowStrings\fP"
+This resource specifies the seven abbreviated forms of the names of
+the days of the week.
+.IP "\fBlongMonthStrings\fP"
+This resource specifies the twelve full names of the months, in order from
+January to December.
+.IP "\fBshortMonthStrings\fP"
+This resource specifies the twelve abbreviated forms of the names of the
+months.
+.IP "\fBdowOffset\fP"
+This resource specifies which day of the week is considered "first",
+relative to the lists above. If it is zero (the default), then the first
+string ("Sunday") is the first day of the week; if it is one, then the
+second string ("Monday") is first (leftmost in a calendar). This resource
+might not be needed as you could probably just rearrange the strings.
+.PP
+The following resources customize the appearance of the day's reminders:
+.IP "\fBappsStartTime\fP"
+Specifies the time of the earliest entry for a day. It should be of the
+form "hours:mins", with optional "am" or "pm" indicator. The "mins" field
+(with colon) is optional. The default is "8:00".
+.IP "\fBappsEndTime\fP"
+Specifies the time of the latest entry for a day. The default is "17:00".
+.IP "\fBappsIncrement\fP"
+Specifies the interval between entries. The default is ":30".
+.IP "\fBappsUseAmPm\fP"
+If True, then reminder slots are labelled in 12-hour (with "am" or "pm")
+notation, rather than the default 24-hour form.
+.IP "\fBnumNotes\fP"
+Specifies the number of entries that are not associated with a time. The
+default is two (`2').
+.IP "\fBnotesLabel\fP"
+Specifies the label for those entries without a time. The default is
+"NOTES".
+.IP "\fBnoonStr\fP"
+Specifies the string used for representing 12:00. The default is "Noon".
+When
+.B appsUseAmPm
+is True this string is used to label the appropriate slot. The string
+is also understood in reminder files (so be careful when changing it or
+old files written with
+.B appsUseAmPm
+True will not be readable).
+.IP "\fBmidnightStr\fP"
+Like
+.B noonStr
+but specifies the string used for representing 0:00. The default is "Midnight".
+.IP "\fBrearrangeSilently\fP"
+When two or more reminders are specified for the same time (either
+because they are from different files or because one or more is weekly
+or monthly or whatever), xkal will move some of the reminders to other
+slots. If this resource is True, then it will do so without indicating it.
+If False (the default), then it will indicate the original time in square
+brackets before the text of the reminder. If there is an reminder for a
+time for which there is no slot, then this reminder is moved to the notes
+section and labelled as above.
+.PP
+The following resources control how criticality levels are reflected in the
+calendar display. Where bitmaps are to be specified, they can either be
+absolute pathnames or else are taken relative to the global resource
+.BR bitmapFilePath .
+See
+.BR XmuLocateBitmapFile (3X)
+for details.
+.IP "\fBnoDayShade\fP"
+Specifies the bitmap for shading boxes that do not correspond to a day in
+that month. These boxes are not selectable, obviously. Default is
+"cross_weave".
+.IP "\fBmaxLevel\fP"
+Specifies the number of different levels of criticality that can be
+displayed. Levels greater than this use the maximum level. The default is
+seven (`7').
+.IP "\fBshades\fP"
+This resource should be a whitespace-separated list of bitmap names. They
+will be used with monochrome displays to shade the day appropriately. Days
+for which the total reminder criticality is 1 will use the first shade,
+etc. If fewer than
+.B maxLevel
+bitmaps are given then the last entry is used for levels for which none was
+given. The default is a series of gray shades.
+.IP "\fBcolors\fP"
+Like
+.BR shades ,
+but specifies the colors to be used with color displays. The default is
+green, blue, and yellow for two levels each, then red for the rest.
+.SH "Widget Hierarchy"
+.PP
+Xkal uses standard Athena widgets which can be customized as usual.
+Some of the resources used to describe the widgets must be given as
+non-widget resources due to problems with the creation/realization order.
+These are identified below and in the resource file.
+The widget hierarchy is as follows:
+
+.ta 8,12,16,20,24,28,32,36,40
+.na
+.nf
+	TopLevelShell Xkal
+		Form bothForm
+			MenuButton fileButton,viewButton,otherButton
+			Form allMonthsForm
+			Form dayForm [if \fBbothShown\fP is True]
+.fi
+.ad
+
+The Form widget
+.B allMonthsForm
+contains the months, depending on the value of the
+.B numMonths
+resource these will be one, three, or twelve Forms named
+.BR monthForm1 ,
+.B monthForm3
+or
+.BR monthForm12
+respectively. This separation of specification allows each type of display
+to be customized separately. Each monthForm will contain a Label
+.BR MonthLabel X
+(where X is 1, 3, or 12) and Toggles for the days named
+.BR dayButton X.
+In order to correctly allocate pixmaps, the size of these buttons must be
+set in the non-widget resources
+.BR dateWidth X
+and
+.BR dateHeight X,
+rather than using the width and height resources of the
+.BR dayButton X.
+The printing of the date in the
+.B dayButton
+is controlled by the non-widget resources
+.BR dateFont X
+and
+.BR datePosition X;
+this last should be a geometry string of the form `+x+y' taken as an offset
+from the top left corner of the button.
+.PP
+If
+.B bothShown
+is not True, then the popup window looks like
+
+.na
+.nf
+	TopLevelShell popupDayShell
+		Form popupDayForm
+			Command dismissButton
+			Command selectButton
+			Command unselectButton
+			Form dayForm
+.fi
+.ad
+.PP
+In either case, the
+.B dayForm
+contains a Label
+.B dayLabel
+(to display the date), and enough instances of pairs of: a Label
+.B appointLabel
+to display the time of the appointment and an AsciiText
+.B appointText
+for displaying and editing the appointment itself. The number of these is
+of course determined by the resources
+.BR appsStartTime ,
+.BR appsEndTime ,
+.BR appsIncrement ,
+and the like (see above).
+The relative positions of these are hard-coded and so cannot be
+changed using resources.
+.PP
+Xkal provides three menuButtons on the main window, called
+.BR fileButton ,
+.BR viewButton ,
+and
+.BR otherButton .
+They are all children of
+.BR bothForm .
+Since
+.B allMonthsForm
+and
+.B dayForm
+(if
+.B bothShown
+is True) are also children of
+.BR bothForm ,
+the buttons can be placed arbitrarily in the tool. The corresponding
+ezMenu widgets
+.BR fileMenu ,
+.BR viewMenu ,
+and
+.BR otherMenu
+can be customized to provide other actions if desired (see
+.BR ezMenu (3)).
+.PP
+When the
+.B xkal-edit-appoint()
+action is invoked (by default by double-clicking on a reminder or its
+label), a window is popped up to allow the selected reminder
+to be edited. This widget hierarchy is:
+
+.nf
+.na
+	TopLevelShell editShell
+		Form editForm
+			Command applyButton
+			Command revertButton
+			Command deleteButton
+			Command dismissButton
+			Label,Text dow{Label,Text}
+			Label,Text day{Label,Text}
+			Label,Text mon{Label,Text}
+			Label,Text year{Label,Text}
+			Label,Text time{Label,Text}
+			Label,Text level{Label,Text}
+.ad
+.fi
+
+Clicking on the applyButton adds the appointment, the revertButton resets
+the text items but does NOT undo the effects of previous "apply"s, the
+deleteButton deletes any reminders matching the given information exactly,
+and the dismissButton pops down the window. The effects of these buttons
+can be bound to different events using the
+.B notify()
+action.
+.PP
+When the
+.B xkal-edit-defaults()
+action is invoked (by default by selecting "Edit defaults" from the Other
+menu), a window is popped up to allow some of the application defaults
+to be edited. This widget hierarchy is:
+
+.nf
+.na
+	TopLevelShell defaultsShell
+		Form defaultsForm
+			Command applyButton
+			Command revertButton
+			Command dismissButton
+			Label,Text personalAppoints{Label,Text}
+			Label,Text backupExtension{Label,Text}
+			Label,Text date{Label,Text}
+			Label,Text numMonths{Label,Text}
+			Label,Text checkpointInterval{Label,Text}
+			Label,Text rearrangeSilently{Label,Text}
+			Label,Text defaultLevel{Label,Text}
+			Label,Text levelDelim{Label,Text}
+.ad
+.fi
+
+Clicking on the applyButton sets the application defaults from the
+appropriately labelled item, the revertButton resets
+the text items but does NOT undo the effects of previous "apply"s,
+and the dismissButton pops down the window. The effects of these buttons
+can be bound to different events using the
+.B notify()
+action. There is unfortunately no way to save defaults edited in this
+way; you have to modify the resource file yourself.
+
+.SH "Translation Actions"
+.PP
+The following action procedures are registered for xkal and can be bound
+to widget events using the
+.B translations
+resource (see the Xt manual, Appendix C). Certain actions are hard-coded
+to widgets (for example, setting the dayForm when a dayButton is
+clicked on) since they are so essential to correct behaviour. They can be
+bound to different events using the
+.B notify()
+action.
+.IP \fBxkal-quit()\fP
+Update the appointments file, destroy the tool, and exit with status 0.
+By default this is performed by selecting
+.B Quit
+from the File menu, or typing `q' in a dayButton.
+.IP \fBxkal-exit()\fP
+Destroy the tool and exit without saving any changes to the
+appointments file. By default this is bound to selecting
+.B Exit
+from the File menu, and to `x' in the dayButtons.
+.IP \fBxkal-save()\fP
+Updates the appointments file, saving any changes. By default, this is
+invoked by the
+.B Save
+entry of the File menu, or by typing `s'. See also the resources
+.B backupExtension
+and
+.BR checkpointInterval .
+.IP \fBxkal-next()\fP
+If
+.B numMonths
+is 1 or 3, this action will move the month display ahead to the next month.
+If
+.B numMonths
+is 12, it will move to the next year. By default this is provided by the
+.B Next
+entry of the View menu, or by typing `n' in the dayButtons.
+.IP \fBxkal-prev()\fP
+Like above, but moves back one month or year. By default this is provided
+by the
+.B Prev
+entry of the View menu, and by typing `p'.
+.IP \fBxkal-today()\fP
+Selects the current date. Note that this can be altered by the
+.B -date
+flag or set using the defaults editor.
+By default this is available from the View menu or by typing `t'.
+Note that if xkal's notion of the current date comes form the system (ie.
+was not given by the
+.B date
+resource) then it will recheck the current system date whenever this action
+is invoked, in case it has been running for a long time.
+.IP \fBxkal-numMonths(\fPnum\fB)\fP
+Set the month display to 1, 3, or 12, depending on the value of `num'.
+This is provided by default by the three appropriately entries of the
+View menu, and by typing `1', `3', and `12' (ie. `1' then `2' "fast enough")
+respectively.
+.IP \fBxkal-edit-appoint()\fP
+This action should be bound to either an appointLabel or an appointText
+widget. It pops up the reminder editor (if it is not already up) and sets
+the text items in it from the current appointment. See the description of
+its widget hierarchy above for details of how the editor works. By default
+this is bound to double-clicking on an appointLabel or appointText.
+.IP \fBxkal-edit-defaults()\fP
+Pops up the defaults editor (if it is not already up).
+See the description of its widget hierarchy above for details of how the
+editor works. By default this is available from the Other menu or by typing
+`e' in a dayButton.
+.IP \fBxkal-system(\fPcmd\fB)\fP
+This action provides a general escape mechanism. The argument will be
+passed to the shell for execution using
+.BR system (3).
+You might use this, for example, to automatically run a filter over your
+appointment file every time it is saved. To do this, replace any translations
+using
+.B xkal-save()
+with
+
+.ce 1
+.BR xkal-save() , xkal-system( script ).
+
+You could also provide additional escapes on the Other menu, or even pop up
+an xterm to do something more long-lived. By default, the Other menu's
+"Help" item pops up an xterm with this man page using this action.
+.SH "FILE FORMAT"
+.PP
+Xkal understands almost any kind of date in its appointment files.
+Reminders consist of the date, time, and level specifiers, followed by
+the text of the reminder, one reminder per line. Fields should be separated
+by whitespace. Leading whitespace and lines beginning with `#' are ignored
+with the exception that is a line is of the form
+
+.nf
+.na
+	#include filename
+.ad
+.fi
+
+then xkal reads the specified file (no quotes or brackets, filename taken
+to end-of-line) at that point.
+.PP
+The following specifiers are understood; the text of the reminder is
+assumed to start when none of these apply (so be careful about reminders
+that start with numbers). In the following table `#' indicates a string of
+digits:
+
+.ta 8,16,24,32,40
+.na
+.nf
+	#:#	=	hours:mins (24hr)
+	#:#	=	hours:mins (24hr)
+	#:#am	=	hours:mins
+	#:#pm	=	hours+12:mins
+	#/#	=	month/day (depends on \fBdaySlashMonth\fP)
+	#/#/#	=	month/day/year ("   "        "     )
+	#am	=	hours
+	#pm	=	hours (+12)
+	# <= 31	=	day
+	# > 31	=	year
+	@#@	=	level (depends on \fBlevelDelim\fP)
+.fi
+.ad
+
+In addition, either long or short forms of the days of the week or of
+the months are understood (see
+.BR longDowStrings ,
+etc.).
+.PP
+Any of the fields can be omitted from a reminder's date. The decision as to
+whether a reminder applies to a particular day is made using the following
+(hopefully intuitive) algorithm:
+.IP -
+If no time is given for the reminder, then it is taken to belong in
+the Notes section.
+.IP -
+If the reminder does not specify a day of the week, then the day, month,
+and year must match if given, otherwise they are assumed to match. For
+example:
+.na
+.nf
+	25 Dec Christmas of every year
+	Nov 13 1991 My 26th birthday
+	Mar Every day in March
+	1 The first day of every month
+.fi
+.ad
+.IP -
+If the reminder specifies a day of the week but no day, the the day of the
+week of the day in question must match, and the month and year must match
+if given. For example:
+.na
+.nf
+	Wed 11:00 My weekly Wednesday meeting
+	Fri Mar 1991 Every Friday in March, 1991
+.fi
+.ad
+.IP -
+If both a day of the week and a day are given, then the interpretation is
+"the first day of the week on or after the given day". For example
+(assuming the actual calendar):
+.na
+.nf
+	Wed 1 February 1991 This matches Feb 6, 1991
+	Fri 14 1991 Matches Jan 18, Feb 15, Mar 15, ...
+.fi
+.ad
+.PP
+Although this is not totally flexible, it is hoped that it will cover the
+vast majority of cases efficiently (since the algorithm must be performed
+often during execution).
+
+.SH "DATE FORMAT"
+.PP
+When using the
+.B date
+resource to change xkal's notion of the current date, the value of the
+resource can be either an absolute or a relative date, as follows.
+.IP -
+A relative date begins with either `+' or `-' followed by any
+amount of `number'`specifer' pairs where `specifier' is one of
+`d', `m', or `y' indicating days, months, and years respectively.
+Xkal's current date is set to the current system date offset by the relative
+date. For example:
+
+	% xkal -listOnly -date +1d
+
+would list tomorrow's reminders, and
+
+	% xkal -date +1d1y
+
+would start interaction at the day one year from tomorrow. If a number without
+a specifier terminates a date, the specifier is taken to be `d' (so `+1' is the
+same as `+1d').
+.IP -
+An absolute date is specified by giving any of the day, month, or year desired,
+using the same formats as for appointment files (see above). Note that
+years less than 1900 have no meaning in UNIX and years less than 1970 will
+confuse the system time routines. Thus
+
+	% xkal -date 25Dec\ \ and\ \ % xkal -date Dec25
+
+specify Christmas of the current year,
+
+	% xkal -date 'Dec 1925'
+
+specifies today's day in December of 1925, and
+
+	% xkal -date 25Dec1925
+
+specifies Christmas Day, 1925. Note that spaces are allowed within a date
+but must be escaped from the shell if given on the command line.
+.SH ENVIRONMENT
+.PP
+XAPPLRESDIR	- Directory containing xkal resource file
+.SH FILES
+.PP
+.nf
+.na
+~/.appoints		- default appointment file
+$LIBDIR/xkal.appoints	- default system appintment file
+$XAPPLRESDIR/Xkal	- default xkal resource file
+.ad
+.fi
+.SH DIAGNOSTICS
+.PP
+Xkal complains about incorrectly formatted appoinment entries, specifying
+the exact location of the error. These messages go to stderr.
+.PP
+Other error messages will either result in popup windows or messages to
+standard error.
+.SH "SEE ALSO"
+.PP
+X(1),
+kal(1),
+cal(1),
+calend(1),
+calendar(1).
+.SH BUGS
+.PP
+Xkal will not think the appointments have changed unless a key has been
+pressed in one of the appointText widgets. Thus, pasting a selection into
+one of these will work, but you will have to hit a key (eg. Return) before
+attempting to save or switch days.
+.PP
+When invoked in one of the non-interactive modes, a custom resource parser
+is used to avoid opening an X connection. This parser does not understand
+the "-xrm" resource specifiers. This should not be a problem since all
+resources relevant to these modes can be specified with command line
+options instead.
+.SH AUTHOR
+.PP
+George Ferguson, University of Rochester
+.br
+(ferguson@cs.rochester.edu)

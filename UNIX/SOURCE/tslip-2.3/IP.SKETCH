@@ -1,0 +1,214 @@
+
+THUMB NAIL SKETCH OF THE WORKINGS OF svr4 TCP/IP and SLIP
+=========================================================
+
+CONTENTS:
+   Protocol Layers: TCP, IP, and Physical
+   What is a "streams" driver/module?
+   SVR4 network module organization (TCP,UDP,IP,drivers)
+   Routing
+   What SLIP Does.
+   VJ Header Compression.
+
+Note: Please send errors and suggestions to Jim Avera (jima@netcom.com)
+
+Protocol Layers: TCP, IP, and Physical
+--------------------------------------
+
+Network packets have several levels of encapsulation, corresponding
+to protocol levels.  Each layer adds (and removes) its own header.
+
+The Physical Layer -
+ does whatever the physical network requires in order to transport the packet.
+ For ethernet, a physical header is added containing 48-bit ethernet 
+ station addresses.  For slip, a simple escape-character scheme is used to 
+ indicate the end of each packet.  No physical addressing is needed because
+ slip links are always point-to-point.
+
+ Packets are delivered on "best effort" basis at the physical level, but 
+ may be silently corrupted, dropped, and duplicated.  A higher layer must
+ provide error DETECTION.  Some network hardware provides reliable error 
+ detection (ethernet) and/or CORRECTION (X.25 PAD), but IP may not require it.
+ 
+ Higher layers make no assumptions about the format of physical addresses,
+ and assume that they are unique only within each physical network.
+
+IP - The Internet Protocol Layer - 
+ encapsulates packets in a hardware-independent frame using globally unique 
+ IP addresses.  The word "internet" means "network of networks", and the IP
+ protocol tries to hide all hardware dependencies and topological/routing 
+ details below a single, uniform virtual network model.
+
+ It is almost as if every computer in the world were connected to a single
+ ethernet-like network.
+ 
+ IP addresses are translated to physical addresses, packets are routed to 
+ appropriate network interfaces (taking into account gateways), 
+ and fragmented and eventually re-assembled to accommodate the maximum 
+ packet sizes of physical networks along the way.
+
+ "Hostnames" map to IP addresses, using /etc/hosts or the distributed
+ DNS database.  Each IP address specifies a specific interface on a host;
+ hosts with more than one network connection have multiple host names 
+ (IP addresses).  In truth, "THE hostname" of a machine is a misnomer.
+
+ An IP address has 2 parts: "network number" and "host number" (the number of
+ bits for each part varies using a huffman-coding scheme).  IP addresses
+ with a given network number are assumed to be directly reachable via
+ any address on that network.  This scheme has been extended by "netmasks", 
+ which allow some bits in the host number part to be used instead as part
+ of the network identification (often this is thought of as a "subnet" number).
+
+ IP is connectionless and has no error recovery.  Packets can be sent to any 
+ machine without prior arrangement - there are no "virtual circuits" or other
+ explicit state.  All packets are delivered on a "best efforts" basis, but if 
+ congestion overloads any part of the network packets may be silently dropped,
+ and possibly duplicated.  IP verifies the integrity of its own header, but 
+ not the payload, which is (possibly) checked by a higher protocol.
+
+ IP packets are addressed to a <machine,protocol> pair.  "Protocol" means
+ a higher software layer like TCP.  "Machine" means an IP address.
+ The protocol is given by a well-known number listed in /etc/services.
+ It is up to the higher protocol to somehow distribute packets to specific
+ application processes.
+
+TCP - Transmission Control Protocol -
+ a higher protocol which implements connection-oriented, reliable, sequenced 
+ byte streams.  To do this, TCP uses an end-to-end acknowledgment and 
+ checksum scheme, with timeouts and retransmission to recover from errors.
+ A sophisticated sliding-window acknowledgment system pipelines packets to 
+ get very high throughput, even with long round-trip propagation delays.
+
+ TCP defines "port numbers" which are associated with a specific application
+ or other handle (in UNIX, a file descriptor in a process).  Each TCP packet 
+ is addressed to an <IP address, "TCP", port number> triple.  The IP address 
+ and TCP protocol number are enough to deliver the packet to TCP on the 
+ destination machine (via IP), and the port number indicates exactly where to 
+ deliver the user data.  Port numbers are recorded in the TCP header wrapped 
+ around the user data.
+
+ Standard services like telnet and ftp have "well known" port numbers which 
+ server processes listen to at all times.  /etc/services lists these numbers.
+
+UDP - User Datagram Protocol -
+ a connectionLESS alternative to TCP which delivers packets more efficiently
+ than TCP, but only error DETECTION, not correction.  It is "unreliable" in
+ the sense that packets can be dropped or duplicated, and so it is up to the
+ application to recover from such errors (e.g., with timeouts and 
+ retransmission).  In this respect UDP is similar to the IP protocol itself.   
+ 
+ UDP adds the same "port number" scheme provided by TCP - so UDP packets 
+ are addressed to a specific process on a target machine.
+
+
+SVR4 STREAMS MODULE ORGANIZATION
+--------------------------------
+
+What is a streams driver?
+
+"Streams" is a method of implementing drivers in the kernel which uses
+message-passing.  Requests are handed to a streams driver in a message,
+and the driver responds with another message.  Queues are provided to
+store messages when they can't be processed immediately.
+
+Several streams modules can be connected together, so that the output messages
+from one form the input to another.  Messages are actually passed by a simple
+procedure call (passing a pointer to a message), and it is up to each streams
+module to put messages on its own input queue if it can't process them
+at once.  The term "driver", strictly speaking, refers to the "bottom"
+module in a stream (which talks to hardware or emulates a pseudo-device).
+In practice, other modules are also sometimes called drivers.
+
+For a simple device driver, both input and output connect to a "stream head"
+associated with an open file descriptor; the "stream head" is a pseudo-module
+which transfers data to and from user space in response to calls to
+read(), write(), etc.
+
+A "multiplexing" streams module can communicate with more than one
+upstream and/or downstream module, i.e., requests can fan in from several
+sources and be sent on to several destinations.  These complex connections
+are set up by "LINK" operations, which connect one stream below another.
+After a "LINK", the lower stream is inaccessable except via the upper
+stream, until such time as it is "UNLINK"ed.
+
+SVR4 NETWORK STREAMS MODULES
+============================
+
+IP is a "multiplexing" streams module, linked like this:
+
+         Applications in user space
+		 |       |
+		TCP	UDP	...  
+		 |	 |	
+		 ---------
+		     |
+		     IP
+		     |
+	------------------------- ...
+	|	     |          | 
+      tslip	   ethernet    (possibly multiple slip & ethernet interfaces)
+        |          driver
+     serial
+     driver
+	
+IP accepts packets from higher level protocols like TCP and routes them to 
+the appropriate interface for physical delivery, based on the IP address
+of each network interface and routing tables.  The protocol (e.g., TCP)
+is specified in the IP packet header.
+
+When a packet is received, the network interface driver hands it to IP, which
+delivers it to the appropriate higher protocol (by looking at the protocol
+number in the IP header).  The upper protocol delivers it to the application
+using using its own method (port numbers, in the case of TCP and UDP).
+
+ROUTING
+-------
+
+Every IP packet contains the source and destination IP addresses.  
+The IP module remembers the IP address of recently seen sources and
+the physical interface over which the packet was received.  This information
+is used to route return packets.
+
+In addition, static routes can be manually defined (with the route command),
+as well as a "default" gateway to which otherwise-unroutable packets are
+sent.  The "default" gateway is presumably a smarter machine, or perhaps
+the only path leading to unknown networks.
+
+
+SLIP (Serial Line Internet "Protocol")
+--------------------------------------
+
+SLIP is not a real protocol.  It is simply a way to delimit packets over
+a byte stream oriented point-to-point link (e.g., a serial line).
+SLIP uses a very simple mechanism - a special framing byte terminates
+packets, and an escape convention allows framing characters to be sent
+as data.
+
+The SLIP module (see picture above) talks to the IP module using the same
+interface as the ethernet driver, and appears as just another network interface.
+In this case, it is a point-to-point, and so there is only one other IP
+address on that "network".
+
+VJ Header Compression
+---------------------
+
+In a telnet session, each keystroke sends a TCP packet, and the server machine
+sends back the echo in another.  The single data byte is encapsulated
+in a TCP packet which is encapsulated in an IP packet and framed by the
+slip driver and finally transmitted.  All this adds up to dozens of bytes
+per keystroke and poor interactive response, even with a 14400 modem 
+connection.
+
+Van Jacobson of UC Berkeley implemented a scheme whereby the complete 
+TCP and IP header of recently received packets is remembered by both
+sides, and a much smaller reference code sent instead.  Telnet becomes
+quite reasonable, although still somewhat sluggish compared to a
+using a multi-megabit network connection.
+
+The packet headers are cached and optimized away, but there is no
+real data "compression" as the term is used elsewhere.
+
+VJ header compression/expansion occurs inside the slip driver, and is
+thus transparent to IP.
+
+@(#)IP.SKETCH	1.1 (30 Sep 1993)

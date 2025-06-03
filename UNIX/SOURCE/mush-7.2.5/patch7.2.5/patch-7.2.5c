@@ -1,0 +1,1620 @@
+#!/bin/sh
+# shar:	Shell Archiver  (v1.22+)
+#
+#	Run the following text with /bin/sh to create:
+#	  README-7.2.5
+#	  pop.h
+#	  pop.c
+#	  pmush.c
+#	  xcreat.c
+#
+echo "x - extracting README-7.2.5 (Text)"
+sed 's/^X//' << 'SHAR_EOF' > README-7.2.5 &&
+X
+XThis is release 7.2.5 of the Mail User's Shell (mush).
+X
+XMush was last posted as a complete package at release 7.2.2.  Before that,
+Xthe last complete posting was 7.1.1.  If your version of mush is older
+Xthan 7.2.2, refer to README-7.0 and README-7.1 for lists of other changes.
+XSee README-7.2.0 for changes from 7.1.1 to 7.2.  Patch 3 was bugfixes only;
+Xthere was no README-7.2.3.  See README-7.2.4 for a list of changes in both
+Xpatch 3 and patch 4.
+X
+XChanges in compilation:
+X
+X    POP3_SUPPORT
+X	Enable POP client mode by compiling with this defined.  See README.
+X
+X    New files to support POP and DOT_LOCK have been added to the makefiles.
+X
+XNew/changed commands:
+X
+X    See the $metamail variable for changes in print/type/etc.
+X
+XNew/changed variables:
+X
+X    metamail
+X	If $metamail is set to the pathname (and arguments) of a MIME
+X	decoder (such as the "metamail" program), Mush will recognize
+X	MIME messages and "page" them through that decoder instead of
+X	through the regular $pager.
+X
+XTool mode changes:
+X
+X    Bug fixes only, see below.
+X
+XBugs fixed in Patch #5:
+X
+X  * Better parsing of double-quoted tokens in addresses
+X
+X  * Unsetenv allocates a new copy of the environment on first call
+X
+X  * Doesn't attempt to init tty if there isn't one
+X
+X  * #define CURSES in config.h (as opposed to in CFLAGS) should work
+X
+X  * On AIX, curses mode won't dump core
+X
+X  * Recognize more date formats, and store dates to resolution in seconds
+X    for more accurate date sorting
+X
+X  * Tool mode "sort" menu "by value of sort variable" works now
+X
+X  * Better handling of X.400 addresses (heuristic for distinguishing them
+X    from file names has been improved)
+X
+X  * Tool mode "save" pullright directory-walking menus work in all contexts
+X    (I hope)
+X
+X  * Moved that silly piece of code that was setting $realname to the
+X    spool folder path
+X
+X  * Code to init all hostname aliases for $hostname finally works right in
+X    all cases
+X
+X  * Many improvements to DOT_LOCK; NFS "secure" lockfile creation
+X
+X  * ~user/$variable parses correctly and expands $variable
+X
+X  * Some compilation fixes for SGI IRIX
+X
+X  * Child-process management for pager process improved
+X
+X  * Support for POSIX_UTIME fixed
+X
+X  * "saveopts" of variables, aliases, etc. with embedded quotes of mixed
+X    types does appropriate quoting of its output
+SHAR_EOF
+chmod 0644 README-7.2.5 || echo "restore of README-7.2.5 fails"
+set `wc -c README-7.2.5`;Sum=$1
+if test "$Sum" != "2290"
+then echo original size 2290, current size $Sum;fi
+echo "x - extracting pop.h (Text)"
+sed 's/^X//' << 'SHAR_EOF' > pop.h &&
+X/*
+X * pop.h: Header file for the "pop.c" client POP3 protocol
+X * implementation.
+X */
+X
+X#ifdef POP3_SUPPORT
+X
+X#include <stdio.h>
+X
+X#define GETLINE_MAX 1024	/* a pretty arbitrary value */
+X
+Xextern char pop_error[];
+Xextern int pop_debug;
+X
+Xtypedef struct _PopServer {
+X     int file, data;
+X     char buffer[GETLINE_MAX], *dp;
+X} *PopServer;
+X
+X/*
+X * Valid flags for the pop_open function.
+X */
+X
+X#define POP_NO_KERBEROS	(1<<0)
+X#define POP_NO_HESIOD	(1<<1)
+X#define POP_NO_GETPASS 	(1<<2)
+X
+Xextern PopServer pop_open();
+Xextern int pop_stat();
+Xextern int pop_list();
+Xextern char *pop_retrieve();
+Xextern int pop_delete();
+Xextern int pop_noop();
+Xextern int pop_last();
+Xextern int pop_reset();
+Xextern int pop_quit();
+Xextern void pop_close();
+X
+X#endif /* POP3_SUPPORT */
+SHAR_EOF
+chmod 0644 pop.h || echo "restore of pop.h fails"
+set `wc -c pop.h`;Sum=$1
+if test "$Sum" != "748"
+then echo original size 748, current size $Sum;fi
+echo "x - extracting pop.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > pop.c &&
+X/*
+X * pop.c: client routines for talking to a POP3-protocol post-office
+X * server
+X *
+X * Jonathan Kamens
+X * August 13, 1991
+X */
+X
+X#ifdef POP3_SUPPORT
+X
+X#include <sys/types.h>
+X#include <netinet/in.h>
+X#include <sys/socket.h>
+X#include "pop.h"
+X
+Xextern int errno;
+X
+X#ifdef KERBEROS
+X#include <krb.h>
+X#include <des.h>
+X#ifdef sun
+X#include <malloc.h>
+X#else /* !sun */
+Xextern char *
+Xmalloc( /* unsigned */ );
+Xextern void 
+Xfree( /* char * */ );
+X#endif /* sun */
+X#endif /* KERBEROS */
+X
+X#ifdef HESIOD
+X#include <hesiod.h>
+X/*
+X * It really shouldn't be necessary to put this declaration here, but
+X * the version of hesiod.h that Athena has installed in release 7.2
+X * doesn't declare this function; I don't know if the 7.3 version of
+X * hesiod.h does.
+X */
+Xextern struct servent *
+Xhes_getservbyname( /* char *, char * */ );
+X#endif /* HESIOD */
+X
+X#include <pwd.h>
+X#include <string.h>
+X#include <strings.h>
+X
+Xextern char *
+Xstrstr( /* char *, char * */ );
+X
+X#include <netdb.h>
+X#include <errno.h>
+X#include <stdio.h>
+X
+Xextern char *sys_errlist[];
+X#define strerror(eno)	sys_errlist[eno]
+X
+Xextern char *
+Xgetenv( /* char * */ );
+Xextern char *
+Xgetlogin( /* void */ );
+Xextern char *
+Xgetpass( /* char * */ );
+Xextern int 
+Xgetuid( /* void */ );
+Xextern void 
+Xbzero( /* char *, int */ ), bcopy( /* char *, char *, int */ );
+Xextern int 
+Xsocket( /* int, int, int */ );
+Xextern int 
+Xconnect( /* int, struct sockaddr *, int */ );
+Xextern int 
+Xclose( /* int */ );
+Xextern int 
+Xread( /* int, char *, int */ ), write( /* int, char *, int */ );
+Xextern int 
+Xatoi( /* char * */ );
+X
+X#if !(defined(vax) && defined(__GNUC__))
+Xextern int 
+Xfprintf( /* FILE *, char *, ... */ );
+X#endif /* !(vax && __GNUC__) */
+X
+X#ifdef KERBEROS
+Xextern int 
+Xkrb_sendauth( /* long, int, KTEXT, char *, char *, char *, u_long, MSG_DAT **,
+X		CREDENTIALS *, Key_schedule, struct sockaddr_in *,
+X		struct sockaddr_in *, char * */ );
+Xextern char *
+Xkrb_realmofhost( /* char * */ );
+X#endif /* KERBEROS */
+X
+Xextern int h_errno;
+X
+Xstatic int socket_connection();
+Xstatic char *getline();
+Xstatic int sendline();
+Xstatic int fullwrite();
+Xstatic int getok();
+Xstatic int gettermination();
+X
+X#define ERROR_MAX 80	/* a pretty arbitrary size */
+X#define POP_PORT 110
+X#define KPOP_PORT 1109
+X#define POP_SERVICE "pop"
+X#define KPOP_SERVICE "kpop"
+X
+Xchar pop_error[ERROR_MAX];
+Xint pop_debug = 0;
+X
+X/*
+X * Function: pop_open(char *host, char *username, char *password,
+X * 		      int flags)
+X *
+X * Purpose: Establishes a connection with a post-office server, and
+X * 	completes the authorization portion of the session.
+X *
+X * Arguments:
+X * 	host	The server host with which the connection should be
+X * 		established.  Optional.  If omitted, internal
+X * 		heuristics will be used to determine the server host,
+X * 		if possible.
+X * 	username
+X * 		The username of the mail-drop to access.  Optional.
+X * 		If omitted, internal heuristics will be used to
+X * 		determine the username, if possible.
+X * 	password
+X * 		The password to use for authorization.  If omitted,
+X * 		internal heuristics will be used to determine the
+X * 		password, if possible.
+X * 	flags	A bit mask containing flags controlling certain
+X * 		functions of the routine.  Valid flags are defined in
+X * 		the file pop.h
+X *
+X * Return value: Upon successful establishment of a connection, a
+X * 	non-null PopServer will be returned.  Otherwise, null will be
+X * 	returned, and the string variable pop_error will contain an
+X * 	explanation of the error.
+X */
+XPopServer 
+Xpop_open(host, username, password, flags)
+Xchar *host, *username, *password;
+Xint flags;
+X{
+X    int sock;
+X    PopServer server;
+X
+X    /* Determine the user name */
+X    if (!username) {
+X	username = getenv("USER");
+X	if (!(username && *username)) {
+X	    username = getlogin();
+X	    if (!(username && *username)) {
+X		struct passwd *passwd;
+X
+X		passwd = getpwuid(getuid());
+X		if (passwd && passwd->pw_name && *passwd->pw_name) {
+X		    username = passwd->pw_name;
+X		} else {
+X		    strcpy(pop_error, "Could not determine username");
+X		    return (0);
+X		}
+X	    }
+X	}
+X    }
+X    /* Determine the mail host */
+X#ifdef HESIOD
+X    if ((!host) && (!(flags & POP_NO_HESIOD))) {
+X	struct hes_postoffice *office;
+X
+X	office = hes_getmailhost(username);
+X	if (office && office->po_type && (!strcmp(office->po_type, "POP"))
+X		&& office->po_name && *office->po_name && office->po_host
+X		&& *office->po_host) {
+X	    host = office->po_host;
+X	    username = office->po_name;
+X	}
+X    }
+X#endif
+X    if (!host) {
+X	host = getenv("MAILHOST");
+X	if (!host) {
+X	    strcpy(pop_error, "Could not determine POP server");
+X	    return (0);
+X	}
+X    }
+X    /* Determine the password */
+X#ifdef KERBEROS
+X#define DONT_NEED_PASSWORD (! (flags & POP_NO_KERBEROS))
+X#else
+X#define DONT_NEED_PASSWORD 0
+X#endif
+X
+X    /* Modified to return password if possible -- Bart */
+X    if ((!password || !*password) && (!DONT_NEED_PASSWORD)) {
+X	if (!(flags & POP_NO_GETPASS)) {
+X	    char *p = getpass("Enter POP password:");
+X	    if (p && password)
+X		(void) strcpy(password, p);
+X	    password = p;
+X	}
+X	if (!password) {
+X	    strcpy(pop_error, "Could not determine POP password");
+X	    return (0);
+X	}
+X    }
+X    if (password)
+X	flags |= POP_NO_KERBEROS;
+X    else
+X	password = username;
+X
+X    sock = socket_connection(host, flags);
+X    if (sock == -1)
+X	return (0);
+X
+X    server = (PopServer) malloc(sizeof(struct _PopServer));
+X    if (!server) {
+X	strcpy(pop_error, "Out of memory in pop_open");
+X	return (0);
+X    }
+X    server->file = sock;
+X    server->data = 0;
+X    server->dp = server->buffer;
+X
+X    if (getok(server))
+X	return (0);
+X
+X    /*
+X     * I really shouldn't use the pop_error variable like this, but.... 
+X     */
+X    if (strlen(username) > ERROR_MAX - 6) {
+X	pop_close(server);
+X	strcpy(pop_error,
+X		"Username too long; recompile pop.c with larger ERROR_MAX");
+X	return (0);
+X    }
+X    sprintf(pop_error, "USER %s", username);
+X
+X    if (sendline(server, pop_error) || getok(server)) {
+X	return (0);
+X    }
+X    if (strlen(password) > ERROR_MAX - 6) {
+X	pop_close(server);
+X	strcpy(pop_error,
+X		"Password too long; recompile pop.c with larger ERROR_MAX");
+X	return (0);
+X    }
+X    sprintf(pop_error, "PASS %s", password);
+X
+X    if (sendline(server, pop_error) || getok(server)) {
+X	return (0);
+X    }
+X    return (server);
+X}
+X
+X/*
+X * Function: pop_stat
+X *
+X * Purpose: Issue the STAT command to the server and return (in the
+X * 	value parameters) the number of messages in the maildrop and
+X * 	the total size of the maildrop.
+X *
+X * Return value: 0 on success, or non-zero with an error in pop_error
+X * 	in failure.
+X *
+X * Side effects: Closes the connection on failure.
+X */
+Xint 
+Xpop_stat(server, count, size)
+XPopServer server;
+Xint *count, *size;
+X{
+X    char *fromserver;
+X
+X    if (sendline(server, "STAT") || (!(fromserver = getline(server))))
+X	return (-1);
+X
+X    if (strncmp(fromserver, "+OK ", 4)) {
+X	strcpy(pop_error, "Unexpected response from POP server in pop_stat");
+X	pop_close();
+X	return (-1);
+X    }
+X    *count = atoi(&fromserver[4]);
+X
+X    fromserver = index(&fromserver[4], ' ');
+X    if (!fromserver) {
+X	strcpy(pop_error,
+X		"Badly formatted response from server in pop_stat");
+X	pop_close(server);
+X	return (-1);
+X    }
+X    *size = atoi(fromserver + 1);
+X
+X    return (0);
+X}
+X
+X/*
+X * Function: pop_list
+X *
+X * Purpose: Performs the POP "list" command and returns (in value
+X * 	parameters) two malloc'd zero-terminated arrays -- one of
+X * 	message IDs, and a parallel one of sizes.
+X *
+X * Arguments:
+X * 	server	The pop connection to talk to.
+X * 	message	The number of the one message about which to get
+X * 		information, or 0 to get information about all
+X * 		messages.
+X *
+X * Return value: 0 on success, non-zero with error in pop_error on
+X * 	failure.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xint 
+Xpop_list(server, message, IDs, sizes)
+XPopServer server;
+Xint message, **IDs, **sizes;
+X{
+X    int how_many, i;
+X    char *fromserver;
+X
+X    if (message)
+X	how_many = 1;
+X    else {
+X	int count, size;
+X
+X	if (pop_stat(server, &count, &size))
+X	    return (-1);
+X	how_many = count;
+X    }
+X
+X    *IDs = (int *) malloc((how_many + 1) * sizeof(int));
+X    *sizes = (int *) malloc((how_many + 1) * sizeof(int));
+X    if (!(*IDs && *sizes)) {
+X	strcpy(pop_error, "Out of memory in pop_list");
+X	pop_close(server);
+X	return (-1);
+X    }
+X    if (message) {
+X	sprintf(pop_error, "LIST %d", message);
+X	if (sendline(server, pop_error)) {
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    return (-1);
+X	}
+X	if (!(fromserver = getline(server))) {
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    return (-1);
+X	}
+X	if (strncmp(fromserver, "+OK ", 4)) {
+X	    if (!strncmp(fromserver, "-ERR", 4))
+X		strncpy(pop_error, fromserver, ERROR_MAX);
+X	    else
+X		strcpy(pop_error,
+X			"Unexpected response from server in pop_list");
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    pop_close(server);
+X	    return (-1);
+X	}
+X	(*IDs)[0] = atoi(&fromserver[4]);
+X	fromserver = index(&fromserver[4], ' ');
+X	if (!fromserver) {
+X	    strcpy(pop_error,
+X		    "Badly formatted response from server in pop_list");
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    pop_close(server);
+X	    return (-1);
+X	}
+X	(*sizes)[0] = atoi(fromserver);
+X	(*IDs)[1] = (*sizes)[1] = 0;
+X	return (0);
+X    } else {
+X	if (sendline(server, "LIST") || getok(server)) {
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    return (-1);
+X	}
+X	for (i = 0; i < how_many; i++) {
+X	    if (!(fromserver = getline(server))) {
+X		free((char *) *IDs);
+X		free((char *) *sizes);
+X		return (-1);
+X	    }
+X	    (*IDs)[i] = atoi(fromserver);
+X	    fromserver = index(fromserver, ' ');
+X	    if (!fromserver) {
+X		strcpy(pop_error,
+X			"Badly formatted response from server in pop_list");
+X		free((char *) *IDs);
+X		free((char *) *sizes);
+X		pop_close(server);
+X		return (-1);
+X	    }
+X	    (*sizes)[i] = atoi(fromserver);
+X	}
+X	if (gettermination(server)) {
+X	    free((char *) *IDs);
+X	    free((char *) *sizes);
+X	    return (-1);
+X	}
+X	(*IDs)[i] = (*sizes)[i] = 0;
+X	return (0);
+X    }
+X}
+X
+X/*
+X * Function: pop_retrieve
+X *
+X * Purpose: Retrieve a specified message from the maildrop.
+X *
+X * Arguments:
+X * 	server	The server to retrieve from.
+X * 	message	The message number to retrieve.
+X *
+X * Return value: A string pointing to the message, if successful, or
+X * 	null with pop_error set if not.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xchar *
+Xpop_retrieve(server, message)
+XPopServer server;
+Xint message;
+X{
+X    int *IDs, *sizes;
+X    char *ptr, *cp;
+X
+X    if (pop_list(server, message, &IDs, &sizes))
+X	return (0);
+X
+X    sprintf(pop_error, "RETR %d", message);
+X    if (sendline(server, pop_error) || getok(server)) {
+X	return (0);
+X    }
+X    cp = ptr = (char *) malloc(sizes[0]+1);
+X    free((char *) IDs);
+X    free((char *) sizes);
+X
+X    if (!ptr) {
+X	strcpy(pop_error, "Out of memory in pop_retrieve");
+X	pop_close(server);
+X	return (0);
+X    }
+X    *cp = '\0';
+X
+X    while (1) {
+X	char *fromserver = getline(server);
+X	int size;
+X
+X	if (!fromserver) {
+X	    free(ptr);
+X	    pop_close(server);
+X	    return (0);
+X	}
+X	if (fromserver[0] == '.') {
+X	    if (!fromserver[1]) {
+X		return (ptr);
+X	    }
+X	    fromserver++;
+X	}
+X	size = strlen(fromserver);
+X	bcopy(fromserver, cp, size + 1);
+X	cp += size;
+X	*cp++ = '\n';
+X	*cp = '\0';
+X    }
+X}
+X
+X/* Function: pop_delete
+X *
+X * Purpose: Delete a specified message.
+X *
+X * Arguments:
+X * 	server	Server from which to delete the message.
+X * 	message	Message to delete.
+X *
+X * Return value: 0 on success, non-zero with error in pop_error
+X * 	otherwise.
+X */
+Xint 
+Xpop_delete(server, message)
+XPopServer server;
+Xint message;
+X{
+X    sprintf(pop_error, "DELE %d", message);
+X
+X    if (sendline(server, pop_error) || getok(server)) {
+X	pop_close(server);
+X	return (-1);
+X    }
+X    return (0);
+X}
+X
+X/*
+X * Function: pop_noop
+X *
+X * Purpose: Send a noop command to the server.
+X *
+X * Argument:
+X * 	server	The server to send to.
+X *
+X * Return value: 0 on success, non-zero with error in pop_error
+X * 	otherwise.
+X *
+X * Side effects: Closes connection on error.
+X */
+Xint 
+Xpop_noop(server)
+XPopServer server;
+X{
+X    if (sendline(server, "NOOP") || getok(server))
+X	return (-1);
+X
+X    return (0);
+X}
+X
+X/*
+X * Function: pop_last
+X *
+X * Purpose: Find out the highest seen message from the server.
+X *
+X * Arguments:
+X * 	server	The server.
+X *
+X * Return value: If successful, the highest seen message, which is
+X * 	greater than or equal to 0.  Otherwise, a negative number with
+X * 	the error explained in pop_error.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xint 
+Xpop_last(server)
+XPopServer server;
+X{
+X    char *fromserver;
+X
+X    if (sendline(server, "LAST"))
+X	return (-1);
+X
+X    if (!(fromserver = getline(server)))
+X	return (-1);
+X
+X    if (!strncmp(fromserver, "-ERR", 4)) {
+X	strncpy(pop_error, fromserver, ERROR_MAX);
+X	pop_close(server);
+X	return (-1);
+X    } else if (strncmp(fromserver, "+OK", 3)) {
+X	strcpy(pop_error, "Unexpected response from server in pop_last");
+X	pop_close(server);
+X	return (-1);
+X    } else {
+X	return (atoi(&fromserver[4]));
+X    }
+X}
+X
+X/*
+X * Function: pop_reset
+X *
+X * Purpose: Reset the server to its initial connect state
+X *
+X * Arguments:
+X * 	server	The server.
+X *
+X * Return value: 0 for success, non-0 with error in pop_error
+X * 	otherwise.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xint 
+Xpop_reset(server)
+XPopServer server;
+X{
+X    if (sendline(server, "RSET") || getok(server)) {
+X	pop_close(server);
+X	return (-1);
+X    }
+X    return (0);
+X}
+X
+X/*
+X * Function: pop_quit
+X *
+X * Purpose: Quit the connection to the server,
+X *
+X * Arguments:
+X * 	server	The server to quit.
+X *
+X * Return value: 0 for success, non-zero otherwise with error in
+X * 	pop_error.
+X *
+X * Side Effects: The PopServer passed in is unuseable after this
+X * 	function is called, even if an error occurs.
+X */
+Xint 
+Xpop_quit(server)
+XPopServer server;
+X{
+X    int ret = 0;
+X
+X    if (sendline(server, "QUIT") || getok(server))
+X	ret = -1;
+X
+X    close(server->file);
+X    free((char *) server);
+X
+X    return (ret);
+X}
+X
+X/*
+X * Function: socket_connection
+X *
+X * Purpose: Opens the network connection with the mail host, without
+X * 	doing any sort of I/O with it or anything.
+X *
+X * Arguments:
+X * 	host	The host to which to connect.
+X *	flags	Option flags.
+X * 	
+X * Return value: A file descriptor indicating the connection, or -1
+X * 	indicating failure, in which case an error has been copied
+X * 	into pop_error.
+X */
+Xstatic int 
+Xsocket_connection(host, flags)
+Xchar *host;
+Xint flags;
+X{
+X    struct hostent *hostent;
+X    struct servent *servent;
+X    struct sockaddr_in addr;
+X    char found_port = 0;
+X    char *service;
+X    int sock;
+X
+X#ifdef KERBEROS
+X    KTEXT ticket;
+X    MSG_DAT msg_data;
+X    CREDENTIALS cred;
+X    Key_schedule schedule;
+X    int rem;
+X
+X#endif
+X
+X    int try_count = 0;
+X
+X    do {
+X	hostent = gethostbyname(host);
+X	try_count++;
+X	if ((!hostent) && ((h_errno != TRY_AGAIN) || (try_count == 5))) {
+X	    strcpy(pop_error, "Could not determine POP server's address");
+X	    return (-1);
+X	}
+X    } while (!hostent);
+X
+X    bzero((char *) &addr, sizeof(addr));
+X    addr.sin_family = AF_INET;
+X
+X#ifdef KERBEROS
+X    service = (flags & POP_NO_KERBEROS) ? POP_SERVICE : KPOP_SERVICE;
+X#else
+X    service = POP_SERVICE;
+X#endif
+X
+X#ifdef HESIOD
+X    if (!(flags & POP_NO_HESIOD)) {
+X	servent = hes_getservbyname(service, "tcp");
+X	if (servent) {
+X	    addr.sin_port = servent->s_port;
+X	    found_port = 1;
+X	}
+X    }
+X#endif
+X    if (!found_port) {
+X	servent = getservbyname(service, "tcp");
+X	if (servent) {
+X	    addr.sin_port = servent->s_port;
+X	} else {
+X#ifdef KERBEROS
+X	    addr.sin_port = htons((flags & POP_NO_KERBEROS) ?
+X		    POP_PORT : KPOP_PORT);
+X#else
+X	    addr.sin_port = htons(POP_PORT);
+X#endif
+X	}
+X    }
+X#define SOCKET_ERROR "Could not create socket for POP connection: "
+X
+X    sock = socket(PF_INET, SOCK_STREAM, 0);
+X    if (sock < 0) {
+X	strcpy(pop_error, SOCKET_ERROR);
+X	strncat(pop_error, strerror(errno),
+X		ERROR_MAX - sizeof(SOCKET_ERROR));
+X	return (-1);
+X
+X    }
+X    while (*hostent->h_addr_list) {
+X	bcopy(*hostent->h_addr_list, (char *) &addr.sin_addr,
+X		hostent->h_length);
+X	if (!connect(sock, (struct sockaddr *) & addr, sizeof(addr)))
+X	    break;
+X	hostent->h_addr_list++;
+X    }
+X
+X#define CONNECT_ERROR "Could not connect to POP server: "
+X
+X    if (!*hostent->h_addr_list) {
+X	(void) close(sock);
+X	strcpy(pop_error, CONNECT_ERROR);
+X	strncat(pop_error, strerror(errno),
+X		ERROR_MAX - sizeof(CONNECT_ERROR));
+X	return (-1);
+X
+X    }
+X#ifdef KERBEROS
+X    if (!(flags & POP_NO_KERBEROS)) {
+X	ticket = (KTEXT) malloc(sizeof(KTEXT_ST));
+X	rem = krb_sendauth(0L, sock, ticket, "pop", hostent->h_name,
+X		(char *) krb_realmofhost(hostent->h_name),
+X		(unsigned long) 0, &msg_data, &cred, schedule,
+X		(struct sockaddr_in *) 0,
+X		(struct sockaddr_in *) 0,
+X		"KPOPV0.1");
+X	free((char *) ticket);
+X	if (rem != KSUCCESS) {
+X#define KRB_ERROR "Kerberos error connecting to POP server: "
+X	    strcpy(pop_error, KRB_ERROR);
+X	    strncat(pop_error, krb_err_txt[rem],
+X		    ERROR_MAX - sizeof(KRB_ERROR));
+X	    (void) close(sock);
+X	    return (-1);
+X	}
+X    }
+X#endif	/* KERBEROS */
+X
+X    return (sock);
+X}/* socket_connection */
+X
+X/*
+X * Function: getline
+X *
+X * Purpose: Get a line of text from the connection and return a
+X * 	pointer to it.  The carriage return and linefeed at the end of
+X * 	the line are stripped, but periods at the beginnings of lines
+X * 	are NOT dealt with in any special way.
+X *
+X * Arguments:
+X * 	server	The server from which to get the line of text.
+X *
+X * Returns: A non-null pointer if successful, or a null pointer on any
+X * 	error, with an error message copied into pop_error.
+X *
+X * Notes: The line returned is overwritten with each call to getline.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xstatic char *
+Xgetline(server)
+XPopServer server;
+X{
+X#define GETLINE_ERROR "Error reading from server: "
+X
+X    int ret;
+X
+X    if (server->data) {
+X	char *cp = strstr(server->dp, "\r\n");
+X
+X	if (cp) {
+X	    char *found;
+X
+X	    *cp = '\0';
+X	    server->data -= (&cp[2] - server->dp);
+X	    found = server->dp;
+X	    server->dp = &cp[2];
+X
+X	    if (pop_debug)
+X		fprintf(stderr, "<<< %s\n", found);
+X	    return (found);
+X	} else {
+X	    bcopy(server->dp, server->buffer, server->data);
+X	    server->dp = server->buffer;
+X	}
+X    } else {
+X	server->dp = server->buffer;
+X    }
+X
+X    while (server->data < GETLINE_MAX) {
+X	ret = read(server->file, &server->buffer[server->data],
+X		GETLINE_MAX - server->data);
+X	if (ret < 0) {
+X	    strcpy(pop_error, GETLINE_ERROR);
+X	    strncat(pop_error, strerror(errno),
+X		    GETLINE_MAX - sizeof(GETLINE_ERROR));
+X	    pop_close(server);
+X	    return (0);
+X	} else if (ret == 0) {
+X	    strcpy(pop_error, "Unexpected EOF from server in getline");
+X	    pop_close(server);
+X	    return (0);
+X	} else {
+X	    char *cp = strstr(server->buffer, "\r\n");
+X
+X	    server->data += ret;
+X
+X	    if (cp) {
+X		*cp = '\0';
+X		server->data -= (&cp[2] - server->dp);
+X		server->dp = &cp[2];
+X
+X		if (pop_debug)
+X		    fprintf(stderr, "<<< %s\n", server->buffer);
+X		return (server->buffer);
+X	    }
+X	}
+X    }
+X
+X    strcpy(pop_error, "Line too long reading from server; compile pop.c with larger GETLINE_MAX");
+X    pop_close(server);
+X    return (0);
+X}
+X
+X/*
+X * Function: sendline
+X *
+X * Purpose: Sends a line of text to the POP server.  The line of text
+X * 	passed into this function should NOT have the carriage return
+X * 	and linefeed on the end of it.  Periods at beginnings of lines
+X * 	will NOT be treated specially by this function.
+X *
+X * Arguments:
+X * 	server	The server to which to send the text.
+X * 	line	The line of text to send.
+X *
+X * Return value: Upon successful completion, a value of 0 will be
+X * 	returned.  Otherwise, a non-zero value will be returned, and
+X * 	an error will be copied into pop_error.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xstatic int 
+Xsendline(server, line)
+XPopServer server;
+Xchar *line;
+X{
+X#define SENDLINE_ERROR "Error writing to POP server: "
+X    int ret;
+X
+X    ret = fullwrite(server->file, line, strlen(line));
+X    if (ret >= 0) {	/* 0 indicates that a blank line was written */
+X	ret = fullwrite(server->file, "\r\n", 2);
+X    }
+X    if (ret < 0) {
+X	pop_close(server);
+X	strcpy(pop_error, SENDLINE_ERROR);
+X	strncat(pop_error, strerror(errno),
+X		ERROR_MAX - sizeof(SENDLINE_ERROR));
+X	return (ret);
+X    }
+X    if (pop_debug)
+X	fprintf(stderr, ">>> %s\n", line);
+X
+X    return (0);
+X}
+X
+X/*
+X * Procedure: fullwrite
+X *
+X * Purpose: Just like write, but keeps trying until the entire string
+X * 	has been written.
+X *
+X * Return value: Same as write.  Pop_error is not set.
+X */
+Xstatic int 
+Xfullwrite(fd, buf, nbytes)
+Xint fd;
+Xchar *buf;
+Xint nbytes;
+X{
+X    char *cp;
+X    int ret;
+X
+X    cp = buf;
+X    while ((ret = write(fd, cp, nbytes)) > 0) {
+X	cp += ret;
+X	nbytes -= ret;
+X    }
+X
+X    return (ret);
+X}
+X
+X/*
+X * Procedure getok
+X *
+X * Purpose: Reads a line from the server.  If the return indicator is
+X * 	positive, return with a zero exit status.  If not, return with
+X * 	a negative exit status.
+X *
+X * Arguments:
+X * 	server	The server to read from.
+X * 
+X * Returns: 0 for success, else for failure and puts error in pop_error.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xstatic int 
+Xgetok(server)
+XPopServer server;
+X{
+X    char *fromline;
+X
+X    if (!(fromline = getline(server))) {
+X	return (-1);
+X    }
+X    if (!strncmp(fromline, "+OK", 3))
+X	return (0);
+X    else if (!strncmp(fromline, "-ERR", 4)) {
+X	strncpy(pop_error, fromline, ERROR_MAX);
+X	pop_error[ERROR_MAX - 1] = '\0';
+X	pop_close(server);
+X	return (-1);
+X    } else {
+X	strcpy(pop_error,
+X		"Unknown response from server; expecting +OK or -ERR");
+X	pop_close(server);
+X	return (-1);
+X    }
+X}
+X
+X/*
+X * Function: gettermination
+X *
+X * Purpose: Gets the next line and verifies that it is a termination
+X * 	line (nothing but a dot).
+X *
+X * Return value: 0 on success, non-zero with pop_error set on error.
+X *
+X * Side effects: Closes the connection on error.
+X */
+Xstatic int 
+Xgettermination(server)
+XPopServer server;
+X{
+X    char *fromserver;
+X
+X    fromserver = getline(server);
+X    if (!fromserver)
+X	return (-1);
+X
+X    if (strcmp(fromserver, ".")) {
+X	strcpy(pop_error,
+X		"Unexpected response from server in gettermination");
+X	pop_close(server);
+X	return (-1);
+X    }
+X    return (0);
+X}
+X
+X/*
+X * Function pop_close
+X *
+X * Purpose: Close a pop connection, sending a "RSET" command to try to
+X * 	preserve any changes that were made and a "QUIT" command to
+X * 	try to get the server to quit, but ignoring any responses that
+X * 	are received.
+X *
+X * Side effects: The server is unuseable after this function returns.
+X * 	Changes made to the maildrop since the session was started (or
+X * 	since the last pop_reset) may be lost.
+X */
+Xvoid 
+Xpop_close(server)
+XPopServer server;
+X{
+X    sendline(server, "RSET");
+X    sendline(server, "QUIT");
+X
+X    close(server->file);
+X    free((char *) server);
+X
+X    return;
+X}
+X
+X#endif /* POP3_SUPPORT */
+SHAR_EOF
+chmod 0644 pop.c || echo "restore of pop.c fails"
+set `wc -c pop.c`;Sum=$1
+if test "$Sum" != "22450"
+then echo original size 22450, current size $Sum;fi
+echo "x - extracting pmush.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > pmush.c &&
+X/**************************************************************************
+XNAME: Brian Buhrow
+XDATE: September 17, 1991
+XPURPOSE: This file contains the interface between the Mush program and the
+X	POP post-office calls which put mail into the system mailbox.  Mail
+X	will be placed in the user's mailbox when Mush is first fired up and
+X	will be checked periodically as Mush is run.
+X	Note that these routines will only be called if the pre-processor
+X	variable POP3_SUPPORT is defined.
+X**************************************************************************/
+X
+X#ifdef POP3_SUPPORT
+X
+X#include "config.h"
+X#include "mush.h"
+X#include "pop.h"
+X
+X/*
+X * strstr - find first occurrence of wanted in s
+X */
+X
+Xchar *				/* found string, or NULL if none */
+Xstrstr(s, wanted)
+Xchar *s;
+Xchar *wanted;
+X{
+X    char *scan;
+X    long len;
+X    char firstc;
+X
+X    /*
+X     * The odd placement of the two tests is so "" is findable.
+X     * Also, we inline the first char for speed.
+X     * The ++ on scan has been moved down for optimization.
+X     */
+X    firstc = *wanted;
+X    len = strlen(wanted);
+X    for (scan = s; *scan != firstc || strncmp(scan, wanted, len) != 0; )
+X	if (*scan++ == '\0')
+X	    return NULL;
+X    return scan;
+X}
+X
+X/* This routine forms the header line for the From and Date functions below.
+X * It was written by John Kammens for use by UCSC's version of UCBmail running
+X * on the ATHENA system.
+X */
+Xstatic char *
+Xheader(msg, tag)
+Xchar *msg, *tag;
+X{
+X    char *val, *ptr, *eoh;
+X
+X    val = malloc(strlen(tag) + 3);
+X    if (!val)
+X	return (0);
+X
+X    sprintf(val, "\n%s:", tag);
+X
+X    eoh = strstr(msg, "\n\n");
+X    if (!eoh)
+X	eoh = (char *) index(msg, '\0');
+X
+X    ptr = strstr(msg, tag);
+X
+X    if ((!ptr) || (ptr > eoh)) {
+X	sprintf(val, "%s:", tag);
+X	if (!strncmp(val, msg, strlen(val)))
+X	    ptr = msg;
+X	else
+X	    ptr = 0;
+X    }
+X    if (!ptr) {
+X	free(val);
+X	return (0);
+X    }
+X    ptr += strlen(val);
+X
+X    while (*ptr && ((*ptr == ' ') || (*ptr == '\t')))
+X	ptr++;
+X
+X    eoh = (char *) index(ptr, '\n');
+X    if (!eoh)
+X	eoh = (char *) index(ptr, '\0');
+X
+X    val = realloc(val, (eoh - ptr) + 1);
+X    strncpy(val, ptr, (eoh - ptr));
+X    val[eoh - ptr] = '\0';
+X
+X    return (val);
+X}
+X
+X/* This routine comes up with the Unix Date line to insert into the mail
+X * file.  It was written by John Kammens for use with UCSC's UCBMail on
+X * Athena.
+X *
+X * Modified to get rid of dependence on that hideous B-news yacc parser.
+X * Mush already has a perfectly good date parser, let's use it.  -- Bart
+X */
+Xstatic char *
+Xdate(msg)
+Xchar *msg;
+X{
+X    char *real = 0, *machine = 0;
+X    long t;
+X    int size;
+X
+X    real = header(msg, "Date");
+X
+X    if (real) {
+X	machine = parse_date(real);
+X	free(real);
+X	if (machine) {
+X	    machine = date_to_ctime(machine);
+X	}
+X    }
+X    if (!machine) {
+X	t = time((long *)0);
+X	machine = ctime(&t);
+X    }
+X    size = strlen(machine);
+X    machine[size - 1] = '\0';	/* get rid of newline */
+X    real = malloc(size);
+X    if (!real)
+X	return 0;
+X    strcpy(real, machine);
+X
+X    return real;
+X}
+X
+X/* This routine comes up with the Unix From line to insert into the mail
+X * file.  It was written by John Kammens for use with UCSC's UCBMail on
+X * Athena.
+X *
+X * Modified to use get_name_n_addr() so we don't depend on regexec()
+X * being available, which it usually isn't. -- Bart
+X */
+Xstatic char *
+Xfrom_line(msg)
+Xchar *msg;
+X{
+X    char *real = header(msg, "From"), *real2;
+X    char addr[256];
+X
+X    if (real) {
+X	addr[0] = 0;
+X	(void) get_name_n_addr(real, NULL, addr);
+X	if (addr[0]) {
+X	    (void) bang_form(real, addr);
+X	    return real;
+X	}
+X    }
+X
+X    if (!real)
+X	real = malloc(8);
+X    if (!real)
+X	return 0;
+X    strcpy(real, "unknown");
+X    return real;
+X}
+X
+X/* Retrieves mail from the system post office using the POP interface
+X * routines as put together by John Kammens for the UCBmail program under
+X * ATHENA.  This routine will be called both when Mush begins executing to
+X * check for new mail and when Mush is executing to see if new mail has
+X * arrived during the Mush session.
+X */
+Xstatic void 
+Xloadmail()
+X{
+X    PopServer postinfo;
+X    int msgcount, msgsize, i, flags = 0;
+X    char mailbox[MAXPATHLEN], *msgptr, *dateline, *fromline;
+X    FILE *mfstream;
+X    struct stat mfstat;
+X    static char pass[64];
+X
+X    *mailbox = (char) NULL;	/* Clear string */
+X    strcat(mailbox, getenv("HOME"));
+X    strcat(mailbox, "/");
+X    strcat(mailbox, MAILFILE);
+X    /* Get info about post drop */
+X    if (pass[0])
+X	flags = POP_NO_GETPASS;
+X    if (!(postinfo = pop_open(NULL, login, pass, flags))) {
+X	fprintf(stderr, "Error opening connection with post office: %s\n",
+X		pop_error);
+X	return;
+X    }
+X    if (pop_stat(postinfo, &msgcount, &msgsize)) {
+X	fprintf(stderr, "Error collecting status from post office: %s\n",
+X		pop_error);
+X	pop_close(postinfo);
+X	return;
+X    }
+X    if (!msgcount) {
+X	pop_quit(postinfo);
+X	return;
+X    }
+X    /* Begin loading mailbox */
+X    if (stat(mailbox, &mfstat)) {
+X	if (errno == ENOENT) {
+X	    close(open(mailbox, O_WRONLY | O_CREAT | O_EXCL, 0600));
+X	}
+X    }
+X    if (!(mfstream = fopen(mailbox, "a"))) {
+X	perror("Error opening mailbox in loadmail");
+X	pop_close(postinfo);
+X	return;
+X    }
+X    for (i = 1; i <= msgcount; i++) {	/* Load new messages */
+X	msgptr = pop_retrieve(postinfo, i);
+X	dateline = date(msgptr);
+X	fromline = from_line(msgptr);
+X	if (fprintf(mfstream, "\nFrom %s %s\n%s", fromline, dateline, msgptr)
+X		< (strlen(fromline) + strlen(dateline) + strlen(msgptr))) {
+X	    fprintf(stderr, "Error writing mailbox file\n");
+X	    pop_close(postinfo);
+X	    cleanup(-1);
+X	}
+X	free(dateline);
+X	free(fromline);
+X	free(msgptr);
+X	if (pop_delete(postinfo, i)) {
+X	    fprintf(stderr, "Error deleting message from post office: %s\n",
+X		    pop_error);
+X	}
+X    }
+X    if (fclose(mfstream) == EOF) {
+X	perror("Error closing mailbox file in loadmail");
+X	pop_close(postinfo);
+X	return;
+X    }
+X    if (pop_quit(postinfo)) {
+X	fprintf(stderr, "Error closing post office: %s\n", pop_error);
+X    }
+X    return;
+X}
+X
+X/* This routine merely calls loadmail to get mail initially from the post
+X * office.  There is no forking, and it is intended to be used when Mush is
+X * first started.
+X */
+Xvoid
+Xpopgetmail()
+X{
+X    loadmail();
+X}
+X
+X/* This function calls loadmail, after first forking, releasing stdin,
+X * stdout and stderr and ignoring any signals that might be generated.
+X * This function is invoked by the sigalrm signal.  The parent resets
+X * the alarm and returns.
+X */
+Xvoid 
+Xpopchkmail()
+X{
+X    static int cpid = 0, numtries = 0;
+X
+X    if (cpid > 0) {
+X	if (!kill(cpid, 0)) {
+X	    numtries++;
+X	    if (numtries > 10) {
+X		kill(cpid, SIGKILL);
+X	    }
+X	    return;
+X	} else {
+X	    numtries = 0;
+X	}
+X    }
+X    if (!(cpid = fork())) {
+X	/* Ignore several signals for workability */
+X	signal(SIGCONT, SIG_IGN);
+X	signal(SIGQUIT, SIG_IGN);
+X	signal(SIGTSTP, SIG_IGN);
+X	signal(SIGSTOP, SIG_IGN);
+X	signal(SIGTERM, SIG_IGN);
+X	signal(SIGIO, SIG_IGN);
+X	signal(SIGPIPE, SIG_IGN);
+X	loadmail();
+X	_exit(0);
+X    } else {
+X	if (cpid == -1) {
+X	    fprintf(stderr, "Unable to fork in popchkmail\n");
+X	}
+X	return;
+X    }
+X}
+X
+X#endif	/* POP3_SUPPORT */
+SHAR_EOF
+chmod 0644 pmush.c || echo "restore of pmush.c fails"
+set `wc -c pmush.c`;Sum=$1
+if test "$Sum" != "6973"
+then echo original size 6973, current size $Sum;fi
+echo "x - extracting xcreat.c (Text)"
+sed 's/^X//' << 'SHAR_EOF' > xcreat.c &&
+X/************************************************************************
+X *	secure exclusive creat/lock	v1.4 1992/04/27			*
+X *	(works even across NFS, which O_EXCL does *not*)		*
+X *									*
+X *	Created 1990-1992, S.R. van den Berg, The Netherlands		*
+X *			berg@pool.informatik.rwth-aachen.de		*
+X *			berg@physik.tu-muenchen.de			*
+X *									*
+X *	This file is donated to the public domain.			*
+X *									*
+X *	Cleaned up 1992, Bart Schaefer, Z-Code Software Corp.		*
+X *			schaefer@z-code.com				*
+X *			schaefer@cse.ogi.edu				*
+X *		Cleanup includes reformatting for readability,		*
+X *		more comments, and using some file-name macros		*
+X *		that Mush defines (removed calls to strpbrk()		*
+X *		and avoided malloc()ing when max. size known).		*
+X *		Also added XCTEST standalone test program mode.		*
+X *									*
+X *	Usage: int xcreat(char *filename, int mode)			*
+X *									*
+X *	returns  0:success  -1:lock busy				*
+X *									*
+X *		sets errno on failure					*
+X *									*
+X *	To remove a `lockfile', simply unlink it.			*
+X *									*
+X ************************************************************************/
+X
+X#include "mush.h"	/* For OS-specific include files and macros */
+X
+X#ifdef XCTEST_LOUDLY
+X#ifndef XCTEST
+X#define XCTEST
+X#endif /* XCTEST */
+X#endif /* XCTEST_LOUDLY */
+X
+X#ifdef XCTEST
+X#define hostname()	"xctest"
+X#else
+Xextern char **ourname;
+X#define hostname()	ourname[0]
+X#endif /* XCTEST */
+X
+X#ifdef DECLARE_ERRNO
+Xextern int errno;
+X#endif /* DECLARE_ERRNO */
+X
+X#ifndef O_SYNC
+X#define O_SYNC		0
+X#endif
+X#ifndef	O_CREAT
+X#define	copen(path,type,mode)	creat(path,mode)
+X#else
+X#define copen(path,type,mode)	open(path,type,mode)
+X#endif
+X
+X#define UNIQ_PREFIX	'_'		/* Any unlikely character works */
+X#define charsULTOAN	4		/* # of chars output by ultoan() */
+X
+X#ifndef MAXNAMLEN
+X#if defined(BSD) || defined(IRIX4) || defined(HPUX)
+X#define MAXNAMLEN	(MAXPATHLEN/2)	/* Any fairly large number works */
+X#else /* !SYSV */
+X#define MAXNAMLEN	14		/* 14 is SysVr3 standard */
+X#endif /* BSD */
+X#endif /* MAXNAMLEN */
+X
+X#define HOSTNAMElen	(MAXNAMLEN-charsULTOAN-1)
+X
+X/* Define a bit rotation to generate pseudo-unique numbers in "sequence" */
+X#define bitsSERIAL	(6*charsULTOAN)
+X#define maskSERIAL	((1L<<bitsSERIAL)-1)
+X#define rotbSERIAL	2
+X#define mrotbSERIAL	((1L<<rotbSERIAL)-1)
+X
+X#define XCserialize(n,r) \
+X    ((u_long) maskSERIAL&((u_long)(r)<<bitsSERIAL-mrotbSERIAL)+(u_long)(n))
+X
+X/* Generate an almost-unique 4-character string from an unsigned long */
+Xstatic 
+Xultoan(val, dest)
+Xunsigned long val;
+Xchar *dest;	/* convert to a number */
+X{
+X    register i;	/* within the set [0-9A-Za-z-_] */
+X
+X#ifdef XCTEST_LOUDLY
+X    printf("Converting %lu to ascii.\n", val);
+X#endif /* XCTEST_LOUDLY */
+X
+X    do {
+X	i = val & 0x3f;
+X	*dest++ = i+(i < 10? '0' :
+X		    i < 10+26? 'A'-10 :
+X		    i < 10+26+26? 'a'-10-26 :
+X		    i == 10+26+26 ? '-'-10-26-26 :
+X		    '_'-10-26-27);
+X    }
+X    while (val >>= 6);
+X    *dest = '\0';
+X}
+X
+X/* create unique file name */
+Xstatic
+Xunique(full, p, mode)
+Xchar *full;
+Xchar *p;
+Xint mode;
+X{
+X    unsigned long retry = 3;
+X    int i;
+X
+X    do {
+X#ifdef XCTEST_LOUDLY
+X	printf("Using PID = %d:  ", getpid());
+X#endif /* XCTEST_LOUDLY */
+X	ultoan(XCserialize(getpid(),retry), p + 1);
+X	*p = UNIQ_PREFIX;
+X	strncat(p, hostname(), HOSTNAMElen);
+X    } /* casually check if it already exists (highly unlikely) */
+X    while (0 > (i = copen(full, O_WRONLY|O_CREAT|O_EXCL|O_SYNC, mode)) &&
+X	    errno == EEXIST && retry--);
+X    if (i < 0)
+X	return 0;
+X    close(i);
+X    return 1;
+X}
+X
+X/* rename MUST fail if already existent */
+Xstatic 
+Xmyrename(old, newn)
+Xchar *old, *newn;
+X{
+X    int i, serrno;
+X    struct stat stbuf;
+X
+X#ifdef XCTEST_LOUDLY
+X    printf("Renaming %s to %s\n", old, newn);
+X#endif /* XCTEST_LOUDLY */
+X
+X    link(old, newn);
+X    serrno = errno;
+X    i = stat(old, &stbuf);
+X    unlink(old);
+X    errno = serrno;
+X    return stbuf.st_nlink == 2 ? i : -1;
+X}
+X
+X/* an NFS secure exclusive file open */
+Xxcreat(name, mode)
+Xchar *name;
+Xint mode;
+X{
+X    char buf[MAXPATHLEN];
+X    char *p, *q;
+X    int j = -2, i;
+X
+X    q = rindex(name, '/');
+X    if (q)
+X	i = q - name;
+X    else {
+X	i = 0;	/* Creating in the current directory */
+X    }
+X    p = strncpy(buf, name, i);
+X    if (unique(p, p + i, mode))
+X	j = myrename(p, name);	/* try and rename it, fails if nonexclusive */
+X    free(p);
+X    return j;
+X}
+X
+X#ifdef XCTEST
+X
+Xmain(argc, argv)
+Xint argc;
+Xchar **argv;
+X{
+X    if (argc > 1)
+X	exit(xcreat(argv[1], 0444) < 0);
+X}
+X
+X#endif /* XCTEXT */
+SHAR_EOF
+chmod 0644 xcreat.c || echo "restore of xcreat.c fails"
+set `wc -c xcreat.c`;Sum=$1
+if test "$Sum" != "4396"
+then echo original size 4396, current size $Sum;fi
+exit 0
+
+-- 
+Bart Schaefer                                     schaefer@zigzag.z-code.com
+Z-Code Software Corp.                             schaefer@z-code.com

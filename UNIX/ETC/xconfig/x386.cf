@@ -1,0 +1,313 @@
+XCOMM $Header: /home/x_cvs/mit/config/x386.cf,v 1.22 1992/07/16 10:45:34 dawes Exp $
+XCOMM platform:  $XConsortium: x386.cf,v 1.7 91/08/16 19:30:10 gildea Exp $
+
+/*****************************************************************************
+ *			  Site-specfic parameters                            *
+ *****************************************************************************/
+
+/*
+ * there are some switches to set appropriate...
+ * Set these in the BeforeVendorCF part of site.def
+ */
+
+#define SnfFonts		/* want to build snf, not pcf fonts */
+#define StandardIncludes -I/usr/X/include -I$(TOOLS)/usr/include
+
+#ifndef HasGcc
+#define HasGcc			YES
+#endif
+#ifndef HasGcc2
+#define HasGcc2			YES	/* for GCC 2.0 or later */
+#endif
+#ifndef HasSockets
+#define HasSockets		YES
+#endif
+#ifndef HasNdbm
+#define HasNdbm			YES	/* correct for GNU dbm & SVR4 */
+#endif
+#ifndef HasSdbm 
+#define HasSdbm			NO
+#endif
+#ifndef ProjectRoot
+#define ProjectRoot		/usr/X
+#endif
+#ifndef StripInstalledPrograms
+#define StripInstalledPrograms	YES
+#endif
+#define X386Server		YES
+#define ExtensionOSDefines	-DXTESTEXT1
+#ifndef MotifBC
+#define MotifBC	        	YES
+#endif
+#ifndef Target_486
+#define Target_486		NO	/* YES if binaries are for 486 */
+#endif
+#ifndef Build75Dpi
+#define Build75Dpi		YES
+#endif
+#ifndef Build100Dpi
+#define Build100Dpi		NO
+#endif
+#ifndef BuildLargeMiscFonts
+#define BuildLargeMiscFonts	NO
+#endif
+#ifndef SCOLocalConnSysv4
+#define SCOLocalConnSysv4	YES
+#endif
+#ifndef ClientLocalConnSysv4
+#define ClientLocalConnSysv4	NO
+#endif
+#ifndef GccUsesGas
+#define GccUsesGas		NO
+#endif
+#ifndef UseGas
+#define UseGas			NO
+#endif
+#ifndef HasShadowPasswd
+#define HasShadowPasswd		YES
+#endif
+
+  EXTRA_INCLUDES =
+/*****************************************************************************
+ *                        Do not change anything below                       *
+ *****************************************************************************/
+
+/* You must manually compute BootstrapCFlags for initial build */
+#undef BootstrapCFlags
+#define BootstrapCFlags		OSDefines OSRelease
+
+#define StandardDefines		OSDefines OSRelease
+#define LdCombineFlags		-r
+
+#if Target_486
+# define Gcc2MOption -m486
+#else
+# define Gcc2MOption -m386
+#endif
+
+#if GccUsesGas
+# define GccGasOption -DGCCUSESGAS
+#else
+# define GccGasOption /**/
+#endif
+
+#if UseGas
+# define AsmDefines -DUSE_GAS
+#else
+# define AsmDefines /**/
+#endif
+
+#define AssembleObject(flags) $(RM) $@                                  @@\
+	$(CPP) AsmDefines $(INCLUDES) flags $*.s > $*.i                 @@\
+	$(AS) -o $*.o $*.i                                              @@\
+	$(RM) $*.i
+
+#define NormalAsmObjectRule()                                           @@\
+.s.o:                                                                   @@\
+	AssembleObject($(_NOOP_))
+
+#define ObjectFromSpecialAsmSource(dst,src,flags)                       @@\
+dst.s:  src.s                                                           @@\
+	$(RM) $@                                                        @@\
+	$(LN) $? $@                                                     @@\
+                                                                        @@\
+dst.o:  dst.s                                                           @@\
+	AssembleObject(flags)                                           @@\
+                                                                        @@\
+depend:: dst.s                                                          @@\
+                                                                        @@\
+clean::                                                                 @@\
+	$(RM) dst.s
+
+
+#if HasNdbm
+# if HasSdbm
+#  define NdbmDefines		-DNDBM -DSDBM
+# else
+#  define NdbmDefines		-DNDBM
+# endif
+#endif
+
+#if defined(i386SVR3Architecture)
+
+#define SystemV			YES
+
+#define NeedBerklib		YES
+
+/*
+ * V/386 Release 3.2
+ */
+#ifdef ISC
+/* INTERACTIVE UNIX Version 2.2.1 */
+# define OSVendor		"Interactive System Corp."
+# define OSDefines		-DISC
+# define LocalLibraries		-lpt
+# define PosixLibraries		-lcposix
+# define SocketLibraries        -linet
+#endif
+
+#ifdef ESIX
+#define OSVendor		"ESIX System Inc."
+#define OSDefines		-DESIX
+#define LocalLibraries		-lpt -lbsd
+#define SocketLibraries		-lnet -lnsl_s
+#define PosixLibraries		/**/
+#endif
+
+#ifdef SCO
+#define OSDefines		-DSCO -DBROKEN_FTOL -DNO_PROTOTYPE -D_SVID
+#define OSVendor		"Santa Cruz Operation Ltd."
+#define LocalLibraries		-lpt
+#define SocketLibraries		-lsocket 
+#define PosixLibraries		/**/
+#endif
+
+#ifdef ATT
+#define OSDefines		-DATT
+#define OSVendor		"AT&T"
+#define LocalLibraries		-lpt
+#define SocketLibraries		-lnet -lnsl_s    /* just a guess */
+#define PosixLibraries		/**/
+#endif
+
+#define OSName			Unix System V/386 Release 3.2
+#define OSMajorVersion		3
+#define OSMinorVersion		2
+#define OSRelease		-DSYSV -DSYSV386
+
+#if HasGcc
+# define CcCmd gcc
+# if HasGcc2
+#  define DefaultCCOptions Gcc2MOption -DNO_ASM -fpcc-struct-return -fwritable-strings
+#  define LibraryCCOptions Gcc2MOption -DNO_ASM -fpcc-struct-return
+#  define OptimizedCDebugFlags -O2
+# else
+#  define DefaultCCOptions -DNO_ASM -fpcc-struct-return -fwritable-strings
+#  define LibraryCCOptions -DNO_ASM -fpcc-struct-return
+#  define OptimizedCDebugFlags -O -fstrength-reduce
+# endif
+# define ShlibDefines -D__GNUC__ -DGNULIB=/usr/local/lib/gcc-gnulib
+#else
+# define ShlibDefines /**/
+#endif
+
+#if HasSockets
+# define ConnectionFlags -DCLIENTS_LOCALCONN -DSERVER_LOCALCONN -DTCPCONN
+# define ExtraLibraries SocketLibraries LocalLibraries -lc_s PosixLibraries
+# define ServerExtraDefines GccGasOption -DXDMCP
+#else
+# define NeedInetEmulLib	YES
+# define ConnectionFlags -DCLIENTS_LOCALCONN -DSERVER_LOCALCONN
+# define ExtraLibraries $(XINETLIB) LocalLibraries -lc_s PosixLibraries
+/* This turns off XDMCP in the server if no sockets */
+# define ServerExtraDefines GccGasOption
+#endif
+
+/* #include <sv3Lib.rules> */  /* not working yet */
+
+/*
+ * Man pages need to be formatted when installed, so override the default
+ * imake rules.
+ */
+#define InstallManPageLong(file,destdir,dest)                           @@\
+install.man:: file.man                                                  @@\
+	$(RM) destdir/dest.ManSuffix					@@\
+	cat file.man | neqn | nroff -man >/tmp/file.man  		@@\
+	$(INSTALL) -c $(INSTMANFLAGS) /tmp/file.man destdir/dest.ManSuffix @@\
+	$(RM) /tmp/file.man
+
+#define InstallMultipleMan(list,dest)                                   @@\
+install.man:: list                                                      @@\
+	@case '${MFLAGS}' in *[i]*) set +e;; esac; \                    @@\
+	for i in list; do \                                             @@\
+		(set -x; \						@@\
+		$(RM) dest/$$i; \					@@\
+		cat $$i | neqn | nroff -man >/tmp/$$i; \  		@@\
+		$(INSTALL) -c $(INSTMANFLAGS) /tmp/$$i dest/$$i; \	@@\
+		$(RM) /tmp/$$i); \					@@\
+	done
+
+/* If you have trouble with make bombing out in Xlib, try uncommenting this. */
+/* You will not get dependencies as a result, but better than nothing. */
+/* #define DependTarget3(srcs1,srcs2,srcs3) */
+
+#endif /* i386SVR3Architecture */
+
+
+/*
+ * V/386 Release 4.0
+ */
+#if defined(i386SVR4Architecture)
+
+#define SystemV4		YES
+
+/* No vendor defines required for SVR4 */
+
+#define OSName			Unix System V/386 Release 4.2
+#define OSMajorVersion		4
+#define OSMinorVersion		0
+/* SVR4 should be enough, but many packages look at SYSV instead, and
+ * some, including xterm, use DUSG
+ * Greg Lehey, LEMIS, 13 September 1993 
+ */
+#define OSRelease		-DSVR4 -DSYSV386 -DSYSV -DUSG
+#define OSDefines		/**/
+#define OSVendor		Consensys
+
+#ifndef HasSharedLibraries
+#define HasSharedLibraries	YES
+#endif
+
+#if HasGcc
+# define CcCmd			gcc
+# define AnsiCCOptions		-ansi
+# if HasGcc2
+#  define DefaultCCOptions	Gcc2MOption -fpcc-struct-return -Di386 
+#  define OptimizedCDebugFlags	-O2
+# else
+#  define DefaultCCOptions	-fpcc-struct-return -fstrength-reduce -Di386
+#  if HasSharedLibraries
+#   define LibraryCcCmd		/bin/cc
+#   define LibraryAnsiCCOptions	-Xc
+#   define LibraryCCOptions	-Di386 -Dasm=__asm
+#  endif
+# endif
+#else
+# define CcCmd			/bin/cc
+# define AnsiCCOptions		-Xc
+# define DefaultCCOptions	-Di386 -Dasm=__asm
+#endif
+
+#define ServerExtraDefines GccGasOption -DXDMCP
+
+#if SCOLocalConnSysv4
+# define Acp			-DSVR4_ACP
+#else
+# define Acp			/**/
+#endif
+
+#if ClientLocalConnSysv4
+# define CLocal			-DCLIENTS_LOCALCONN
+#else
+# define CLocal			/**/
+#endif
+
+#define ConnectionFlags	    -DUNIXCONN -DTCPCONN -DSERVER_LOCALCONN Acp CLocal
+#define NeedBerklib	    YES
+/* This was #if'd:
+   #if UseInstalled
+   #endif
+ * but I can't work out where that comes from (Grog, 28 March 1993)
+ */
+#ifdef ConsensysSVR4
+#define ExtraLibraries	    -lsocket -lnsl $(XBSDLIB)
+#else
+#define ExtraLibraries	    -lsocket -lnsl
+#endif
+
+#include <sv4Lib.rules>
+
+#endif /* i386SVR4Architecture */
+
+
+XCOMM operating system:  OSName OSVendor

@@ -1,0 +1,611 @@
+#! /bin/sh
+# This is a shell archive.  Remove anything before this line, then unpack
+# it by saving it into a file and typing "sh file".  To overwrite existing
+# files, type "sh file -c".  You can also feed this as standard input via
+# unshar, or by typing "sh <file", e.g..  If this archive is complete, you
+# will see the following message at the end:
+#		"End of shell archive."
+# Contents:  README xtset.c ksh_xterm_hack xterm_hack
+# Wrapped by msmith@rheya on Tue Apr 27 13:29:58 1993
+PATH=/bin:/usr/bin:/usr/ucb ; export PATH
+if test -f 'README' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'README'\"
+else
+echo shar: Extracting \"'README'\" \(2090 characters\)
+sed "s/^X//" >'README' <<'END_OF_FILE'
+XLooks like the only way to get source in alt.sources at the moment is to do it
+Xmyself so here's a little prog to use with xterm:
+X
+XXterm title icon hack
+X---------------------
+X
+XThe purpose of this little program is to set up the window title and icon of
+Xxterms so that the current directory, hostname and other information the user
+Xmay want is always on display and is updated when it changes.
+X
+XInstallation
+X------------
+X
+XCompile xtset.c, call the result xtset and place it in a publicly accessible
+Xplace. It doesn't need any special libraries though libc.a is useful :-)
+X
+XPlace the xterm_hack (csh) and ksh_xterm_hack scripts in a publicly accessible
+Xplace.
+X
+XIf you're happy with the default window title line which is:
+X
+Xpwd@hostname (username:groupname-umask)
+X
+Xthen just arrange for the appropriate script to be sourced as you log in on all
+Xmachines you use. Once you've done that the appropriate directory etc should be
+Xmaintained as you execute commands. Ensure that xtset is in your path at the
+Xappropriate point in the login sequence.
+X
+XTo customise the title and icon refer to the scripts for the appropriate icon
+Xvariables. I set XTXTRA to the time of login so I can see how long shells have
+Xbeen lying around.
+X
+XTests
+X-----
+X
+Xrlogin to another machine and iconify the xterm, the title should be the new
+Xhostname.
+X
+Xpushd /tmp, the title should be /tmp@hostname .......
+Xpopd, the title should be restored
+X
+Xumask nnn, the number at the top of the screen should change.
+X
+Xetc, etc ...
+X
+XProblems
+X--------
+X
+XThe su command sometimes stops the updating of window titles.
+X
+XThanks
+X------
+X
+XTo Derek for the ksh version of the script.
+X
+XThat's It
+X---------
+X
+XI hope it proves useful. Yell if it doesn't work.
+X
+X-------------------------------------------------------------------------------
+XMartin Smith          | You've got a magic carpet for three people to fly to 
+Xmsmith@lssec.bt.co.uk | the King of the Potato People to plead your case and
+XBT D&P London         | you're trying to tell me you're sane? - A.J. Rimmer
+X-------------------------------------------------------------------------------
+END_OF_FILE
+if test 2090 -ne `wc -c <'README'`; then
+    echo shar: \"'README'\" unpacked with wrong size!
+fi
+# end of 'README'
+fi
+if test -f 'xtset.c' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xtset.c'\"
+else
+echo shar: Extracting \"'xtset.c'\" \(5590 characters\)
+sed "s/^X//" >'xtset.c' <<'END_OF_FILE'
+X/*
+X  A new version of the XTERM window title program written in C rather than
+X  shell script for more flexibility.
+X
+X  $Id: xtset.c,v 1.4 93/04/27 13:29:26 msmith Exp $
+X
+X  Martin Smith, msmith@lssec.bt.co.uk
+X  
+X  Passed a string to set the window title and / or icon name to and this string
+X  is text except for % characters which introduce fields like printf.
+X
+X  %h is translated to hostname
+X  %d is translated to current dir
+X  %u is current user name
+X  %g is current group name
+X  %U is current real user name
+X  %G is current real group name
+X  %m is octal current umask
+X  %e is value of environment variable XTXTRA or null string
+X  %% is a real percent sign, God knows why you'd want one but there you are
+X  
+X  So for instance the string:
+X
+X  "%d@%h (%u:%g)" might expand to "/home/sol/msmith@rheya (msmith:group2)"
+X
+X  command line arguments are:
+X
+X  -t to update window title
+X  -i to icon name
+X
+X  (if neither of these are given the title is assumed)
+X
+X  The program exits silently if the TERM variable is not set to xterm  
+X*/
+X
+X#include <stdio.h>
+X#include <stdlib.h>
+X#include <string.h>
+X
+X#include <pwd.h>
+X#include <grp.h>
+X#include <sys/param.h>
+X
+Xextern struct passwd * getpwuid();
+Xextern struct group * getgrgid();
+X
+X#define REQUIRED_TERM "xterm"
+X#define ESC (char) 27
+X#define BELL (char) 7
+X	
+Xtypedef char * String;
+Xtypedef FILE * Stream;
+X
+Xchar winstr[1024];
+X
+Xint want_icon = 0;
+Xint want_title = 1;
+X
+Xchar our_dir[MAXPATHLEN];
+Xchar our_host[40];
+X
+Xchar our_umask[10];
+X
+XString real_userid;
+XString eff_userid;
+XString real_groupid;
+XString eff_groupid;
+X
+X/*
+X * Modify a current directory string, there's not much point printing /tmp_mnt
+X * on the front if its there. 
+X */
+X
+Xvoid process_dirstring(str)
+XString str;
+X
+X{
+X	if (strncmp(str, "/tmp_mnt/", 9) == 0)
+X	{
+X		strcpy(str, str+8);
+X	}
+X}
+X	
+X
+X/* Get the info from the OS. Return true if it was all available */
+X
+Xint get_info()
+X
+X{
+X	struct passwd *pwent;
+X	struct group  *grent;
+X	int res = 1;
+X
+X	/* start with the real username */
+X
+X	if ((pwent = getpwuid(getuid())) != NULL)
+X		real_userid = strdup(pwent -> pw_name);
+X	else
+X		res = 0;
+X	
+X	/* then the effective username */
+X
+X	if (res && (pwent = getpwuid(geteuid())) != NULL)
+X		eff_userid = strdup(pwent -> pw_name);
+X	else
+X		res = 0;
+X
+X	/* then the real groupname */
+X
+X	if (res && (grent = getgrgid(getgid())) != NULL)
+X		real_groupid = strdup(grent -> gr_name); 
+X	else
+X		res = 0;
+X	
+X	/* then the effective groupname */
+X
+X	if (res && (grent = getgrgid(getegid())) != NULL)
+X		eff_groupid = strdup(grent -> gr_name);
+X	else
+X		res = 0;
+X
+X	if (res && gethostname(our_host, 32) < 0)
+X		res = 0;
+X
+X	if (res && getwd(our_dir) == 0)
+X		res = 0;
+X	else
+X		process_dirstring(our_dir);	
+X
+X	if (res)
+X	{
+X		int um;
+X		
+X		um = umask(0);							  /* this is silly but */
+X		(void) umask(um);						  /* you have to do it */
+X		sprintf(our_umask, "%03o", um);
+X	}
+X	
+X	return res;
+X}
+X
+X
+X/* Parse the command line and return whether it was acceptable */
+X
+Xint parse_args(argc, argv)
+Xint argc;
+XString argv[];
+X
+X{
+X	int res = 1;
+X	int arg;
+X
+X	winstr[0] = (char) 0;
+X	
+X	for (arg = 1; arg < argc; ++arg)
+X	{
+X		if (argv[arg][0] != '-') /* its a piece of text */
+X		{
+X			if (winstr[0] != (char) 0)
+X				strcat(winstr, " ");
+X			
+X			strcat(winstr, argv[arg]);
+X		}
+X		else
+X		{
+X			switch (argv[arg][1])
+X			{
+X			    case 't':
+X			    case 'T':
+X
+X				want_icon = 0;
+X				want_title = 1;
+X
+X				break;
+X				
+X			    case 'i':
+X			    case 'I':
+X
+X				want_icon = 1;
+X				want_title = 0;
+X				
+X				break;
+X				
+X			    default:
+X
+X				fprintf(stderr, "unknown option: '%s'\n", argv[arg]);
+X				res = 0;
+X				break;
+X			}
+X		}
+X	}
+X
+X	if (res && winstr[0] == (char) 0)
+X	{
+X		res = 0;
+X		fprintf(stderr, "xtermset: must specify setting string\n");
+X	}
+X
+X	return res;
+X}
+X
+X/* Parse the string and build another string from it expanding the variables */
+X
+Xint expand_percents(str1, str2)
+XString str1;
+XString str2;
+X
+X{
+X	int res = 1;
+X	String ptr = &str2[0];
+X
+X	*ptr = (char) 0;
+X
+X	while (*str1)
+X	{
+X		if (*str1 != '%')
+X		{
+X			*str2++ = *str1++;					  /* just copy it */
+X			*str2 = (char) 0;
+X		}
+X		else
+X		{
+X			String addon;
+X
+X			++str1;
+X			
+X			switch (*str1)
+X			{
+X			case 'h':
+X
+X				addon = our_host;
+X				break;
+X
+X			case 'd':
+X
+X				addon = our_dir;
+X				break;
+X
+X			case 'u':
+X				addon = real_userid;
+X				break;
+X
+X			case 'U':
+X
+X				addon = eff_userid;
+X				break;
+X
+X			case 'g':
+X
+X				addon = real_groupid;
+X				break;
+X
+X			case 'G':
+X
+X				addon = eff_groupid;
+X				break;
+X
+X			case 'e':
+X
+X				addon = getenv("XTXTRA");
+X				break;
+X
+X			case 'm':
+X
+X				addon = our_umask;
+X				break;
+X				
+X			case '%':
+X
+X				addon = "%";
+X				break;
+X			   				
+X			default:
+X
+X				addon = NULL;
+X				res = 0;
+X				
+X				fprintf(stderr,
+X						"xtermset: don't know the expansion of '%%%c'\n",
+X						*str1);
+X			}
+X			
+X			++str1;
+X
+X			if (addon != NULL)
+X				strcat(str2, addon);
+X
+X			while (*str2)
+X				++str2;
+X		}
+X	}
+X	
+X	return res;
+X}
+X
+X
+X/* Emit the setting strings */
+X
+Xint do_setting()
+X
+X{
+X	char expand[2048];
+X	int res = 1;
+X
+X	String digit;
+X
+X	if (want_icon)
+X		digit = "1";
+X
+X	if (want_title)
+X		digit = "2";
+X
+X	if (expand_percents(winstr, expand))
+X		printf("%c]%s;%s%c", ESC, digit, expand, BELL);
+X	else
+X		res = 0;
+X
+X	return res;
+X}
+X
+X
+X/* The boring old main function, yawn city */
+X
+Xint main(argc, argv)
+Xint argc;
+XString argv[];
+X
+X{
+X	/* if we don't have the right terminal we might as well not bother */
+X
+X	int status = 0;
+X	String termvar = getenv("TERM");
+X
+X	if (termvar != NULL && strcmp(termvar, REQUIRED_TERM) == 0)
+X	{
+X		if (parse_args(argc, argv) != 0)
+X		{
+X			if (get_info() != 0)
+X				if (do_setting() == 0)
+X					status = 1;
+X			else
+X				status = 1;
+X		}
+X		else
+X			status = 1;
+X	}
+X
+X	return status;
+X}
+X
+Xstatic char RCSid[] = "$Id: xtset.c,v 1.4 93/04/27 13:29:26 msmith Exp $";
+X
+END_OF_FILE
+if test 5590 -ne `wc -c <'xtset.c'`; then
+    echo shar: \"'xtset.c'\" unpacked with wrong size!
+fi
+# end of 'xtset.c'
+fi
+if test -f 'ksh_xterm_hack' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'ksh_xterm_hack'\"
+else
+echo shar: Extracting \"'ksh_xterm_hack'\" \(1813 characters\)
+sed "s/^X//" >'ksh_xterm_hack' <<'END_OF_FILE'
+X#
+X# This stuff causes the window title to be $cwd@hostname so you know where
+X# you are. Also sets the icon name to be hostname in case the wm wasn't
+X# set up right.
+X#
+X# Things are updated on a cd, pushd, popd, rlogin and telnet. Add other
+X# context changes as appropriate. This file must be sourced by csh, not
+X# merely execed.
+X#
+X# Added pad command for X25 remote logins.
+X#
+X# If running on a SysV machine then /usr/ucb should be in your path
+X# or hostname aliased to its location.
+X#
+X# Now uses a separate program to do the setting via an alias for speed and
+X# flexibility. You can specify below the things youd like to appear on the
+X# icon and title.
+X#
+X# $Id: ksh_xterm_hack,v 1.2 93/04/27 13:29:35 msmith Exp $
+X#
+X# Ksh version written by Derek Harding 4/11/92, dharding@lssec.bt.co.uk
+X#
+X
+Xif [ $TERM = "xterm" ]
+Xthen
+X  export XTXTRA="Login@"`date +%H:%M`
+X  alias -x xtset='xtset' # may need to alias this if things go wrong
+X  function res_t
+X{ xtset -t "%d@%h (%u:%g-%m)  %e"; }
+X
+Xfunction res_i 
+X{ xtset -i %h; }
+X
+X  function cd_hack
+X{ "cd" $*; res_t ;}
+X  alias -x cd='cd_hack'
+X
+X  function newgrp_hack
+X{ /bin/newgrp $*; res_t ;}
+X  alias -x newgrp='newgrp_hack'
+X
+X  function rlogin_hack
+X{ /usr/ucb/rlogin $* ; res_i ; res_t ;}
+X  alias -x rlogin='rlogin_hack'
+X  
+X  function telnet_hack
+X{ /usr/ucb/telnet $* ; res_i ; res_t ;}
+X  alias -x telnet='telnet_hack'
+X
+X  function pad_hack
+X{ /usr/sunlink/x25/pad $* ; res_i ; res_t ;}
+X  alias -x pad='pad_hack'
+X
+X  function umask_hack
+X{ "umask" $* ; res_i ; res_t;}
+X  alias -x umask='umask_hack'
+X
+X  function su_hack
+X{ save=$XTXTRA ; export XTXTRA=" su $*@"`date +%H:%M` ; res_t ; /bin/su $* ; export XTXTRA=$save ; unset save; res_t ;}
+X  alias -x su=su_hack
+X
+X  typeset -xf cd_hack newgrp_hack rlogin_hack telnet_hack pad_hack umask_hack su_hack res_t res_i
+X
+X  res_i
+X  res_t
+X
+Xfi
+X
+END_OF_FILE
+if test 1813 -ne `wc -c <'ksh_xterm_hack'`; then
+    echo shar: \"'ksh_xterm_hack'\" unpacked with wrong size!
+fi
+chmod +x 'ksh_xterm_hack'
+# end of 'ksh_xterm_hack'
+fi
+if test -f 'xterm_hack' -a "${1}" != "-c" ; then 
+  echo shar: Will not clobber existing file \"'xterm_hack'\"
+else
+echo shar: Extracting \"'xterm_hack'\" \(1696 characters\)
+sed "s/^X//" >'xterm_hack' <<'END_OF_FILE'
+X#
+X# This stuff causes the window title to be $cwd@hostname so you know where
+X# you are. Also sets the icon name to be hostname in case the wm wasn't
+X# set up right.
+X#
+X# Things are updated on a cd, pushd, popd, rlogin and telnet. Add other
+X# context changes as appropriate. This file must be sourced by csh, not
+X# merely execed.
+X#
+X# Added pad command for X25 remote logins.
+X#
+X# If running on a SysV machine then /usr/ucb should be in your path
+X# or hostname aliased to its real location.
+X#
+X# Now uses a separate program to do the setting via an alias for speed and
+X# flexibility. You can specify below the things youd like to appear on the
+X# icon and title.
+X#
+X# $Id: xterm_hack,v 1.10 93/04/27 13:29:33 msmith Exp $
+X#
+X# Martin Smith, msmith@lssec.bt.co.uk
+X#
+X
+X# only do it if interactive and running xterm or XT override set
+X
+Xif ($?TERM == 1) then
+X
+Xif ($?XT == 1 || $TERM == xterm) then
+X
+Xif ($?XT_TITLE_STRING == 1) then
+Xalias res_t "xtset -t $XT_TITLE_STRING"		# user supplied title string
+Xelse
+Xalias res_t 'xtset -t %d@%h \(%u:%g-%m\) %e'	# reset titlebar
+Xendif
+X
+Xif ($?XT_ICON_STRING == 1) then
+Xalias res_i "xtset -i $XT_ICON_STRING"		# user supplied icon string
+Xelse
+Xalias res_i 'xtset -i %h'			# reset icon name
+Xendif
+X
+Xalias cd 'cd \!* ; res_t'
+Xalias su 'set save = $XTXTRA ; setenv XTXTRA " su \!*@`date +%H:%M`" ; res_t; /bin/su \!* ; setenv XTXTRA $save ; unset save ; res_t'
+Xalias pushd 'pushd \!* ; res_t'
+Xalias popd 'popd ; res_t'
+Xalias newgrp 'newgrp \!* ; res_t'
+Xalias umask 'umask \!* ; res_t'
+X
+Xsetenv XTXTRA 'Login@'`date +%H:%M`
+X
+Xres_t
+Xres_i
+X
+Xalias rlogin  'rlogin \!* ; res_i ; res_t'
+Xalias telnet  'telnet \!* ; res_i ; res_t'
+Xalias pad     'pad \!* ; res_i ; res_t'
+X
+Xendif
+Xendif
+X
+END_OF_FILE
+if test 1696 -ne `wc -c <'xterm_hack'`; then
+    echo shar: \"'xterm_hack'\" unpacked with wrong size!
+fi
+chmod +x 'xterm_hack'
+# end of 'xterm_hack'
+fi
+echo shar: End of shell archive.
+exit 0
+
+-------------------------------------------------------------------------------
+Martin Smith          | You've got a magic carpet for three people to fly to 
+msmith@lssec.bt.co.uk | the King of the Potato People to plead your case and
+BT D&P London         | you're trying to tell me you're sane? - A.J. Rimmer
+-------------------------------------------------------------------------------
+
+

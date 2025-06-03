@@ -1,0 +1,725 @@
+This is Info file libc.info, produced by Makeinfo-1.55 from the input
+file libc.texinfo.
+
+   This file documents the GNU C library.
+
+   This is Edition 0.05, last updated 30 August 1993, of `The GNU C
+Library Reference Manual', for Version 1.07 Beta.
+
+   Copyright (C) 1993 Free Software Foundation, Inc.
+
+   Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+   Permission is granted to copy and distribute modified versions of
+this manual under the conditions for verbatim copying, provided also
+that the section entitled "GNU Library General Public License" is
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+   Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the text of the translations of the section
+entitled "GNU Library General Public License" must be approved for
+accuracy by the Foundation.
+
+
+File: libc.info,  Node: Argument Macros,  Next: Old Varargs,  Prev: Calling Variadics,  Up: How Variadic
+
+Argument Access Macros
+......................
+
+   Here are descriptions of the macros used to retrieve variable
+arguments.  These macros are defined in the header file `stdarg.h'.
+
+ - Data Type: va_list
+     The type `va_list' is used for argument pointer variables.
+
+ - Macro: void va_start (va_list AP, LAST_REQUIRED)
+     This macro initializes the argument pointer variable AP to point
+     to the first of the optional arguments of the current function;
+     LAST_REQUIRED must be the last required argument to the function.
+
+     *Note Old Varargs::, for an alternate definition of `va_start'
+     found in the header file `varargs.h'.
+
+ - Macro: TYPE va_arg (va_list AP, TYPE)
+     The `va_arg' macro returns the value of the next optional argument,
+     and modifies the value of AP to point to the subsequent argument.
+     Thus, successive uses of `va_arg' return successive optional
+     arguments.
+
+     The type of the value returned by `va_arg' is TYPE as specified in
+     the call.  TYPE must be a self-promoting type (not `char' or
+     `short int' or `float') that matches the type of the actual
+     argument.
+
+ - Macro: void va_end (va_list AP)
+     This ends the use of AP.  After a `va_end' call, further `va_arg'
+     calls with the same AP may not work.  You should invoke `va_end'
+     before returning from the function in which `va_start' was invoked
+     with the same AP argument.
+
+     In the GNU C library, `va_end' does nothing, and you need not ever
+     use it except for reasons of portability.
+
+
+
+File: libc.info,  Node: Variadic Example,  Prev: How Variadic,  Up: Variadic Functions
+
+Example of a Variadic Function
+------------------------------
+
+   Here is a complete sample function that accepts a variable number of
+arguments.  The first argument to the function is the count of remaining
+arguments, which are added up and the result returned.  While trivial,
+this function is sufficient to illustrate how to use the variable
+arguments facility.
+
+     #include <stdarg.h>
+     #include <stdio.h>
+     
+     int
+     add_em_up (int count,...)
+     {
+       va_list ap;
+       int i, sum;
+     
+       va_start (ap, count);         /* Initialize the argument list. */
+     
+       sum = 0;
+       for (i = 0; i < count; i++)
+         sum += va_arg (ap, int);    /* Get the next argument value. */
+     
+       va_end (ap);                  /* Clean up. */
+       return sum;
+     }
+     
+     int
+     main (void)
+     {
+       /* This call prints 16. */
+       printf ("%d\n", add_em_up (3, 5, 5, 6));
+     
+       /* This call prints 55. */
+       printf ("%d\n", add_em_up (10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+     
+       return 0;
+     }
+
+
+File: libc.info,  Node: Old Varargs,  Prev: Argument Macros,  Up: How Variadic
+
+Old-Style Variadic Functions
+............................
+
+   Before ANSI C, programmers used a slightly different facility for
+writing variadic functions.  The GNU C compiler still supports it;
+currently, it is more portable than the ANSI C facility, since support
+for ANSI C is still not universal.  The header file which defines the
+old-fashioned variadic facility is called `varargs.h'.
+
+   Using `varargs.h' is almost the same as using `stdarg.h'.  There is
+no difference in how you call a variadic function; *Note Calling
+Variadics::.  The only difference is in how you define them.  First of
+all, you must use old-style non-prototype syntax, like this:
+
+     tree
+     build (va_alist)
+          va_dcl
+     {
+
+   Secondly, you must give `va_start' just one argument, like this:
+
+       va_list p;
+       va_start (p);
+
+   These are the special macros used for defining old-style variadic
+functions:
+
+ - Macro: va_alist
+     This macro stands for the argument name list required in a variadic
+     function.
+
+ - Macro: va_dcl
+     This macro declares the implicit argument or arguments for a
+     variadic function.
+
+ - Macro: void va_start (va_list AP)
+     This macro, as defined in `varargs.h', initializes the argument
+     pointer variable AP to point to the first argument of the current
+     function.
+
+   The other argument macros, `va_arg' and `va_end', are the same in
+`varargs.h' as in `stdarg.h'; see *Note Argument Macros:: for details.
+
+   It does not work to include both `varargs.h' and `stdarg.h' in the
+same compilation; they define `va_start' in conflicting ways.
+
+
+File: libc.info,  Node: Null Pointer Constant,  Next: Important Data Types,  Prev: Variadic Functions,  Up: Language Features
+
+Null Pointer Constant
+=====================
+
+   The null pointer constant is guaranteed not to point to any real
+object.  You can assign it to any pointer variable since it has type
+`void *'.  The preferred way to write a null pointer constant is with
+`NULL'.
+
+ - Macro: void * NULL
+     This is a null pointer constant.
+
+   You can also use `0' or `(void *)0' as a null pointer constant, but
+using `NULL' is cleaner because it makes the purpose of the constant
+more evident.
+
+   If you use the null pointer constant as a function argument, then for
+complete portability you should make sure that the function has a
+prototype declaration.  Otherwise, if the target machine has two
+different pointer representations, the compiler won't know which
+representation to use for that argument.  You can avoid the problem by
+explicitly casting the constant to the proper pointer type, but we
+recommend instead adding a prototype for the function you are calling.
+
+
+File: libc.info,  Node: Important Data Types,  Next: Data Type Measurements,  Prev: Null Pointer Constant,  Up: Language Features
+
+Important Data Types
+====================
+
+   The result of subtracting two pointers in C is always an integer,
+but the precise data type varies from C compiler to C compiler.
+Likewise, the data type of the result of `sizeof' also varies between
+compilers.  ANSI defines standard aliases for these two types, so you
+can refer to them in a portable fashion.  They are defined in the
+header file `stddef.h'.
+
+ - Data Type: ptrdiff_t
+     This is the signed integer type of the result of subtracting two
+     pointers.  For example, with the declaration `char *p1, *p2;', the
+     expression `p2 - p1' is of type `ptrdiff_t'.  This will probably
+     be one of the standard signed integer types (`short int', `int' or
+     `long int'), but might be a nonstandard type that exists only for
+     this purpose.
+
+ - Data Type: size_t
+     This is an unsigned integer type used to represent the sizes of
+     objects.  The result of the `sizeof' operator is of this type, and
+     functions such as `malloc' (*note Unconstrained Allocation::.) and
+     `memcpy' (*note Copying and Concatenation::.) accept arguments of
+     this type to specify object sizes.
+
+     *Usage Note:* `size_t' is the preferred way to declare any
+     arguments or variables that hold the size of an object.
+
+   In the GNU system `size_t' is equivalent to either `unsigned int' or
+`unsigned long int'.  These types have identical properties on the GNU
+system, and for most purposes, you can use them interchangeably.
+However, they are distinct as data types, which makes a difference in
+certain contexts.
+
+   For example, when you specify the type of a function argument in a
+function prototype, it makes a difference which one you use.  If the
+system header files declare `malloc' with an argument of type `size_t'
+and you declare `malloc' with an argument of type `unsigned int', you
+will get a compilation error if `size_t' happens to be `unsigned long
+int' on your system.  To avoid any possibility of error, when a
+function argument or value is supposed to have type `size_t', never
+declare its type in any other way.
+
+   *Compatibility Note:* Implementations of C before the advent of ANSI
+C generally used `unsigned int' for representing object sizes and `int'
+for pointer subtraction results.  They did not necessarily define
+either `size_t' or `ptrdiff_t'.  Unix systems did define `size_t', in
+`sys/types.h', but the definition was usually a signed type.
+
+
+File: libc.info,  Node: Data Type Measurements,  Prev: Important Data Types,  Up: Language Features
+
+Data Type Measurements
+======================
+
+   Most of the time, if you choose the proper C data type for each
+object in your program, you need not be concerned with just how it is
+represented or how many bits it uses.  When you do need such
+information, the C language itself does not provide a way to get it.
+The header files `limits.h' and `float.h' contain macros which give you
+this information in full detail.
+
+* Menu:
+
+* Width of Type::           How many bits does an integer type hold?
+* Range of Type::           What are the largest and smallest values
+			     that an integer type can hold?
+* Floating Type Macros::    Parameters that measure the floating point types.
+* Structure Measurement::   Getting measurements on structure types.
+
+
+File: libc.info,  Node: Width of Type,  Next: Range of Type,  Up: Data Type Measurements
+
+Computing the Width of an Integer Data Type
+-------------------------------------------
+
+   The most common reason that a program needs to know how many bits
+are in an integer type is for using an array of `long int' as a bit
+vector.  You can access the bit at index N with
+
+     vector[N / LONGBITS] & (1 << (N % LONGBITS))
+
+provided you define `LONGBITS' as the number of bits in a `long int'.
+
+   There is no operator in the C language that can give you the number
+of bits in an integer data type.  But you can compute it from the macro
+`CHAR_BIT', defined in the header file `limits.h'.
+
+`CHAR_BIT'
+     This is the number of bits in a `char'--eight, on most systems.
+     The value has type `int'.
+
+     You can compute the number of bits in any data type TYPE like this:
+
+          sizeof (TYPE) * CHAR_BIT
+
+
+File: libc.info,  Node: Range of Type,  Next: Floating Type Macros,  Prev: Width of Type,  Up: Data Type Measurements
+
+Range of an Integer Type
+------------------------
+
+   Suppose you need to store an integer value which can range from zero
+to one million.  Which is the smallest type you can use?  There is no
+general rule; it depends on the C compiler and target machine.  You can
+use the `MIN' and `MAX' macros in `limits.h' to determine which type
+will work.
+
+   Each signed integer type has a pair of macros which give the smallest
+and largest values that it can hold.  Each unsigned integer type has one
+such macro, for the maximum value; the minimum value is, of course,
+zero.
+
+   The values of these macros are all integer constant expressions.  The
+`MAX' and `MIN' macros for `char' and `short int' types have values of
+type `int'.  The `MAX' and `MIN' macros for the other types have values
+of the same type described by the macro--thus, `ULONG_MAX' has type
+`unsigned long int'.
+
+`SCHAR_MIN'
+     This is the minimum value that can be represented by a
+     `signed char'.
+
+`SCHAR_MAX'
+`UCHAR_MAX'
+     These are the maximum values that can be represented by a
+     `signed char' and `unsigned char', respectively.
+
+`CHAR_MIN'
+     This is the minimum value that can be represented by a `char'.
+     It's equal to `SCHAR_MIN' if `char' is signed, or zero otherwise.
+
+`CHAR_MAX'
+     This is the maximum value that can be represented by a `char'.
+     It's equal to `SCHAR_MAX' if `char' is signed, or `UCHAR_MAX'
+     otherwise.
+
+`SHRT_MIN'
+     This is the minimum value that can be represented by a
+     `signed short int'.  On most machines that the GNU C library runs
+     on, `short' integers are 16-bit quantities.
+
+`SHRT_MAX'
+`USHRT_MAX'
+     These are the maximum values that can be represented by a
+     `signed short int' and `unsigned short int', respectively.
+
+`INT_MIN'
+     This is the minimum value that can be represented by a
+     `signed int'.  On most machines that the GNU C system runs on, an
+     `int' is a 32-bit quantity.
+
+`INT_MAX'
+`UINT_MAX'
+     These are the maximum values that can be represented by,
+     respectively, the type `signed int' and the type `unsigned int'.
+
+`LONG_MIN'
+     This is the minimum value that can be represented by a
+     `signed long int'.  On most machines that the GNU C system runs
+     on, `long' integers are 32-bit quantities, the same size as `int'.
+
+`LONG_MAX'
+`ULONG_MAX'
+     These are the maximum values that can be represented by a
+     `signed long int' and `unsigned long int', respectively.
+
+`LONG_LONG_MIN'
+     This is the minimum value that can be represented by a
+     `signed long long int'.  On most machines that the GNU C system
+     runs on, `long long' integers are 64-bit quantities.
+
+`LONG_LONG_MAX'
+`ULONG_LONG_MAX'
+     These are the maximum values that can be represented by a `signed
+     long long int' and `unsigned long long int', respectively.
+
+`WCHAR_MAX'
+     This is the maximum value that can be represented by a `wchar_t'.
+     *Note Wide Char Intro::.
+
+   The header file `limits.h' also defines some additional constants
+that parameterize various operating system and file system limits.
+These constants are described in *Note System Configuration::.
+
+
+File: libc.info,  Node: Floating Type Macros,  Next: Structure Measurement,  Prev: Range of Type,  Up: Data Type Measurements
+
+Floating Type Macros
+--------------------
+
+   The specific representation of floating point numbers varies from
+machine to machine.  Because floating point numbers are represented
+internally as approximate quantities, algorithms for manipulating
+floating point data often need to take account of the precise details of
+the machine's floating point representation.
+
+   Some of the functions in the C library itself need this information;
+for example, the algorithms for printing and reading floating point
+numbers (*note I/O on Streams::.) and for calculating trigonometric and
+irrational functions (*note Mathematics::.) use it to avoid round-off
+error and loss of accuracy.  User programs that implement numerical
+analysis techniques also often need this information in order to
+minimize or compute error bounds.
+
+   The header file `float.h' describes the format used by your machine.
+
+* Menu:
+
+* Floating Point Concepts::     Definitions of terminology.
+* Floating Point Parameters::   Details of specific macros.
+* IEEE Floating Point::         The measurements for one common
+                                 representation.
+
+
+File: libc.info,  Node: Floating Point Concepts,  Next: Floating Point Parameters,  Up: Floating Type Macros
+
+Floating Point Representation Concepts
+......................................
+
+   This section introduces the terminology for describing floating point
+representations.
+
+   You are probably already familiar with most of these concepts in
+terms of scientific or exponential notation for floating point numbers.
+For example, the number `123456.0' could be expressed in exponential
+notation as `1.23456e+05', a shorthand notation indicating that the
+mantissa `1.23456' is multiplied by the base `10' raised to power `5'.
+
+   More formally, the internal representation of a floating point number
+can be characterized in terms of the following parameters:
+
+   * The "sign" is either `-1' or `1'.
+
+   * The "base" or "radix" for exponentiation, an integer greater than
+     `1'.  This is a constant for a particular representation.
+
+   * The "exponent" to which the base is raised.  The upper and lower
+     bounds of the exponent value are constants for a particular
+     representation.
+
+     Sometimes, in the actual bits representing the floating point
+     number, the exponent is "biased" by adding a constant to it, to
+     make it always be represented as an unsigned quantity.  This is
+     only important if you have some reason to pick apart the bit
+     fields making up the floating point number by hand, which is
+     something for which the GNU library provides no support.  So this
+     is ignored in the discussion that follows.
+
+   * The "mantissa" or "significand", an unsigned integer which is a
+     part of each floating point number.
+
+   * The "precision" of the mantissa.  If the base of the representation
+     is B, then the precision is the number of base-B digits in the
+     mantissa.  This is a constant for a particular representation.
+
+     Many floating point representations have an implicit "hidden bit"
+     in the mantissa.  This is a bit which is present virtually in the
+     mantissa, but not stored in memory because its value is always 1
+     in a normalized number.  The precision figure (see above) includes
+     any hidden bits.
+
+     Again, the GNU library provides no facilities for dealing with such
+     low-level aspects of the representation.
+
+   The mantissa of a floating point number actually represents an
+implicit fraction whose denominator is the base raised to the power of
+the precision.  Since the largest representable mantissa is one less
+than this denominator, the value of the fraction is always strictly
+less than `1'.  The mathematical value of a floating point number is
+then the product of this fraction, the sign, and the base raised to the
+exponent.
+
+   We say that the floating point number is "normalized" if the
+fraction is at least `1/B', where B is the base.  In other words, the
+mantissa would be too large to fit if it were multiplied by the base.
+Non-normalized numbers are sometimes called "denormal"; they contain
+less precision than the representation normally can hold.
+
+   If the number is not normalized, then you can subtract `1' from the
+exponent while multiplying the mantissa by the base, and get another
+floating point number with the same value.  "Normalization" consists of
+doing this repeatedly until the number is normalized.  Two distinct
+normalized floating point numbers cannot be equal in value.
+
+   (There is an exception to this rule: if the mantissa is zero, it is
+considered normalized.  Another exception happens on certain machines
+where the exponent is as small as the representation can hold.  Then it
+is impossible to subtract `1' from the exponent, so a number may be
+normalized even if its fraction is less than `1/B'.)
+
+
+File: libc.info,  Node: Floating Point Parameters,  Next: IEEE Floating Point,  Prev: Floating Point Concepts,  Up: Floating Type Macros
+
+Floating Point Parameters
+.........................
+
+   These macro definitions can be accessed by including the header file
+`float.h' in your program.
+
+   Macro names starting with `FLT_' refer to the `float' type, while
+names beginning with `DBL_' refer to the `double' type and names
+beginning with `LDBL_' refer to the `long double' type.  (Currently GCC
+does not support `long double' as a distinct data type, so the values
+for the `LDBL_' constants are equal to the corresponding constants for
+the `double' type.)
+
+   Of these macros, only `FLT_RADIX' is guaranteed to be a constant
+expression.  The other macros listed here cannot be reliably used in
+places that require constant expressions, such as `#if' preprocessing
+directives or in the dimensions of static arrays.
+
+   Although the ANSI C standard specifies minimum and maximum values for
+most of these parameters, the GNU C implementation uses whatever values
+describe the floating point representation of the target machine.  So in
+principle GNU C actually satisfies the ANSI C requirements only if the
+target machine is suitable.  In practice, all the machines currently
+supported are suitable.
+
+`FLT_ROUNDS'
+     This value characterizes the rounding mode for floating point
+     addition.  The following values indicate standard rounding modes:
+
+    `-1'
+          The mode is indeterminable.
+
+    `0'
+          Rounding is towards zero.
+
+    `1'
+          Rounding is to the nearest number.
+
+    `2'
+          Rounding is towards positive infinity.
+
+    `3'
+          Rounding is towards negative infinity.
+
+     Any other value represents a machine-dependent nonstandard rounding
+     mode.
+
+     On most machines, the value is `1', in accordance with the IEEE
+     standard for floating point.
+
+     Here is a table showing how certain values round for each possible
+     value of `FLT_ROUNDS', if the other aspects of the representation
+     match the IEEE single-precision standard.
+
+                          0      1             2             3
+           1.00000003    1.0    1.0           1.00000012    1.0
+           1.00000007    1.0    1.00000012    1.00000012    1.0
+          -1.00000003   -1.0   -1.0          -1.0          -1.00000012
+          -1.00000007   -1.0   -1.00000012   -1.0          -1.00000012
+
+`FLT_RADIX'
+     This is the value of the base, or radix, of exponent
+     representation.  This is guaranteed to be a constant expression,
+     unlike the other macros described in this section.  The value is 2
+     on all machines we know of except the IBM 360 and derivatives.
+
+`FLT_MANT_DIG'
+     This is the number of base-`FLT_RADIX' digits in the floating point
+     mantissa for the `float' data type.  The following expression
+     yields `1.0' (even though mathematically it should not) due to the
+     limited number of mantissa digits:
+
+          float radix = FLT_RADIX;
+          
+          1.0f + 1.0f / radix / radix / ... / radix
+
+     where `radix' appears `FLT_MANT_DIG' times.
+
+`DBL_MANT_DIG'
+`LDBL_MANT_DIG'
+     This is the number of base-`FLT_RADIX' digits in the floating point
+     mantissa for the data types `double' and `long double',
+     respectively.
+
+`FLT_DIG'
+     This is the number of decimal digits of precision for the `float'
+     data type.  Technically, if P and B are the precision and base
+     (respectively) for the representation, then the decimal precision
+     Q is the maximum number of decimal digits such that any floating
+     point number with Q base 10 digits can be rounded to a floating
+     point number with P base B digits and back again, without change
+     to the Q decimal digits.
+
+     The value of this macro is supposed to be at least `6', to satisfy
+     ANSI C.
+
+`DBL_DIG'
+`LDBL_DIG'
+     These are similar to `FLT_DIG', but for the data types `double'
+     and `long double', respectively.  The values of these macros are
+     supposed to be at least `10'.
+
+`FLT_MIN_EXP'
+     This is the smallest possible exponent value for type `float'.
+     More precisely, is the minimum negative integer such that the value
+     `FLT_RADIX' raised to this power minus 1 can be represented as a
+     normalized floating point number of type `float'.
+
+`DBL_MIN_EXP'
+`LDBL_MIN_EXP'
+     These are similar to `FLT_MIN_EXP', but for the data types
+     `double' and `long double', respectively.
+
+`FLT_MIN_10_EXP'
+     This is the minimum negative integer such that `10' raised to this
+     power minus 1 can be represented as a normalized floating point
+     number of type `float'.  This is supposed to be `-37' or even less.
+
+`DBL_MIN_10_EXP'
+`LDBL_MIN_10_EXP'
+     These are similar to `FLT_MIN_10_EXP', but for the data types
+     `double' and `long double', respectively.
+
+`FLT_MAX_EXP'
+     This is the largest possible exponent value for type `float'.  More
+     precisely, this is the maximum positive integer such that value
+     `FLT_RADIX' raised to this power minus 1 can be represented as a
+     floating point number of type `float'.
+
+`DBL_MAX_EXP'
+`LDBL_MAX_EXP'
+     These are similar to `FLT_MAX_EXP', but for the data types
+     `double' and `long double', respectively.
+
+`FLT_MAX_10_EXP'
+     This is the maximum positive integer such that `10' raised to this
+     power minus 1 can be represented as a normalized floating point
+     number of type `float'.  This is supposed to be at least `37'.
+
+`DBL_MAX_10_EXP'
+`LDBL_MAX_10_EXP'
+     These are similar to `FLT_MAX_10_EXP', but for the data types
+     `double' and `long double', respectively.
+
+`FLT_MAX'
+     The value of this macro is the maximum number representable in type
+     `float'.  It is supposed to be at least `1E+37'.  The value has
+     type `float'.
+
+     The smallest representable number is `- FLT_MAX'.
+
+`DBL_MAX'
+`LDBL_MAX'
+     These are similar to `FLT_MAX', but for the data types `double'
+     and `long double', respectively.  The type of the macro's value is
+     the same as the type it describes.
+
+`FLT_MIN'
+     The value of this macro is the minimum normalized positive floating
+     point number that is representable in type `float'.  It is supposed
+     to be no more than `1E-37'.
+
+`DBL_MIN'
+`LDBL_MIN'
+     These are similar to `FLT_MIN', but for the data types `double'
+     and `long double', respectively.  The type of the macro's value is
+     the same as the type it describes.
+
+`FLT_EPSILON'
+     This is the minimum positive floating point number of type `float'
+     such that `1.0 + FLT_EPSILON != 1.0' is true.  It's supposed to be
+     no greater than `1E-5'.
+
+`DBL_EPSILON'
+`LDBL_EPSILON'
+     These are similar to `FLT_EPSILON', but for the data types
+     `double' and `long double', respectively.  The type of the macro's
+     value is the same as the type it describes.  The values are not
+     supposed to be greater than `1E-9'.
+
+
+File: libc.info,  Node: IEEE Floating Point,  Prev: Floating Point Parameters,  Up: Floating Type Macros
+
+IEEE Floating Point
+...................
+
+   Here is an example showing how the floating type measurements come
+out for the most common floating point representation, specified by the
+`IEEE Standard for Binary Floating Point Arithmetic (ANSI/IEEE Std
+754-1985)'.  Nearly all computers designed since the 1980s use this
+format.
+
+   The IEEE single-precision float representation uses a base of 2.
+There is a sign bit, a mantissa with 23 bits plus one hidden bit (so
+the total precision is 24 base-2 digits), and an 8-bit exponent that
+can represent values in the range -125 to 128, inclusive.
+
+   So, for an implementation that uses this representation for the
+`float' data type, appropriate values for the corresponding parameters
+are:
+
+     FLT_RADIX                             2
+     FLT_MANT_DIG                         24
+     FLT_DIG                               6
+     FLT_MIN_EXP                        -125
+     FLT_MIN_10_EXP                      -37
+     FLT_MAX_EXP                         128
+     FLT_MAX_10_EXP                      +38
+     FLT_MIN                 1.17549435E-38F
+     FLT_MAX                 3.40282347E+38F
+     FLT_EPSILON             1.19209290E-07F
+
+   Here are the values for the `double' data type:
+
+     DBL_MANT_DIG                         53
+     DBL_DIG                              15
+     DBL_MIN_EXP                       -1021
+     DBL_MIN_10_EXP                     -307
+     DBL_MAX_EXP                        1024
+     DBL_MAX_10_EXP                      308
+     DBL_MAX         1.7976931348623157E+308
+     DBL_MIN         2.2250738585072014E-308
+     DBL_EPSILON     2.2204460492503131E-016
+
+
+File: libc.info,  Node: Structure Measurement,  Prev: Floating Type Macros,  Up: Data Type Measurements
+
+Structure Field Offset Measurement
+----------------------------------
+
+   You can use `offsetof' to measure the location within a structure
+type of a particular structure member.
+
+ - Macro: size_t offsetof (TYPE, MEMBER)
+     This expands to a integer constant expression that is the offset
+     of the structure member named MEMBER in a the structure type TYPE.
+     For example, `offsetof (struct s, elem)' is the offset, in bytes,
+     of the member `elem' in a `struct s'.
+
+     This macro won't work if MEMBER is a bit field; you get an error
+     from the C compiler in that case.
+

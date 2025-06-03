@@ -1,0 +1,120 @@
+.\" @(#)slattach.1	1.7 (13 Oct 1993)
+.\"..........................................................................
+.\" Copyright 1993, Jim Avera.  All Rights Reserved.
+.\" 
+.\" This file contains new material owned by the above copyright holder, and
+.\" may also contain portions derived from existing works used by permission.
+.\"
+.\" You are prohibited from copying, distributing, modifying, or using this
+.\" file (or the portions owned by the above copyright holder) except as 
+.\" described in the file "COPYRIGHT" which accompanies this program.
+.\"..........................................................................
+.\" 
+.\"
+.\"             Copyright 1991, Intel Corporation
+.\"                   All rights reserved.
+.\"
+.\" Permission to use, copy, modify, and distribute this software and
+.\" its documentation for any purpose and without fee is hereby granted,
+.\" provided that the above copyright notice appear in all copies and
+.\" that both the copyright notice appear in all copies and that both
+.\" the copyright notice and this permission notice appear in
+.\" supporting documentation, and that the name of Intel Corporation
+.\" not be used in advertising or publicity pertaining to distribution
+.\" of the software without specific, written prior permission.
+.\" 
+.\" COMPANY AND/OR INTEL DISCLAIM ALL WARRANTIES WITH REGARD TO
+.\" THIS SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF
+.\" MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE. IN NO
+.\" EVENT SHALL COMPANY NOR INTEL BE LIABLE FOR ANY SPECIAL,
+.\" INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER
+.\" RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+.\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTUOUS ACTION,
+.\" ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
+.\" OF THIS SOFTWARE.
+.\" 
+.\" TSLIP: Changes for auto-dial support added by Jim Avera (jima@netcom.com)
+.\"
+.TH "slattach" 1M "TCP/IP"
+.SH NAME
+slattach \- assign serial line as a SLIP interface.
+.SH SYNOPSIS
+.nf
+\fBslattach -a\fP "[:bg cmds:] cu parameters" [\fB-t\fP timeout] [\fB-p\fP] interface_name
+\fBslattach -d\fP [\fB-p\fP] [\fB-i\fP] device_name interface_name [ baudrate ]
+\fBslattach\fP [\fB-p\fP] \fB\(em\fP interface_name [ process_id ]
+.fi
+.PP
+This program is part of TSLIP %VERSION%
+.PP
+.SH DESCRIPTION
+.PP
+.B Slattach
+is used to assign a serial line as a network interface
+using the 
+.I TSLIP
+(Serial Link Internet Protocol) driver.
+.PP
+.B -p 
+(persistent) means use persistent streams links when attaching slip
+to the ip driver, and exit immediately.
+Otherwise the
+process sleeps until killed or receiving a signal, at which time
+the stream is dismantled and the serial port is freed.
+.PP
+Persistently-linked drivers are effectively permanent (until a reboot)
+and do not require that the slattach process remain in existence.
+.PP
+.B -a 
+(auto-connect) arranges to automatically dial out on demand using the
+given parameter string, which must contain arguments identical to
+those used by the Taylor "cu" program.  Usually the parameter is just 
+a \fIsystem\fP name, but might be something 
+like "-l\fIttyname\fP -s\fIspeed\fP".
+.PP
+Initially the slip interface is created without any device linked below it.  
+When traffic appears, the
+.I slipd
+daemon is notified.  The daemon auto-dials and dynamically links a device 
+under the slip interface.
+Optional :-delimited background commands may preceed the dialing arguments.
+These commands are run by the daemon each time the dial-up connection is 
+established.  See \fIslipd\fP(1M).  
+The last background command must end with a ':', followed by cu arguments.
+.PP
+.B -t 
+(auto-connect idle timeout) specifies an idle timeout value in seconds, 
+used only with \fB-a\fP.  The connection is droppped if no traffic flows for 
+this period, but will be transparently restored if needed.  Zero disables
+timeouts.  Without \fB-t\fP a default timeout is used.  
+.PP
+.B -d 
+[backward compatibility].
+The indicated tty device is immediately opened and linked under the slip 
+driver.  Taylor uucp code is not used.  The resulting interface remains 
+available until the process exits (or forever, with \fB-p\fP).
+This is useful for permanent direct links or for testing.
+For dial-up connections, use \fB-a\fP.
+.PP
+.B -i 
+means ignore SIGHUP.  Ordinarily (and without \fB-p\fP) the process 
+catches SIGHUP and then exits.
+.BB
+.B - 
+by itself means to link the current \fIstdin\fP device as the 
+slip device.  This is used by the "slip" program to start
+a slip session from an ordinary dial-in session.
+.SH EXAMPLES
+.nf
+slattach -p -a "venus" sl0
+slattach -p -a "-d saturn" sl0
+
+slattach -d -i  /dev/tty00 sl0 19200
+.fi
+.SH SEE ALSO
+.nf
+slipd(1M), slip(1), asy(7), ip(7), %DRIVER_NAME%(7)
+\fIAdvanced System Administration Guide\fP.
+.fi
+.SH AUTHORS
+Sudji Husodo, Jim Avera

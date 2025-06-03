@@ -1,0 +1,663 @@
+Return-Path: <krab@iesd.auc.dk>
+Date: Sun, 21 Feb 1993 04:49:36 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Random comments on the `encoding' format.
+
+This is a request for a discussion on the list on how the encoding
+format should be for GNU objc. 
+
+Please regard this `proposed' encoding format as a basis for a
+discussion. 
+
+
+****  THIS IS A DRAFT DOCUMENT ****
+
+
+The aim of this encoding is to give the runtime system access to the
+typeinformation needed for manipulating the most basic C types and
+some simple compound types.  This could for instance be used to buld
+an argument list used in forwarding.
+
+The current encoding format especially lacks information on sizes of
+structs, which is needed to implement full forwarding some time in the
+future... 
+
+This encoding changes some encodings according to the current gcc
+encoding.  Some information is added to the encoding, and some
+encoding formats are simplified.  
+
+Whenever changes are done, this is commented at the following
+***CHANGE*** paragraph.
+
+The encoding for struct, union and bitfields are changed.  (the text
+describes how and why).  Also the encoding for method argument specs.
+
+
+The Encoding Specicification
+============================
+
+* SIMPLE TYPES *
+
+The encoding of simple types is single characters.
+Compound types are longer.
+
+
+   [Table 1] encoding of simple types.  
+
+	type	        encoding
+   --------------------------------
+   	char		"c"
+	unsigned char	"C"
+	short		"s"
+	unsigned short	"S"
+	long		"l"
+	unsigned long	"L"
+	int		"i"
+	unsigned int	"I"
+	float		"f"
+	double		"d"
+	
+
+
+* SPECIAL VALUES *
+
+A number of special values are known to the encoding mechanism.  For
+instance `id' is known as a special case.  The following table
+descibes these cases:
+
+   [Table 2] encoding of special types.  
+
+	type	        encoding
+   --------------------------------
+   	id		"@"
+	Class_t 	"#"
+	SEL		":"
+	char*   	"*"
+	void		"v"
+
+Other pointers to <type> are encoded as
+
+   "^<enc type>"
+
+Where <enc type> is the encoding of the type being pointed to.  For
+example a pointer to an unsigned long will be encoded as:
+
+   "^L"
+
+unknown types are encoded using the character "?".  For example
+pointers to functions or types that are so complex that the encoder
+cannot describe them are encoded using this char.
+
+Enumeral `enum' types are encoded using the encoding of a signed
+integer "i".
+
+Bitfields are encoded with the somewhat awkward string
+
+  "b<width>:"
+
+The encoding does not distinguish signed or unsigned bitfields.  ** is
+this ok ** ?
+
+ ** NOTE 
+  Consider the following alternatives:  "b[<width>]" "[<width>b]" 
+  "b\<<width>\>" e.g. "b<4>" (should <> be saved for protocols?)
+
+  ***CHANGE***
+ 
+  The current encoding uses the string "b<width>" which is not
+  delimited.  This is a problem since for other purposes we need to be
+  able to write <enc><number>.  That is no encoding string may end in a
+  number.  [This is used for structs and method argument specs]
+
+
+* ARRAYS * 
+
+Encoding of arrays is done using a sequence at the form:
+
+  "[<nelem><enc>]"
+
+Where <nelem> is an integer describing the size of the array
+represented as a readable string, and <enc> is the encoding of the
+type of elements in the array.  For example, the encoding of the type
+of a variable declared as `long my_array[25]' would be "[25l]".  The
+25 is there since the array has 25 elements, and the `l' is the
+encoding of a long (see table 1 above).  The <enc> field need not be a
+simple type.  It could be eny type encoding as described in this
+document.
+
+
+* STRUCTS *
+
+Struct can be encoded in several forms. If the name of the struct is
+know, the following form is used:
+
+  "{<size><name>}" 
+
+Otherwise if struct is intermediate, a '?' is put at the position of
+the name yealding the following string.  This is also used if the type
+being encoded is really a typedef of a struct.
+
+  "{<size>?}"
+
+The <size> field is the equivalent of the c builtin sizeof(struct
+<name>), encoded as a readable string. (assuming 32 bit architecture)
+
+Examples of encoding of a struct are:
+
+   struct timeval {
+     long tm_sec;
+     long tm_usec;
+   };
+
+   @encoding(struct timeval)  
+
+	    =>  "{8timeval}"
+
+   @encoding(struct { int elem1; char elem2;})  
+
+	    =>  "{5?}"
+
+The reason why the size is placed first in the description string is
+that this value is likely to be more interesting at runtime, than the
+name of the struct.
+
+One could argue, that a more verbose encoding describing the names
+types and offsets of the elements would be nice.  This would look like
+this:
+
+  "{<size><name>=<offset1><enc1><name1>;...<offsetN><encN><nameN>}"
+
+In the general case.  Thus out timeval example form above could be
+encoded as: 
+
+  "{8timeval=0ltm_sec;4lrm_usec}"
+
+which could plausably be used for runtime acces to struct members by
+name.  
+
+  ***CHANGE*** 
+
+  The above definition of the encoding differs from the one currently
+  used.  The current encoding does not include information on the size
+  of the struct.  This information is needed for the implementation of
+  full fledged forwarding which includes copying of arguments.  
+
+  Also, if the struct encoded were being pointed to the name was not
+  inserted in the string.  This property made the encoding context
+  sensitive, which is not a desireable property.
+
+  The old encoding format had a special long form, which included the
+  encoding for each element.  That is, the above `timeval' example
+  would look like "{timeval=ll}".  This information is not worth
+  anything, since the layout of a struct given its elements is not
+  computable in a portable fashion.
+
+
+* UNIONS *
+
+Union can be encoded in several forms. If the name of the union is
+know, the following form is used:
+
+  "(<size><name>)" 
+
+Otherwise if union is intermediate, a '?' is put at the position of
+the name yealding the string.  This syntax is also used if the encoded
+type is really a typedef of this union.
+
+  "(<size>?)"
+
+The <size> field is the equivalent of the c builtin sizeof(union
+<name>), encoded as a readable string.
+
+Examples of encoding of a union are: (assuming 32 bit architecture)
+
+   union timeval {
+     long tm_sec;
+     long tm_usec;
+   };
+
+   @encoding(union timeval)  
+
+	    =>  "(4timeval)"
+
+   @encoding(union { int elem1; char elem2;})  
+
+	    =>  "(4?)"
+
+As for structs one could think of a verbose encoding, which could look
+like the following:
+
+   "(4timeval=ltm_sec;ltm_usec)"
+
+We dont need offset information since they all start at offset 0.
+
+
+  ***CHANGE*** 
+
+  The above definition of the encoding differs from the one currently
+  used.  The current encoding does not include information on the size
+  of the union.  This information is needed for the implementation of
+  full fledged forwarding which includes copying of arguments.  
+
+  Also, if the union encoded were being pointed to the name was not
+  inserted in the string.  This property made the encoding context
+  sensitive, which is not a desireable property.
+
+  Besides, the old encoding had a verbose variant, at the form
+  "(<name>=<enc1>...<encN>)"  This extra information is not worth
+  anything because one cannot use it to access individual elements by
+  name.  It could however be used to calculate the size of the union. 
+
+
+
+The encoding of method argument specifications
+==============================================
+
+Method arguments are encoded and present at runtime.  This could e.g.
+be used for implementing a full fledged forwarding mechanism.  The
+encoding format I propose is the following:
+
+  "<encR>{?<size>=<off1><enc1><name1>;...}"
+
+Where <encR> is the encoding of the return type.  Note that if there
+is no return type it is `void' and hence also meaning fully encoded as
+"v". 
+
+The actual arguments are encoded as an untagged struct.  This is used
+for building the intermediate structures needed to do forwarding.
+Also, this saves the parsing of the encoded format, since we avoid
+introducing new syntax.  The <offset> values are NOT stack offsets.
+There is no portable way to access parameters from the stack since
+they may partially be passed in registers.  The <offset>'s have the
+semanthics as if we had really constructed a struct from the
+arguments. 
+
+  ***CHANGE***
+
+  The old scheme encoded the stack offsets for each argument.  This
+  encoding does not make sense if the architecture passes arguments in
+  the registers.
+
+
+
+The full `Bacus Naur' form for the encoding is:
+
+   Encoding: 
+	    SimpleEncoding 
+	  | SpecialEncoding
+	  | PointerEncoding
+	  | CompoundEncoding
+	  | '?'			     /* unknown (too complex) type */
+
+   SimpleEncoding: 
+	     <one of "cCsSlLiIfd">   /* numeric types */
+
+   SpecialEncoding: 
+             <one of "@#:*v">        /* objc types + char* + void */
+	   | 'b' Number ':'          /* bitfields */
+
+   PointerEncoding: 
+             '^' Encoding            /* pointer to */
+
+   CompoundEncoding:
+              '[' Number Encoding ']'                   /* array */
+	   |  '{' Number Name '=' StructEncList '}'     /* struct */
+	   |  '(' Number Name '=' UnionEncList ')'      /* union */
+   
+   StructEncList:
+              Number Encoding Name 
+           |  StructEncList ';' Number Encoding Name 
+
+   UnionEncList:
+              Encoding Name
+           |  UnionEncList ';' Encoding Name 
+
+   Number:   
+               <one-or-more of "0-9">
+
+   Name:   
+              '?'
+	   |   <one of "a-zA-Z_"> <zero-or-more of "0-9a-zA-Z_">
+
+
+
+Return-Path: <burchard@localhost.gw.umn.edu>
+Date: Sun, 21 Feb 93 15:47:59 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Random comments on the `encoding' format.
+Cc: gnu-objc@gnu.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+Kresten Krab Thorup <krab@iesd.auc.dk> writes:
+> * SPECIAL VALUES *
+> 	type	        encoding
+>     --------------------------------
+> 	char*   	"*" 
+
+
+Just a minor note: "*" is distinguished from "^c" in the same way  
+that STR is distinguished form char*; in each case the former  
+specifier is intended to refer to NUL-terminated strings only (this  
+constraint cannot of course be expressed directly within in the C  
+type system).
+
+> * STRUCTS *
+> 
+
+> Struct can be encoded in several forms. If the name of the struct 
+
+> is know, the following form is used:
+> 
+
+>   "{<size><name>}" 
+
+> 
+
+[...]
+>   The old encoding format had a special long form, which
+> included the encoding for each element.  That is, the
+> above `timeval' example would look like
+> "{timeval=ll}".  This information is not worth
+> anything, since the layout of a struct given its elements
+> is not computable in a portable fashion.  
+
+
+I believe the opposite is true: recording only the size would  
+guarantee non-portability, whereas the long form can be (and for  
+other reasons, must be) made to work.
+
+The problem is that the raw sequence of bytes occupied by the  
+structure cannot reliably be reassembled into the original structure,  
+if the re-assembly is being done on a different type of machine.   
+This difficulty arises in both archiving objects into files and in  
+decoding the arguments of remote messages.
+
+Also, considering the structure as a sequence of bytes prevents  
+pointers within the structure from being followed, when that is  
+desired.
+
+In fact, any sizes, offsets, or other non-portable information must  
+be optional, if they are even allowed in the encoding.  This is  
+because otherwise these encodings cannot serve as arg-type specifiers  
+for Richard's "apply" function.  For "apply" to work properly, it  
+must be possible for user code to portably construct specifications  
+of argument types.
+
+It's the job of the "apply" implementation to do the translation from  
+portable type encoding to offsets, byte counts, and byte ordering.   
+For this purpose, it seems to me that there is just one deficiency  
+with NeXT's format: it only describes structures one level deep.   
+Instead, in case the structure contains structure pointers, the  
+descriptions should be provided all the way down.  The purpose of  
+recording the structure tags is then to avoid infinite loops.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Sun, 21 Feb 93 17:34:43 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: burchard@geom.umn.edu
+Cc: krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302212147.AA03544@localhost.gw.umn.edu> (message from Paul Burchard on Sun, 21 Feb 93 15:47:59 -0600)
+Subject: Random comments on the `encoding' format.
+
+    Just a minor note: "*" is distinguished from "^c" in the same way  
+    that STR is distinguished form char*; in each case the former  
+    specifier is intended to refer to NUL-terminated strings only (this  
+    constraint cannot of course be expressed directly within in the C  
+    type system).
+
+If there's no way to express it in C, how does the compiler know when
+to use * and when to use ^c?
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Mon, 22 Feb 1993 00:03:15 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Cc: burchard@geom.umn.edu, krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302212234.AA01558@mole.gnu.ai.mit.edu>
+Subject: Random comments on the `encoding' format.
+
+>If there's no way to express it in C, how does the compiler know when
+>to use * and when to use ^c?
+
+It doesn't, all char* will be encoded as "*" in the current
+implementation.  
+
+/Kresten
+
+Return-Path: <burchard@localhost.gw.umn.edu>
+Date: Sun, 21 Feb 93 17:11:21 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: rms@gnu.ai.mit.edu
+Subject: Re: Random comments on the `encoding' format
+Cc: gnu-objc@gnu.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+>     Just a minor note: "*" is distinguished from "^c" in the same 
+
+>     way that STR is distinguished form char*; in each case the 
+
+>     former specifier is intended to refer to NUL-terminated strings 
+
+>     only (this constraint cannot of course be expressed directly 
+
+>     within in the C type system).
+> 
+
+> If there's no way to express it in C, how does the compiler know 
+
+> when to use * and when to use ^c?
+
+Good question.  Just as "id" has become a new built-in type of Obj-C,  
+rather than a typedef (at least in NeXT's version of Obj-C), "STR"  
+should really become a built-in type as well to make this work.
+
+Unfortunately, what has happened in real life is that "STR" hasn't  
+caught on, and so NeXT treats char* as "*" (e.g. for distributed  
+object messages).
+
+I guess this is where fans of "constraint-based languages" start  
+snickering....
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Mon, 22 Feb 1993 12:13:18 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: burchard@geom.umn.edu
+In-Reply-To: <9302220010.AA03620@localhost.gw.umn.edu>
+Subject: Re: Random comments on the `encoding' format.
+Cc: gnu-objc@gnu.ai.mit.edu
+
+Paul Burchard quotes me:
+>> Ok, I guess it is about time to define what a `portable
+>> encoding' mean.  What is your definition? 
+>
+>By this I mean a format that:
+>
+>	* can be constructed at run time with portable code (code
+>		not containing implementation-dependent constants)
+>	
+>	* can be used to reconstruct data stored to a file or stream
+>		(even if stored from a different machine)
+>
+>I guess this still isn't a complete definition, though, because there  
+>is some conflict in these goals.  Suppose we have compiled identical  
+>code on two machines where sizeof(int) is not the same.  On the one  
+>hand. we would like to be able to share "identical" data structures  
+>between the 2 versions of the same program (which want to believe  
+>they are simply dealing with ints).  On the other, there is clearly  
+>potential for trouble in transferring data from large size to small.
+
+I do not agree in this definition. The encoding is only encoding
+of types, not values!  It will have two major purposes:
+
+  * Provide information for easy access to data of the given
+    type, in a local manner.
+
+  * Provide the _basis_ for machine specific procedures, which can
+    encode data in a host independent manner.
+
+That is the encoding is primarily for use locally, but can be used for
+encoding in some binary `XDR' like format.  I think the routines for
+this data encoding should be machine specific.  We can possibly
+express them in terms of the configuration parameters for gcc.
+
+We could possibly define two different `external representations'.  One
+binary, xdr-like format, and one ascii encoding where e.g. integers
+are written out and must thus be parsed to give sense.  The latter is
+inheritly portable, but probably also slower.
+
+/Kresten
+
+
+Return-Path: <billb@jupiter.fnbc.com>
+From: billb@jupiter.fnbc.com (Bill Burcham)
+Date: Mon, 22 Feb 93 09:45:53 -0600
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Re: Random comments on the `encoding' format.
+Cc: Kresten Krab Thorup <krab@iesd.auc.dk>
+
+Some of my random thoughts about your random comments...
+
+Kresten Krab Thorup Writes:
+> * STRUCTS *
+> 
+
+> Struct can be encoded in several forms. If the name of the struct  
+is
+> know, the following form is used:
+> 
+
+>   "{<size><name>}" 
+
+> 
+
+> Otherwise if struct is intermediate, a '?' is put at the position  
+of
+> the name yealding the following string.  This is also used if the  
+type
+> being encoded is really a typedef of a struct.
+> 
+
+>   "{<size>?}"
+> 
+
+> The <size> field is the equivalent of the c builtin sizeof(struct
+> <name>), encoded as a readable string. (assuming 32 bit  
+architecture)
+> 
+
+
+C and objective C use structural equivalence (not type equivalence)  
+if I am not mistaken.  So why do we need/want to keep the name of the  
+structure.
+
+A completely seperate issue I have is with the whole _size_ thing.   
+Will storing sizes (a la sizeof()) of things hamper us when we want  
+to do distributed objects?
+---
++--------------------------------+----------------------------------+
+|          Bill Burcham          | "Make no small plans; they have  |
+| First National Bank of Chicago | no magic to stir men's souls"    |
+|    billb@fnbc.com  (NeXTmail)  |      Daniel J. Burnham           |
++--------------------------------+----------------------------------+
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Mon, 22 Feb 93 11:05:44 -0600
+From: burchard@geom.umn.edu
+To: billb@jupiter.fnbc.com (Bill Burcham),
+        Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Random comments on the `encoding' format.
+Cc: gnu-objc@gnu.ai.mit.edu
+
+billb@jupiter.fnbc.com (Bill Burcham) writes:
+> C and objective C use structural equivalence (not type
+> equivalence) if I am not mistaken.  So why do we need/want
+> to keep the name of the structure. 
+
+
+For encoding circular data structures.
+
+Kresten Krab Thorup <krab@iesd.auc.dk> writes:
+> [The encoding] will have two major purposes: 
+
+> 
+
+>   * Provide information for easy access to data of the given
+>     type, in a local manner.
+> 
+
+>   * Provide the _basis_ for machine specific procedures, which can
+>     encode data in a host independent manner.
+
+I agree totally.
+
+> That is the encoding is primarily for use locally, but can
+> be used for encoding in some binary `XDR' like format. 
+
+
+The one snag in trying to keep things local like this is that for  
+distributed objects, a proxy often needs to ask its remote delegate  
+what sort of arguments it was supposed to have received from a  
+message sent locally to the proxy.
+
+This information allows the proxy to bundle up the arguments (using  
+local machine config info) and ship them over to the remote object  
+properly (where they will be resurrected using the remote machine  
+config info).  So the arg type encodings (e.g. as returned by  
+-descriptionForMethod:) must be presented "portably" in the sense  
+that I described.
+
+> I do not agree in [Paul's] definition. The encoding is only
+> encoding of types, not values!
+
+I don't think we are disagreeing here---after all, the sole purpose  
+of types is to define the semantics of values!  Rather, the crux of  
+the entire set of problems we are dealing with in this mailing list  
+is that some portion of the semantics is not defined within the  
+language, and so not portable.  How to handle this is difficulty?   
+That's the one legitimate cause for impassioned debate.
+
+The only question is, then, upon whom does the responsibility fall to  
+translate the portable, language-level semantics into the complete,  
+low-level semantics required for various operations?  My preference  
+is that the knowledge of how to make such translations be compiled  
+into each runtime, and made available via library functions like  
+"apply" and "__builtin_classify_typedesc".  I don't think that it  
+should be the programmer's responsibility.
+
+You are right that in this direct form, the encoding is less  
+efficient because of the translation step.  For this reason, allowing  
+optional low-level information to be cached in the encoding string  
+might be reasonable.  However, for the complete low-level info, which  
+will _only_ be used locally and does not need to be transported  
+anywhere, it might make more sense to cache the info in an even more  
+efficient way---directly in a typed_data_t structure (as previously  
+proposed for "apply").  I think the reason for having a string  
+encoding is that it's easily transported and easily created in user  
+code---so its burden should be to carry the portable info.  Library  
+functions can then translate it into low-level info stored in  
+structures.
+
+I think Richard's proposal to include width information in the string  
+encoding is a good idea, though, because it helps make cleaner  
+decisions when transporting data.  For example, the low-level  
+functions could check for overflow when reading in a 64-bit int into  
+a machine with 32-bit ints.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+

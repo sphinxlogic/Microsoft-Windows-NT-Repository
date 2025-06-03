@@ -1,0 +1,65 @@
+@(#)PATCHES_TO_STOCK_TAYLOR1.04	1.1 (30 Sep 1993)
+
+TSLIP (dial-on-demand slip) requires Taylor UUCP 1.04 with two small patches.  
+
+An already-patched Taylor UUCP distribution may have been distributed along
+with this TSLIP package.  If not, or if you already have Taylor UUCP 1.04 and 
+don't want to replace it, apply the following patches to Taylor 1.04.  
+
+If you have some other version than 1.04, check the patches carefully.
+
+The (patched) Taylor UUCP distribution must be built before the tslip
+package, because various taylor object files are linked in with the slipd
+daemon.  
+
+The tslip configure script will locate the Taylor build directory automatically
+if it is in the same parent as tslip (or in a few other places).  If not, the
+configure script will complain, and you'll have to edit "guess_tuucpsrc"
+to indicate the location of the Taylor UUCP build tree.
+
+-Jim Avera 6/23/93 (jima@netcom.com)
+
+Patches for Taylor UUCP 1.04 follow:
+
+Index: system.h
+*** system.h.orig	Fri May 28 09:51:51 1993
+--- system.h	Tue Jun 22 10:35:18 1993
+***************
+*** 73,78 ****
+--- 73,83 ----
+     means, on Unix, this program is normally installed setuid.  */
+  #define INIT_SUID (04)
+  
++ /* Do not close all open files other than stdin/out/err.  This is used if
++    the program inherits additional file descriptors.  
++    Used by the slip dial-out daemon. */
++ #define INIT_NOCLOSEFILES (010)
++ 
+  extern void usysdep_initialize P((pointer puuconf, int iflags));
+  
+  /* Exit the program.  The fsuccess argument indicates whether to
+Index: unix/init.c
+*** unix/init.c.orig	Sat Feb 13 13:26:09 1993
+--- unix/init.c	Tue Jun  1 09:12:36 1993
+***************
+*** 180,187 ****
+  #endif /* ! HAVE_SYSCONF */
+  #endif /* ! HAVE_GETDTABLESIZE */
+  
+!   for (o = 3; o < cdescs; o++)
+!     (void) close (o);
+  
+    /* Make sure stdin, stdout and stderr are open.  */
+    if (fcntl (0, F_GETFD, 0) < 0
+--- 180,190 ----
+  #endif /* ! HAVE_SYSCONF */
+  #endif /* ! HAVE_GETDTABLESIZE */
+  
+!   if ((iflags & INIT_NOCLOSEFILES) == 0)
+!     {
+!       for (o = 3; o < cdescs; o++)
+!         (void) close (o);
+!     }
+  
+    /* Make sure stdin, stdout and stderr are open.  */
+    if (fcntl (0, F_GETFD, 0) < 0

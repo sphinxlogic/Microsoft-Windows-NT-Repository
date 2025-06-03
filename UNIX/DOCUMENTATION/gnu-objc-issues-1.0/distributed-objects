@@ -1,0 +1,221 @@
+Date: Fri, 11 Sep 92 12:20:20 -0500
+From: wiltel!clloyd@uunet.uu.net
+To: uunet!prep.ai.mit.edu!gnu-objc@uunet.uu.net
+Subject: OO Runtime, Proxy Considerations
+
+Hello all,
+
+Here are a few ideas on topics which have caused problems in the past.  I think there may be an opportunity to affect an improvement, so here are a few suggestions.
+
+Suggestion for runtime environment.
+
+As I understand it, dennis_glatting@trirex.com is going to provide the runtime environment for the Objective-C.  As one who has developed an Object inspector which displays the runtime information of any object, let me strongly recommend that the access to the runtime environment be object oriented.  NeXT's set of runtime functions and non-object-oriented data structures made my job much harder than it needed to be.  Had the runtime itself been object oriented, building an object inspector would have been a no-brainer.  More importantly, future enhancements to the runtime system would go smoother if it were object oriented.
+
+If its too late to go object oriented with the runtime environment (for whatever reason), I may be able to offer a set of wrappers which makes the runtime appear to be object oriented;  but I would not recommend this as the ideal approach.  Also, my code is wholly dependent on the NeXT runtime environment, so it would need to be adapted (not to mention completed).
+
+
+
+Suggestion for Proxy hierarchy:
+
+Currently, NeXT has only one class of object proxy, "NXProxy."  NXProxy is its own root in a new hierarchy, but it is intended for use as a Distributed Object proxy.  This approach is very short-sighted as there are actually many needs for different types of proxies (we use three different types of proxy for three very different purposes here at WilTel).
+
+I propose that the gnu Object hierrarchy come with a parallel hierarchy called proxy_Object.  The proxy_Object class is a complete re-implementation of the Object class in which every method (except forward::) is renamed to "proxy_methodName:" where methodName: is the corresponding name in the Object class.  The proxy_Object class would serve as the superclass to all proxy classes and those application-specific proxy subclasses should add their own behavior.  This way, the programmer can communicate directly with the proxy by using the "proxy_" convention and all proxies would have a common ancestor.
+
+
+NOTE:  NeXT's (and WilTel's) current approach to proxies is the brute force approach (ie depends on forward::).  I believe the proxy concept is powerful enough to warrant a completly fresh approach and possible inclusion in the language itself.  A clever implemention of objc_msgSend() could take proxies into consideration and, with some minor additional syntax, programmers could communicate with proxies or the actual target in a much more efficient way.  If the language itself were aware of the proxy concept, there would be no reason to implement the proxy_Object hierarchy as a parallel universe.  Here's some possible syntax which would tell objc_msgSend() how to do its lookup:
+
+	//Send a message to the proxy itself
+	[someProxy @proxyMsg(doSomething)];
+
+	//Send a message intended for the target of the proxy
+	[someProxy doSomething];
+
+	//Send a message to the real thing
+	[someRealObject doSomething];
+
+If done properly, this could avoid the inefficient practice of using forward::.  Perhaps a class which conformsTo: the "Proxy" protocol would be treated as a proxy by objc_msgSend(), else its treated as the real thing.  The "Proxy" protocol might define a single method which does whatever forward:: would otherwise do.
+
+Just some thoughts,
+Charles Lloyd
+
+Newsgroups: comp.sys.next.software,comp.sys.next.programmer
+From: burchard@horizon.math.utah.edu (Paul Burchard)
+Subject: Re: distributed objects? (Plusses & minuses of NeXT's design)
+Date: Thu, 24 Sep 1992 01:32:42 GMT
+
+In article <5123@rosie.NeXT.COM> sam_s@NeXT.com (Sam Streeper) writes:
+> Basically distributed objects allows objects in one application to be sent  
+> messages from any number other applications, as though the object were local  
+to  
+> those applications.  The system is pretty transparent; when you return an  
+> object to a remote application, "it just works".  In fact, it's easy enough  
+> that you sometimes forget you're using it.  Returning self really returns the  
+> object to any application that asks!
+> 
+> Distributed objects makes RPC programming simple; remote messages look just  
+> like local objective-c messages.
+
+I think Distributed Objects is one of the greatest features of 3.0.  It opens  
+up a whole new world of separate but "virtually integrated", interacting  
+programs, which is very important to making computers really useful in  
+mathematics.
+
+However, I feel that there is one glaring flaw in the design of 3.0 D.O.'s.   
+The set of message parameter types supported is just not broad enough to make  
+things really transparent.  What about RtMatrix?  NXEvent pointers?  And other  
+similar small but complex by-reference and union parameters?
+
+Unfortunately, because the type encoding logic is contained in the  
+communications objects rather than in the types themselves, the system does not  
+lend itself to user-supplied extensions to overcome these problems.  Secondly,  
+the compiler/runtime in certain cases only record promoted type descriptions  
+despite explicit declarations otherwise.  For example,
+	typedef float vector[3];
+	- getVector:(vector)v;
+Yields the type desciptor "^f" rather than the correct "^[3f]" for its first  
+argument.  This makes it impossible to fix the problem with array arguments  
+after the fact.
+
+I am experimenting with my own Objective-C (socket-based) D.O. system, in which  
+there is a user-extensible class hierarchy of object wrappers for C types (used  
+only during communication of course).  I can do most of this on top of the  
+existing run-time and compiler, but to see the full potential the compiler  
+would need to generate better type descriptions, especially for array types.  
+
+I specifically want to be able to transparently and remotely manipulate 3-D  
+objects, and so RtMatrix args for Renderman calls are essential.  I'd also like  
+it portable to the GNU Obj-C runtime, which is why I'm using sockets.
+
+Anyone else thinking about this stuff?
+
+--
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Date: Tue, 13 Oct 1992 15:05:36 -0400
+From: Pascal Gaudette <pascal@nextasy.physics.mcmaster.ca>
+To: gsk@world.std.com (Geoffrey S Knauth)
+Subject: Re: GNU Objective-C projects
+
+
+In comp.lang.objective-c article <BvrDLF.AKq@world.std.com> you wrote:
+
+> The GNU Objective-C project team is working on a runtime
+> system, easy access to C++ from Objective-C, a class
+> library, and a graphical interface builder.
+>
+
+Yes, and I think that you guys deserve a big dose of praise
+for taking this on. But I have a small question:
+
+Have you given any thought to making a GNU version of the
+distributed objects system that NeXT has unveiled with
+3.0? (ie NXConnection and NXProxy) This would be really
+great in that it would allow developers to easily write
+distributed apps in heterogeneous environments. I realize
+that this would really not be an easy task, in that
+a lot of the NeXT distributed objects stuff probably
+relies on mach specific stuff. I would just like to know if
+it has been thought of at all.
+
+Thanks for any info,
+--
+Pascal "The Rascal" Gaudette       pascal@nextasy.physics.mcmaster.ca
+MacNUG president                      | *NeXTmail encouraged*
+graduate student, McMaster university | Je ne suis pas infaillible.
+Physics and astronomy dep.            | Vive le Quebec LIBRE!
+
+To: "Geoffrey S. Knauth" <gsk@marble.com>
+Cc: gnu-objc@prep.ai.mit.edu, petrilli@hal.gnu.ai.mit.edu
+Subject: Re: thinking ahead toward distributed objects 
+In-Reply-To: (Your message of Sat, 02 Jan 93 17:08:02 EST.)
+             <199301022208.AA00895@carrara> 
+Date: Sat, 02 Jan 93 20:38:07 -0600
+From: Chris Petrilli <petrilli@gnu.ai.mit.edu>
+
+
+>>>>> "KAS" == Kevin A. Sapp <sapp@sawdust.ssc.gov> writes (abridged):
+KAS> I am also trying to put together a FIRST CLASS object that can be
+KAS> queried (using standard objective-c syntax) about itself...how many
+KAS> instance variables do you have, what is the name of the 2nd one, type
+KAS> of 2nd one, ...  This would be the base class of a remote object (with
+KAS> some additional methods).
+
+Seems like a reasonable way to do this.  I am curious exactly how NeXT
+has built this into NeXTstep, although I do know they have used RPC
+(Remote Proceedure Call) syntax instead of Mach messages, which seems
+to say to me that they are trying to be a little more portable in
+theory.
+
+KAS> I beleive these are the first steps toward distributed/remote objects.
+KAS> Once one can access an objects instance variable, class, and method
+KAS> information at runtime the information is there now the transfer of
+KAS> this data (ala @encode strings for processor independance), method
+KAS> existance, invocation and return values are some of the remaining
+KAS> challanges.
+
+Yeah, the other thing is a "standard" protocol between objects for the
+communication of information.
+
+>>>>> On Sat, 2 Jan 93 17:08:02 -0500, "Geoffrey S. Knauth"
+>>>>> <gsk@marble.com> said:
+
+GAK> Kevin, you have some good ideas.  One way to see them included in GNU
+GAK> Objective-C is to grab the GCC 2.3.2 sources from prep.ai.mit.edu and
+GAK> add your changes to the base object.  We are accepting submissions via
+GAK> gnu-objc-submissions@prep.ai.mit.edu.
+
+GCC 2.3.3 now, but yea... and send information to the map project as
+well, so that we can coordinate everything from our end.
+
+Chris
+
+To: Steve Naroff <Steve_Naroff@next.com>
+Cc: "Geoffrey S. Knauth" <gsk@marble.com>, gnu-objc@prep.ai.mit.edu
+Subject: Re: thinking ahead toward distributed objects 
+In-Reply-To: (Your message of Mon, 04 Jan 93 11:37:34 PST.)
+             <9301041938.AA06651@oz.NeXT.COM> 
+Date: Mon, 04 Jan 93 14:08:04 -0600
+From: Chris Petrilli <petrilli@gnu.ai.mit.edu>
+
+
+>>>>> On Mon, 4 Jan 93 11:37:34 -0800, Steve Naroff
+>>>>> <Steve_Naroff@NeXT.COM> said:
+
+Steve> This is not true (in version 3.0 of NeXTSTEP)...the syntax used is  
+Steve> plain old Objective-C. 
+
+What I meant is that they were using RPC methodology underneath the
+whole thing to actually accomplish the work.  I've heard from 2 people
+at NeXT ... one says RPC (ie Sun ONC), and the other says Mach
+messages.  I can't seem to get a straight answer from anyone.
+
+Either way, RPC is the only real option for the GNU project since we
+have to be a bit more portable.  Given that the GNU system will
+eventually one day run on top of Mach, that would be nice, but I think
+that RPC is a better choice for now, since the speed isn't much worse,
+and the portability is MUCH better.
+
+Steve> The Objective-C compiler and runtime work together to help
+Steve> implement this functionality. The Object class publishes a
+Steve> method named "forward::" to implement "proxies". The
+Steve> Objective-C language implements "protocols" to help obtain type
+Steve> information when the class is not local. If a protocol does not
+Steve> exist, things still work, they are just a bit slower...
+
+Minor correction: these are extensions that NeXT added to Objective-C
+as far as I know, as I don't think the latest release of StepStone
+will support @protocol, etc... in addition, we're STILL waiting on
+access to the NeXT Objective-C front end so that we can integrate it
+into later releases of GCC.  Any word on when we get access?  it's
+really annoying to ME personally, not to be able to use various things
+together.  I run GCC 2.3.3 for my own code (ie, non Objective-C most
+of the time), but have to stick with the antiquated NeXT CC for
+Objective-C... gods forbid I have to integrate Objective-C and C++ and
+want an ANSI compliant C++ compiler (which NeXT does not ship).
+
+Chris
+
+

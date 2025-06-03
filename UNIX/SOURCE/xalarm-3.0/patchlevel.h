@@ -1,0 +1,1 @@
+#define		XALARMVERSION	"3.04"

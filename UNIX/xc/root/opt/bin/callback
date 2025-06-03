@@ -1,0 +1,115 @@
+#!/bin/sh
+# @(#) callback - JPRadley v1.0 920921 - makes and uses an 'xc' script to
+# @(#)   call a remote site, have it ring us back with a login prompt.
+
+echo -n "Remote system name? "
+read SYSTEM                     # where are we calling?
+echo -n "Their modem number? "
+read NUMBER                     # what's the telephone number?
+echo -n "Login name on $SYSTEM? "
+read LOGIN                      # how shall we log in?
+echo -n "Password for $LOGIN? "
+stty -echo                      # but of course!
+read PASSWD
+stty echo
+echo -n "\nBaud remote should use? "
+read RSPEED                     # computer-modem speed on the remote
+echo
+
+What_To_Do=/usr/tmp/$SYSTEM.$$  # script for 'xc' to use
+OURPORT=ttyA02                  # we'll dial out on this port and the remote
+OURNBR=7874639                  #  calls this number to ring this port
+CAPTURE=/pub/jpr/logs/$SYSTEM   # our log file for the session
+
+trap "rm $What_To_Do" 0         # clean up when we leave
+
+cat >$What_To_Do <<TeMpLaTe
+debug "off"
+tty "off"
+set cfile $CAPTURE                
+set auto "off"                  # no capturing -- yet
+set cis "off"                   # don't react to a spurious ^E
+
+transmit "ats0=0e1q0v1^M"       # modem should not be mute
+waitfor "ok"
+
+dial "$NUMBER"
+echo "        Dialing $NUMBER to get on to $SYSTEM"
+while ! waitfor "connect" 70
+do
+        echo "        No connection; redialing"
+        redial                        
+done
+
+transmit "^M"                   # can't hurt
+
+assign PATIENCE eq 3            # loop counter
+while ! waitfor "ogin:" 6       # waiting 6 secs for the prompt
+do
+        if PATIENCE eq 0
+        then    echo "Can't get a login prompt"
+                beep; quit
+        fi
+        xmitbrk
+        decr PATIENCE
+done
+
+pause 2
+
+transmit "$LOGIN^M"
+echo "        We're logging in now"
+
+if ! waitfor "word:"
+then
+        echo "Login failed, sorry!" ; beep; quit
+else
+        transmit "$PASSWD^M^M"  # the second CR is to cope with a possible
+endif                           #  tset command, and accept its default
+
+transmit "/1/2/3^M"             # an absolute pathname that shouldn't exist
+if waitfor "not found"
+then
+        echo "        OK, we're on $SYSTEM; now we'll set up a callback"
+else
+        echo "Login failed, sorry!" ; beep; quit
+fi
+
+transmit "echo 'yes|ct -w3 -s$RSPEED $OURNBR 2>/dev/null' | at now next min^M"
+waitfor "job"                   # the 'at' command reports a job number
+transmit "exit^M"               # get off the remote system
+
+pause 2                         # disconnect might reset modem, so again:
+transmit "ats0=1e1q0v1^M"       #  not mute, and auto-answer
+waitfor "ok"
+
+echo "        It might be a couple of minutes until $SYSTEM rings us"
+if ! waitfor "connect" 190
+then
+        echo "        It ain't gonna happen; sorry!"
+        beep; quit
+endif
+
+transmit "^M"
+assign PATIENCE eq 3
+while ! waitfor "ogin:" 6
+do
+        if PATIENCE eq 0; then beep; quit; fi
+        xmitbrk; decr PATIENCE
+done
+pause 1; transmit "$LOGIN^M"
+if ! waitfor "word:"; then beep; quit
+else transmit "$PASSWD^M^M"
+fi
+
+set auto "on"                   # capturing starts when we hit terminal mode
+
+transmit "/1/2/3; echo Thanks, \`uname\`, for providing this connection!^M"
+waitfor "not found"
+beep
+TeMpLaTe
+
+xc -s$What_To_Do -l$OURPORT
+
+# th-th-aaa-t's all, folks, just drop those nickels & dimes in the slot...
+
+# eof(callback)

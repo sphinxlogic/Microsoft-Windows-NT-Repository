@@ -1,0 +1,197 @@
+#!/bin/sh
+trap "rm -f tst$$ tst$$.c tst$$.o" 0
+echo "Which is your preferred C compiler (default = cc)? "
+read CC
+if [ "@$CC" = "@" ]
+then
+    CC=cc
+fi
+echo "CC=$CC" > Makefile
+echo "What compile options do you want (default = -O)? "
+read CFLAGS
+if [ "@$CFLAGS" = "@" ]
+then
+    CFLAGS=-O
+fi
+echo "CFLAGS=$CFLAGS" >> Makefile
+echo "What libraries are necessary to link X programs (default = -lX11)? "
+read XLIB
+if [ "@$XLIB" = "@" ]
+then
+    XLIB=-lX11
+fi
+echo "XLIB=$XLIB" >> Makefile
+cat protomakefile >> Makefile
+cat > system.h <<EOF
+/* READDIR_SUPPORTED indicates that the system will support readdir().
+ * READDIR_TYPE_DIRECT indicates that the type returned by readdir is a
+ *    pointer to struct direct.  If it is undefined, the program will use
+ *    a pointer to struct dirent.
+ * INCLUDE_DIRENT indicates that <dirent.h> should be included when using
+ *    readdir() and opendir().
+ * DIRENT_IN_SYS indicates that <sys/dirent.h> should be included instead
+ *    of <dirent.h> when INCLUDE_DIRENT is set.
+ * INCLUDE_SYSDIR indicates that <sys/dir.h> should be included when using
+ *    readdir() and opendir().
+ * HAS_ASYNC_INPUT indicates that the platform supports
+ *    XSelectAsyncInput.  If you get an undefined symbol error on
+ *    XSelectAsyncInput at link time, remove this definition.
+ * STDLIB indicates that stdlib.h exists on your system.  If it does not,
+ *    remove this definition.
+ * UNISTD indicates that unistd.h exists on your system.
+ * WAIT_H indicates the <sys/wait.h> exists on your system.
+ * FGETPOS indicates that your system supports fpos_t, fgetpos, and
+ *    fsetpos.  If your compiler complains that fpos_t is undefined, remove
+ *    this definiton.
+ * VOID_POINTERS indicates that your compiler supports pointers to void.
+ *    If you get complaints about a void * declaration, remove this
+ *    definition.
+ * HAS_VOLATILE indicates that your compiler supports the volatile storage
+ *    class.  Remove this definition if lines containing the word "volatile"
+ *    cause your compiler to die.
+ * HAS_STRERROR indicates that your compiler system has the strerror()
+ *    function.  Remove this definition if you get strerror as an undefined
+ *    symbol.
+ * HAS_ERRNO inicates that errno is declared in errno.h.
+ * FAST_SPARKLE indicates that the machine is relatively slow, and a faster
+ *    but less pretty sparkle mechanism should be used.
+ */
+
+EOF
+echo "By default, xviewgl uses a CPU-intensive screen sparkle algorithm."
+echo "A less pretty, but faster algorithm is recommended for machines"
+echo "slower than 11 MIPS. Do you want the faster algorithm (default=N)?"
+read fast
+if [ "@$fast" = "@" ]
+then
+    fast=n
+fi
+case $fast in
+    [Yy]*)
+	echo "#define FAST_SPARKLE" >> system.h
+	;;
+esac
+support_dir=false
+for dirh in "#include <sys/dir.h>" "/**/"
+do
+    for direnth in "/**/" "#include <dirent.h>" "#include <sys/dirent.h>"
+    do
+	for direct in direct dirent
+	do
+	    cat > tst$$.c <<EOF
+#include <sys/types.h>
+$dirh
+$direnth
+
+main()
+{
+struct $direct foo,*baz;
+DIR *bar;
+    zot(foo.d_name);
+    bar=opendir("dummy");
+    baz=readdir(bar);
+}
+EOF
+	    if $CC $CFLAGS -c tst$$.c > /dev/null 2>&1
+	    then
+		if [ "$dirh" != "/**/" ]
+		then
+		    echo "#define INCLUDE_SYSDIR" >> system.h
+		fi
+		if [ "$direnth" = "#include <dirent.h>" ]
+		then
+		    echo "#define INCLUDE_DIRENT" >> system.h
+		elif [ "$direnth" != "/**/" ]
+		then
+		    echo "#define INCLUDE_DIRENT" >> system.h
+		    echo "#define DIRENT_IN_SYS" >> system.h
+		fi
+		if [ "$direct" = direct ]
+		then
+		    echo "#define READDIR_TYPE_DIRECT" >> system.h
+		fi
+		support_dir=true
+		break 3
+	    fi
+	done
+    done
+done
+if `$support_dir`
+then
+    echo "#define READDIR_SUPPORTED" >> system.h
+fi
+if [ -f /usr/include/stdlib.h ]
+then
+    echo "#define STDLIB" >> system.h
+fi
+if [ -f /usr/include/unistd.h ]
+then
+    echo "#define UNISTD" >> system.h
+fi
+if [ -f /usr/include/sys/wait.h ]
+then
+    echo "#define WAIT_H" >> system.h
+fi
+cat > tst$$.c <<EOF
+volatile int foo=0;
+
+bar() { foo++; }
+EOF
+if $CC $CFLAGS -c tst$$.c > /dev/null 2>&1
+then
+    echo "#define HAS_VOLATILE" >> system.h
+fi
+cat > tst$$.c <<EOF
+void *foo=0;
+
+bar() { char *zot=foo; *zot='a'; }
+EOF
+if $CC $CFLAGS -c tst$$.c > /dev/null 2>&1
+then
+    echo "#define VOID_POINTERS" >> system.h
+fi
+cat > tst$$.c <<EOF
+#include <errno.h>
+
+foo() { printf("%d",errno); }
+EOF
+if $CC $CFLAGS -c tst$$.c > /dev/null 2>&1
+then
+    echo "#define HAS_ERRNO" >> system.h
+fi
+cat > tst$$.c <<EOF
+#include <stdio.h>
+
+main()
+{
+fpos_t pos;
+    fgetpos(0,&pos);
+    fsetpos(0,&pos);
+}
+EOF
+if $CC $CFLAGS -o tst$$ tst$$.c > /dev/null 2>&1
+then
+    echo "#define FGETPOS" >> system.h
+fi
+cat > tst$$.c <<EOF
+main() { XSelectAsyncInput(); }
+EOF
+if $CC $CFLAGS -o tst$$ tst$$.c $XLIB > /dev/null 2>&1
+then
+    echo "#define HAS_ASYNC_INPUT" >> system.h
+fi
+cat > tst$$.c <<EOF
+#include <string.h>
+
+main() { printf("%s",strerror(1)); }
+EOF
+if $CC $CFLAGS -o tst$$ tst$$.c > /dev/null 2>&1
+then
+    echo "#define HAS_STRERROR" >> system.h
+fi
+cat > tst$$.c <<EOF
+int foo(int x, char y);
+
+char *bar(unsigned long x) { return 0; }
+EOF
+$CC $CFLAGS -c tst$$.c > /dev/null 2>&1 || make noansi

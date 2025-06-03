@@ -1,0 +1,245 @@
+			TRN 2.0 vs TRN 1.0.3:
+
+[If you're upgrading from trn 1.x, at least read the ** LOOK ** section.]
+
+New commands:
+
+	g number	g command will go to a newsgroup by number where the
+			the number corresponds to that used in the list 
+			supplied by the 'L' command. (newsgroup level)
+	z		supersede an article (article level)
+	t		turn on/off run-time threading for a group that
+			doesn't have a thread file (newsgroup level)
+	A		abandon read/unread changes to the current newsgroup
+			(newsgroup level)
+
+New command-line options:
+
+	-a		use run-time threading to read all groups threaded
+			(even those without a pre-built thread file)
+	-o		use the old method of junking articles in the
+			thread commands (they didn't follow the xrefs in
+			trn 1.x)
+	-o2		in addition to -o, don't use the database to make
+			following of xrefs faster.  This is useful if your
+			database is maintained by an old version of mthreads
+			(pre-v2.0) -- you'll probably want to put this in
+			the global INIT file if this is true.
+
+New features:
+
+   o	Trn is now able to thread newsgroups at run-time.  This has two
+	implications:  it is now possible to maintain a thread database
+	for fewer groups (or none) and still take advantage of the threaded
+	features of trn.  Also, when trn is used with a database, it will
+	notice new articles that have not yet been processed by mthreads and
+	incrementally thread them as soon as they arrive.  (This means that
+	trn directly reads the active file -- active2 is a private file for
+	mthreads now.)
+   o	Trn has much faster and more accurate new-group-finding code that can
+	be used if you (a) run C news, (b) run mthreads with the -t option,
+	or (c) run trrn with a server that: (1) runs C news, (2) runs mthreads
+	with the -t option, or (3) runs acttimes (provided), not mkgrdates.
+   o	The 't' command on the newsgroup selection level is used to toggle
+	whether the current group should be read threaded or not.  This
+	is especially needed when the entire database does not have thread
+	files, since it allows the user to choose the groups for which they
+	want to have on-the-fly thread data generated.  Or use the -a option
+	to force all unthreaded groups to be read as threaded.
+   o	Mthreads now keeps track of which articles have xrefs in them so
+	that trn can optimize the junking of articles.  This allows all
+	article-junking commands to mark cross-referenced articles as read
+	without a severe speed penalty.  (The one exception is 'c'atchup,
+	which does not mark cross-references to keep it compatible.)
+   o	The 'e' command will now repeat the previous extraction if it is
+	followed by no options.  Thus, you can "e some/long/dir/name" and
+	then use "e" to keep extracting to the same spot.  Use "e ." to
+	extract back to the initial default of SAVEDIR.
+   o	The uudecoder now understands "include" lines, and only allows a
+	file with the correct 'part' sequence to be decoded next when they
+	are used.
+   o	There is now a built-in ship decoder (which is a better uuencode
+	system).  They are automatically detected and extracted via the
+	'e'xtract command.
+   o	If you accidentally unsubscribe to a newsgroup, you can now use
+	'-' to get back to it.
+   o	The 'a pattern' command to add new newsgroups will now prompt for
+	ALL unsubscribed newsgroups that match the pattern, whether they
+	are in the newsrc file or not.
+   o	You can now use the ',' command (mark article and all replies to
+	this article as read) on a search or range command.  For example,
+	you can put "/user name/h:," into your KILL file to wipe-out
+	flame-fests started by articles from "user name".
+   o	The 'f'ollow-up command (not 'F') has been changed to ask the
+	user if this is a posting that is unrelated to the current article.
+	This automatically clears the References line, sets the Newsgroups
+	line properly, and prompts for the Subject: and Distributions: lines.
+	In other words, all the things that would have been done if the
+	user had remembered to use '$' before starting a new posting.
+   o	On entry into a threaded group, trn now marks all missing articles
+	as read.  This results in an accurate count when viewing the group
+	at the newsgroup prompt.
+   o	Changed the 'q' command in the thread selector to quit the group,
+	not just exit the selector to the article level.  Use Esc or '+'
+	for that.  See also the HINTS file for a macro to simulate the old
+	behavior.
+   o	The newsgroup line is now shown when it conflicts with the current
+	group.  This is useful for looking through junk, and noticing groups
+	that have been redirected using C news's '=' directive.
+
+
+Slight incompatibilities in mthreads:	** LOOK **
+
+   o	Since the -D option in mthreads was busted (it processed all groups
+	instead of only the listed groups), and since people keep expecting
+	"mthreads this.group" to only process one group, I've changed it
+	to work this way.  The old behavior of "mthreads comp" (which would
+	process all enabled groups while threading all existing and new comp
+	groups) is achieved by first turning on all of comp with the above
+	command, and then using the command "mthreads -a comp" to process all
+	enabled groups and only add thread files for new comp groups.  The
+	usage of the -a option without a hierarchy name hasn't changed --
+	"mthreads -a" will still process all enabled groups and add all new
+	groups (it is equivilent to the command "mthreads -a all").  The
+	command "mthreads all" is a special case that just happens to work
+	the same as before -- it turns on all existing groups, so it also
+	processes all groups.  Also, remember that the -n option will skip
+	processing the groups, so that you can use "mthreads -n rec,soc" to
+	turn on all of rec and soc, and then startup an mthreads daemon to
+	do the processing ("mthreads -dave" for example).  See the man page
+	(which is now in its proper group: '8') for full details.
+   o	ALSO, using an old mthreads database with trn will cause trn to ignore
+	all the xref lines (which are used to mark cross-posted articles as
+	read).  This is because the new mthreads marks xref-containing articles
+	so that trn can junk articles faster.  If you don't have the time or
+	resources to destroy the old database and rebuild it with the new
+	mthreads, put the -o2 option in your global INIT file for a few
+	weeks -- you can remove it once the old article data has expired
+	(if you begin using the new mthreads, of course).
+   o	NOTE that the new mthreads puts its db.init file in the root of the
+	thread directory (which might be SPOOL).  You should copy or move
+	your db.init file from RNLIB to THREADDIR, just in case your database
+	is REALLY old (and so that your trn will find it).
+   o	I also recommend destroying your old active2 file and regenerating
+	it with a command like:  "mthreads all".
+
+Changes to mthreads:
+
+   o	Mthreads has been enhanced to check its data more fully for file-
+	corruption errors when reading in a thread file.  This should
+	almost eliminate the SIGSEV or SIGBUS errors that would terminate
+	mthreads' execution.
+   o	Mthreads now has a separate lock file for the daemon and each
+	update pass.  This allows you to run an mthreads daemon and still
+	be able to execute single-pass commands when the daemon is sleeping.
+   o	The enhanced-expiration code has been improved to run _much_ faster,
+	especially for NNTP versions of mthreads.
+   o	Mthreads puts its db.init file into the root of the THREAD_DIR
+	(which might be SPOOL) to make sharing of the data via NFS easier.
+   o	Mthreads now has an option to do all its logging using SYSLOG.
+   o	Mthreads has some minor optimizations, which should (hopefully)
+	offset the more extensive data checking.
+   o	The -s option of mthreads has been extended to allow microseconds
+	to be specified.  Using just -s will still delay for one second
+	per article, as will -s1000000.  A portable version of usleep is
+	included for sites that lack it.
+
+
+New environment variables:
+	AUTOSUBSCRIBE	newsgroup pattern for groups to automatically
+			subscribe to when found. Groups not matching
+			are presented to the user via the usual
+			subscription prompts.
+	AUTOUNSUBSCRIBE newsgroup pattern for groups to not subscribe to.
+			Groups matching this pattern are not subsribed to.
+	REPLYTO		the value to use for the "Reply-To:" header, if
+			needed.
+	NEWSORG		Same as ORGANIZATION. Used for those sites that
+			need ORGANIZATION for other purposes (Apollos).
+	SUPERSEDEHEADER The header format to use for a 'z' command.
+	LOCALTIMEFMT	An strftime specification for formatting the
+			local-time output of the date header.
+
+
+Bug fixes:
+
+   o	Numbering of sibling articles that arrive out of order has been
+	improved.  This is useful for groups like comp.sources.misc that
+	thread common postings as one root article with the rest as
+	immediate children.
+   o	Fixed the save command to create intermediate directories.  Thus,
+	"s src/newdir/file" will now create newdir instead of complaining.
+   o	Fixed a case that could generate a report of negative articles
+	left to read in trn.
+   o	Fixed a bug in the thread selector that generated percentages
+	greater than 100%.
+   o	The .newsrc-writing code now checks more closely for errors in
+	writing the file, to avoid having zero-length .newsrc's.
+
+   o	NNTP handling has been improved in mthreads.  One bug (expecting
+	HEADers received via NNTP to have colons in them) would totally
+	confuse mthreads -- now such bogus header lines are ignored.
+   o	If a newsgroup is mentioned twice in the active file, mthreads
+	would process it twice:  once with valid arguments, and once with
+	0 for a high-article count.  This would result in a stream of
+	"we've already seen article x" messages, and a negative "Added:"
+	count.  It now complains about the bogus group and skips it.
+
+   o	When GETPWENT it defined and an invalid userid is used, an 
+	error message is returned. Previously, trn would core dump.
+   o	The newsgroups script now knows how to deal with "bogus" newsgroups.
+	(These are groups in the active files marked with status 'x'.)
+   o	If there is no news on trn startup and the user enters a "g" at
+	the newsgroup level, the program will now correctly note that
+	no newsgroup name has been entered and reprompt.
+   o	Hostnames are now checked without respect to upper/lower case.
+	This fixes a problem with the cancel command (academ.COM != academ.com
+	before the fix).
+   o	The NEWSADMIN code was buggy and often didn't work correctly.
+	This has been fixed.
+   o	%P is used to find a place for trrn to create active and article
+	files. Previously, /tmp was hardcoded in most places.
+   o	newsgroups would not remove the active file copy it made when 
+	used via NNTP. Now it does remove this copy when it exits.
+   o	Corrected some null pointer problems in the search code. Specifically,
+	entering entering / or ? when there was no previous search pattern
+	would cause a core dump. Now, it tells the user there there is
+	no previous pattern.
+   o	trrn now exits and leaves the terminal in a usable state when a
+	server timeout occurs.
+   o	trrn now supports the longest lines allowed by the NNTP RFC.
+   o	trn will try to preseve permissions on .newsrc when it recreates
+	it. Previously, it didn't do this.
+   o	trn deals with NFS timeouts better. If the active file (on an NFS
+	mounted partition) goes away, trn shuts down gracefully now.
+
+
+Configure improvements:
+   o	Now uses nm to read contents of libc. ar is used if nm fails.
+   o	The file config.h is now generated from config.h.SH instead of
+	directly by the Configure script.  This allows the config.sh
+	file to be edited (instead of both config.sh and config.h) and
+	then 'make' will re-create config.h.
+   o	Configure also provides the option of editing config.sh before
+	config.h and all the shell scripts are created.
+   o	Configure stores the origanization name in double quotes in
+	config.sh. This avoids a problem with organization names that
+	have single quotes in them (i.e. many French and Canadian 
+	organizations).
+   o	Configure now knows about RISC/os, Stardents and uts environments.
+   o	Configure allows the specification of a compiler and extra
+	compiler options.
+   o	NNTP systems can now specify a system name rather than a filename
+	to read the system name from.
+
+
+General improvements:
+   o	Makes use of POSIX capabilities if present.
+   o	ANSI C Compatible
+   o	If __STDC__ is defined, we use the function prototypes.
+   o	Hostname may be read in from a file instead of using system calls.
+   o	ClariNet news headers are now recognized by trn. All header operations
+	can be done on those headers.
+   o	trn will dynamically allocate its structures to cope with any number
+	of newsgroups in .newsrc or the active file.
+   o	MMDF is now officially supported as a mail transfer agent.

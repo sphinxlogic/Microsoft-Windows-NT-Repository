@@ -1,0 +1,60 @@
+:
+# @(#)warn_of_sasbug	1.3 (13 Oct 1993)
+#
+# Warn the user if the unpatched SAS 1.25 serial driver may be in use.
+#
+# SAS is by no means required (tslip works with any streams serial driver, 
+# including the vendor-supplied asy).  However, many sites use SAS because
+# it offers deterministic hardware flow control, supports buffered serial
+# ports (1.2550A chips), high speeds (57600 and 1.25200 baud), and, with 
+# a patch, reliable operation.
+#
+# However, there is a serious bug in sas-1.25 which will panic the kernel
+# during sustained high-speed reception.  A patch is included with tslip.
+#
+# This script warns the user to install the patch if it appears to be needed.
+
+
+# Look around for the sas source tree
+FILE=sas
+sassrc=''
+set -f
+for pattern in \
+	../sas-1.25?* ../sas-1.25 ../sas-1* ../sas-* ../sas*	\
+	./sas-1.25?* ./sas-1.25 ./sas-1* ./sas-* ./sas*		\
+	../../../src/sas-* ../../../*/src/sas-*			\
+	/usr/local/src/sas-*				\
+	/*/gnu/src/sas-*				\
+; do
+	set +f	
+    	for d in $pattern ; do
+	    if test -z "$sassrc" && test -r "${d}/${FILE}.c" ; then
+		sassrc=${d}
+		break 2
+	    fi
+        done
+done
+
+# Warn the user if the patch doesn't appear to have been applied
+test -n "$sassrc" && {
+	sassrc=`(cd $sassrc; pwd)`
+	echo "Found SAS source in $sassrc"
+	if grep '^[ 	]*fip->recv_cnt < RECV_BUFF_SIZE' $sassrc/sas.c >/dev/null
+	then
+		echo "***WARNING***"
+		echo "You have the sas-1.25 serial driver source code."
+		echo "There is a bug in sas-1.25 which can panic the system during"
+		echo "high speed operation.  A patch is available, but the patch does not"
+		echo "appear to have been applied.  If this is indeed the case, then"
+		echo "please apply the patch in" *PATCH*SAS* "."
+		echo 
+	else
+		if grep 'if[ 	(]*fip->recv_cnt[ 	<]*fip->alloc_size[ 	]*)' $sassrc/sas.c >/dev/null
+		then
+		    echo "    ... and it does not apperar to have the RECV_BUFF_SIZE bug."
+		else
+		    echo "    ... but could not determine whether it is sas-1.25, which contains a bug."
+		    echo "        If this is sas-1.25, please apply the patch in" *PATCH*SAS* "."
+		fi
+	fi
+}

@@ -1,0 +1,644 @@
+Thu Jun 25 08:50:17 1992  Dirk Grunwald  (grunwald at mumble.cs.Colorado.EDU)
+
+	* Version 2.18.3
+
+	* Dave Nichols Sez: Oops! I messed up. I forget to enclose the 4
+	new files in my changes here they are. The new distribution won't
+	compile without them.
+    
+	* Version 2.18.3
+
+	* Changes By Dave Nichols. Stanford Exploration Project,
+	dave@sep.stanford.edu. 6-24-92.
+
+	Major changes to allow compliation with all possible DPS rendering
+	types (DPS,NEWS,Ghostscript). The rendering method is chosen at run
+	time. Three new entries in xtexResources, .useDPS, useNEWS
+	and useGhostScript. Only one of these is set to true by the routine
+	checkExtensions() in DviPage.c
+
+	The Preamble resource is split into a gsPreamble and a not gs
+	version. Maybe we will need separate preambles for NEWS and DPS at
+	some time.
+
+	The psfig{Begin,End,Plotfile} routines call a renderer dependent
+	routine chosen at runtime. (comment, more of the renderer independent
+	code could be moved into these routines to prevent code duplication
+	but I didn't have the stamina to do this.)
+
+	The user can set the useGhostScript resource to force ghostscript
+	rendering. If they do not it will try DPS, then NEWS, then
+	ghostscript. DPS and NEWS rendering code is split into two new source
+	files with corresponding header files.  DviPageNEWS.[ch] and
+	DviPageDPS.[ch] ( The NEWS file will need updates for OpenWindows-3.0
+	). The "epsf plots upwards" support was moved to psfigBegin**** so
+	that it would work for DPS and NEWS as well.
+
+	Changed the Imakefile to support linking with everything.
+
+	Other changes: Fixed the setting of the DISPLAY environment variable
+	for ghostscript so that xtex -display ... works OK.
+
+	Turn off button and keyboard sensitivity while drawing a page, this
+	is because impatient users keep hitting the return key while
+	ghostscript is plotting a figure so they never get to see it.
+
+	In DviPage.c I changed the backing_store check to check the
+	backing_store member and not the save_under member. save_under only
+	takes True or False. I still don't understand why backing store seems
+	to work except when the obscurung window is a top-level widget (the
+	most common case). This is using tvtwm and "*BackingStore: Always".
+
+	In mark.c the busyCursor stuff check how many "busy" calls are
+	outstanding so that it doesn't turn off the clock cursor prematurely.
+
+	In mark.c I activated the XtAppNextEvent stuff for R5 and later.
+
+Tue Jun 23 14:28:55 1992  Dirk Grunwald  (grunwald@foobar.cs.Colorado.EDU)
+
+	* Installed Vivek Kheras (khera@cs.duke.edu) changed to support
+	EPSF specials. His comments follow:
+ 
+	the files modified in this set of patches is: DviPage2.c and
+	DviPageGS-2.c. here's a summary of what the patches below do (for
+	xtex 2.18.0):
+
+	specials of the form ``PSfile=foo.ps llx=0 lly=0 urx=257 ury=144
+	rwi=2570'' are recognized.  these are specials output by the
+	\epsfbox{} macro from the epsf.sty which comes with dvips.  These
+	are recognized and handled even if you don't have a PostScript
+	interpreter by just drawing an empty box.  I have no idea if this
+        works under the DPS versions, but it does work under GhostScript.
+
+	The only thing i don't like that much about the code is the bit
+	about the MAGIC_CONSTANT.  i have no idea whatsoever what this
+	value represents, but by comparing the output of \psfig{} and
+	\epsfbox{} for the same figure at the same scale factors, i
+	empirically figured out this constant.  if the PostScript file is
+	not found while xtex is running (and we are using GhostScript to
+	image it), it will detect this and just draw a grey box instead of
+	causing the ghostscript interpreter to fail loudly when it
+	attempts to open the file.
+
+
+	i also did a little bit of cleaning up of the scaling calculation
+	code since the values being used were always cast to floats, while
+	they were stored as ints. just changed them all to be doubles to
+	improve precision and speed (at least for k&r C compilers which
+	must convert floats to doubles before doing the calculation.)
+
+
+	* Version 2.18.0 released
+
+	* Included code from Shankar Ramamoorthy (shankar@cse.ucsc.edu) to
+	support ghostscript (rather than e.g., DPS)
+
+Thu Jun 20 12:15:39 1991  Dirk Grunwald  (grunwald at mumble.Colorado.EDU)
+
+	* (xtex.c, DviPage2.c, page.c) Added -showPostScript resource,
+	defaults to true; also added actions to enable/disable showing of
+	postscript from the menu. This speeds up previewing if you don't
+	always care about postscript.
+
+Tue May  7 08:22:33 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+	* (dvi-simple.c) Don't barf on missing TFMPATH environment variable.
+
+	* (Imakefile) move clean:: dep for DPS_OBJ into #ifdef, to avoid
+	problems on non-DPS platforms 
+
+Wed Apr 24 12:51:17 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+	* Minor patches, upgrade to 2.17.1
+
+Tue Feb 19 15:04:20 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+      * Problems found and fixed as of 2/19/91 by Andreas Stolcke
+        (stolcke@icsi.berkeley.edu)
+
+      * Xtex/xtex.c: main() -- properly strip argv[0] to obtain ProgName.
+        avoid dereferencing argv[1] without checking argc > 2 first 
+
+      * Xtex/mark.c:
+	TeXSystemCallRead() -- make select/read loop to catch ALL child
+	process output. 
+
+	TeXSystemCall() -- place TeXSystemCallRead() in polling loop to
+	avoid child blocking due to pipe overflow.  Also allows progress
+	of child process to be monitored in message window.
+
+	* Xtex/dialog.c: DialogMessage() -- used to dump core in
+	XtGetValues(). Fixed after letting XawTextReplace() do all text
+	editing, including deletions to make room for new output. 
+
+	* Xtex/DviPage2.c:
+	psfigEnd() --
+		NeWS call was not conditional on DPS extension, caused core
+		dump under MIT server.
+
+	* Xtex/Xtex.AD:
+	removed class specifier from makeFont resource.
+	replaced all color names by black/white to avoid indistinguishable
+	colors on monochrome diaplays.
+
+	* Xtex/TeXtoXfont.SCRIPT:
+	check for MIT server and fall back on standard snf format if so.
+	Allows xtex and TeXtoXfont to be used with both MIT and proprietary
+	server (e.g., XNeWS).  Things would be easier if Xtex knew about
+	the existence of two sets of servers, MIT and vendor. It would
+	know about 2 fontpaths, 2 TeXtoXfont scripts, etc.
+
+	* Xtex/Imakefile:
+	Add -u _xv_psview_pkg to News DPS_LIB to avoid undefined symbol
+	error from run-lime linker.
+	Add install target for style file installation.
+
+	* Texsun/texsun.c:
+	Changed defaultTexsunPrint to use standard BSD spooler command.
+
+	* Imake.Config:
+	-o option to convertfont expects filename without .fb suffix.
+	-f 64 option to bldfamily avoids filename compression.
+	bldfamily output too verbose, to /dev/null (lists all fonts in
+	directory).
+	MIT's X_FONT_MAKE_DIR is called mkfontdir.
+	Define TEX_BINDIR and TEX_MANDIR directories for non-X utilities to be
+	installed separately.
+	Define TEXINPUTS for style file installation.
+	Define common paths (LIBTEXROOT,LIBTEXSRC,LIBTEX,DEPLIBTEX) here
+	instead of in Imakefiles.
+
+	* Imakefile:
+	use $(MAKE) for recursive makes to allow non-standard make use.
+
+	* */Imakefile:
+	Common paths put in Imake.Config.
+	Format streamlined to MIT conventions, use specialized macros
+	(SimpleProgramTarget).
+	Allow non-X programs to be installed in separate directories.
+
+Mon Feb 11 17:04:48 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+	* DviPage, Xtex.AD, etc - Integrate Steve Cole's changes to
+	support open windows postscript display.
+
+Thu Feb  7 17:26:32 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+	* x11fonts.c - Add code from mjk to produce fonts if not found. I
+	changed the interface considerably to also confirm w/the user that
+	he wants to create the font and to use extant xtex functions.
+
+Tue Jan 15 14:21:11 1991  Dirk Grunwald  (grunwald at foobar.Colorado.EDU)
+
+	* (IMakefile, Imake.Config) - added XTEX_FONT_PATH to Imake.Config
+	and changed Imakefile to modify Xtex.ad, substituting XTEX_FONT_PATH.
+
+	* (fontpath.c) added file to add site-specific font paths to the
+	server font path. This is less than optimal, and people should
+	really do this themselves. However, everyone wanted the option.
+	(xtex.c) added -fontPath as well.
+
+Mon Oct 29 16:01:35 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* mark.c - Make the ``print'' function expand %f to the file name.
+	If no file name is requested in the string, simply append the file
+	name.
+
+	* dvip-simple.c - correct constant for centimeters.
+
+	* DviPage.c - use XDrawImageString rather than XDrawString to have
+	correct background painted on color machines (WFS@texas.edu)
+
+Thu Sep 27 18:17:56 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* x11font.{c,h} - fix to make MAX_SHRINK be computed automatically
+	and fix TeXFontNewFile().
+
+Thu Aug 23 13:06:49 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (mio.h) __STDC__ -> __GNUC__ for inlines.
+
+	* (mark.c) make cursor busy/non-busy around system call. Code came
+	from nichols@hanauma.stanford.edu
+
+Fri Aug 10 16:40:59 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (xtex.c) removed hoffset/voffset aliases for leftOffset and
+	topOffset because they caused left/top to not work correctly.
+
+	* (page.c) fixed it so you're left with a non-blank display while
+	fonts are loaded.
+
+Mon Aug  6 15:36:39 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (page.c) unmapped/mapped the ViewPort widget before fiddling
+	with the DviPage size; this briefly leaves you with a blank
+	display, but reduces the number of repaints needed. This is A Good
+	Thing when using DPS or Ghostscript.
+
+Thu Aug  2 14:38:14 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* added boxColor resource so boxes show up on color workstations.
+
+Wed Jul 25 10:37:22 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* Installed patches by kagotani@hohoi.cs.titech.ac.jp to 
+	  + (Xtex/Dvipage.c) set line_width = 0 to speed up ruler
+	  + (page.c) made vertbar/horizbar work better
+	  + possible bug on index of per_char[], because not all tex fonts
+	    start at 0.
+
+Tue Jul 10 15:03:37 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* Upgraded to new McTeX library
+
+Thu Jul  5 12:07:42 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* released 2.15.4
+
+	* (DviPage.c, dvi-simple.h, dvi-simple.c) add patches to correct
+	ruler for different Numerator & Denominator values.
+
+	* (DviPage.c, dvi-simple.h, dvi-simple.c) add patch from johan
+	widen (jw@sics.se) to grab Numerator & Denominator from DVI file
+	rather than using the TeX constants. This adds support for 'groff'
+	output formatted using -Tdvi.
+
+	* (Valuator.c) add patch from johan widen (jw@sics.se) to avoid
+	possible divide by zero.
+
+Wed Jun 20 15:08:47 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* remove maxDrift resource & change things to keep drift less than
+	a single pixel.
+
+Mon Apr 30 12:40:30 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (page2.c) Implemented 'page stacks', and two actions to push and
+	pop items from the page stack. This lets you move around (using,
+	e.g., buttons) and return to whence you came. Also wrote
+	'xtex.sty', which uses the buttons to push to references and
+	citation labels.
+
+	* (DviPage2.c) - Implemented buttons and page stack. Buttons
+	are signaled by 'xtex' specials, and associate an action string
+	with a region of the display.
+
+Wed Apr 25 11:58:37 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (DviPage2.c) - Include changes by Martin Jourdan (tpic2 support)
+	- see comments in DviPage2.c.
+
+Wed Apr  4 12:57:53 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* added pushOnStart resoure to allow a page to be popped
+	  up when you start xtex. (xtex.c, xtex.h, Xtex.ad, xtex.man)
+
+Mon Apr  2 12:43:52 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* Considerably cleaned up display postscript code with
+	assistance from kent@wsl.dec.com.
+
+	* Remove optional ``table widget'' support.
+
+	* Remove X11R3 support, DECwindows support. Only X11R4
+	  with possible option of DisplayPostscript.
+
+Thu Mar 15 13:13:51 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (mark.c) put quotes around file names in call to dviselect to
+	  allow files with '#' as leading character (for latex-mode).
+
+	* (DviPage) use GXcopy as suggested by Matthieu Devin;
+	much simpler & it is significantly faster on things like
+	color sparcstations.
+
+Fri Feb 16 14:25:07 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (Xtex.ad) Added default display postscript preamble,
+	  stole it from dvips (rokicki) with some mods.
+
+	* (Makefile) Added configuration option for display postscript.
+
+	* (DviPage.h, DviPage.c, DviPage2.c) - added DisplayPostscript
+	  support for included psfig postscript. No other postscript
+	  specials supported.
+
+Fri Feb  2 11:49:38 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* Added menu to select scale units.
+
+	* Added scaleUnits resource to control ruler.
+
+	* Added ruler to DviPage.c using Label widget.
+	  Very slow. Might want to go back to creating a private window.
+
+Thu Jan 25 11:49:54 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (page.c) - fix auto-resize policy to avoid extra scroll bar
+	  and not resize on each page for/back-ward
+
+	* (mark.c) - make mark-push/mark-pop also update the mark display.
+
+	* (EzMenu, page.c) - added menus package
+
+	* (DviPage.c) changed placement computation to check if new
+	character puts us over the drift threshold, as opposed to if the
+	current string is over the threshold. This makes placement more
+	exact. 
+
+Thu Jan  4 19:45:19 1990  Dirk Grunwald  (grunwald at foobar)
+
+	* (DviPageP.h) change maxDriftString from int to char*
+
+	* (DviPage.c) Add resource to control depth of DviPage. Don't know
+	if there is a default for this or not.
+
+Wed Dec 20 13:47:56 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* (page.c, Xtex.ad) move valuator parameters to defaults file
+
+Tue Dec 19 15:12:50 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* (page.c) make the goto-popup cancel/confirm buttons use action
+	procesures for consistency
+
+	* (page.c, Xtex.ad) made many more layout decisions be in the
+	application defaults file.
+
+	* (page.c) added a string-query popup to verify the printing
+	mechanism and to allow you to cancel printing.
+	
+
+Mon Dec 18 13:25:00 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* (page.c) added a goto-popup using my valuator widget.
+
+Tue Dec 12 14:06:54 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* renamed TeXxResources -> xtexResources
+
+	* no longer use TEXFONTS in the makefile; now uses
+	  xtexResources.tfmPath to find TFM fonts.
+
+Sun Nov 26 22:19:49 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* Argle. XeT taken. Use xtex instead.
+
+Fri Nov 24 17:20:08 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* Repackage Imakefiles for X11R4
+
+	* Renamed texx2 -> XeT for X11R4
+
+Tue Nov 14 10:20:16 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* Fix problem in DviPage::DviDisplay, where I forgot to initialize
+	startHH and startVV when starting a new cached string. Also, flush
+	the string cache before more actions (specials & the like).
+
+Mon Oct 30 11:25:31 1989  Dana A. Chee  (dana at dino)
+
+	* (mark.c) add parens around summation so that amount of space
+	  malloced is correct.
+
+	* (file.c) add amounts to strncpys
+
+Fri Oct 27 20:38:53 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* Change DviPage::spPerDot to long from double.
+
+Thu Oct 26 11:24:41 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* Released as 2.10
+
+	* Added a menu box showing the pages marked for printing.
+
+	* Flush pending character cache when doing right/down movements.
+	This makes umlates work correctly.
+
+	* Clean up ``flushing the pending character cache'' in DviPage.c,
+	adding routine DviDisplayFlush & wrapping much stuff in structure.
+
+	* Fixed computation of spPerDot in DviPage - makes for longer runs
+	of characters (typically entire words now). Much faster.
+
+	* Make dialog clear box an option, since the dialog code works
+	correctly now.
+
+	* Allow use of the Table widget rather than form.
+
+Thu Oct  5 15:16:17 1989  Dirk Grunwald  (grunwald at foobar)
+
+	* (many files) made all interaction with the program occur
+	  though action procedures. Enhanced printing options, page
+	  marking (now has stack & push/pop of marked pages),
+	  magnification interface, etc. Now *requires* application
+	  default file.
+
+	* (dialog.c) improved dialog code by deleteing top lines
+	  rather than entire dialog when dialog is full.
+
+	* (all files) renamed files
+
+	* (texx2-error.c) includes Ultrix as knowing about vsprintf.
+
+	* Following bugfixes from: Hiroto Kagotani (kagotani@cs.titech.ac.jp)
+
+	* (dvi-simple.c) FALSE incorrectly defined, but not used.
+
+	* (DviPage.c) possible to over-run dvi stack space,
+	  increase allocate stack space.
+
+	* (dvi-simple.c) free resources allocated in tfm.c
+
+Sun Aug  6 23:39:11 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* (DviPage.c) Check that charwidth table exists before
+	  ref'ing it. If it doesn't, assume chars take maximum
+	  width (does this always exist?). Fix for PC/RT AIX/X11R2.
+
+	* (texx2-error.c) From: Mark Davies <mark@comp.vuw.ac.nz>
+	  Include hpux as knowing about vsprintf.
+
+Wed Jul  5 08:47:06 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* Added distinction between horizontal and vertical dpi
+	  because many monitors (Sun lores) aren't uniform.
+
+Sat Jun 10 16:34:59 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* Released as 2.9
+
+	* (texx2-page.c) when reloading document, you return to proper
+	  logical page, not the physical page.
+
+Tue Jun  6 12:16:55 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* (texx2-font.c) make font names always be in lower-case
+
+	* (many) added actions & ability to not show buttons on the
+	  dvi page. This lets us view entire pages at once.
+
+	* (many) added options to set topOffset & leftOffset.
+
+Wed May 31 08:47:18 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* (texx2.c) add -pageMaxWd and -pageMaxHt options to set max
+	  popup size of dvipage.
+
+	* (texx2-page.c) used TeXxResources.pageMaxWd, etc
+
+	* (texx2-font.c) round font sizes properly, allow +/- 1 slop
+
+	* (texx2-page.c) remove ``mag'' button, it's not used enough
+
+	* (texx2-page.c) removed ``resize'' and ``resizable'' attributes,
+	  putting them into the .ad file.
+
+	* (dvi-simple.c) regiserFont - fix OBO in font width compute loop.
+
+Tue May 16 12:01:12 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* repackaged as 2.8.7
+
+	* made glyph placement know about actual width of glyphs;
+	  improves placement, making document look better.
+
+	* added MaxDrift resource to DviPage.h
+
+Mon May 15 15:10:36 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* repackaged as 2.8.6
+
+	* installed accelerators, provided default Texx2.ad.
+	  accelerators between the DviPage and every button
+	  on that page. accelerators between the filename
+	  input buffer and everything on that page.
+
+	* fixed texx2-page.c, file pushForwardButton to not let you
+	  walk past last page (OBO).
+
+Tue Feb 28 18:41:45 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* repackeged as 2.8.5
+
+	* (texx2-font.c) Calculation of mag ignored mag specified in
+	  document. Fixed.
+
+	* (texx2-file.c) Made the file name be stuffed into the input box
+
+Sun Feb 26 16:44:46 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* Compensate for scroll-bars. Now, mag=333 on a sun3 gets rid
+	  of horiz scroll.
+
+Sat Feb 25 13:19:50 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* texx2-page.c - added TeXPageSlamPages, in case we fail
+	  to open a file and need to close exising windows. If we
+	  don't, they can move around or redisplay, referencing dead
+	  data structures.
+
+	* texx2-page.c - reopening a file now leaves pages at the same
+	  page number in the new file. this means you don't have to
+	  reposition yourself when you open a file.
+
+	* Released as 2.8
+
+	* texx2-page.c - split TeXPageNewFile into two parts, because
+	  value of DviTotalPages changes after an open, causing
+	  bogus free().
+
+	* texx2.c - stat the command line file name to make certain
+	  it's a regular file before doing a setFile
+
+	* texx2-mark.c - plug last double free? Now explicitly zero variables
+	  after *all* frees.
+
+Fri Feb 24 14:47:13 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+        * Released as 2.7
+
+	* texx2.c - allow single argument to set the file name
+
+	* DviPage.c - fix problem with inlines & optimization. Fontdefs
+	  weren't being skipper properly, causing font names to be displayed.
+
+	* texx2-page.c - optimize tied pages for single-page-ahead
+	  with foreward travel (avoid freeing next page until it gets it)
+
+	* texx2-page.c - fix double free in TeXPageNewFile (forgot to zero)
+
+	* dvi-simple.c - fix double free for DviCount (forgot to zero)
+
+	* dvi-simple.c - use strncpy
+
+	* texx2-page.c - found out about XtNallowShellResize.
+	  remove include of ShellP.h
+
+	* texx2-font.c - reverse order of -mag and -scaled in error
+	  message to make cut & paste buildfonts easier
+
+	* Imakefile - remove tabs
+
+	* texx2-error.c - Apply patch from Dana to fix over-write of
+	  dialog box.
+
+	* DviPage.c, DviPage2.c - removed setGC, use single globalGC
+	  which is rebuilt on each redisplay.
+
+	* DviPageP.h - removed `clearGC', renamed setGC to globalGC
+
+	* texx2-file.c - merged BuildPageLevel into BuildFileLevel.
+
+Fri Feb 24 14:50:36 1989  Dana A. Chee  (dana at dino)
+
+	* texx2-error.c - removed unneeded resource XtNresize (not used in
+	  text widgets).
+	  
+	* texx2-file.c - changed strcpy to proper strncpy; created widgets
+	  in order used for chaining (Form widget goes through child list
+	  once to place children, if the order of their chaining is
+	  different from their creation order, the results will not be
+	  satisfactory).
+
+	* texx2-widgets.c - let widgets dimension the form; build widgets
+	  in correct order for chaining (Page within File now, see above
+	  reasons).
+
+	* texx2.c - use proper program and class names for XtInitialize.
+
+Thur Feb 23 17:30:10 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* texx2-page.c - Added `large' and `small' buttons
+	* texx2.c - Added `largeMag' and `smallMag' resources
+
+Sun Feb 19 17:30:10 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* Released as 2.5
+
+	* Added `clear marks' button
+
+	* Fixed error in DviPageWidget - wasn't setting the setGC
+	  properly, causing redraws to fail when not using backing store
+
+Fri Feb 17 17:30:10 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+        * Added ``tied'' pages, Imakefile, man page
+
+Tue Feb 14 11:49:11 1989  Dirk Grunwald  (grunwald at flute.cs.uiuc.edu)
+
+	* Changed all args to widgets to be built use XtSetArg instead of
+	automatic aggregate initializations.
+
+	* Changed all callbacks to be built using XtAddCallback instead
+	of automatic aggregate initializations.
+
+	* Changes texx2-error.c to build a temporary _iobuf structure
+	for _doprnt to print erorr messages if vsprintf is unavailable.
+
+	* (texx2-page.c) made pushGotoButton goto the page with a count[0]
+	field matching the selected page number, as opposed to the ordinal
+	page number.
+

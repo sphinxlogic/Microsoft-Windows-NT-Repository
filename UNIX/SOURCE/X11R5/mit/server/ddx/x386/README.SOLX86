@@ -1,0 +1,214 @@
+		Information for Solaris for x86 Users
+		-------------------------------------
+
+Contents
+--------
+	 1) Solaris versions on which XFree86[TM] has been tested.
+	 2) The VT-switching sub-system on Solaris x86
+	 3) Notes for building XFree86 on Solaris x86
+	 4) Notes for running XFree86 on Solaris x86
+	 5) Building non-core clients with Solaris x86
+	 6) Known bugs, and workarounds with Solaris x86
+
+1 - Solaris versions on which XFree86 has been tested
+-----------------------------------------------------
+
+   XFree86 has been actively tested on Solaris 2.1 for x86. 
+
+   It is improbable that XFree86 will work on the soon to 
+   be released Solaris 2.3.2 for x86. (Due to the probable
+   absense of Virtual Terminals under 2.3.2)
+
+   However, if 2.3.2 still has VT's, XFree86 "MAY" work under
+   it.  All we can say is, if XFree86 doesn't run under 2.3.2, 
+   we'll generate patches for 2.3.2 as soon as we can after we 
+   obtain a copy of 2.3.2.
+
+2 - The VT-switching sub-system on Solaris x86
+----------------------------------------------
+
+   The virtual terminal subsystem in Solaris x86 is a undocumented, 
+   and unsupported feature of Solaris 2.1 for x86.  Therefore if
+   you use Virtual Terminals, you use them at YOUR OWN RISK.
+
+   The virtual terminals of Solaris work basically the same way as
+   most other Intel based SVR4 VT sub-systems.  However, there
+   are a number of limitations documented below.
+
+   The keys used for VT switching are as follows:
+
+   Alt-SysReq-F1 through Alt-SysReq-F7 enables VT screens 1-7 respectively.
+   Alt-SysReq-n enables the next active VT screen.
+   Alt-SysReq-p enables the previous active VT screen.
+   Alt-SysReq-h returns to the console.
+
+   To enable VT's on a Solaris 2.1 system the following lines (as root) 
+   to the file /etc/inittab:
+ 
+   (Note do NOT make a mistake here, you could lock yourself out of the system)
+
+--------------------------->Snip Snip<-----------------------------------------
+v1:234:respawn:/usr/lib/saf/ttymon -g -h -p "`uname -n` VT01 login: " -T AT386 -d /dev/vt01 -l console
+v2:234:respawn:/usr/lib/saf/ttymon -g -h -p "`uname -n` VT02 login: " -T AT386 -d /dev/vt02 -l console
+v3:234:respawn:/usr/lib/saf/ttymon -g -h -p "`uname -n` VT03 login: " -T AT386 -d /dev/vt03 -l console
+v4:234:respawn:/usr/lib/saf/ttymon -g -h -p "`uname -n` VT04 login: " -T AT386 -d /dev/vt04 -l console
+-------------------------->End here<-------------------------------------------
+
+   These four lines enable are what I use to enable 4 VT's on Alt-SysReq-F1
+   through Alt-SysReq-F4.
+
+   Then (as root) execute the command 'init q' to immediately enable the
+   virtual terminals.
+
+   You must leave at least one free virtual terminal for use under
+   Solaris 2.1 for the Xserver.
+
+Limitations of the Virtual Terminal sub-system under Solaris 2.1 for x86:
+
+1. There are only a total of 8 login windows (7 VT's + 1 console)
+   not the usual 15.  If you have all 8 allocated, and you attempt
+   allocate a additional VT you will immediately panic the system.
+   (This bug is worked around in the Solaris 2.1 Xserver)
+
+2. From a programming stand point, they work pretty much as documented
+   in the AT&T Unix System V/386 Release 4 Integrated Software Development
+   Guide, however a number of ioctl()'s are broken.
+
+
+3 - Notes for building XFree86 on Solaris x86
+---------------------------------------------
+
+1. Both GCC, and ProWorks are supported by XFree86. GCC-2.4.5 is
+   suggested, later versions are untested.  You also need to set
+   HasGcc, and HasGcc2 appropriately in site.def.
+
+2. If you are using ProWorks to compile the XFree86 distribution, you
+   should modify your PATH appropriately so the ProWorks tools are
+   available.
+
+3. You MUST put /usr/ccs/bin at the front of your PATH.  There are known
+   problems with some GNU replacements for the utilities found there, so
+   the /usr/ccs/bin versions of these programs must be found before any
+   other possible GNU versions. (Most notably GNU 'ar' does not work during 
+   the build.)
+
+4. If you wish to use the "memory aperture" of the S3, or Mach32 servers
+   you need to compile, and install the Solaris x86 aperture driver for
+   memory mapped I/O support.
+
+   The source for this driver should be included in 
+   ~mit/server/ddx/x386/etc/apSolx86.shar.  Building and installing 
+   the driver is relatively straight forward. Please read its accompanying
+   README file.
+
+   You also need to set HasSolx86apertureDrv to YES in ~mit/config/site.def.
+
+5. The BOOTSTRAPCFLAGS for Solaris x86 is:
+
+     "-DSVR4 -DSYSV386 -DSOLX86"
+
+6. You will also need to add CC=gcc to your 'make World' command
+   if you are using gcc.  You may possibly get a warning about 
+   unknown option '-Xc' while compiling imake, however the warning can
+   be safely ignored.
+
+4 - Notes for running XFree86 on Solaris x86
+--------------------------------------------
+
+1. For Solaris, you will probably want to set your LD_LIBRARY_PATH
+   to /usr/X386/lib:/usr/openwin/lib, setting LD_LIBRARY_PATH to include
+   /usr/X386/lib is not necessary providing that clients are build with 
+   LD_RUN_PATH set properly.  
+
+   Including /usr/openwin/lib in the LD_LIBRARY_PATH, is recommended
+   because some Sun supplied binaries were not compiled with LD_RUN_PATH
+   set properly. (Wabi 1.0 is a good example.)
+
+3. Xqueue is NOT supported under Solaris. The includes necessary for 
+   Xqueue are available, however, the driver does not seem to be.
+   (Go figure)
+
+4. If you want to use xdm with Solaris, extract the files from the shar file
+   in /usr/X386/lib/X11/etc/XdmConf.svr4 into a temporary directory.  The
+   README file tells where the individual files should be installed.  Be
+   sure to read through each file and make any site-specific changes that
+   you need.
+
+5 - Building non-core clients with Solaris x86
+----------------------------------------------
+
+1. A lot of clients (even some which have explicit SVR4 support) require
+   -DSYSV when building under SVR4.  This will not be set when using the
+   default x386.cf and site.def.  A quick fix is to add something like the
+   following to the client's Imakefile:
+
+      #if SystemV4
+           DEFINES = -DSYSV OTHER_CLIENT_DEPENDENT_DEFINES
+      #endif
+
+   The best solution is to modify the code so it compiles correctly
+   without -DSYSV.
+
+2. The default compiler options include '-ansi' for gcc, and '-Xc' for cc.
+   A consequence of this is __STDC__ gets #defined to '1'.  There are a
+   number of functions which will not have prototypes declared unless
+   either __STDC__ is not defined, or
+
+	__STDC__ == 0 || defined(_POSIX_SOURCE) || defined(_XOPEN_SOURCE)
+
+   Possible solutions are to change the definition of ANSICCOPTIONS by
+   adding a line to the Imakefile, or to add the required prototypes to
+   the source.
+
+3. A lot of clients make use of BSD functions like bcopy(), etc.  The
+   default configuration files are set up to link with libXbsd.a which
+   contains emulation for bcopy(), bzero(), bcmp(), ffs(), random(),
+   seed().  ffs() is not required (it is already in libnsl.so), and a
+   better way of providing the 'b' functions is to include <X11/Xfuncs.h>
+   in source files that call them.  Xfuncs.h provides macro definitions
+   for these in terms of the SYSV 'mem' functions.  If you require more
+   efficient versions of random(), seed() you should supply your own macro
+   definitions.  If you are linking with a vendor supplied library which
+   calls some of these functions, then you should link with libXbsd.a
+
+   If you want to change this default, you can edit your x386.cf file.  If
+   you want to change the behavior on a per client basis, you can add a
+   line to the clients Imakefile which redefines XBSDLIB.  To eliminate
+   the use of that library use something like:
+
+     XBSDLIB =
+
+   If you find you need some other BSD functions, you could link with
+   libucb.a by using something like:
+
+     XBSDLIB = -lc -L/usr/ucblib -lucb
+
+   WARNING: be *very* careful blindly linking with libucb.a.
+
+6 - Known bugs, and workarounds with Solaris x86
+------------------------------------------------
+
+1. Wabi 1.0 tickles a obscure bug in the Mach32 hardware cursor code.  The 
+   hardware cursor shows up as a multicolored square while inside of Wabi 
+   windows.
+
+   The workaround, add:
+
+       Option "sw_cursor"
+
+   to your Xconfig.
+
+2. The Solaris 2.1 for x86 OpenWindows filemgr does not work against  
+   Sparc Solaris MIT X11R5 Xserver, nor XFree86. Attempting to 
+   'Drag and Drop' a file causes the filemgr to abort with a 'X error'.  
+
+   There is no known workaround.
+
+Many thanks to the original authors of README.SVR4, and README.SVR3
+upon which this document is based a large part upon.
+
+(Somebody clue me in on the appropriate names to stick in here will you?)
+
+Id: README.SOLX86,v 1.2 1994/02/24 04:56:49 davidh Exp
+
+$XFree86: mit/server/ddx/x386/README.SOLX86,v 2.2 1994/03/11 03:05:26 dawes Exp $

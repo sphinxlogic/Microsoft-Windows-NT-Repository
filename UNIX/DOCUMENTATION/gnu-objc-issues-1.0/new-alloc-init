@@ -1,0 +1,199 @@
+Date: Sun, 17 Jan 1993 00:08:30 -0500
+From: gsk@world.std.com (Geoffrey S Knauth)
+To: gsk@world.std.com
+Subject: world objc
+
+>From world!eff!sol.ctr.columbia.edu!usc!elroy.jpl.nasa.gov!ames!agate!doc.ic.ac.uk!warwick!uknet!yorkohm!ian Sun Jan 17 00:07:56 EST 1993
+Article: 1059 of comp.lang.objective-c
+Xref: world comp.lang.objective-c:1059
+Path: world!eff!sol.ctr.columbia.edu!usc!elroy.jpl.nasa.gov!ames!agate!doc.ic.ac.uk!warwick!uknet!yorkohm!ian
+From: ian@ohm.york.ac.uk (I Stephenson)
+Newsgroups: comp.lang.objective-c
+Subject: GNU runtime comments/wishes...
+Message-ID: <1993Jan15.145253.14258@ohm.york.ac.uk>
+Date: 15 Jan 93 14:52:53 GMT
+Sender: ian@ohm.york.ac.uk (I Stephenson)
+Reply-To: ian@ohm.york.ac.uk
+Organization: Electronics Department, University of York, UK
+Lines: 42
+
+I've just installed gcc-2.3.3 on our MIPS system, to enable me to port code  
+from my NeXT.
+
+My initial reaction (Yeah! it works!!!) is tempered by a number of niggles that  
+I'd like to discuss.
+
+My first query is the choice of object creation methods in Object. GNU uses the  
+Stepstone style "+new" method, while NeXT are increasingly advocating "+alloc"  
+and "-init". Having implemented an object which supported both techniques I  
+decided that supporting new (alloc+init) is a REAL pain. I'd rather see things  
+go the NeXT way, but more importantly we should all go the same way. I've  
+personaly changed my GNU runtime to support alloc and init, but this does mean  
+that programs may not work on other platforms.
+
+Are there any plans to establish a more complete set of objects? Stuff like  
+List is easy to write, but when will we be able to expect this sort of stuff,  
+and what is reasonable to expect. It would be VERY counterproductive for  
+everyone to go off and write there own versions.
+
+Why does GNU dislike #import so much - true it isn't realy needed but is there  
+realy any need for cccp to give quite such an extensive programming lesson and  
+policy statement every time it encounters one. #import is a lot neater than  
+using #defines for each include file, which is a real hack. (once again I  
+changed the default on my version to suppress the warning)
+
+The above three are basicaly compatability issues, this last one is a plea for  
+help! Is there any way to dynamically load objects into GNU ObjC. I need this  
+facility desperatly, but don't know sufficient about the insides of gcc to be  
+able to add it. It's far more important to Objective C than to C, (due to the  
+encapsulation available) and I'd love to see it added to the runtime as soon as  
+possible. This facility is the last thing standing between me and a great  
+portable application (It's true! Objc C does make porting programss easier -  
+I've taken a prog from NS to X in a very reasonable length of time even  
+including the development of a graphics library). If anyone has any pointers on  
+this HELP!!
+
+Despite the above stuff being negative, and prehaps somewhat rash - I haven't  
+examined the code in too much detail, I'm realy pleased that at last the code  
+is available. ObjC deserves a wider audience than it currently recieves.
+
+Ian Stephenson
+ian@ohm.york.ac.uk
+
+
+>From world!uunet!cs.utexas.edu!qt.cs.utexas.edu!yale.edu!yale!gumby!destroyer!cs.ubc.ca!uw-beaver!news.u.washington.edu!stein.u.washington.edu!wiml Sun Jan 17 00:07:57 EST 1993
+Article: 1060 of comp.lang.objective-c
+Xref: world comp.lang.objective-c:1060
+Path: world!uunet!cs.utexas.edu!qt.cs.utexas.edu!yale.edu!yale!gumby!destroyer!cs.ubc.ca!uw-beaver!news.u.washington.edu!stein.u.washington.edu!wiml
+From: wiml@stein.u.washington.edu (William Lewis)
+Newsgroups: comp.lang.objective-c
+Subject: Re: GNU runtime comments/wishes...
+Date: 15 Jan 1993 21:56:45 GMT
+Organization: University of Washington
+Lines: 57
+Message-ID: <1j7butINNpal@shelley.u.washington.edu>
+References: <1993Jan15.145253.14258@ohm.york.ac.uk>
+NNTP-Posting-Host: stein.u.washington.edu
+
+ian@ohm.york.ac.uk (I Stephenson) writes:
+>My first query is the choice of object creation methods in Object. GNU uses 
+>the Stepstone style "+new" method, while NeXT are increasingly advocating 
+>"+alloc" and "-init". Having implemented an object which supported both 
+>techniques I decided that supporting new (alloc+init) is a REAL pain. I'd 
+>rather see things go the NeXT way, but more importantly we should all go 
+>the same way. I've personaly changed my GNU runtime to support alloc and 
+>init, but this does mean that programs may not work on other platforms.
+
+I also much prefer the alloc/init method, because of its versaitility. Ideally,
+only Object should implement any alloc methods, but Object categories
+can provide new ways of allocating space without having to change existing
+code. An example of this is NeXT's zone allocation system; it could also
+be used for statically- or stack-allocated objects. 
+
+It might be possible to automatically generate corresponding +new methods
+(using the default alloc) for all of the -init methods a class supports,
+but I don't think it's really worth the trouble. 
+
+In an ideal world, I think that it should be possible to do
+foo = [FooClass newThis:blegga andThat:blurfl]; and get a working
+object, *but* that +alloc and -init would still behave as they do. 
+In other words, there would no where be any nontrivial implementation
+of any +new method; it would call the default alloc, followed by the
+corresponding init. When you want to override the default alloc, you
+call alloc and init separately "by hand". Perhaps this could be done
+as a macro --- for a long time I've wanted to see cccp extended to
+allow parameterized macros in ObjC style as well as C style,
+so that I could do
+
+#define [arg1 doThis:arg2 andThat:arg3]  printf("%s likes foo %s bar %f\n", \
+	[arg1 name], arg2, atof(arg3));
+
+but I think this would require significant tweaking of cccp's rudimentary
+parsing abilities, because of the neccessity to keep track of the level
+of square-bracket-ization and match up the different chunks of the method name.
+This would provide a facility vaguely analogous to C++'s inlining, I
+suppose.
+
+>Why does GNU dislike #import so much - true it isn't realy needed but is there
+>realy any need for cccp to give quite such an extensive programming lesson and
+>policy statement every time it encounters one. #import is a lot neater than  
+>using #defines for each include file, which is a real hack. (once again I  
+>changed the default on my version to suppress the warning)
+
+I think putting up with random religious diatribes in your software is
+just one of the prices you pay for using GNU stuff. If it really anonys
+you you can always fix the sources, so it's not too bad. Personally, I agree
+with GNU's sentiment that #import is solving the multiple-inclusion
+problem the wrong way, and that the fact that a header should only be
+included once should somehow be associated with the header and not with
+the files that include it; but I'm still using #import because it's convenient.
+IMHO, automatic code generators (such as InterfaceBuilder) should place
+the #ifdef/#define/#endif around the header files they generate. Most of my
+classes are originally created by IB anyway, and then fleshed out by hand
+(but then, most of my classes are graphical in nature...)
+
+
+
+>From world!uunet!nwnexus!korona!pkron Sun Jan 17 00:07:58 EST 1993
+Article: 1061 of comp.lang.objective-c
+Xref: world comp.lang.objective-c:1061
+Path: world!uunet!nwnexus!korona!pkron
+From: pkron@corona.wa.com (Peter Kron)
+Newsgroups: comp.lang.objective-c
+Subject: Re: GNU runtime comments/wishes...
+Message-ID: <9.UUL1.3#16216@corona.wa.com>
+Date: Sat, 16 Jan 93 07:00:10 PDT
+References: <1j7butINNpal@shelley.u.washington.edu>
+Organization: Corona Design, Inc.
+Reply-To: pkron@corona.wa.com
+Lines: 46
+
+> From: wiml@stein.u.washington.edu (William Lewis)
+> Newsgroups: comp.lang.objective-c
+> Subject: Re: GNU runtime comments/wishes...
+> Date: 15 Jan 1993 21:56:45 GMT
+>
+> ...
+> Personally, I agree
+> with GNU's sentiment that #import is solving the multiple-inclusion
+> problem the wrong way, and that the fact that a header should only be
+> included once should somehow be associated with the header and not with
+> the files that include it; but I'm still using #import because it's convenient.
+> IMHO, automatic code generators (such as InterfaceBuilder) should place
+> the #ifdef/#define/#endif around the header files they generate. Most of my
+> classes are originally created by IB anyway, and then fleshed out by hand
+> (but then, most of my classes are graphical in nature...)
+> 
+
+Your point is taken, but not pragmatic. As you say, #import is "convenient."
+The #ifdef schemes I've seen always put #ifdef's around the #include as
+well as the body of the header.
+
+#ifndef _FOOHEADER
+#include	"fooheader.h"
+#endif
+
+Although the compilation result is the same, heavily recursive header
+calls will seriously affect *time* to compile. Code generators don't
+help that much, because the headers required by the object aren't known
+until it is "fleshed out." This sort of style violates your ideal that
+once-only inclusion be a property of the header, and is a lot more tedious
+for the programmer.
+
+For static libraries, precompiled headers work pretty well (just
+#include "theworld.h"), but they are often sensitive to changes in
+header usage, which invalidate the precompile.
+
+Certainly better design will reduce these problems, but again, *in practice*
+we need to make things as simple as possible. In my experience, #import
+is almost always suitable--it should be the rule not the exception. If not,
+we should let it die a natural death when (and if :-) ) our design
+skills make it unnecessary.
+---------------
+Peter Kron
+Corona Design, Inc.
+Peter_Kron@corona.wa.com
+
+
+
+

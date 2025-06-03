@@ -1,0 +1,186 @@
+Date: Wed, 11 Nov 1992 14:51:38 -0500
+From: hassey@dg-rtp.dg.com (John Hassey)
+Message-Id: <9211111951.AA22923@matrix>
+To: gnu-objc@prep.ai.mit.edu
+Subject: problem with initialize_class() in core.c
+
+
+  Running on m88k-dg-dgux
+
+  There is no initialize method for class Object, so
+
+    SEL           sel = sel_getUid ("initialize")
+
+  results in sel having the value 0.
+
+  Later,
+    method
+      = searchForMethodInList (class->class_pointer->methods, sel_getName (sel));
+
+  gets an assert failure in record_get() since the selector is 0.
+
+  The fix seems to be to add a check for (sel != 0).
+
+  john.
+
+
+
+Date: Tue, 5 Jan 1993 13:43:12 -0500
+From: hassey@dg-rtp.dg.com (John Hassey)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Symbol __realloc
+
+   On DG/ux the symbol _realloc in core.c is conflicting with 
+   a _realloc in libc.a.  Any other system have this problem ?
+
+   I think we should change _realloc (and friends: _alloc, _dealloc ...)
+   to something like: _objc_realloc.  To have a symbol with the same name
+   as a libc routine, (or very close) is just asking for trouble.
+
+   comments ?
+   john.
+
+
+John Hassey		hassey@dg-rtp.dg.com (NeXT mail ok)
+Data General Corp.	Research Triangle Park	NC, 27709
+
+
+Date: Fri, 29 Jan 93 13:41:42 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: snaroff@next.com, gsk@marble.com
+Subject: [coei@prodhp.us.oracle.com: symbol __objc_class_name_Object undefined]
+
+Can one of you please see if the latest version has this bug,
+and if so, get it fixed?
+
+To: help-gcc@prep.ai.mit.edu
+Date: Thu, 28 Jan 1993 18:00:49 GMT
+Organization: Oracle Corp., Redwood Shores CA
+From: coei@prodhp.us.oracle.com (Chris Oei)
+Sender: help-gcc-request@prep.ai.mit.edu
+Subject: symbol __objc_class_name_Object undefined
+
+
+When I try to use gcc-2.3.3 on AIX 3.2, I got the following:
+
+
+amnesia> gcc -c m.m
+Assembler:
+/tmp/ccUOMDM2.s: line 175: 1252-023 The symbol __objc_class_name_Object is not d
+efined.
+/tmp/ccUOMDM2.s: line 175: 1252-040 The specified expression is not valid.
+        Make sure that all symbols are defined.
+        Check the rules on symbols used in an arithmetic expression
+        concerning relocation.
+
+The file in question is
+
+#include <stdio.h>
+#include <Object.h>
+
+@interface A : Object {
+        int x;
+}
+
+- show;
+@end
+
+@implementation A : Object {
+        int x;
+}
+
+-show
+{
+        printf("%d\n",x);
+}
+
+@end
+
+I also got the same error using gcc-2.3.1 on SunOS 4.1
+
+Anyone have any ideas what's wrong?
+
+If anyone has gotten the objective-c part of gcc to work properly on either
+machine, I'd be interested in hearing about it.  At least I'd know there
+exists some way of getting it to work.
+
+Help!
+
+(please?)
+
+Thanks,
+Chris
+coei@oracle.com
+
+
+Return-Path: <lele@itnsg1.cineca.it>
+From: lele@itnsg1.cineca.it (Lele Gaifax)
+Subject: Using GNU runtime on a NeXT
+To: gnu-objc@prep.ai.mit.edu
+Date: Mon, 22 Feb 1993 15:12:54 +0100 (MET)
+X-Mailer: ELM [version 2.4 PL3]
+Mime-Version: 1.0
+Content-Type: text/plain; charset=US-ASCII
+Content-Length: 1662      
+
+Hi all,
+since I just sent my "subscribe msg" for this list, please CC any answer to
+lele@itnsg1.cineca.it too for a while...
+
+So,
+I started playing with GNU objc runtime, using gcc 2.3.3, on my NeXT.
+
+Configured with "configure next" gcc does not produce anything usable on the
+NeXT, since next.h state a #define NEXT_OBJC_RUNTIME and core.c does not check
+for it: the program simply die with a assertion failed on "initialized", 
+because "objc_execClass" is not called at all.
+
+I tried to modify the sources to get a gcc producing GNU standard objc runtime,
+but with all combination I get an error from ld about section
+(__OBJC, __message_refs): it seems to me that the NeXT ld tries to "simplify"
+the object file merging all similar messages (same name) into one unique 
+symbol:
+literal pointer section (__OBJC,__message_refs) does not have is exactly one relocation entry for each pointer
+(BTW, what exactly this message mean? Is it a typo or my english knowledge is
+fooling me?)
+
+This is specific to the NeXT runtime: the native gcc produce a table
+in that section with a label for each message. The GNU runtime instead wants
+an array of simbols in that section.
+
+Is it possible to get GNU Objc working with its own runtime on a NeXT too?
+Ie, is it possible to tell the linker to disable or skip this step?
+
+I'd like to use the gnu runtime. Since gcc doesn't implement ObjC as NeXT does,
+I cannot use it with the appkit (it lacks @protocol, @class, ...), and so
+without its runtime the compiler is of no use. 
+
+Thanx a lot,
+lele.
+
+-- 
+Lele Gaifax - lele@itnsg1.cineca.it
+...calling Emacs convenient, of course, is like calling oxygen useful
+					Rens Troost
+
+Date: Mon, 1 Mar 93 11:01:34 -0500
+From: khera@cs.duke.edu (Vivek Khera)
+To: gsk@world.std.com (Geoffrey S Knauth)
+In-Reply-To: gsk@world.std.com's message of 28 Feb 93 23:35:31 GMT
+Newsgroups: comp.lang.objective-c
+Subject: Re: gnu objc robustness
+References: <C36Mv7.42t@world.std.com>
+Distribution: 
+
+In article <C36Mv7.42t@world.std.com> gsk@world.std.com (Geoffrey S Knauth) writes:
+
+   After more testing, soon you will see a new runtime.
+
+
+that sounds fantastic.  but... when i compiled and installed gcc 2.3.3
+recently, i had it do the build for Objective C so i could play with
+it some.  but after following the directions, i ended up without the
+Object.h header file installed (even though the libobjc.a got
+installed).  do i have to copy the objc/*.h files into the installed
+location manually or did i miss a step somewhere?
+

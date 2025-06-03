@@ -1,0 +1,165 @@
+XCOMM $XFree86: mit/server/ddx/x386/Imakefile,v 2.21 1994/03/06 14:53:41 dawes Exp $
+XCOMM $XConsortium: Imakefile,v 1.1 91/07/16 22:57:37 gildea Exp $
+#include <Server.tmpl>
+#define IHaveSubdirs
+
+#if XF86MonoServer
+#if BuildVga2
+VGA2SCREEN = vga2
+#endif
+#if BuildHga2
+HGA2SCREEN = hga2
+#endif
+#if BuildBdm2
+BDM2SCREEN = bdm2
+#endif
+#endif
+
+#if XF86SVGAServer
+#if BuildVga256
+VGA256SCREEN = vga256
+#endif
+#endif
+
+#if XF86VGA16Server
+#if BuildVga16
+VGA16SCREEN = vga16
+#endif
+#endif
+
+#if XF86AccelServer
+ACCELDIRS = accel
+#endif
+
+SCREENS = $(VGA2SCREEN) $(HGA2SCREEN) $(BDM2SCREEN) $(VGA16SCREEN) $(VGA256SCREEN)
+
+#if !defined(OsfArchitecture) && !Amoeba
+SUPERPROBE = SuperProbe
+#endif
+
+SUBDIRS = common common_hw os-support $(SCREENS) $(ACCELDIRS) etc LinkKit \
+          VGADriverDoc $(SUPERPROBE)
+
+/* FreeBSD's README is handled separately because of name length limits */
+#if i386Bsd
+# ifdef i386Bsdi
+EXTRAREADME = README.Bsdi
+# else
+#  ifdef i386NetBsd
+EXTRAREADME = README.NetBSD
+#  endif
+# endif
+#endif
+#if i386Mach
+EXTRAREADME = README.Mach
+#endif
+#if SystemV4
+# ifdef i386SVR4Solarisx86
+EXTRAREADME = README.SOLX86
+# else
+EXTRAREADME = README.SVR4
+# endif
+#endif
+#if SystemV
+# ifdef i386Sco
+EXTRAREADME = README.SCO README.SVR3
+# else
+EXTRAREADME = README.SVR3
+# endif
+#endif
+#if defined(LinuxArchitecture)
+EXTRAREADME = README.Linux
+#endif
+#if Amoeba
+#undef Amoeba
+EXTRAREADME = README.Amoeba
+#define Amoeba YES
+#endif
+#if Minix
+#undef Minix
+EXTRAREADME = README.Minix
+#define Minix YES
+#endif
+
+FILES = COPYRIGHT README README.Config INSTALL $(EXTRAREADME)
+
+PROGRAMS = Xconfig
+
+all:: $(PROGRAMS)
+
+clean::
+	$(RM) $(PROGRAMS)
+
+#if i386Bsd && !defined(i386FreeBsd)
+MANPAGE=Concat(FileManDir,/Xconfig.0)
+#else
+MANPAGE=Concat3(FileManDir,/Xconfig.,FileManSuffix)
+#endif
+
+RGBPATH=\"DefaultRGBDatabase\"
+MISCFONTPATH=\"$(LIBDIR)/fonts/misc/\"
+T1FONTPATH=\"$(LIBDIR)/fonts/Type1/\"
+SPFONTPATH=\"$(LIBDIR)/fonts/Speedo/\"
+DPI75FONTPATH=\"$(LIBDIR)/fonts/75dpi/\"
+DPI100FONTPATH=\"$(LIBDIR)/fonts/100dpi/\"
+
+#if Build75Dpi
+  USE_75FONTS=FontPath
+#else
+  USE_75FONTS="XCOMM FontPath"
+#endif
+#if Build100Dpi
+  USE_100FONTS=FontPath
+#else
+  USE_100FONTS="XCOMM FontPath"
+#endif
+#if BuildSpeedo
+  USE_SPFONTS=FontPath
+#else
+  USE_SPFONTS="XCOMM FontPath"
+#endif
+#if BuildType1
+  USE_T1FONTS=FontPath
+#else
+  USE_T1FONTS="XCOMM FontPath"
+#endif
+
+#if i386Bsd
+  MOUSEDEV=\"/dev/com1\"
+#else
+# ifdef LinuxArchitecture
+  MOUSEDEV=\"/dev/mouse\"
+# else
+#  ifdef i386Sco
+  MOUSEDEV=\"/dev/tty1a\"
+#  else
+  MOUSEDEV=\"/dev/tty00\"
+#  endif
+# endif
+#endif
+
+CppFileTarget(Xconfig, Xconfig.cpp, \
+    -DRGBPATH=$(RGBPATH) -DMISCFONTPATH=$(MISCFONTPATH) \
+    -DUSE_T1FONTS=$(USE_T1FONTS) -DT1FONTPATH=$(T1FONTPATH) \
+    -DUSE_SPFONTS=$(USE_SPFONTS) -DSPFONTPATH=$(SPFONTPATH) \
+    -DUSE_75FONTS=$(USE_75FONTS) -DDPI75FONTPATH=$(DPI75FONTPATH) \
+    -DUSE_100FONTS=$(USE_100FONTS) -DDPI100FONTPATH=$(DPI100FONTPATH) \
+    -DMOUSEDEV=$(MOUSEDEV) -DMANPAGE=$(MANPAGE), \
+    $(ICONFIGFILES))
+
+InstallManPage(XFree86,$(MANDIR))
+InstallGenManPage(Xconfig,$(FILEMANDIR),$(FILEMANSUFFIX))
+InstallManPage(XF86_Mono,$(MANDIR))
+InstallManPage(XF86_VGA16,$(MANDIR))
+InstallManPage(XF86_SVGA,$(MANDIR))
+InstallManPageLong(XF86_Acc,$(MANDIR),XF86_Accel)
+InstallManPageAliases(XF86_Accel,$(MANDIR),XF86_S3 XF86_Mach32 XF86_Mach8 XF86_8514)
+InstallManPageLong(XF86kbd,$(MANDIR),XFree86kbd)
+InstallNamedNonExec(Xconfig,Xconfig.sample,$(LIBDIR))
+InstallMultipleDestFlags(install,$(FILES),$(LIBDIR)/etc,$(INSTDATFLAGS))
+#ifdef i386FreeBsd
+InstallNamedNonExec(READ.FreeBSD,README.FreeBSD,$(LIBDIR)/etc)
+#endif
+
+MakeSubdirs($(SUBDIRS))
+DependSubdirs($(SUBDIRS))

@@ -1,0 +1,61 @@
+#!/usr/local/bin/perl
+# fixmacps: swap to sanitised appledict
+
+$line = 0;			# keep line count
+$sane = "appledict.ps";
+
+while ($_ = shift(@ARGV)) {
+   if (/^-a(ppledict)?$/)   { $sane = shift(@ARGV); }
+   else {
+      unshift(@ARGV, $_);
+      last;
+   }
+}
+
+open(SANE, "<$sane");
+$sane_v = <SANE>;
+($sane_n, $sane_r) =
+   $sane_v =~ /^%%BeginProcSet: "\(AppleDict md\)" ([0-9]+) ([0-9]+)$/;
+
+while (<>) {
+   if (/^%!/) {
+      if (! $line) {
+	 print;
+      }
+   } elsif (/^%%BeginProcSet: "\(AppleDict md\)" ([0-9]+) ([0-9]+)$/) {
+      if ($1 == $sane_n && $2 == $sane_r) {
+	 $ignore = 1;
+      } else {
+	 printf STDERR "Unrecognised AppleDict version %d %d\n", $1, $2;
+	 if (! $line) {
+	    print "%!\n";
+	 }
+	 print;
+      }
+   } elsif (/%%EndProcSet/) {
+      if ($ignore) {
+	 $ignore = 0;
+	 if (! $line) {
+	    print "%!\n";
+	 }
+	 print $sane_v;
+	 while(<SANE>) {
+	    print;
+	 }
+      } else {
+	 if (! $line) {
+	    print "%!\n";
+	 }
+	 print;
+      }
+   } else {
+      if (! $ignore) {
+	 if (! $line) {
+	    print "%!\n";
+	 }
+	 print;
+      }
+   }
+   $line++;
+}
+close(<SANE>);

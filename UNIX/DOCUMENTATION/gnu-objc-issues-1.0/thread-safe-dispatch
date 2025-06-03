@@ -1,0 +1,22 @@
+[from rms 9/5/92]
+
+Regarding making the run-time thread-safe: here is an idea for doing
+it.  Please save it for whoever wants to implement it.
+
+We need interlocking on the routines for altering classes or methods,
+but we don't want to have any locking in the method lookup routines,
+because that would slow them down.
+
+So interlock the redefinition routines so that only one redefinition
+operation can be in progress at any time.  Redefining a class should
+work by computing an entirely new method dispatch table for the
+class.  After the table is fully set up, store its address into the
+class object.  All the while, other threads can be looking up
+methods.  Until the new address is stored, the other threads get the
+old class definition, consistently.  After the new address is stored,
+other threads get the new class definition, consistently.  Storing the
+pointer is an atomic operation, so there is no need to interlock it
+against lookups.
+
+There is no reason to have an option to turn off locking.  Locking
+will only affect redefinition, which does not need to be ultra fast.

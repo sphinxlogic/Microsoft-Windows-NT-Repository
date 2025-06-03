@@ -1,0 +1,246 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node GSrenderfont, Enhancements, BZRedit, Top
+@chapter GSrenderfont
+
+@pindex gsrenderfont
+@cindex converting PostScript fonts to bitmaps
+@cindex bitmap fonts, making from PostScript
+@cindex PostScript fonts, converting to bitmaps
+@cindex previewing @TeX{} documents with PostScript fonts
+@cindex DVI files with PostScript fonts, previewing
+@cindex @TeX{} documents with PostScript fonts, previewing
+@cindex Ghostscript, prerequisite for GSrenderfont
+
+GSrenderfont uses Ghostscript to rasterize a PostScript outline font at
+a particular point size and resolution.  The final result is a bitmap
+font in PK form, which can be used by any DVI-processing program, unlike
+the original PostScript font.  In particular, you can then use your
+favorite previewer with @TeX{} documents which use PostScript fonts.
+
+@pindex ghostview
+An alternative to using such PK fonts is to use a DVI-to-PostScript
+translator and then use Ghostscript or Ghostview directly on the result.
+The PostScript file consumes quite a bit of disk space, however; also,
+the extra step after running @TeX{} can be quite inconvenient.
+
+@pindex ps2pk
+An alternative to using GSrenderfont is the standalone C program
+@code{ps2pk}.  It does the same job: rasterizing PostScript fonts.  It
+is available by ftp from @samp{ftp.urc.tue.nl}.
+
+@flindex gsrenderfont/main.c
+@cindex GSrenderfont, prerequisites for
+@pindex awk
+@pindex gawk
+@pindex bbcount
+@pindex gftopk
+@pindex tail
+@pindex wc
+@cindex Imageto, used by GSrenderfont
+Besides Ghostscript, GSrenderfont uses @code{gawk} (GNU Awk), the
+standard Unix utilities @code{tail} and @code{wc}, the standard @TeX{}
+utility @code{gftopk}, another programs from this distribution
+(Imageto), and one small program written expressly for it,
+@code{bbcount}.  Since this last is of doubtful value for anything but
+GSrenderfont, it is not documented here.  See @file{gsrenderfont/main.c}
+if you are interested in what it does.
+
+GSrenderfont has nothing in particular to do with the main task of
+creating typefaces, but it seemed a small enough job (given the other
+programs' existence) and widely enough asked for to be worthwhile.
+
+@menu
+* GSrenderfont usage::          Making bitmap fonts from PostScript.
+* Invoking GSrenderfont::       Command-line options.
+@end menu
+
+
+@node GSrenderfont usage, Invoking GSrenderfont,  , GSrenderfont
+@section GSrenderfont usage
+
+@cindex GSrenderfont usage
+@cindex usage of GSrenderfont
+
+GSrenderfont needs several bits of information to do its job, as
+described in the sections below.
+
+@menu
+* Names: GSrenderfont font names.  Supplying PostScript names and filenames.
+* Size: GSrenderfont output size.  Specifying the size and resolution.
+* Encoding: GSrenderfont encoding.  Specifying the output encoding.
+@end menu
+
+
+@node GSrenderfont font names, GSrenderfont output size,  , GSrenderfont usage
+@subsection GSrenderfont font names
+
+@cindex font names in GSrenderfont
+@cindex GSrenderfont font names
+@cindex names of fonts in GSrenderfont
+
+@cindex PostScript font names, as filenames
+GSrenderfont needs at least two font names to do its job: the PostScript
+name, e.g., @samp{Times-Roman}, and the output filename, e.g.,
+@file{ptmr}.  (The PostScript font name cannot also be used as the
+filename because of its length.  At best, the result would be unwieldy,
+and at worst, invalid because of operating system restrictions.)
+If the font is not known to Ghostscript (i.e., in its @file{Fontmap}
+@flindex Fontmap
+file), then an input filename is also needed.
+
+@opindex -font
+@opindex -output-file
+You can explicitly specify the first with the @samp{-font} option, the
+second with the @samp{-output-file} option, and the third with a
+non-option argument.  If you specify them all, as in
+
+@example
+gsrenderfont -font=Myfont -out=test myfont.ps
+@end example
+
+@noindent then GSrenderfont simply uses what you've given.
+
+@opindex -map
+@flindex psfonts.map
+@flindex /usr/local/lib/tex/dvips/psfonts.map
+@cindex mapping file for PostScript fonts
+@cindex PostScript fonts, mapping file for
+But if you specify only the font name or the input filename,
+GSrenderfont tries to guess the other using a @dfn{mapping file}.  On
+each line of this file the first (whitespace-delimited) @dfn{word} is
+the filename (possibly preceded by an @samp{r}; @pxref{Top, ,
+Introduction, fontname, Filenames for fonts}, for why), the second word
+is the PostScript font name, and any remaining stuff is ignored.  Unlike
+the other data files, GSrenderfont does not use path searching to find
+this file; it just uses the default:
+
+@example
+/usr/local/lib/tex/dvips/psfonts.map
+@end example
+
+@noindent
+unless you specify a different file with the @samp{-map} option.  The
+reason for this is that @file{psfonts.map} should contain all the
+PostScript fonts in use at your site.
+
+GSrenderfont complains and gives up if you specify neither the
+PostScript font name nor the input filename.  It also gives up if it
+can't determine the filename from the PostScript name or vice versa.
+
+The default for the output filename is the input filename.
+
+
+@node GSrenderfont output size, GSrenderfont encoding, GSrenderfont font names, GSrenderfont usage
+@subsection GSrenderfont output size
+
+@cindex point size of GSrenderfont output
+@cindex resolution of GSrenderfont output
+@cindex GSrenderfont output, resolution of
+
+@opindex -point-size
+@opindex -dpi
+For convenience, GSrenderfont allows you to independently specify the
+point size and the resolution of the output font: the @samp{-point-size}
+option, as an integer in points, and the latter with
+@samp{-dpi} in pixels per inch.  The defaults are 10@dmn{pt} and
+300@dmn{dpi}.
+
+@cindex PostScript font size, default
+@cindex default PostScript font size
+Because PostScript fonts are (in practice) linearly scaled, however,
+GSrenderfont does not put the point size in the output filename.
+Instead, it simply computes the final resolution as the @samp{dpi}
+multiplied by the @samp{point-size} divided by 10.  This assumes that
+the default size of the fonts as used in @TeX{} is 10@dmn{pt}, which is
+true for the PostScript fonts distributed with Dvips.
+
+For example, supposing the output filename is @file{ptmr}, and you
+specify @samp{-point-size=12}, the bitmap font will be named
+@file{ptmr.360pk}.
+
+
+@node GSrenderfont encoding,  , GSrenderfont output size, GSrenderfont usage
+@subsection GSrenderfont encoding
+
+@cindex GSrenderfont output encoding
+@cindex encoding, with GSrenderfont
+@cindex font encoding, with GSrenderfont
+
+You specify the encoding for the new bitmap font with the
+@samp{-encoding} option; the default is to use the encoding of the input
+font.  GSrenderfont reads the same encoding files as the other programs.
+@xref{Encoding files}.
+
+As with all other data files in the other programs, GSrenderfont
+searches for the encoding file using the path specified by the
+environment variable @code{FONTUTIL_LIB} if it is set; otherwise it uses
+the default path set during compilation.  @xref{Font searching}, for the
+details of the path searching algorithm.
+
+
+@node Invoking GSrenderfont,  , GSrenderfont usage, GSrenderfont
+@section Invoking GSrenderfont
+
+@cindex GSrenderfont options
+@cindex invocation of GSrenderfont
+@cindex options for GSrenderfont
+
+This section describes the options that GSrenderfont accepts.
+@xref{Command-line options}, for general option syntax.
+
+You must specify either @samp{-font} or a single non-option
+argument, so GSrenderfont knows what font to work on.  See the previous
+section for more details.
+
+@table @samp
+
+@opindex -dpi
+@item -dpi @var{unsigned}
+Render the output at a resolution of @var{unsigned} pixels per inch;
+default is 300.
+
+@opindex -encoding
+@cindex data file searching
+@item -encoding @var{scheme}
+Read @file{@var{scheme}.enc} to define the encoding of the output font;
+default is @file{dvips}.
+
+@opindex -font
+@item -font @var{FontName}
+Render the PostScript font @var{FontName} (e.g., @samp{Times-Roman}).
+
+@opindex -help
+@item -help
+Print a usage message.  @xref{Common options}.
+
+@opindex -map
+@flindex psfonts.map
+@item -map @var{filename}
+Use @var{filename} for the filename-to-PostScript name mapping file;
+default is
+
+@example
+/usr/local/lib/tex/dvips/psfonts.map
+@end example
+
+@item -output-file @var{filename}
+@opindex -output-file
+@cindex output file, naming
+Use @file{@var{filename}.@var{dpi}pk} for the final PK output.
+
+@opindex -point-size
+@item -point-size @var{unsigned}
+Render the output at @var{unsigned} points; default is 10.
+
+@opindex -verbose
+@item -verbose
+Output progress reports.
+
+@opindex -version
+@item -version
+Print the version number.
+
+@end table

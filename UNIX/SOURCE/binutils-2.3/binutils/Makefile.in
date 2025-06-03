@@ -1,0 +1,540 @@
+# Makefile for GNU binary-file utilities
+# Copyright (C) 1992, 1993 Free Software Foundation, Inc.
+
+# This file is part of GNU binutils.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+srcdir = .
+
+prefix = /usr/local
+
+program_transform_name =
+exec_prefix = $(prefix)
+bindir = $(exec_prefix)/bin
+libdir = $(exec_prefix)/lib
+tooldir = $(exec_prefix)/$(target_alias)
+
+datadir = $(prefix)/lib
+mandir = $(prefix)/man
+man1dir = $(mandir)/man1
+man2dir = $(mandir)/man2
+man3dir = $(mandir)/man3
+man4dir = $(mandir)/man4
+man5dir = $(mandir)/man5
+man6dir = $(mandir)/man6
+man7dir = $(mandir)/man7
+man8dir = $(mandir)/man8
+man9dir = $(mandir)/man9
+infodir = $(prefix)/info
+includedir = $(prefix)/include
+docdir = $(datadir)/doc
+
+SHELL = /bin/sh
+
+INSTALL = `cd $(srcdir)/..;pwd`/install.sh -c
+INSTALL_PROGRAM = $(INSTALL)
+INSTALL_DATA = $(INSTALL)
+INSTALL_XFORM = $(INSTALL) -t='$(program_transform_name)'
+INSTALL_XFORM1 = $(INSTALL_XFORM) -b=.1
+
+AR = ar
+AR_FLAGS = qv
+CFLAGS = -g
+MAKEINFO = makeinfo
+TEXI2DVI = texi2dvi
+RANLIB = ranlib
+BISONFLAGS = -d
+TEXI2ROFF=texi2roff
+MAKEOVERRIDES=
+
+NM_FOR_TARGET = nm
+NM = $(NM_FOR_TARGET)
+SYMLINK = ln -s
+
+BISON = bison -y
+# Comment these out if using lex.
+LEX_OPTIONS = -I -Cem 
+LEX = `if [ -f ../flex/flex ] ; then echo ../flex/flex ; else echo flex ; fi`
+
+# Distribution version
+VERSION=2.3
+# Distribution name
+DIST_NAME=binutils-${VERSION}
+
+version=`./../gcc/gcc -dumpversion`
+
+# Where to find texinfo.tex to format docn with TeX
+TEXIDIR = $(srcdir)/../texinfo
+
+MANPAGES= ar nm objdump ranlib size strings strip c++filt objcopy
+
+#CC=gcc -Wall
+# these two are almost the same program
+AR_PROG=ar
+RANLIB_PROG=ranlib
+
+# objcopy and strip should be the same program
+OBJCOPY_PROG=objcopy
+STRIP_PROG=strip
+
+STRINGS_PROG=strings
+
+# These should all be the same program too.
+SIZE_PROG=size
+NM_PROG=nm
+OBJDUMP_PROG=objdump
+
+# This is the demangler, as a standalone program.
+DEMANGLER_PROG=c++filt
+
+NLMCONV_PROG=nlmconv
+
+PROGS = $(SIZE_PROG) $(OBJDUMP_PROG) $(NM_PROG) $(AR_PROG) $(STRINGS_PROG) $(STRIP_PROG) $(RANLIB_PROG) $(DEMANGLER_PROG) $(OBJCOPY_PROG) $(BUILD_NLMCONV)
+STAGESTUFF = $(PROGS) *.o
+# Files that can be generated, but should be in the distribution.
+DISTSTUFF=arparse.c arlex.c nlmheader.c
+
+BASEDIR = $(srcdir)/..
+BFDDIR = $(BASEDIR)/bfd
+INCDIR	= $(BASEDIR)/include
+INCLUDES = -I. -I$(srcdir) -I../bfd -I$(BFDDIR) -I$(INCDIR)
+
+#### host and target dependant Makefile fragments come in here.
+###
+
+.c.o:
+	$(CC) -c $(INCLUDES) $(HDEFINES) $(TDEFINES) $(CFLAGS) $<
+
+#
+## Random definitions
+# Hopefully all these may be flushed once we get configuration down pat.
+
+# alloca only needed for systems which don't have it and when cc != gcc.
+# ALLOCA = alloca.o
+
+# nm tries to malloc enough space for the string table.  The old GNU malloc
+# rounds this up to a power of two (e.g. 5M becomes 8M), and so it might 
+# fail unnecessarily.  I've also seen some Unix malloc's fail, even when
+# there is enough memory.  So use the new GNU malloc.
+# MALLOC = gmalloc.o
+
+# Use the GNU getopt unless you have problems with it.
+# The IRIS version could probably benefit from being assembled with
+# libmalloc rather than the ordinary malloc.
+LIBIBERTY = ../libiberty/libiberty.a
+
+# Code shared by all the binutils.
+BULIBS = bucomm.o version.o filemode.o
+
+ADDL_LIBS = $(MALLOC) $(BULIBS) $(BFD) $(LIBIBERTY) 
+
+BFD = ../bfd/libbfd.a
+OPCODES = ../opcodes/libopcodes.a
+
+RUNTEST = runtest
+RUNTESTFLAGS = 
+FLAGS_TO_PASS = \
+	"CC=$(CC)" \
+	"CFLAGS=$(CFLAGS)" \
+	"RUNTEST=$(RUNTEST)" \
+	"RUNTESTFLAGS=$(RUNTESTFLAGS) \
+	SIZE=`if [ -f $$rootme/$(SIZE_PROG) ] ; then echo $$rootme/$(SIZE_PROG) ; else echo $(SIZE_PROG); fi` \
+	OBJCOPY=`if [ -f $$rootme/$(OBJCOPY_PROG) ] ; then echo $$rootme/$(OBJCOPY_PROG) ; else echo $(OBJCOPY_PROG); fi` \
+	NM=`if [ -f $$rootme/$(NM_PROG) ] ; then echo $$rootme/$(NM_PROG) ; else echo $(NM_PROG); fi` \
+	AR=`if [ -f $$rootme/$(AR_PROG) ] ; then echo $$rootme/$(AR_PROG) ; else echo $(AR_PROG); fi` \
+	OBJDUMP=`if [ -f $$rootme/$(OBJDUMP_PROG) ] ; then echo $$rootme/$(OBJDUMP_PROG) ; else echo $(OBJDUMP_PROG); fi` \
+	STRINGS=`if [ -f $$rootme/$(STRINGS_PROG) ] ; then echo $$rootme/$(STRINGS_PROG) ; else echo $(STRINGS_PROG); fi` \
+	STRIP=`if [ -f $$rootme/$(STRIP_PROG) ] ; then echo $$rootme/$(STRIP_PROG) ; else echo $(STRIP_PROG); fi` \
+	RANLIB=`if [ -f $$rootme/$(RANLIB_PROG) ] ; then echo $$rootme/$(RANLIB_PROG) ; else echo $(RANLIB_PROG); fi` \
+	DEMANGLE=`if [ -f $$rootme/$(DEMANGLER_PROG) ] ; then echo $$rootme/$(DEMANGLER_PROG) ; else echo $(DEMANGLER_PROG); fi`"
+
+#
+## The rules
+
+all: $(ADDL_LIBS) $(PROGS)
+
+testsuite:
+	if [ -f testsuite/Makefile.in ]; then \
+		(rootme=`pwd`/ ; export rootme ; \
+		 rootsrc=`cd $(srcdir); pwd`/ ; export rootsrc ; \
+		 cd testsuite; $(MAKE) FLAGS_TO_PASS=$(FLAGS_TO_PASS)); \
+	else true ; fi
+
+check: force
+	rootme=`pwd`; export rootme; cd testsuite ; \
+	$(MAKE) check $(FLAGS_TO_PASS)
+#	/bin/sh $(srcdir)/sanity.sh .
+
+installcheck:
+	/bin/sh $(srcdir)/sanity.sh $(bindir)
+
+info: binutils.info
+
+dvi: binutils.dvi
+
+$(SIZE_PROG): $(ADDL_LIBS) size.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(SIZE_PROG) size.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(OBJCOPY_PROG): $(ADDL_LIBS) objcopy.o not-strip.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(OBJCOPY_PROG) objcopy.o not-strip.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(STRINGS_PROG): $(ADDL_LIBS) strings.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(STRINGS_PROG) strings.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(STRIP_PROG): $(ADDL_LIBS) objcopy.o is-strip.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(STRIP_PROG) objcopy.o is-strip.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(NM_PROG): $(ADDL_LIBS) nm.o demangle.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(NM_PROG) nm.o demangle.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(OBJDUMP_PROG): $(ADDL_LIBS) objdump.o $(BFD) $(OPCODES)
+	$(CC) $(LDFLAGS) -o $(OBJDUMP_PROG) objdump.o $(OPCODES) $(ADDL_LIBS) $(EXTRALIBS)
+
+objdump.o: objdump.c config.status
+	$(CC) -c $(INCLUDES) $(HDEFINES) $(TDEFINES) $(ARCHDEFS) $(CFLAGS) $(srcdir)/objdump.c
+
+underscore.c:
+	echo "int xxy_us_dummy;" >dummy.c
+	$(CC) -c dummy.c
+	rm -f underscore.c
+	echo '/*WARNING: This file is automatically generated!*/' >underscore.c
+	if [ "`$(NM) dummy.o | grep _xxy_us_dummy ; true`" != "" ]; then \
+	  echo "int prepends_underscore = 1;" >>underscore.c; \
+	else \
+	  echo "int prepends_underscore = 0;" >>underscore.c; \
+	fi
+	-rm -f dummy.c dummy.o
+
+version.o: version.c
+	$(CC) $(INCLUDES) $(HDEFINES) $(TDEFINES) -DVERSION='"$(VERSION)"' $(CFLAGS) -c $(srcdir)/version.c
+
+demangle.o: $(BASEDIR)/libiberty/cplus-dem.c
+	$(CC) -c $(INCLUDES) $(HDEFINES) $(TDEFINES) $(CFLAGS) $(BASEDIR)/libiberty/cplus-dem.c
+	mv cplus-dem.o demangle.o
+
+# For parallel compiling, depend on demangle.o so that one gets done first.
+cplus-dem.o: $(BASEDIR)/libiberty/cplus-dem.c $(INCDIR)/getopt.h demangle.o
+	$(CC) -c -DMAIN $(INCLUDES) $(HDEFINES) $(TDEFINES) $(CFLAGS) $(BASEDIR)/libiberty/cplus-dem.c
+
+$(DEMANGLER_PROG): cplus-dem.o $(LIBIBERTY) underscore.o version.o
+	$(CC) $(LDFLAGS)  -o $(DEMANGLER_PROG) cplus-dem.o $(LIBIBERTY) $(EXTRALIBS) underscore.o version.o
+
+arparse.c: arparse.y
+	$(BISON) $(BISONFLAGS)  $(srcdir)/arparse.y
+	-mv y.tab.c arparse.c
+	-mv y.tab.h arparse.h
+
+arlex.c: arlex.l
+	$(LEX) $(LEX_OPTIONS) $(srcdir)/arlex.l
+	mv lex.yy.c arlex.c
+
+$(AR_PROG): $(ADDL_LIBS) ar.o arparse.o arlex.o not-ranlib.o $(BFD) arsup.o
+	$(CC) $(LDFLAGS) -o $(AR_PROG) ar.o arparse.o arlex.o arsup.o not-ranlib.o $(ADDL_LIBS) $(EXTRALIBS)
+
+$(RANLIB_PROG): $(ADDL_LIBS) ar.o is-ranlib.o arparse.o arlex.o arsup.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(RANLIB_PROG) ar.o arparse.o arlex.o arsup.o is-ranlib.o $(ADDL_LIBS) $(EXTRALIBS)
+
+# This rule creates a single binary that switches between ar and ranlib
+# by looking at argv[0].  Use this kludge to save some disk space.
+# However, you have to install things by hand.
+# (That is after 'make install', replace the installed ranlib by a link to ar.)
+
+# Alternatively, you can install ranlib.sh as ranlib.
+
+ar_with_ranlib: $(ADDL_LIBS) ar.o maybe-ranlib.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(AR_PROG) ar.o maybe-ranlib.o $(ADDL_LIBS) $(EXTRALIBS)
+	-rm -f $(RANLIB_PROG)
+	-ln $(AR_PROG) $(RANLIB_PROG)
+
+# objcopy and strip in one binary that uses argv[0] to decide its action.
+
+objcopy_with_strip: $(ADDL_LIBS) objcopy.o maybe-strip.o $(BFD)
+	$(CC) $(LDFLAGS) -o $(OBJCOPY_PROG) objcopy.o maybe-strip.o $(ADDL_LIBS) $(EXTRALIBS)
+	-rm -f $(STRIP_PROG)
+	-ln $(OBJCOPY_PROG) $(STRIP_PROG)
+
+nlmheader.c: nlmheader.y
+	$(BISON) $(srcdir)/nlmheader.y
+	rm -f nlmheader.c
+	-mv y.tab.c nlmheader.c
+
+$(NLMCONV_PROG): nlmconv.o nlmheader.o $(ADDL_LIBS) $(BFD)
+	$(CC) $(LDFLAGS) -o $@ nlmconv.o nlmheader.o $(ADDL_LIBS) $(EXTRALIBS)
+
+# This list of dependencies was generated by doing a make with gcc -MM
+# saving the output in a file and removing the gcc commands
+# changing "../../devo/binutils/../bfd" to "$(BFDDIR)"
+# removing "../../devo/binutils/"
+# changing "../include" to "$(INCDIR)"
+
+bucomm.o: bucomm.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h 
+filemode.o: filemode.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h 
+size.o: size.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/getopt.h 
+objdump.o: objdump.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h $(INCDIR)/getopt.h \
+  $(INCDIR)/dis-asm.h $(INCDIR)/aout/aout64.h \
+  $(INCDIR)/elf/internal.h $(INCDIR)/aout/stab.def 
+nm.o: nm.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h bucomm.h $(INCDIR)/getopt.h \
+  $(INCDIR)/aout/stab_gnu.h $(INCDIR)/aout/stab.def \
+  $(INCDIR)/aout/ranlib.h $(INCDIR)/demangle.h
+ar.o: ar.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h bucomm.h $(INCDIR)/aout/ar.h \
+  $(BFDDIR)/libbfd.h arsup.h 
+arparse.o: arparse.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h arsup.h 
+arlex.o: arlex.c ./arparse.h 
+not-ranlib.o: not-ranlib.c 
+arsup.o: arsup.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h arsup.h bucomm.h 
+strings.o: strings.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h bucomm.h 
+objcopy.o: objcopy.c ../bfd/bfd.h $(INCDIR)/ansidecl.h \
+  $(INCDIR)/obstack.h ../bfd/sysdep.h $(BFDDIR)/hosts/std-host.h \
+  $(INCDIR)/fopen-same.h bucomm.h 
+is-strip.o: is-strip.c 
+is-ranlib.o: is-ranlib.c 
+not-strip.o: not-strip.c 
+nlmheader.o: nlmheader.c nlmconv.h $(INCDIR)/nlm/common.h \
+  $(INCDIR)/nlm/internal.h
+nlmconv.o: nlmconv.c nlmconv.h $(INCDIR)/nlm/common.h \
+  $(INCDIR)/nlm/internal.h $(BFDDIR)/libnlm.h bucomm.h
+
+stage1: force
+	- mkdir stage1
+	- mv -f $(STAGESTUFF) stage1
+
+stage2: force
+	- mkdir stage2
+	- mv -f $(STAGESTUFF) stage2
+
+stage3: force
+	- mkdir stage3
+	- mv -f $(STAGESTUFF) stage3
+
+against=stage2
+
+comparison: force
+	for i in $(STAGESTUFF) ; do cmp $$i $(against)/$$i ; done
+
+de-stage1: force
+	- (cd stage1 ; mv -f * ..)
+	- rmdir stage1
+
+de-stage2: force
+	- (cd stage2 ; mv -f * ..)
+	- rmdir stage2
+
+de-stage3: force
+	- (cd stage3 ; mv -f * ..)
+	- rmdir stage3
+
+######################################################################
+# DOCUMENTATION TARGETS
+# TeX output
+binutils.dvi: $(srcdir)/binutils.texi
+	TEXINPUTS=$(TEXIDIR):$$TEXINPUTS $(TEXI2DVI) $(srcdir)/binutils.texi
+
+# info file for online browsing
+binutils.info: $(srcdir)/binutils.texi
+	$(MAKEINFO) -o binutils.info $(srcdir)/binutils.texi
+
+#   different targets for -ms, -mm, -me
+# Try to use a recent texi2roff.  v2 was put on prep in jan91.
+# If you want an index, see texi2roff doc for postprocessing 
+# and add -i to texi2roff invocations below.
+# Workarounds for texi2roff-2 (probably fixed in later texi2roff's, delete
+#    corresponding -e lines when later texi2roff's are current)
+# + @ifinfo's deleted explicitly due to texi2roff-2 bug w nested constructs.
+# + @c's deleted explicitly because texi2roff sees texinfo commands in them
+# + @   (that's at-BLANK) not recognized by texi2roff, turned into blank
+# + @alphaenumerate is ridiculously new, turned into @enumerate
+
+# roff output (-ms)
+binutils.ms: $(srcdir)/binutils.texi
+	sed -e '/\\input texinfo/d' \
+		-e '/@c TEXI2ROFF-KILL/,/@c END TEXI2ROFF-KILL/d' \
+		-e '/^@ifinfo/,/^@end ifinfo/d' \
+		-e '/^@c/d' \
+		-e 's/{.*,,/{/' \
+		-e 's/@ / /g' \
+		-e 's/^@alphaenumerate/@enumerate/g' \
+		-e 's/^@end alphaenumerate/@end enumerate/g' \
+		$(srcdir)/binutils.texi | \
+	$(TEXI2ROFF) -ms | \
+	sed -e 's/---/\\(em/g' \
+	>binutils.ms 
+
+# roff output (-mm)
+# '@noindent's removed due to texi2roff-2 mm bug; if yours is newer, 
+#   try leaving them in
+binutils.mm: $(srcdir)/binutils.texi
+	sed -e '/\\input texinfo/d' \
+		-e '/@c TEXI2ROFF-KILL/,/@c END TEXI2ROFF-KILL/d' \
+		-e '/^@ifinfo/,/^@end ifinfo/d' \
+		-e '/^@c/d' \
+		-e 's/{.*,,/{/' \
+		-e '/@noindent/d' \
+		-e 's/@ / /g' \
+		-e 's/^@alphaenumerate/@enumerate/g' \
+		-e 's/^@end alphaenumerate/@end enumerate/g' \
+		$(srcdir)/binutils.texi | \
+	$(TEXI2ROFF) -mm | \
+	sed -e 's/---/\\(em/g' \
+		>binutils.mm
+
+# roff output (-me)
+binutils.me: $(srcdir)/binutils.texi
+	sed -e '/\\input texinfo/d' \
+		-e '/@c TEXI2ROFF-KILL/,/@c END TEXI2ROFF-KILL/d' \
+		-e '/^@ifinfo/,/^@end ifinfo/d' \
+		-e '/^@c/d' \
+		-e 's/{.*,,/{/' \
+		-e 's/@ / /g' \
+		-e 's/^@alphaenumerate/@enumerate/g' \
+		-e 's/^@end alphaenumerate/@end enumerate/g' \
+		$(srcdir)/binutils.texi | \
+	$(TEXI2ROFF) -me | \
+	sed -e 's/---/\\(em/g' \
+	>binutils.me 
+
+
+######################################################################
+
+mostlyclean:
+	-rm -f *.o *~ \#* core binutils.?? binutils.???
+clean: mostlyclean
+	@if [ -d testsuite ] ; then \
+	  cd testsuite ; $(MAKE) $(FLAGS_TO_PASS) clean ; \
+	else true; fi
+	-rm -f $(PROGS) underscore.c
+distclean:
+	@if [ -d testsuite ] ; then \
+	  cd testsuite ; $(MAKE) $(FLAGS_TO_PASS) distclean ; \
+	else true; fi
+	-rm -f Makefile config.status sysdep.h *.o *~ \#* core \
+		binutils.?? binutils.??s binutils.aux binutils.log binutils.toc
+realclean: clean distclean
+	-rm -f $(DISTSTUFF) TAGS
+
+etags tags: TAGS
+
+TAGS: force
+	etags $(INCDIR)/*.h $(srcdir)/*.[hc] 
+
+install: all
+	for i in $(PROGS) ; do \
+	  $(INSTALL_XFORM) $$i $(bindir)/$$i ; \
+	done
+	for i in $(MANPAGES) ; do \
+	  $(INSTALL_XFORM1) $(srcdir)/$$i.1 $(man1dir)/$$i.1 ; \
+	done
+	-if [ -d $(tooldir) ]; then \
+	   if [ -d $(tooldir)/bin ] ; then true ; else mkdir $(tooldir)/bin ; fi; \
+	   for i in nm strip ar ranlib; do \
+	     rm -f $(tooldir)/bin/$$i; \
+	     ln $(bindir)/`t='$(program_transform_name)'; echo $$i | sed -e "" $$t` $(tooldir)/bin/$$i \
+	      || $(INSTALL_PROGRAM) $$i $(tooldir)/bin/$$i; \
+	   done; \
+	 else true; fi		
+
+# Use binutils.info as the target so that VPATH will DTRT.
+# (Use "$<*" in case the output is multiple files, though.)
+install-info: binutils.info
+	for i in $<* ; do \
+		$(INSTALL_DATA) $$i $(infodir)/$$i ; \
+	done
+
+clean-info:
+	-rm -rf *.info*
+
+# Making a dist:
+# cvs rtag binutils-x-yy ld+utils
+# cvs co -r binutils-x-yy ld+utils
+# Sanitize
+# cd {HERE}; make dist [-f Makefile.in]
+
+dist: $(DIST_NAME).tar.z
+
+diststuff: $(DISTSTUFF)
+
+$(DIST_NAME).tar.z:
+	cd ../..; rm -f $(DIST_NAME); ln -s devo $(DIST_NAME)
+	make diststuff -f Makefile.in
+	cd ../ld; make diststuff -f Makefile.in
+	cd ../gprof; make diststuff -f Makefile.in
+	cd ../texinfo; mv texinfo.tex ..; rm -rf *; mv ../texinfo.tex .
+	# Take out texinfo from configurable dirs
+	mv ../configure.in tmp; \
+	  sed -e '/^host_tools=/s/texinfo //' <tmp >../configure.in; rm tmp
+	cd ..; chmod og=u `find . -print`
+	cd ../..; tar chf - $(DIST_NAME) | gzip >$(DIST_NAME).tar.z
+	rm -rf ../../$(DIST_NAME)
+
+#-----------------------------------------------------------------------------
+#		'STANDARD' GNU/960 TARGETS BELOW THIS POINT
+#
+# 'VERSION' file must be present and contain a string of the form "x.y"
+#-----------------------------------------------------------------------------
+
+ver960.c: FORCE
+	rm -f ver960.c
+	echo "char ${TARG}_ver[]= \"${TARG} `cat VERSION`, `date`\";" > ver960.c
+
+
+# Dummy target to force execution of dependent targets.
+#
+force:
+
+# Target to uncomment host-specific lines in this makefile.  Such lines must
+# have the following string beginning in column 1: #__<hostname>__#
+# Original Makefile is backed up as 'Makefile.old'.
+#
+# Invoke with:  make make HOST=xxx
+#
+make:
+	-@if test $(HOST)x = x ; then \
+		echo 'Specify "make make HOST=???"'; \
+		exit 1; \
+	fi ; \
+	grep -s "^#The next line was generated by 'make make'" Makefile; \
+	if test $$? = 0 ; then	\
+		echo "Makefile has already been processed with 'make make'";\
+		exit 1; \
+	fi ; \
+	mv -f Makefile Makefile.old; \
+	echo "#The next line was generated by 'make make'"	 >Makefile ; \
+	echo "HOST=$(HOST)"					>>Makefile ; \
+	echo							>>Makefile ; \
+	sed "s/^#__$(HOST)__#//" < Makefile.old			>>Makefile
+
+Makefile: $(srcdir)/Makefile.in $(host_makefile_frag) $(target_makefile_frag)
+	$(SHELL) ./config.status
+
+### Local Variables: ***
+### mode:fundamental ***
+### page-delimiter: "^#" ***
+### End: ***
+### end of file

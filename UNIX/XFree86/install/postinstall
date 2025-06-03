@@ -1,0 +1,57 @@
+#!/opt/bin/bash
+# Postinstall script for XFree86 2.1
+# Greg Lehey, 4 February 1994
+echo XFree86 includes the following servers:
+cd /usr/X11R5/bin
+ls -l XF*
+echo
+echo Normally, you will only need one of these servers, and it will be 
+echo referred to as X. By removing the other servers, you will save many
+echo megabytes of disk storage.
+echo
+echo Which driver do you want to use as the standard driver\? Please enter
+echo -n "the name as shown in the last column above: "
+read name
+if [ "$name" != "" ]; then	# chosen something
+  echo 
+  success=0
+  while [ $success -eq 0 ]; do
+    if [ -f X -o -L X ]; then
+      rm X
+    fi
+    ln $name X			# hard link, none of this symlink nonsense
+    if [ $? -ne 0 ]; then	# no go
+      ls -l XF*
+      echo Try again. Please enter the name as shown in the
+      echo -n "last column above: "
+      echo
+      read name
+    else
+      success=1
+    fi
+  done
+  echo -n 'Do you want to keep the other servers? '
+  read reply
+  case $reply in
+    n) for i in XF*; do
+         if [ "$i" != "$name" ]; then	# not our chosen server
+           rm $i
+         fi
+       done ;;
+    y) ;;
+    *) echo Warning - I don\'t understand this. Keeping all servers. ;;
+  esac
+fi
+echo
+
+if [ -f /opt/bin/bash ]; then		# set up the default paths
+  /opt/bin/bash /usr/X11R5/bin/setpaths
+else
+  echo "Your default paths have not been checked. To do this, I need the package \`bash\',"
+  echo which is currently not present. Please install bash and then:
+  echo
+  echo  # bash /usr/X11R5/bin/setpaths
+  echo
+fi
+echo
+echo Postinstall script complete

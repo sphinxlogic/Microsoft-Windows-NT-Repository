@@ -1,0 +1,285 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node BPLtoBZR, XBfe, BZRto, Top
+@chapter BPLtoBZR
+
+@pindex bpltobzr
+@cindex converting BPL files to BZR
+@cindex editing BZR fonts
+
+BPLtoBZR translates a human-readable (and -editable) text file in BPL
+format (see below) to the binary BZR (Bezier) font format.
+
+Of the two, only BZR files can be changed into font formats which
+typesetting programs can use.  So after editing a BPL file, you need to
+run this program.  BZRedit likewise invokes it when necessary
+(@pxref{BZRedit}).
+
+@menu
+* BPL files::                   Bezier property list file format.
+* Invoking BPLtoBZR::           Command-line options.
+@end menu
+
+
+@node BPL files, Invoking BPLtoBZR,  , BPLtoBZR
+@section BPL files
+
+@cindex BPL files
+@cindex Bezier property list files
+@cindex plain text BZR files
+
+Bezier property list (BPL) files are free-format text files which
+describe an outline font.  They are a transliteration of the binary
+BZR font format (@pxref{BZR files}).
+
+@cindex Lisp
+@cindex BPL syntax
+@cindex syntax, of BPL files
+A BPL file is a sequence of entries of the form
+@example
+(@var{property-name} @var{value1} @var{value2} @dots{})
+@end example
+
+@cindex data types in BPL files
+@cindex types of data in BPL files
+@cindex BPL data types
+@cindex realstr data type
+The @var{property-name} is one of a small set of keywords understood by
+BPLtoBZR.  The @var{value}s vary depending on the property being
+defined.  BPL files have four types of values: unsigned integers, reals,
+strings (enclosed in typewriter double-quote @samp{"} marks), and
+@dfn{real strings} (@dfn{realstr} for short)---a real number in quotes.
+@xref{Editing BPL files}, for an explanation of why realstrs are
+necessary.
+
+@cindex comments in BPL files
+@cindex BPL comments
+@cmindex comment @r{BPL property}
+A @var{property-name} of @code{comment} introduces a comment, which
+continues through the next right parenthesis.  This implies nested
+comments are @emph{not} allowed: @samp{(comment (wrong!))} will get an
+error at the second @samp{)}.
+
+BPL files have three parts: a preamble, character definitions, and a
+postamble.  They must appear in that order.  In many cases, the order in
+which you give the properties within a part is also significant.
+
+@menu
+* Preamble: BPL preamble.       The beginning.
+* Characters: BPL characters.   The middle.
+* Postamble: BPL postamble.     The end.
+@end menu
+
+
+@node BPL preamble, BPL characters,  , BPL files
+@subsection BPL preamble
+
+@cindex BPL preamble
+@cindex preamble in BPL files
+
+The @dfn{preamble} of a BPL file consists of the following three
+properties:
+
+@enumerate
+
+@cmindex fontfile @r{BPL property}
+@cindex BZR filename in BPL files
+@item
+@code{(fontfile @var{string})}.  This merely documents the filename of
+the BZR font from which BZRto made this BPL file.  It is ignored.
+
+@cmindex fontcomment @r{BPL property}
+@cindex maximum length of BPL comment
+@cindex BPL comment, maximum length
+@item
+@code{(fontcomment @var{string})}.  This is an arbitrary string written
+as the ``comment'' in the BZR file.  BZR-reading programs ignore this
+comment.  It typically identifies the source and time of
+creation.  If @var{string} is longer than 255 characters, it is
+truncated (due to limitations of the BZR format).
+
+@cmindex designsize @r{BPL property}
+@item
+@code{(designsize @var{real})}.  The design size of the font, in
+printer's points.
+@end enumerate
+
+
+@node BPL characters, BPL postamble, BPL preamble, BPL files
+@subsection BPL characters
+
+@cindex BPL characters
+@cindex character definitions in BPL files
+
+A BPL file must have one or more @dfn{character definitions}.  These
+have the following form:
+
+@cmindex char @r{BPL property}
+@example
+(char @var{unsigned}
+  @var{width}
+  @var{bounding-box}
+  @var{outline1}
+  @var{outline2}
+  @dots{}
+)
+@end example
+
+The @var{unsigned} number directly after the @code{char} command
+specifies the character code.  If it is larger than 255 (the maximum
+character code in BZR files, and all other font formats the font
+utilities deal with) then BPLtoBZR issues a warning and uses its value
+modulo 256.
+
+The other pieces are specified as properties:
+
+@itemize @bullet
+
+@cmindex width @r{BPL property}
+@cindex set width in BPL files
+@item
+@code{(width @var{realstr})}.  The set width of the character in
+printer's points.
+
+@cmindex bb @r{BPL property}
+@cindex character bounding box in BPL files
+@cindex bounding box of characters in BPL files
+@cindex side bearings in BPL files
+@cindex left side bearing in BPL files
+@cindex right side bearing in BPL files
+@item
+@code{(bb @var{llx} @var{lly} @var{urx} @var{ury})}.  The bounding box
+of the character in printer's points, defined by the lower-left @math{x}
+coordinate and the upper-right @math{y} coordinate.  Each value is a
+realstr.  The left side bearing is defined by @var{llx}, and the right
+side bearing is defined by the difference between the set width and
+@var{urx}.
+
+@end itemize
+
+Each @var{outline} specifies a geometrical outline, i.e., a closed
+curve.  For example, an @samp{o} would have two @var{outline}s.  If the
+character is entirely blank, the BPL file has no @var{outline}s at all.
+
+The outline property is somewhat more complex than the rest, so we
+describe it below.
+
+@menu
+* BPL outlines::                Representation of character outlines.
+@end menu
+
+
+@node BPL outlines,  ,  , BPL characters
+@subsubsection BPL outlines
+
+@cindex BPL outlines
+@cindex outlines in BPL files
+@cindex character shape in BPL files
+
+You specify an @dfn{outline} in a BPL file as a sequence of straight
+lines and cubic splines, in any order:
+
+@cmindex outline @r{BPL property}
+@example
+(outline @var{start-x} @var{start-y}
+  @var{piece1} @var{piece2} @dots{}
+)
+@end example
+
+@var{start-x} and @var{start-y} are realstrs which specify the initial
+position for drawing this outline.  Each successive piece of the outline
+is relative to a current point, and also updates the current point.
+
+At least one @var{piece} must be present.  Each @var{piece} can be one of the
+following two properties:
+
+@enumerate
+
+@cmindex line @r{BPL property}
+@cindex straight lines in BPL files
+@item 
+@code{line @math{x} @math{y}}.  Draw a straight line from the current
+point to @math{(x,y)}.  Then set the current point to @math{(x,y)}.
+@math{x} and @math{y} are realstrs.
+
+@cmindex spline @r{BPL property}
+@cindex cubic splines in BPL files
+@cindex Bezier splines in BPL files
+@cindex curves in BPL files
+@item
+@code{spline @var{c1x} @var{c1y} @var{c2x} @var{c2y} @var{ex} @var{ey}}.
+Draw the Bezier cubic using the current point as the starting point,
+@math{(@var{c1x},@var{c1y})} and @math{(@var{c2x},@var{c2y})} as the control
+points, and @math{(@var{ex},@var{ey})} as the endpoint.  Then set the
+current point to the endpoint.  All coordinates are realstrs.
+
+@end enumerate
+
+If the last point the last piece of the @code{outline} is not the same
+as the starting point, the result is undefined.
+
+
+@node BPL postamble,  , BPL characters, BPL files
+@subsection BPL postamble
+
+@cindex BPL postamble
+@cindex postamble, of BPL files
+
+The final piece of a BPL file is the @dfn{postamble}.  It has two
+components:
+
+@enumerate
+
+@cmindex fontbb @r{BPL property}
+@cindex font bounding box in BPL files
+@item
+@code{(fontbb @var{llx} @var{lly} @var{urx} @var{ury})}.  Defines the
+bounding box for the entire font in the same way as the @code{bb}
+property defines the bounding box for a character.  @xref{BPL characters}.
+
+@cmindex nchars @r{BPL property}
+@cindex character count in BPL files
+@item
+@code{(nchars @var{unsigned})}.  The number of characters in the BPL
+file.  This is purely for informational purposes; BPLtoBZR ignores it.
+
+@end enumerate
+
+
+@node Invoking BPLtoBZR,  , BPL files, BPLtoBZR
+@section Invoking BPLtoBZR
+
+@cindex invocation of BPLtoBZR
+@cindex BPLtoBZR options
+@cindex options for BPLtoBZR
+
+This section describes the options that BPLtoBZR accepts.
+@xref{Command-line options}, for general option syntax.
+
+@table @samp
+
+@opindex -help
+@item -help
+Print a usage message.  @xref{Common options}.
+
+@opindex -output-file
+@item -output-file @var{filename}
+Output to @var{filename} (if it has a suffix) or to
+@file{@var{filename}.bzr} (if it doesn't).
+
+@opindex -range
+@item -range @var{char1}-@var{char2}
+Only output characters with codes between @var{char1} and @var{char2},
+inclusive.  (@xref{Common options}, and @ref{Specifying character codes}.)
+
+@opindex -verbose
+@item -verbose
+Output progress reports.
+
+@opindex -version
+@item -version
+Print the version number of this program.
+
+@end table

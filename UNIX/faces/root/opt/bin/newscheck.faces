@@ -1,0 +1,63 @@
+#!/usr/bin/perl
+#
+#  @(#)newscheck.faces 1.1 91/05/06
+#
+#  Copyright (c) Steve Kinzler - May 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+$cols = 15; $rows = 4;
+
+# newscheck.faces - monitor number of unread articles in all subscribed
+#		    newsgroups
+#
+# This program requires the news bitmaps database (and only this database)
+# to be in the faces search path.  Only the first $cols * $rows number of
+# newsgroups are shown.  If ~/.nn exists, this program reads the output
+# of the faster "nncheck -t" to determine unread news, otherwise it reads
+# "rn -c".
+#
+# Steve Kinzler, kinzler@cs.indiana.edu, 4 May 1991
+
+$format = "%s\t%s\t%s\t%s\t%s\t%s\n";
+$max = $cols * $rows;
+
+open(CHECK, -d "$ENV{'HOME'}/.nn" ? 'nncheck -t |' : 'rn -c -s9999 |');
+while (<CHECK>) {
+	s/^\s*//;
+
+	if    (/^\d/)     { ($num, $group) = split; }
+	elsif (/^Unread/) { split; ($num, $group) = ($_[4], $_[3]); }
+	else              { last; }
+
+	$tarts += $num;
+	if ($n++ < $max) {
+		$host = $abbr = $group;
+		$host = join('.', reverse split(/\./, $host));
+		$abbr =~ s/([^.])[^.]+\./$1./g;
+		$list .= sprintf($format, 'unknown', $host,
+					  "$num $abbr", '', $group, '');
+	}
+}
+close CHECK;
+
+if ($list) {
+	printf $format, 'news', '', "$tarts/$n", '', '', '';
+	printf "Cols=%d Rows=%d\n", &lesser($n, $cols),
+				    &lesser(($n - 1) / $cols + 1, $rows);
+	print $list;
+} else {
+	printf $format, 'nonews', '', "0/0", '', '', '';
+	print "Cols=1 Rows=1\n";
+	printf $format, 'nonews', '', 'No news', '', 'No news', '';
+}
+
+sub lesser {
+	local($a, $b) = @_;
+	($a < $b) ? $a : $b;
+}

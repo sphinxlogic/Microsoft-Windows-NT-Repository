@@ -1,0 +1,56 @@
+#!/bin/csh -f
+# build-new-aliases
+# Bruce Barnett
+#
+# this script makes a new alias file
+#
+# first it has to shutdown sendmail
+# But do it nicely, using kill -15 at first.
+
+# how many sendmail processes are running?
+set j = (`ps ax |grep sendmail|grep -v grep`);
+
+set loopcount = 0
+if ( $#j > 0 ) then
+
+loop:
+@	loopcount++
+	# wait 30 * 30 seconds for all of the sendmail processes to quit
+	if ( $loopcount > 30 ) then
+		echo ERROR - can not kill sendmail
+		goto problem
+	endif
+	kill -15 $j[1]
+	sleep 30
+	set j = (`ps ax |grep sendmail|grep -v grep`);		
+	if ( $#j > 0 ) then
+		goto loop
+	endif
+endif
+goto good
+problem:
+# could not kill sendmail - try something drastic
+	echo `date` kill sendmail >>/usr/spool/adm/build-new-aliases.log
+	kill -9 $j[1]
+good:
+set frozen = 0
+if ( -f /etc/sendmail.fc )  then
+	set frozen = 1
+	/bin/cp /dev/null /etc/sendmail.fc
+endif
+# clean up any lock files
+touch /usr/spool/mqueue/lf0
+/bin/rm -f /usr/spool/mqueue/lf*
+
+# see the documentation about the 'a' option of sendmail
+# or the "D" option
+#/usr/lib/newaliases
+# rebuild aliases
+/usr/lib/sendmail -bi
+
+if ( $frozen > 0 ) then
+	/usr/lib/sendmail -bz
+endif
+
+# restart the daemon with 30 minutes between cycles
+/usr/lib/sendmail -bd -q30m -om

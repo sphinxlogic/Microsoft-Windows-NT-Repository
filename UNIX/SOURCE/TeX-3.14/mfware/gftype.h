@@ -1,0 +1,10 @@
+void initialize(void);
+void opengffile(void);
+integer getbyte(void);
+integer gettwobytes(void);
+integer getthreebytes(void);
+integer signedquad(void);
+void printscaled(integer s);
+integer firstpar(eightbits o);
+boolean dochar(void);
+void readpostamble(void);

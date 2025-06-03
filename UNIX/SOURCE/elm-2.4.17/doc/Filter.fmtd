@@ -1,0 +1,651 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             TTTThhhheeee EEEEllllmmmm FFFFiiiilllltttteeeerrrr SSSSyyyysssstttteeeemmmm GGGGuuuuiiiiddddeeee
+
+
+
+
+                      _W_h_a_t _t_h_e _f_i_l_t_e_r _p_r_o_g_r_a_m _i_s, _w_h_a_t _i_t _d_o_e_s,
+                                  _a_n_d _h_o_w _t_o _u_s_e _i_t
+
+
+
+                                 The Elm Mail System
+                                    (Version 2.4)
+
+
+                           Syd Weinstein, Elm Coordinator
+                               Datacomp Systems, Inc.
+                                   3837 Byron Road
+                          Huntingdon Valley, PA 19006-2320
+
+                          email: elm@DSI.COM  or  dsinc!elm
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                        cccc Copyright 1986,1987 by Dave Taylor
+                 cccc Copyright 1988-1992 by The USENET Community Trust
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                             TTTThhhheeee EEEEllllmmmm FFFFiiiilllltttteeeerrrr SSSSyyyysssstttteeeemmmm GGGGuuuuiiiiddddeeee
+
+                         (The Elm Mail System, Version 2.4)
+
+                                   October 1, 1992
+
+
+                                    Syd Weinstein
+                               Datacomp Systems, Inc.
+                                   3837 Byron Road
+                          Huntingdon Valley, PA 19006-2320
+
+                          email: elm@DSI.COM  or  dsinc!elm
+
+
+                                    Derived from
+                         "The Elm Mail System, Version 2.0"
+                                         by
+                                     Dave Taylor
+                                  Intuitive Systems
+                              Mountain View, California
+                    email: taylor@intuitive.com  or  limbo!taylor
+
+
+
+
+
+
+               One of the greatest problems with the burgeoning  electronic
+          mail  explosion  is  that I tend to get lots of mail that I don't
+          care about.  Amusingly, perhaps, I have the equivalent  of  elec-
+          tronic  junk  mail.   Not amusing, however, is the fact that this
+          can rapidly accumulate and end up taking over my mailbox.
+
+               At the same time I often get mail  that,  while  it  is  in-
+          teresting  and  important,  can easily be filed to be read later,
+          without ever actually having to cluttering up my  incoming  mail-
+          box.
+
+
+          This, then, is what _f_i_l_t_e_r does!  The _f_i_l_t_e_r program  allows  you
+          to  define  a  set  of rules by which all incoming mail should be
+          screened, and a subsequent set of actions  to  perform  based  on
+          whether  the  conditions  were  met  or not.  _F_i_l_t_e_r also has the
+          ability to mail a summary of what actions it performed on the in-
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          coming mail as often as you'd like.
+
+          WWWWrrrriiiittttiiiinnnngggg tttthhhheeee RRRRuuuulllleeeessss
+
+          The language for writing _f_i_l_t_e_r rules is pretty simple, actually.
+          The fundamental structure is;
+               if  (_c_o_n_d_i_t_i_o_n)  then  _a_c_t_i_o_n
+          Where _c_o_n_d_i_t_i_o_n is constructed by an arbitrary number of  indivi-
+          dual  conditions of the form ``_f_i_e_l_d  _r_e_l_a_t_i_o_n  _v_a_l_u_e''.  (an op-
+          tional further type of rule is of the form ``always _a_c_t_i_o_n''  but
+          should  only be used as the last rule in the ruleset, for obvious
+          reasons).  The _f_i_e_l_d value can be;
+               subject
+               sender
+               from
+               to
+               lines
+               contains
+          where, if ``lines'' is chosen, the _r_e_l_a_t_i_o_n can  be  any  of  the
+          standard  relationships  (`>', `<', `>=', `<=', `!=' and `='). If
+          another action is chosen, ``contains'' can be used as  the  rela-
+          tion, ``='', or, if you'd like, you can skip the relationship en-
+          tirely (e.g. `subject "joe"').  The _v_a_l_u_e is  any  quoted  string
+          that is to be matched against or number if ``lines'' is the field
+          being considered.
+
+          The relation ``matches'' (or ``~'') takes an egrep  like  regular
+          expression  as the _v_a_l_u_e. The regular expression must be enclosed
+          in pairs of ``/''.  If you need a ``/'' in your expression  write
+          it as ``\/''.
+
+          Individual conditions are  joined  together  by  using  the  word
+          ``and'',  and  the  logic  of a condition can be flipped by using
+          ``not'' as the first word (e.g. `not subject "joe"').  We'll  see
+          more examples of this later.
+
+          Note that the ``or'' logical conjunction isn't a  valid  part  of
+          the _f_i_l_t_e_r conditional statement.
+
+          Finally, <_a_c_t_i_o_n> can be any of;
+               delete
+               save   _f_o_l_d_e_r_n_a_m_e
+               savecopy  _f_o_l_d_e_r_n_a_m_e
+               forward  _a_d_d_r_e_s_s
+               forwardc  _a_d_d_r_e_s_s
+               execute  _c_o_m_m_a_n_d
+               executec  _c_o_m_m_a_n_d
+               leave
+          where they result in the actions;  ddddeeeelllleeeetttteeee  deletes  the  message;
+          ssssaaaavvvveeee  saves  a  copy  of the message in the specified foldername;
+          ssssaaaavvvveeeeccccooooppppyyyy does the same as save, but also  puts  a  copy  in  your
+          mailbox;  ffffoooorrrrwwwwaaaarrrrdddd  sends  the  message  to the specified address;
+          ffffoooorrrrwwwwaaaarrrrddddcccc sends the message to the specified address and leaves  a
+          copy  in your mailbox; eeeexxxxeeeeccccuuuutttteeee feeds the message to the specified
+
+
+          October 1, 1992                                            Page 2
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          command (or complex sequence of commands) as standard input; eeeexxxxeeee----
+          ccccuuuutttteeeecccc is like eeeexxxxeeeeccccuuuutttteeee but also leaves a copy in your mailbox; and
+          lllleeeeaaaavvvveeee leaves the message in your mailbox.
+
+          NOTE: The execute command assumes that you  are  doing  something
+          useful  with  incoming  mail.  The command does _n_o_t automatically
+          append the message to your mail spool.  Use executec for that.  A
+          command such as:
+
+           if (from = "dave") then execute "echo mail from dave > /dev/tty"
+
+          will result in _l_o_s_i_n_g your mail.  A more suitable use for execute
+          would be:
+
+           if (from = "boss") then execute "vacation pat"
+
+          Foldernames can contain any of a number of macros, too, as  we'll
+          see  in  the example ruleset below.  The macros available for the
+          string fields are;
+          MMMMaaaaccccrrrroooo   MMMMeeeeaaaannnniiiinnnngggg
+          %d      day of the month
+          %D      day of the week (0-6)
+          %h      hour of the day (0-23)
+          %m      month of the year (1-12)
+          %r      return address of message
+          %s      subject of original message
+          %S      ``Re: _s_u_b_j_e_c_t _o_f _o_r_i_g_i_n_a_l _m_e_s_s_a_g_e''
+          %t      current hour and minute in HH:MM format
+          %y      year (last two digits)
+          %&      the string that matched the last regular expression
+          %1-%9   the i:th subexpression in the last regular expression that matched
+          __________________________________________________________________________
+
+          If a message has a subject of _T_h_i_s _i_s _a _t_e_s_t, and the rule is
+
+          if (subject matches /([a-z]+) a ([a-z]+)/) then "echo %& %1 %2"
+
+          then %& expands to _i_s _a _t_e_s_t, %1 expands to _i_s and %2 expands  to
+          _t_e_s_t.
+
+          Foldernames may contain a leading '~/' which will be expanded  to
+          be your home directory.
+
+          The rules file can also contain comments (any line starting  with
+          a  `#')  and blank lines.  If you need a `%' character as part of
+          an argument (such as an address), use `\%'.
+
+          Unless you specify an alternate file via  the  `-f'  option,  the
+          rules  file  needs to reside in your .elm directory off your home
+          directory and be called ._e_l_m/_f_i_l_t_e_r-_r_u_l_e_s.  Here's an example:
+
+           # $HOME/.elm/filter-rules
+           #
+           # Filter rules for the Elm Filter program. Don't change without some
+
+
+          October 1, 1992                                            Page 3
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+           # serious thought. (remember - order counts)
+           #
+           # (for Dave Taylor)
+           # rule 1
+           if (from contains "!uucp") then delete
+           # rule 2
+           to "postmaster" ? save "/tmp/postmaster-mail.%d"
+           # rule 3
+           if (to "culture" and lines > 20) ? save "/users/taylor/Mail/culture"
+           # rule 4
+           subject = "filter test" ? forward "hpldat!test"
+           # rule 5
+           if [ subject = "elm" ] savecopy "/users/taylor/Mail/elm-incoming"
+           # rule 6
+           subject = "display-to-console" ? execute "cat - > /dev/console"
+          (notice the loose syntax - there are lots of valid ways to speci-
+          fy a rule in the _f_i_l_t_e_r program!!)
+
+          To translate these into English;
+
+            1. All messages from uucp should be summarily deleted.
+
+            2. All mail to postmaster should be saved in  a  folder  (file)
+               called /tmp/postmaster-mail._n_u_m_e_r_i_c-_d_a_y-_o_f-_t_h_e-_w_e_e_k
+
+            3. All mail addressed to  `culture'  with  at  least  20  lines
+               should    be    automatically   appended   to   the   folder
+               /users/taylor/Mail/culture.
+
+            4. All messages that contain the subject `filter  test'  should
+               be  forwarded  to  me, but via the address `hpldat!test' (to
+               force a non-user forward)
+
+            5. All messages with a subject that  contains  the  word  `elm'
+               should  be  saved  in  the  folder ``/users/taylor/Mail/elm-
+               incoming'' and also dropped into my mailbox.
+
+            6. Any message with the subject ``display-to-console'' will  be
+               immediately written to the console.
+
+          Notice that the _o_r_d_e_r of the rules is very important.  If we, for
+          example,  were  to get a message from `uucp' that had the subject
+          `filter test', the _f_i_l_t_e_r program would match rule 1  and  delete
+          the  message.   It would never be forwarded to `hpldat!test'.  It
+          is for this reason that great care should be taken with the  ord-
+          ering of the rules.
+
+          CCCChhhheeeecccckkkkiiiinnnngggg tttthhhheeee rrrruuuulllleeeessss oooouuuutttt
+
+          The _f_i_l_t_e_r program has a convenient way of check  out  the  rules
+          you have written.  Simply invoke it with the ----rrrr (rrrrules) flag;
+               % ffffiiiilllltttteeeerrrr ----rrrr
+               Rule 1: if (from = "!uucp") then
+                       Delete
+
+
+          October 1, 1992                                            Page 4
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+               Rule 2: if (to = "postmaster") then
+                       Save  /tmp/postmaster-mail.<day-of-week>
+               Rule 3: if (to = "culture" and lines > 20) then
+                       Save  /users/taylor/Mail/culture
+               Rule 4: if (subject = "filter test") then
+                       Forward  hpldat!test
+               Rule 5: if (subject="elm") then
+                       Copy  and  Save  /users/taylor/Mail/elm-incoming
+               Rule 6: if (subject="display-to-console") then
+                       Execute "cat - > /dev/console"
+
+          There are a few things to notice  -  first  off,  these  are  the
+          parsed  and  rebuilt  rules, so we can see that they are all in a
+          consistent format.  Also, notice on the filename for rule 2  that
+          the program has correctly expanded the ``%d'' macro to be the day
+          of the week.
+
+          It is hhhhiiiigggghhhhllllyyyy recommended that you always check your  ruleset  be-
+          fore actually letting the program use it!
+
+          AAAAccccttttuuuuaaaallllllllyyyy UUUUssssiiiinnnngggg tttthhhheeee PPPPrrrrooooggggrrrraaaammmm
+
+          Now the bad news.  If you aren't running _s_e_n_d_m_a_i_l or  some  other
+          Mail Transport Agent that supports delivery to a program you can-
+          not use this program as currently  written.   Why?   Because  the
+          _f_i_l_t_e_r  program  expects  to  be  put  in  your ._f_o_r_w_a_r_d file (or
+          equivalent concept for MTAs other than sendmail) that causes  the
+          messages  to  be  delivered to the filter program.  That is some-
+          thing that only _s_e_n_d_m_a_i_l and other smart MTAs look at!
+
+          The format for the entry in the ._f_o_r_w_a_r_d file  (located  in  your
+          home directory) is simply;
+               "| /usr/local/bin/filter"
+          Allright, it isn't quite _t_h_a_t simple!  Since _f_i_l_t_e_r will  be  in-
+          voked  by  processes that don't know where you are logged in, you
+          need to have some way to trap the error messages.   For  ease  of
+          use,  it was decided to have all the messages written to the file
+          specified by `-o' (or _s_t_d_e_r_r) which means that you have two  main
+          choices for the actual entry.  Either;
+               "| /usr/local/bin/filter -o /dev/console"
+          which will log all errors on the system console  (each  error  is
+          prefixed with ``filter (_u_s_e_r_n_a_m_e)'' to distinguish it), or;
+               "| /usr/local/bin/filter -o /tmp/joe.filter_errors"
+          If you want to have a copy saved to a file.  Note that the quotes
+          are a required part of the line.  A possible strategy would be to
+          have the errors written to a file and to then have a few lines in
+          your ._l_o_g_i_n script like:
+               if ( -f /tmp/joe.filter_errors) then
+                  echo  "  "
+                  echo "Filter program errors;"
+                  cat /tmp/joe.filter_errors
+                  echo "  "
+               endif
+          You can also use the ----vvvv flag in combination  with  the  above  to
+
+
+          October 1, 1992                                            Page 5
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          have a more verbose log file saved by having your ._f_o_r_w_a_r_d file;
+          "| /usr/local/bin/filter -vo /tmp/joe.filter_errors"
+          Suffice to say, you can get pretty tricky with all this!!
+
+          SSSSuuuummmmmmmmaaaarrrriiiizzzziiiinnnngggg tttthhhheeee AAAAccccttttiiiioooonnnnssss TTTTaaaakkkkeeeennnn
+
+          The _F_i_l_t_e_r program can keep a log of all actions  performed,  in-
+          cluding  what rules it matched against, in your .elm directory in
+          a file called ._e_l_m/_f_i_l_t_e_r_l_o_g.  You can either directly operate on
+          this file, or, much more recommended, you can one of the two sum-
+          marize flags to the program and let _i_t do the work for you!
+
+          The difference between the two is best demonstrated by example:
+          % ffffiiiilllltttteeeerrrr ----ssss
+                               Summary of Filter Activity
+                               --------------------------
+               A total of 418 messages were filtered:
+               The default rule of putting mail into your mailbox
+                        applied 364 times (87%)
+               Rule #1: (delete message)
+                        applied 1 time (0%)
+               Rule #2: (save in "/users/taylor/Filtered-Mail/netnews.12")
+                        applied 8 times (2%)
+               Rule #3: (save in "/users/taylor/Filtered-Mail/postmaster.12")
+                        applied 14 times (3%)
+               Rule #5: (save in "/users/taylor/Filtered-Mail/risks.12")
+                        applied 3 times (1%)
+               Rule #6: (save in "/users/taylor/Filtered-Mail/rays.12")
+                        applied 28 times (7%)
+          versus:
+               % ffffiiiilllltttteeeerrrr ----SSSS
+               _t_h_e _o_u_t_p_u_t _a_s _l_i_s_t_e_d _a_b_o_v_e, _f_o_l_l_o_w_e_d _b_y:
+               Explicit log of each action;
+               Mail from taylor about Filter Summary
+                        PUT in mailbox: the default action
+               Mail from news@hplabsz.hpl.hp.com about Newsgroup comp.editors created
+                        PUT in mailbox: the default action
+               Mail from root about Log file: cleanuplog
+                        PUT in mailbox: the default action
+               [etc etc]
+          To actually use either of the summarizing options, there are  two
+          ways that are recommended;
+
+          The preferred way is to have a line in either your  _c_r_o_n_t_a_b  (ask
+          your  administrator  for  help with this) that invokes the _f_i_l_t_e_r
+          program as often as you desire with the ----ssss flag.  For example,  I
+          have a summary mailed to me every morning at 8:00 am:
+             0 8 * * * "/usr/local/bin/filter -s | elm -s 'Filter Summary' taylor"
+
+          An alternative is to have your ._l_o_g_i_n execute  the  command  each
+          time.
+
+
+          Note that if you want to have your log  files  cleared  out  each
+
+
+          October 1, 1992                                            Page 6
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          time  the  summary  is generated you'll need to use the '-c' flag
+          too.  Also, if you want to keep a long list of actions  performed
+          you can do this by saving it as you display it.  A way to do this
+          would be, if you were to  have  the  invocation  in  your  ._l_o_g_i_n
+          script, to use:
+               echo "Filter Log;"
+               filter -c -s | tee -a PERM.filter.log
+          which would  append  a  copy  of  all  the  output  to  the  file
+          `PERM.filter.log'  and  would avoid you having to read larger and
+          larger summaries of what the program had done.
+
+
+          If you prefer not to have _f_i_l_t_e_r generate log files, use  the  ----qqqq
+          flag.   Messages  that  are  written to _s_t_d_e_r_r or the ----oooo file are
+          still generated; only message to the log files are quashed.
+
+          FFFFuuuurrrrtttthhhheeeerrrr TTTTeeeessssttttiiiinnnngggg ooooffff tttthhhheeee RRRRuuuulllleeeesssseeeetttt
+
+          With the _r_e_a_d_m_s_g command available, it is quite easy to test  the
+          rules you've written to see if they'll do what you desire.
+
+          For example, we can use the ----nnnn flag to _f_i_l_t_e_r, which means `don't
+          actually do this, just tell me what rule you matched, if any, and
+          what action you would have performed' (you can see why  a  single
+          letter  flag is easier to type in!!), and feed it each message in
+          our mailbox by using a command like;
+               % sssseeeetttt mmmmeeeessssssssaaaaggggeeee====1111
+               % sssseeeetttt ttttoooottttaaaallll____mmmmeeeessssssssaaaaggggeeeessss====````mmmmeeeessssssssaaaaggggeeeessss````
+               % wwwwhhhhiiiilllleeee  ((((1111))))
+               > iiiiffff (((($$$$mmmmeeeessssssssaaaaggggeeee >>>> $$$$ttttoooottttaaaallll____mmmmeeeessssssssaaaaggggeeeessss)))) eeeexxxxiiiitttt
+               > eeeecccchhhhoooo pppprrrroooocccceeeessssssssiiiinnnngggg mmmmeeeessssssssaaaaggggeeee $$$$mmmmeeeessssssssaaaaggggeeee
+               > rrrreeeeaaaaddddmmmmssssgggg ----hhhh $$$$mmmmeeeessssssssaaaaggggeeee |||| ffffiiiilllltttteeeerrrr ----nnnn
+               > eeeecccchhhhoooo """" """"
+               > @@@@ mmmmeeeessssssssaaaaggggeeeessss++++++++
+               > eeeennnndddd
+          which will then hand each of the messages in your mailbox to  the
+          _f_i_l_t_e_r program and display what action would have been taken with
+          that message and why.
+
+          For example, if we do this for a few interesting messages  in  my
+          mailbox, we'd end up with output like:
+               Mail from taylor about filter test
+                    FORWARDED to hpldat!taylor by rule;
+                      subject="filter test"  ? forward "hpldat!test"
+               Mail from bradley%hplkab@hplabsc about Re: AI-ED mailing address for HP
+                    PUT in mailbox: the default action
+               Mail from taylor about display-to-console
+                    EXECUTED "cat - > /dev/console"
+          (sharp users will notice that this is exactly the same format  as
+          the longer summary listing)
+
+
+
+
+
+
+          October 1, 1992                                            Page 7
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          WWWWhhhhaaaatttt FFFFoooorrrrwwwwaaaarrrrddddeeeedddd MMMMeeeessssssssaaaaggggeeeessss LLLLooooooookkkk LLLLiiiikkkkeeee
+
+          When a message is forwarded to another user by the  _a_c_t_i_o_n  being
+          specified  as  ``forward _a_d_d_r_e_s_s'', then the program can generate
+          one of two styles of message.  If the message  is  to  you,  then
+          it'll  simply  add  it to your mailbox in such a way as to ensure
+          that the return address is that of the person who sent  the  mes-
+          sage and so on.
+
+          If not, then the message is enclosed in a message of the form:
+             From taylor Thu Oct  2 15:07:04 1986
+             Date: Thu, 2 Oct 86 15:06:58 pdt
+             Subject: "filter test"
+             From: The filter of taylor@hpldat <taylor>
+             To: hpldat!taylor
+             X-Filtered-By: filter, version 1.4
+             -- Begin filtered message --
+
+                From taylor Thu Oct  2 15:06:41 1986
+                Date: Thu, 2 Oct 86 15:06:33 pdt
+                From: Dave Taylor <taylor>
+                Subject: filter test
+                Just a simple test.
+             -- End of filtered message --
+          The subject of the actual message is the same as the  subject  of
+          the  message  being forwarded, but in quotes.  The `From:'  field
+          indicates how the message  was  sent,  and  the  `X-Filtered-By:'
+          identifies what version of filter is being used.
+
+          AAAArrrreeeeaaaassss ttttoooo IIIImmmmpppprrrroooovvvveeee
+
+          While the _f_i_l_t_e_r program as presented herein is obviously a  nice
+          addition to the set of tools available for dealing with electron-
+          ic mail, there are some key features that are missing and will be
+          added in the future based on demand.
+
+          As I see it, the main things missing are;
+
+            1. Perhaps more _a_c_t_i_o_n_s available (but what?)
+
+            2. Certainly the ability to filter based on any field or combi-
+               nation of fields.
+
+          WWWWaaaarrrrnnnniiiinnnnggggssss aaaannnndddd TTTThhhhiiiinnnnggggssss ttttoooo LLLLooooooookkkk OOOOuuuutttt FFFFoooorrrr
+
+          Since this is a pretty simple program, there are a few  pitfalls,
+          some of which have already been mentioned;
+
+          OOOOrrrrddddeeeerrrr counts in the rules.  Beware!
+
+          MMMMaaaattttcccchhhhiiiinnnngggg is pretty simple - make sure your  patterns  are  suffi-
+          ciently exclusive before having any destructive rules.
+
+          The log files can grow indefinitely unless you use the ----cccc  or  ----qqqq
+
+
+          October 1, 1992                                            Page 8
+
+
+
+
+
+          Elm Filter Guide                                      Version 2.4
+
+
+          options or you trim the files by other means.
+
+
+          Finally, as with the rest of the EEEEllllmmmm mail system, I welcome feed-
+          back and suggestion on how to improve this program!!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          October 1, 1992                                            Page 9
+
+
+

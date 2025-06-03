@@ -1,0 +1,61 @@
+#!../expect -f
+# get /etc/passwd from host
+# if we can't login ourselves, try it as anonymous
+
+# Written by Don Libes - March, 1990
+# This script is not supposed to be intelligent, rather it just shows
+# various features of expect.
+
+expect_before timeout {send_user "timed out\n"; exit}
+
+# logout of ftp
+proc fail {} {
+	global host
+	send "quit\r"
+	send_user "Failed to ftp to $host\n"
+	exit
+}
+
+# ftp can take a while to start up and log in to
+set timeout 20
+spawn ftp
+expect {*ftp>*}
+
+# if "host" not predefined, then set it here to our default
+if [llength $argv]==2 {
+	set host [lindex $argv 1]
+} else {
+	set host uunet.uu.net
+}
+
+set user $env(USER)
+
+# get password from user
+system stty -echo
+send_user "Password for $user on $host: "
+expect_user -re (.*)\n
+send_user \n
+system stty echo
+set password $expect_out(0,string)
+
+# temporarily disable logging so user doesn't see prompt twice
+log_user 0
+send "open $host\r"
+expect {*Name*}
+send "$user\r"
+expect Password:
+send $password\r
+log_user 1
+
+expect {
+	-re "logged in" {} \
+	-re "failed.*" {
+		# if couldn't log in as self, try as anonymous
+		send "user anonymous pass $user\r"
+		expect -re "login ok.*" {}
+	}
+}
+send "get /etc/passwd /tmp/snarfed\r"
+# better to use a control character as the interact escape character
+# but for display purposes the X shows up better.
+interact X

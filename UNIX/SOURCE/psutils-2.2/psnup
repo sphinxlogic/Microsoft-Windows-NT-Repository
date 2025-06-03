@@ -1,0 +1,71 @@
+#!/bin/sh
+# psnup: put multiple pages onto one physical sheet of paper.
+# usage:
+#       psnup [-w<dim>] [-h<dim>] [-l] [-2|-4|-8|-9] [file...]
+#               -w<dim> sets the paper width
+#               -h<dim> sets the paper height
+#               -l      is used if the pages are in landscape orientation
+
+io= landscape=0 nup=1 width=-w21cm height=-h29.7cm
+
+while test $# != 0
+do      case "$1" in
+        -w*)    width=$1 ;;
+        -h*)    height=$1 ;;
+        -l)     landscape=1 ;;
+        -2)     nup=2 ;;
+        -4)     nup=4 ;;
+        -8)     nup=8 ;;
+        -9)     nup=9 ;;
+        *)      io="$io $1"
+        esac
+        shift
+done
+
+scale= offset=
+case "$nup" in
+2)      scale=@0.707
+        if [ $landscape = 0 ]
+        then offset="(1w,0) (1w,0.5h)"
+        else offset="(0,0.5h) (0,0)"
+        fi
+        landscape=`expr 1 - $landscape` ;;
+4)      scale=@0.5
+        if [ $landscape = 0 ]
+        then offset="(0,0.5h) (0.5w,0.5h) (0,0) (0.5w,0)"
+        else offset="(0.5w,0) (0.5w,0.5h) (1w,0) (1w,0.5h)"
+        fi ;;
+8)      scale=@0.3536
+        if [ $landscape = 0 ]
+        then offset="(0.5w,0) (0.5w,0.25h) (0.5w,0.5h) (0.5w,0.75h)\
+                     (1w,0) (1w,0.25h) (1w,0.5h) (1w,0.75h)"
+        else offset="(0,0.75h) (0.5w,0.75h) (0,0.5h) (0.5w,0.5h)\
+                     (0,0.25h) (0.5w,0.25h) (0,0) (0.5w,0)"
+        fi
+        landscape=`expr 1 - $landscape` ;;
+9)      scale=@0.3333
+        if [ $landscape = 0 ]
+        then offset="(0,0.666h) (0.333w,0.666h) (0.666w,0.666h)\
+                     (0,0.333h) (0.333w,0.333h) (0.666w,0.333h)\
+                     (0,0) (0.333w,0) (0.666w,0)"
+        else offset="(0.333w,0) (0.333w,0.333h) (0.333w,0.666h)\
+                     (0.666w,0) (0.666w,0.333h) (0.666w,0.666h)\
+                     (1w,0) (1w,0.333h) (1w,0.666h)"
+        fi ;;
+esac
+
+if [ $landscape = 0 ]
+then rotate=
+else rotate=L
+fi
+
+options= sep= page=0
+
+set -- ${offset:-""}
+while [ $page -lt $nup ]
+do      options="$options${options:++}$page$rotate$scale$1"
+        page=`expr $page + 1`
+        shift
+done
+
+pstops $width $height "$nup:$options" $io

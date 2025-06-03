@@ -1,0 +1,107 @@
+#!/usr/bin/perl
+#
+#  @(#)newsfrom.faces 1.2 91/11/19
+#
+#  Copyright (c) Steve Kinzler - May 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+@newsgroups = ('cs.system');
+$cols = 12;
+
+$newsrc = "$ENV{'HOME'}/.newsrc";
+$spool = '/usr/spool/news';
+
+# newsfrom.faces - monitor unread news articles in selected newsgroups
+# Steve Kinzler, kinzler@cs.indiana.edu, 3 May 1991
+
+$format = "%s\t%s\t%s\t%s\t%s\t%s\n";
+
+open(NEWSRC, $newsrc);
+while (<NEWSRC>) {
+	chop;
+	next unless /^(.*):\s*(.*)$/;
+	$groups{$1} = $2;
+}
+close NEWSRC;
+
+for $group (@newsgroups) {
+	$dir = $group;
+	$dir =~ s/\./\//g;
+	next unless chdir("$spool/$dir");
+
+	@arts = <[0-9]*>;
+	@read = ();
+
+	for (split(/,/, $groups{$group})) {
+		next unless /^(\d+)-?(\d*)$/;
+		($b, $t) = ($1, $2);
+		$t = $b unless $t;
+		push(@read, grep($_ >= $b && $_ <= $t, @arts));
+	}
+
+	grep($mark{$_}++, @read);
+	@unread = grep(! $mark{$_}, @arts);
+
+	for $art (@unread) {
+		$from = '';
+		$host = '';
+		$subj = '';
+
+		open(ART, $art);
+		while (<ART>) {
+			chop;
+			last if /^$/;
+			if (s/^From:\s*//i) {
+				$from = $_;
+			} elsif (s/^Subject:\s*//i) {
+				s/\s+/ /g;
+				s/Re: />/g;
+				$subj = $_;
+			}
+		}
+		close ART;
+
+		next unless $from;
+
+		$from =~ s/.*<([^>]*)>.*/\1/;
+		$from =~ s/\(.*\)//;
+		$from =~ s/\s.*//;
+
+		while ($from =~ /^@([^:]*):([^:].*)/) {
+			$from = $2; $host = $1;
+		}
+		while ($from =~ /(.*)[%@](.*)/) {
+			$from = $1; $host = $2;
+		}
+		while ($from =~ /([^!]*)!(.*)/) {
+			$from = $2; $host = $1;
+			$host .= '.uucp' unless $host =~ /\./;
+		}
+		while ($from =~ /([^:]*)::(.*)/) {
+			$from = $2; $host = $1;
+		}
+
+		$from =~ y/A-Z/a-z/ unless $from =~ /[a-z]/;
+		$from =~ s/^postmaster$/postmaster/i;
+		$host =~ y/A-Z/a-z/;
+
+		$n++;
+		$list .= sprintf($format, $from, $host, $from, '', $subj, '');
+	}
+}
+
+if (! $n) {
+	print "Cols=1 Rows=1\n";
+	printf $format, 'nonews', '', 'No news', '', $newsgroups[0], '';
+} else {
+	printf $format, $from, $host, $from, $n, '', '';
+	printf "Cols=%d Rows=%d\n",
+		($n > $cols) ? $cols : $n, ($n - 1) / $cols + 1;
+	print $list;
+}

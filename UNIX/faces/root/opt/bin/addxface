@@ -1,0 +1,90 @@
+#!/opt/bin/perl
+#
+#  @(#)addxface 1.3 91/11/19
+#
+#  Copyright (c) Steve Kinzler - April 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+# Uncomment this line if you are running a version of faces earlier
+# than version v1.6.0:
+#$olddb = 1;
+
+$faces = '/opt/lib/faces';
+$umask = 000;
+
+# addxface - install any X-Face: in the header of the given mail message
+#	     in the $faces/xface database appropriately
+#
+# Intended as an alternative to "faces -U" and to be used in a .forward file.
+# For example:
+#	kinzler,"|/opt/lib/faces/bin/addxface"
+# Overwrites any existing face.  User 'daemon' will need write permissions
+# in $faces/xface.
+#
+# Steve Kinzler, kinzler@cs.indiana.edu, April 1991
+
+while (<>) {
+	last if /^$/;
+	/^(\S*)\s*(.*)/;
+	$f = $1; $v = $2;
+	if ($f =~ /./) {
+		$field = $f;
+		$field =~ y/A-Z/a-z/;
+		$hdr{$field} = $v;
+	} else {
+		$hdr{$field} .= " $v";
+	}
+}
+
+exit unless defined $hdr{'x-face:'};
+$from = $hdr{'from:'};
+
+$from =~ s/.*<([^>]*)>.*/\1/;
+$from =~ s/\(.*\)//;
+$from =~ s/\s.*//;
+
+while ($from =~ /^@([^:]*):([^:].*)/) {
+	$from = $2; $host = $1;
+}
+while ($from =~ /(.*)[%@](.*)/) {
+	$from = $1; $host = $2;
+}
+while ($from =~ /([^!]*)!(.*)/) {
+	$from = $2; $host = $1;
+	$host .= '.uucp' unless $host =~ /\./;
+}
+while ($from =~ /([^:]*)::(.*)/) {
+	$from = $2; $host = $1;
+}
+
+$from =~ s/^(.{0,20}).*/\1/;
+$from =~ y/A-Z/a-z/ unless $from =~ /[a-z]/;
+$from =~ s/^postmaster$/postmaster/i;
+
+chop($host = `domainname`) if $host eq '';
+chop($host = `hostname`)   if $host eq '';
+     $host = 'localhost'   if $host eq '';
+
+$host =~ s/^[^\.]*.// while length $host > 20;
+$host =~ y/A-Z/a-z/;
+
+$dir = ($olddb) ?
+	"$faces/xface/$host/$from" :
+	"$faces/xface/" . join('/', reverse(split(/\.+/, $host))) . "/$from";
+
+umask $umask;
+system("mkdir -p $dir");
+
+open(FACE, "| $faces/bin/uncompface - | $faces/bin/ikon2xbm > $dir/face.xbm");
+print FACE $hdr{'x-face:'};
+close FACE;
+
+open(LOG, ">> $faces/xface/.log");
+print LOG "$host/$from $hdr{'from'}\n";
+close LOG;

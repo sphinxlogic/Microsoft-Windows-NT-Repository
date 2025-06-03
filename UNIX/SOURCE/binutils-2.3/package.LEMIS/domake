@@ -1,0 +1,127 @@
+# Make everything script
+# Greg Lehey, LEMIS, 16 January 1994
+# This is invoked from the top-level Makefile, which 
+# sets up to five environment variables:
+#
+# package - name of the directory
+# install - set if we want to install the finished package
+# make-package - set to the name of a script (in SOURCE/cdtools-1.3) to do the make
+# clean - set if we want to subsequently make clean
+# compress - set if we want to gzip the directory after the make
+# This can be mkmkpk, to always rebuild prototype file,
+# mkpackage, to never rebuild it (and fail if it is missing),
+# or make-package, to make it when needed.
+
+if [ "$CDROM" = "" ]; then
+  CDROM=/cdcopy
+fi
+TOOLS=$CDROM/SOURCE/cdtools-1.3
+TIMESTAMP=/tmp/cdtools-package_start
+SOURCE=$CDROM/SOURCE
+PACKAGE=$SOURCE/$package
+echo +++ make package script: $make_package
+if [ "$clean" != "" ]; then
+   echo +++ subsequently perform make clean
+fi
+if [ "$compress" != "" ]; then
+   echo +++ subsequently compress directory
+fi
+cd $PACKAGE
+. package.LEMIS/makedefs		# get information on steps to make depend, make, install
+if [ "$install" != "" ]; then 		# going to build new package,
+  PACKAGE=`grep PKG package.LEMIS/pkginfo|sed 's/PKG=//'` # extract name from pkginfo
+  if [ "$PACKAGE" = "" -o "$PACKAGE" = "uninitialised!" ]; then # nothing useful
+    echo Invalid `pwd`/package.LEMIS/pkginfo
+    exit 1
+  fi
+fi
+if [ "$xmkmf" != "" ]; then		# got a make depend
+  echo +++ making Makefiles
+  for i in $xmkmf; do
+    comm=`echo $i | sed 's/~/ /g'`
+    echo --\> $comm
+    $comm
+    if [ $? != 0 ]; then		# bombed out
+      exit 1;
+    fi
+  done
+fi
+if [ "$depend" != "" ]; then		# got a make depend
+  echo +++ making dependencies
+  for i in $depend; do
+    comm=`echo $i | sed 's/~/ /g'`
+    echo --\> $comm
+    $comm
+    if [ $? != 0 ]; then		# bombed out
+      exit 1;
+    fi
+  done
+fi
+echo +++ making package
+for i in $domake; do
+  comm=`echo $i | sed 's/~/ /g'`
+  echo --\> $comm
+  $comm
+  if [ $? != 0 ]; then			# bombed out
+    exit 1;
+  fi
+done
+if [ "$install" != "" ]; then
+  if [ -s $TIMESTAMP ]; then		# something going on already?
+    name=`cat $TIMESTAMP`		# find out who it is
+    if [ "$name" != "$package" ]; then	# not us,
+      echo Package $name currently building, can\'t continue
+      exit 1
+    fi
+  fi
+  echo $package > $TIMESTAMP		# for deciding what we have installed
+  echo +++ Installing package
+  for i in $doinstall; do
+    comm=`echo $i | sed 's/~/ /g'`
+    echo --\> $comm
+    $comm
+    if [ $? != 0 ]; then		# bombed out
+      exit 1;
+    fi
+  done
+  echo +++ linking documentation
+  linkdoc $package
+  if [ $? != 0 ]; then			# bombed out
+    exit 1;
+  fi
+  cp README.LEMIS /opt/README/$package	# README file
+  echo +++ Building installable package
+  $make_package $package
+  rm $TIMESTAMP				# finished our install, tidy up
+fi
+if [ $? != 0 ]; then			# bombed out
+  exit 1;
+fi
+if [ "$clean" != "" ]; then
+  echo +++ Making clean
+  for i in $doclean; do
+    comm=`echo $i | sed 's/~/ /g'`
+    echo --\> $comm
+    $comm
+    if [ $? != 0 ]; then		# bombed out
+      exit 1;
+    fi
+  done
+  # tidy up the package a bit
+  echo Cleaning up source directory
+  find . -name core -exec rm {} \;
+  find . -name "*~" -exec rm {} \;
+  find . -name "make.log*" -exec rm {} \;
+  find . -name "#*" -print|xargs rm -f
+fi
+if [ $? != 0 ]; then			# bombed out
+  exit 1;
+fi
+cd .. 
+if [ "$compress" != "" ]; then
+  echo +++ Compressing directory into archive
+  tar cf - $package | gzip >$package.tar.gz
+  if [ $? = 0 ]; then			# gzip worked OK,
+    rm -rf $package			# remove the directory hierarchy
+  fi
+fi

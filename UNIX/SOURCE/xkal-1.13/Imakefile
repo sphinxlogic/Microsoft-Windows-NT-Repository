@@ -1,0 +1,154 @@
+#
+#	Imakefile for xkal - X appointment calendar
+#
+#	George Ferguson, ferguson@cs.rochester.edu, 15 Oct 1990.
+#	Version 1.1 - 27 Feb 1991.
+#
+#	$Id: Imakefile,v 2.3 91/03/13 13:30:40 ferguson Exp $
+#
+
+#
+# Here's what to change to customize the installation...
+#
+# Where do you want this stuff (if the defaults aren't okay)?
+#
+BINDIR = /usr/X/bin
+LIBDIR = /usr/X/lib
+MANDIR = /opt/man/man1
+
+#
+# Where is the ezMenu package?
+#
+EZMENU_DIR =		/source/cdrom/SOURCE/ezMenu
+EZMENU_INCLUDES =	-I$(EZMENU_DIR)
+EZMENU_LIBRARIES =	-L$(EZMENU_DIR) -lezMenu$(TARGET_MACH)
+
+#
+# Where is the app-defaults to C converter?
+# Only needed if you change the app-defaults file Xkal.ad and want the changes
+# compiled into the program. If you don't have ad2c you should remove the
+# extra clean target for Xkal.ad.h below. If you lose Xkal.ad.h and can't
+# remake it, create it to be a line containing NULL (i.e. those four
+# characters) only.
+#
+AD2C = ad2c
+
+#
+# Do you want to use popup alert boxes (can you compile them)? If not,
+# comment out these definitions and error messages will go to stderr.
+#
+ALERTC = alert.c
+ALERTO = alert.o
+ALERTDEFS = -DUSE_ALERT
+
+#
+# Is dysize(3) in your standard library? If not, you need these definitions.
+# It appears that Ultrix and maybe SGI systems need this for sure.
+#
+# Needed in SVR4.2 as well (Greg Lehey, LEMIS, 18 May 1993)
+DYSIZEC = dysize.c
+DYSIZEO = dysize.o
+
+#
+# Is strcasecmp(3) in your standard library? If not, you need these definitions.
+# It appears that at least Sun 386i systems need this for sure.
+#
+# Also SVR4.2 (Greg Lehey, LEMIS, 18 May 1993)
+STRCASECMPC = strcasecmp.c
+STRCASECMPO = strcasecmp.o
+
+#
+# This is -g for debugging or -O for optimization (or nothing).
+#
+# Why do people put this stuff in the Imakefile? (Grog, 17 May 1993)
+# CDEBUGFLAGS = -g
+
+#	#	#	#	#	#	#	#	#	#
+# Nothing to change below here
+#
+
+PROGRAMS	=	xkal xkal2xremind xkal2pcal
+DEFINES		=	-DXAPPLOADDIR=\"$(XAPPLOADDIR)\" $(ALERTDEFS)
+EXTRA_INCLUDES  =	$(EZMENU_INCLUDES)
+LOCAL_LIBRARIES =	$(EZMENU_LIBRARIES) XawClientLibs
+
+#
+# These definitions are for xkal itself
+#
+# Was:
+# SRCS1 = xkal.c month.c day.c edit.c edit-defaults.c db.c \
+#	util.c date-strings.c resources.c string-convert.c \
+#	$(ALERTC) $(DYSIZEC) $(STRCASECMPC)
+# OBJS1 = xkal.o month.o day.o edit.o edit-defaults.o db.o \
+#	util.o date-strings.o resources.o string-convert.o \
+#	$(ALERTO) $(DYSIZEO) $(STRCASECMPO)
+# (Greg Lehey, LEMIS, 18 May 1993)
+# but we have trouble with and don't need string-convert.c, so
+
+SRCS1 = xkal.c month.c day.c edit.c edit-defaults.c db.c \
+	util.c date-strings.c resources.c strcasecmp.c \
+	$(ALERTC) $(DYSIZEC) $(STRCASECMPC)
+OBJS1 = xkal.o month.o day.o edit.o edit-defaults.o db.o \
+	util.o date-strings.o resources.o strcasecmp.o\
+	$(ALERTO) $(DYSIZEO) $(STRCASECMPO)
+
+ComplexProgramTarget_1(xkal,$(LOCAL_LIBRARIES),)
+InstallAppDefaults(Xkal)
+InstallNonExec(xkal.appoints,$(LIBDIR))
+
+#
+# These definitions are for xkal2xremind
+#
+OBJS2 = xkal2xremind.o resources.o db.o util.o date-strings.o $(STRCASECMPO) $(DYSIZEC)
+SRCS2 = xkal2xremind.c resources.c db.c util.c date-strings.c $(STRCASECMPC) $(DYSIZEO)
+
+ComplexProgramTarget_2(xkal2xremind,$(XTOOLLIB) $(XLIB),)
+
+#
+# These definitions are for xkal2pcal
+#
+OBJS3 = xkal2pcal.o resources.o db.o util.o date-strings.o $(STRCASECMPO) $(DYSIZEC)
+SRCS3 = xkal2pcal.c resources.c db.c util.c date-strings.c $(STRCASECMPC) $(DYSIZEO)
+
+ComplexProgramTarget_3(xkal2pcal,$(XTOOLLIB) $(XLIB),)
+
+#
+# This definition installs xkal-mail and xkal-automail
+#
+install::
+	$(INSTALL) -c $(INSTPGMFLAGS) xkal-mail xkal-automail $(BINDIR)
+InstallManPage(xkal-mail,$(MANDIR))
+InstallManPage(xkal-automail,$(MANDIR))
+
+
+#
+#	Generate C code for fallback resources
+#
+Xkal.ad.h: Xkal.ad
+	$(AD2C) Xkal.ad >Xkal.ad.h
+
+clean::
+	$(RM)
+
+# The above was:
+#	$(RM) Xkal.ad.h
+# but that requires ad2h, upon which we don't want to depend (Greg Lehey, 17 May 1993)
+
+#
+#	Miscellaneous other rules:
+#
+ci:
+	ci -u *.c *.h Xkal.ad xkal.man xkal.appoints Imakefile
+
+tar:
+	tar cvf - \
+		README Imakefile Makefile Xkal.ad \
+		alert.c alert.h app-resources.h date-strings.c date-strings.h \
+		day.c day.h db.c db.h dysize.c edit-defaults.c edit-defaults.h \
+		edit.c edit.h month.c month.h patchlevel.h \
+		resources.c resources.h strcasecmp.c \
+		strcasecmp.c string-convert.c util.c util.h \
+		xkal-automail xkal-automail.man xkal-mail xkal-mail.man \
+		xkal.appoints xkal.c xkal.h xkal.man \
+		xkal2pcal.c xkal2pcal.man xkal2xremind.c xkal2xremind.man | \
+	    compress >xkal.tar.Z

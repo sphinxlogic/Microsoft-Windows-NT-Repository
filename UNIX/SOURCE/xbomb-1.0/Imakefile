@@ -1,0 +1,221 @@
+
+/**/#
+/**/# xbomb imakefile
+/**/#
+/**/# @(#)Imakefile	1.16 (UCLA) 10/22/92
+/**/#
+
+
+
+
+/**/#
+/**/# BEGIN: User customizable things.
+/**/#
+
+/**/# You probably want to change where things go
+         EXEDIR = /opt/bin
+       XBLIBDIR = /opt/lib
+      SCOREFILE = $(XBLIBDIR)/xbomb_score
+      BITMAPDIR = $(XBLIBDIR)/bitmaps
+/* solverdir will contain executables */
+      SOLVERDIR = $(XBLIBDIR)/solvers
+
+/**/# You may want to make things not-setuid.
+/**/# If so, scores must be world-writable.
+     XBOMBFLAGS = -o bin -m 4755
+    SOLVERFLAGS = -o bin
+    BITMAPFLAGS = -o bin -m 644
+     SCOREFLAGS = -o bin -m 644
+    CDEBUGFLAGS = -g -O3
+
+/*
+ * You may not have perl, or wish to install the perl solvers.
+ * If you don't have perl, comment out the next line in the Imakefile.
+ */
+/*#define INSTALLPERLSOLVERS 1
+           PERL = /opt/bin/perl
+*/
+
+/**/# Your man pages may have funny endings.
+ GAMESMANSUFFIX = 6
+
+/**/# Things for various kinds of system brain-damange.
+/*
+ * If your make doesn't have +=, uncomment this line.
+ * (It seems like this should be in Imake somewhere.)
+ * Or get GNU Make or pmake, a real persons make.
+ */
+#define StupidMakeLacksPlusEquals
+
+/**/# If your C libraries lack strdup, define LACKS_STRDUP.
+/**/# (It's such a hard thing to QA, I can see why they don't provide it.)
+/* Uncomment the following line, if necessary. */
+/* #define StupidLibcLacksStrdup */
+
+/**/#
+/**/# END: User customizable things.
+/**/#
+
+
+
+#ifdef StupidLibcLacksStrdup
+#define ProvideStrdup -DLACKS_STRDUP
+#else
+#define ProvideStrdup
+#endif
+
+DEFINES = -D_PATH_SCORE='"$(SCOREFILE)"' -D_PATH_SOLVERS='"$(SOLVERDIR)"' -D_PATH_BITMAPS='"$(BITMAPDIR)"' ProvideStrdup
+
+
+/*
+ * Some helpful targets
+ */
+#ifdef StupidMakeLacksPlusEquals
+#define SharFiles(files)
+#else
+#define SharFiles(files) TOSHAR += files
+#endif
+
+#define SolverTarget(EXE,OBJS)						@@\
+									@@\
+AllTarget(EXE)								@@\
+									@@\
+NormalProgramTarget(EXE,OBJS solver_io.o,/**/,/**/,/**/)		@@\
+InstallProgramWithFlags(EXE,$(SOLVERDIR),$(SOLVERFLAGS))		@@\
+									@@\
+clean::									@@\
+	$(RM) $(PROGRAM)
+
+#define PerlifyScript(src,dest)						@@\
+
+
+#define PerlSolverTarget(exe)						@@\
+									@@\
+exe.script: exe								@@\
+	sed "s;/usr/.*/perl;$(PERL);" <exe >exe.script			@@\
+									@@\
+SharFiles(exe)								@@\
+									@@\
+InstallScript(exe,$(SOLVERDIR))
+
+/*
+ * We have our own InstallManPage so that we can put things
+ * in the games directory.  What a pain.  Don't those people
+ * at MIT play any games?
+ */
+#define	InstallGamesManPage(file)					@@\
+install.man:: file.man							@@\
+	MakeDir($(DESTDIR)$(OURMANSUFFIX))				@@\
+	$(INSTALL) -c $(INSTMANFLAGS) file.man $(MANSOURCEPATH)$(GAMESMANSUFFIX)/file.$(GAMESMANSUFFIX)
+
+
+/*
+ * The real work
+ */
+
+SRCS = $(XBOMB_SRCS) pattern_solver.c forced_solver.c prob_solver.c \
+	solver_io.c infer_solver.c
+SharFiles($(SRCS))
+
+HFILES = patchlevel.h solver_io.h xbomb.h icon.bit
+SharFiles($(HFILES))
+
+MANPAGE = xbomb.man
+
+SharFiles($(MANPAGE))
+
+
+/**/#
+/**/# xbomb is done by hand
+/**/#
+XBOMB_SRCS = main.c map.c applications.c actions.c graphics.c solvers.c score.c
+XBOMB_OBJS = main.o map.o applications.o actions.o graphics.o solvers.o score.o
+
+AllTarget(xbomb)
+NormalProgramTarget(xbomb,$(XBOMB_OBJS),/**/,/**/,$(XLIB))
+InstallProgramWithFlags(xbomb,$(EXEDIR),$(XBOMBFLAGS))
+
+InstallGamesManPage(xbomb)
+
+clean::
+	$(RM) xbomb
+
+
+/**/#
+/**/# solvers follow
+/**/#
+SolverTarget(pattern_solver,pattern_solver.o)
+
+SolverTarget(forced_solver,forced_solver.o)
+
+SolverTarget(prob_solver,prob_solver.o)
+
+SolverTarget(infer_solver,infer_solver.o)
+
+#ifdef INSTALLPERLSOLVERS
+PerlSolverTarget(statistics)
+
+PerlSolverTarget(debug_solver)
+#endif
+
+
+/**/#
+/**/# administrative stuff
+/**/#
+
+DependTarget()
+
+/**/# scorefile installation
+install.scorefile:
+	install  $(SCOREFLAGS) scorefile $(SCOREFILE)
+
+install:: install.scorefile
+
+/**/# bitmap installation
+
+install:: install.bitmaps
+
+/* This bogosity is my fault.  -JSH */
+install.bitmaps: bitmap.files
+	MakeDir($(BITMAPDIR))
+	for i in `cat bitmap.files`; \
+	do \
+		j=`echo $$i|sed 's:^./bitmaps:./:'`; \
+		if [ "$$j" != "./" ]; then \
+			if [ -d $$i ]; then \
+				echo Installing dir $$i...; \
+				test -d $(BITMAPDIR)/$$j || $(MKDIRHIER) $(BITMAPDIR)/$$j; \
+			else \
+				echo Installing bitmap $$i...; \
+				$(INSTALL) -c $(BITMAPFLAGS) $$i $(BITMAPDIR)/`dirname $$j`; \
+			fi; \
+		fi; \
+	done
+	@echo Bitmaps installed.
+
+/**/#
+/**/# distribution
+/**/#
+
+SharFiles(README TODO Imakefile Makefile.std)
+
+bitmap.files:
+	find ./bitmaps \( -name \*.bit -o -type d \) -print >bitmap.files
+
+#ifdef StupidMakeLacksPlusEquals
+kit:
+	@echo 'Your make lacks +=, so make kit is disabled.'
+
+shar:
+	@echo 'Your make lacks +=, so make shar is disabled.'
+#else
+kit: Makefile.std
+	makekit $(TOSHAR) `cat bitmap.files`
+
+shar: Makefile.std
+	shar $(TOSHAR) `cat bitmap.files` >xbomb.shar
+#endif
+
+Makefile.std:
+	cp Makefile Makefile.std
+

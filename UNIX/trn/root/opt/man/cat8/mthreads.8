@@ -1,0 +1,330 @@
+
+
+
+MTHREADS(8)           MAINTENANCE COMMANDS            MTHREADS(8)
+
+
+
+NNNNAAAAMMMMEEEE
+     mthreads | threaded database manager for trn
+
+SSSSYYYYNNNNOOOOPPPPSSSSIIIISSSS
+     mmmmtttthhhhrrrreeeeaaaaddddssss [[[[||||dddd[[[[MMMMMMMM]]]]]]]] [[[[||||eeee[[[[HHHHHHHHMMMMMMMM]]]]]]]] [[[[||||aaaaccccDDDDffffkkkknnnnssssttttvvvvzzzz]]]] [[[[hhhhiiiieeeerrrraaaarrrrcccchhhhyyyy____lllliiiisssstttt]]]]
+
+DDDDEEEESSSSCCCCRRRRIIIIPPPPTTTTIIIIOOOONNNN
+     _M_t_h_r_e_a_d_s manages the thread  files  that  are  used  by  the
+     _t_r_n(1)  newsreader.  "Thread files" are used to store infor-
+     mation about the news articles and how they are all  related
+     to one another.
+
+     _M_t_h_r_e_a_d_s should be run periodically  to  update  the  thread
+     database  as new news arrives.  It can be run in single|pass
+     mode (out of cron), in daemon mode, or in a  combination  of
+     the  two.   A  site that gets its news feed during the night
+     may just want to run mthreads once a day  (trn  will  handle
+     any  local  postings  that show up between passes).  If more
+     processing is needed, either run mthreads more often or  run
+     it  in daemon mode.  In daemon mode, a background process is
+     forked off that wakes up every 10 minutes  (by  default)  to
+     check  if  the  active  file  has  been  updated.   When the
+     mthreads daemon is sleeping between passes, it  is  possible
+     to run an mthreads single pass.  This is often useful if you
+     wish to run an enhanced expire pass more  than  once  a  day
+     (see the -c and -e options).
+
+IIIINNNNSSSSTTTTAAAALLLLLLLLAAAATTTTIIIIOOOONNNN
+     _M_t_h_r_e_a_d_s in installed in the RNLIB directory  chosen  during
+     configuration.   When  it is run for the first time, it will
+     automatically create a file  called  _a_c_t_i_v_e_2  in  the  MTLIB
+     directory.   This  file  is essentially a copy of the active
+     file that keeps the newsgroup totals from the  last  run  in
+     one place.  It is also used to choose which groups are to be
+     processed into  thread  files.   All  groups  start  out  as
+     "unthreaded" unless they are turned on with a command like:
+
+          mthreads all
+
+     which would create thread file  for  all  the  groups.   For
+     testing purposes it is a good idea to start out small with a
+     command like:
+
+          mthreads news
+
+     which would thread only the news hierarchy.  Thread process-
+     ing  can be turned on or off for individual groups or entire
+     hierarchies by specifying the groups in a syntax very  simi-
+     lar  to  that used in the sys file.  For example, to turn on
+     all of soc and talk except for talk.politics,  and  to  turn
+     off news.lists, use the following command once:
+
+
+
+
+AT&T Bell Laboratories Last change: LOCAL                       1
+
+
+
+
+
+
+MTHREADS(8)           MAINTENANCE COMMANDS            MTHREADS(8)
+
+
+
+          mthreads soc,talk,!talk.politics,!news.lists
+
+     If mthreads  complains  that  another  mthreads  process  is
+     already  running,  you  can  use the -c option to tell it to
+     continue trying to lock instead of giving up.
+
+     Once all the desired groups are  turned  on,  the  hierarchy
+     list  should  be  omitted  to  allow mthreads to process all
+     enabled groups.  It can be  used,  however,  in  conjunction
+     with  the -a option to customize which new groups get turned
+     on as they are created.
+
+LLLLOOOOGGGGGGGGIIIINNNNGGGG
+     As mthreads executes,  some  status  information  (including
+     error  messages)  is  placed in the file mt.log in the MTLIB
+     directory, unless you chose to use SYSLOG.  This  file  will
+     grow  without bounds, and should be scanned periodically for
+     errors, and trimmed in size when it grows  too  large.   See
+     the shell script _m_t._c_h_e_c_k for an mt.log maintainer that will
+     send mail if it finds database errors.
+
+OOOOPPPPTTTTIIIIOOOONNNNSSSS
+     ----aaaa   is used to automatically turn on thread processing  for
+          new  news groups as they are created.  When this option
+          is specified, the hierarchy list is used to limit which
+          new  groups get enabled (omitting the hierarchy list is
+          the same as specifying "all").  The default without  -a
+          is to leave new groups unthreaded.
+
+     ----cccc   will continue trying to lock the mthreads database  for
+          a single pass instead of giving up.  This is useful for
+          running special commands out of cron while an  mthreads
+          daemon is active.
+
+     ----DDDD   specifies debug  processing.   Any  errors  encountered
+          reading a thread file will rename the offending file to
+          "bad.read".  Any errors detected while generating a new
+          thread  file  will  rename the file to "bad.write".  If
+          more than one 'D' is specified, each  group's  name  is
+          output into the log file before it is processed.
+
+     ----dddd   is used to specify  the  daemon  mode,  where  _m_t_h_r_e_a_d_s
+          forks  a background task that periodically wakes up and
+          checks for an  updated  active  file.   The  number  of
+          minutes  to  wait after the completion of the last pass
+          can be specified after the  '|d'  option  (e.g.  |d20),
+          otherwise it will default to 10 minutes.
+
+     ----eeee   tells _m_t_h_r_e_a_d_s to run an enhanced expiration  check  on
+          the database.  Without this option, only articles below
+          the minimum field in the active file are expired.  With
+          this  option,  mthreads  will periodically list all the
+
+
+
+AT&T Bell Laboratories Last change: LOCAL                       2
+
+
+
+
+
+
+MTHREADS(8)           MAINTENANCE COMMANDS            MTHREADS(8)
+
+
+
+          article numbers to see which ones actually  exist.   In
+          single|pass  mode  the  ||||eeee  option  always  affects the
+          current pass | use it at lease once a day after  expire
+          has  run.  In daemon mode, the ||||eeee option will cause one
+          pass a day to be the enhanced expire pass.  By default,
+          this  is  the  first time mthreads wakes up after 12:30
+          am.  If a different time is desired, it can  be  speci-
+          fied in the form HHMM (e.g. |e2359).
+
+     ||||ffff   is used to force _m_t_h_r_e_a_d_s to open each and every thread
+          file  to  see which ones really need to be updated, not
+          just the ones that differ in  the  active/active2  com-
+          parison.   It  will  also  remove any extraneous thread
+          files from unthreaded groups (which should  only  occur
+          if  you manually change the active2 file).  This option
+          should only be used when manipulating the thread  files
+          in unorthodox ways.
+
+     ||||kkkk   can be used to terminate the currently running mthreads
+          daemon,  just as if it had received a terminate signal.
+          When this option is specified,  no  other  activity  is
+          performed.
+
+     ||||nnnn   tells _m_t_h_r_e_a_d_s that  no  actual  processing  of  thread
+          files  is  to  be  performed.  This can be used to just
+          adjust which groups are enabled, without actually doing
+          any of the processing right away.
+
+     ||||ssss<<<<uuuusssseeeecccc>>>>
+          tells mthreads to sleep for <usec> microseconds  before
+          processing  each  article.  This is useful if your NNTP
+          server cannot handle mthreads running  at  full  speed.
+          Using  ||||ssss  by itself will sleep for an entire second to
+          be compatible with older versions of mthreads.
+
+     ||||tttt   is used to make mthreads update the  active.times  file
+          (as  specified during configuration) with new directory
+          names as they are encountered.  Don't use  this  option
+          if your news software maintains this file for you (as C
+          news does).
+
+     ||||vvvv   selects additional levels of verbosity in the log file.
+          The  default  (without |v) is to log mthread's startup,
+          the totals for each pass, and  major  database  errors.
+          Add  one ||||vvvv to get extra reference line problems logged
+          into the file.  Add a second and a third for even  more
+          (useless?)  information.   A fourth will cause mthreads
+          to output each group's name into the log file before it
+          is processed.
+
+     ||||zzzz   tells mthreads to 'zap' any thread file it believes  to
+          be corrupt.  This will allow the file to be regenerated
+
+
+
+AT&T Bell Laboratories Last change: LOCAL                       3
+
+
+
+
+
+
+MTHREADS(8)           MAINTENANCE COMMANDS            MTHREADS(8)
+
+
+
+          from scratch on the next pass.
+
+     hhhhiiiieeeerrrraaaarrrrcccchhhhyyyy____lllliiiisssstttt
+          The hierarchy list is used to turn thread processing on
+          or  off  for the listed groups while limiting itself to
+          updating only the listed groups.  If specified with the
+          -a option, however, it only limits which new groups get
+          enabled.  The groups are specified  in  a  manner  very
+          similar  to  the  news  software's  sys  file:   "news"
+          matches all groups in news; "!news" excludes all groups
+          in news; "comp.all.ibm.pc,!comp.all.ibm.pc.all" matches
+          both comp.sys.ibm.pc and comp.binaries.ibm.pc, but  not
+          comp.binaries.ibm.pc.d.
+
+OOOOUUUUTTTTPPPPUUUUTTTT
+     When _m_t_h_r_e_a_d_s is run in  single|pass  mode  it  generates  a
+     stream  a  status characters on stdout that present a visual
+     display of what is happening.  If single|pass mode  is  used
+     for  regular  processing,  this  output can be redirected to
+     /dev/null.
+
+     The output definitions:
+          '.' = group's entry is up to date
+          ':' = group processed | no change
+          '#' = group processed
+          '|' = group processed | is now empty
+          'x' = group excluded in active
+          'X' = group excluded in active2
+          '*' = unable to access a group
+          '!' = write failed (bad news)
+          'e' = informational error
+          'E' = database|affecting error
+
+CCCCOOOONNNNFFFFIIIIGGGGUUUURRRRAAAATTTTIIIIOOOONNNN
+     During the configuration of _t_r_n, a  choice  was  made  about
+     where  to place the thread data files.  They either exist as
+     a .thread file in each group's spool directory, or they  are
+     each  a  group.th  file  in a one|off directory structure on
+     another drive.  See the THREAD_DIR definition in config.h to
+     review or change this definition.
+
+RRRREEEEBBBBUUUUIIIILLLLDDDDIIIINNNNGGGG
+     If the thread files are ever removed, also remove  the  file
+     db.init  in  the  THREAD_DIR.   This file contains the byte|
+     order of the machine that generated the database, and  needs
+     to  be  removed to truly start from scratch.  An easy way to
+     get _m_t_h_r_e_a_d_s to remove all the files except for  db.init  is
+     to specify the command:
+
+          mthreads !all
+
+
+
+
+
+AT&T Bell Laboratories Last change: LOCAL                       4
+
+
+
+
+
+
+MTHREADS(8)           MAINTENANCE COMMANDS            MTHREADS(8)
+
+
+
+     This also turns off thread processing for all groups.
+
+EEEERRRRRRRROOOORRRR HHHHAAAANNNNDDDDLLLLIIIINNNNGGGG
+     If the active2 file is removed  or  corrupted,  it  will  be
+     automatically  rebuilt  in  the  normal course of operation.
+     The record of which groups should be threaded will be  lost,
+     however.   Missing/corrupted  thread files are automatically
+     re|built.
+
+EEEEXXXXAAAAMMMMPPPPLLLLEEEESSSS
+     Recommended commands to run on a regular basis are:
+
+          mthreads |dave0630
+
+     to start up an mthreads daemon in verbose logging mode  that
+     automatically  threads  new  groups and performs an extended
+     expire at 6:30 am, or:
+
+          mthreads |e >/dev/null
+
+     to run an mthreads single|pass  with  extended  expire  that
+     leaves new groups unthreaded.
+
+FFFFIIIILLLLEEEESSSS
+     /usr/lib/news/active
+     $MTLIB/active2
+     $MTLIB/mt.log
+     $THREAD_DIR/db.init
+     $MTLIB/LOCKmthreads
+     Lots of thread data files.
+
+AAAAUUUUTTTTHHHHOOOORRRR
+     Wayne Davison <davison@borland.com>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+AT&T Bell Laboratories Last change: LOCAL                       5
+
+
+

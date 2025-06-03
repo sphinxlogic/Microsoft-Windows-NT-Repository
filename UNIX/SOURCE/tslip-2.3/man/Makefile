@@ -1,0 +1,94 @@
+# Generated automatically from Makefile.in by configure.
+# man subdir Makefile for TSLIP.	-*- Indented-Text -*-
+# @(#)Makefile.in	1.4 (13 Oct 1993)
+
+# ..........................................................................
+#  Copyright 1993, Jim Avera.  All Rights Reserved.
+#  
+#  This program contains new material owned by the above copyright holder,
+#  and may also contain portions derived from existing works used according
+#  to permission granted by the owners of those works.
+# 
+#  You are prohibited from copying, distributing, modifying, or using this
+#  file (or the portions owned by the above copyright holder) except as 
+#  described in the file "COPYRIGHT" which accompanies this program.
+# ..........................................................................
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# ../COPYRIGHT file for details.
+
+#### Start of system configuration section. ####
+
+srcdir = .
+VPATH = .
+
+INSTALL = /opt/bin/install -c
+INSTALL_PROGRAM = $(INSTALL)
+INSTALL_DATA = $(INSTALL) -m 644
+
+prefix = /opt
+exec_prefix = ${prefix}
+
+# Where to install man pages.  Section 1 for user programs, 7 for drivers.
+man1dir = $(prefix)/man/man1
+man1ext = .1
+man7dir = $(prefix)/man/man7
+man7ext = .7
+
+#### End of system configuration section. ####
+
+SHELL = /bin/sh
+
+VERSION = `$(SHELL) ../get_version.sh ../patchlevel.h`
+
+# Do nothing by default
+all .DEFAULT:
+	exit 0
+
+install:
+	@echo "NOTE: Man pages are not installed by default.  To install them,"
+	@echo " do \"make installman\" in the man build directory."
+
+# The section numbers in MAN_SRCS may be mapped to other numbers when installed
+MAN_SRCS = *.1 *.7
+
+installman:
+	-$(SHELL) $(srcdir)/../mkinstalldirs $(man1dir) $(man7dir)
+	@if test -f $(man7dir)/slp$(man7ext) ; then \
+		echo "Removing old slp$(man7ext)"; \
+		(set -x; rm -f $(man7dir)/slp$(man7ext)) \
+	 fi
+	@version=$(VERSION); \
+	 for f in $(MAN_SRCS) ; do \
+		name=`expr $$f : '\(.*\)\..*'`; \
+		case $$f in \
+		*1) manext=$(man1ext); mandir=$(man1dir);; \
+		*7) manext=$(man7ext); mandir=$(man7dir);; \
+		*)  echo "UNKNOWN MAN SOURCE FILE SUFFIX" >&2; exit 1;; \
+		esac; \
+		destpath=$$mandir/$$name$$manext; \
+		echo "Installing $$destpath"; \
+		rm -f $$destpath; \
+		sed -e "s/%VERSION%/$$version/g" \
+		    -e 's/%DRIVER_NAME%/tslip/g' \
+		    $$f > $$destpath; \
+		chmod ugo-w $$destpath; \
+	 done
+
+uninstall: uninstallman
+
+uninstallman:
+	@cd man1; for f in $(MAN1_FILES) ; do \
+		destname=`expr $$f : '\(.*\)\.[0-9]'`; \
+		(set -x; rm -f $(man1dir)/$$destname$(man1ext)) \
+		done
+	@cd man7; for f in $(MAN7_FILES) ; do \
+		destname=`expr $$f : '\(.*\)\.[0-9]'`; \
+		(set -x; rm -f $(man7dir)/$$destname$(man7ext)) \
+		done
+
+Makefile: Makefile.in
+	(cd ..; $(SHELL) config.status)
+

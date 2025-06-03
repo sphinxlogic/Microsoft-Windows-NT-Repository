@@ -1,0 +1,142 @@
+Check the Imakefile for any customisation that needs to be done.
+
+Then
+        xmkmf
+        make Xaw3d       # Only if Xaw3d compatability is required - see below.
+        make
+        make install
+	make install.man
+
+If you want to try out aXe from within the build directory before doing
+the "make install" then execute
+
+	XFILESEARCHPATH=./Axe.ad ./axe
+
+The on-line help won't be available unless you specify 
+
+	AxeLibdir = .
+
+in the Imakefile. If you do that then all then needs to be done before
+final installation is to set AxeLibdir to its correct value in the
+Imakfile and repeat the sequence. 
+
+If you have built for Xaw3d compatability and to want to build
+without, or vice versa, then do a  make Xaw3d  after modifying the
+Imakefile and running xmkmf.
+
+                         ---===---===---===---
+
+Extension Language 
+================== 
+An optional, experimental, extension language facility using Tcl (Tool
+Command Language) is supported. You must have Tcl installed before you
+can incorporate this feature though. As it is not an essential part of
+aXe I have not included Tcl in the distribution. It can be obtained by
+ftp from sprite.berkeley.edu (128.32.150.27) amongst other places. I
+used version 6.4 of Tcl for development and have quickly tried things
+out without ill-effect under 6.6.
+
+                         ---===---===---===---
+
+Xaw3d Compatability
+===================
+Unlike most other applications that use the Athena Widgets aXe cannot
+simply be relinked using an Xaw3d libray in place of the Xaw library
+to obtain an Xaw3d version. Because aXe subclasses some of the Xaw
+widgets it is necessary to take account of the extra information that
+Xaw3d introduces into the widget structures, i.e. the derived widgets
+have to be compiled differently to achieve Xaw3d compatability.
+
+I have tried to achieve that compatability by making as few changes as
+possible to my code. The upshot is that you will only be able to build
+an Xaw3d version using my procedure if your system supports symbolic
+links. The reason for this is that my modules #include <X11/Xaw/...>
+whereas the Xaw3d ones #include <X11/Xaw3d/..>, but in order that both
+should access the Xaw3d header files the build process creates an X11
+directory in the build directory containing symbolic links Xaw and
+Xaw3d that both point to the installed .../include/X11/Xaw3d directory.
+
+This version of aXe is only known to be compatible with versions 0.4,
+0.5 and 0.6 of Xaw3d.
+
+                         ---===---===---===---
+
+Installing aXe outside the X tree
+=================================
+If, like me, you don't like adding contributed software to the standard
+places within the installed X tree then you might be interested in the
+scheme that I use to avoid doing so. Of course, aXe's Imakefile is
+designed to make doing this easy.
+
+I set aside a directory, /usr/local/X11-local, for contributed X
+applications and install each in a subdirecory of its own.  The scheme
+allows for version subdirectories, but that is not mandatory. Each
+version or application directory has a minimum structure consisting of
+bin, lib and lib/app-defaults subdirectories. Others can be added as
+demanded by the application, e.g. man and man/man1. Thus the picture is
+like this:
+
+
+                                  usr
+                                   |
+                                 local
+                                   |
+                               X11-local
+                                   |
+                                 xappl
+                                   |
+                    +-----------------------------+
+                    |              |              |
+                 version1      version2  <---- current
+                                   |
+                    +-----------------------------+
+                    |              |              |
+                   bin            lib            man
+                    |              |              |
+                  xappl        app-defaults      man1
+                                   |              |
+                                 XAppl         xappl.1
+
+
+
+The symbolic link current points to the version currently released to
+users. Thus it is easy to install a new version alongside existing ones
+without affecting their use. Releasing a new version amounts to making
+current point to its version directory, and of course if there are
+problems with it it is easy to switch back to the old one as long as its
+directory hasn't been deleted. As you can see, deleting an old version
+is simplicity itself because it is not scattered across several
+directories.
+
+Therefore, when I build aXe I make assignments like these in the
+Imakefile:
+
+	Store   = /usr/local/X11-local/axe/3.1
+	Bindir  = ${Store}/bin
+	Appdir  = ${Store}/lib/app-defaults
+	Mandir  = ${Store}/man/man1
+	Helpdir = ${Store}/lib
+
+The key to making all this work is the script xany, whhich is included
+in the distribution. It should be installed in a directory where users
+normally find commands, e.g.  /usr/local/bin, and a link made to it for
+every application that falls within the scheme, e.g. ln xany axe.
+Briefly, what happens is that for application xappl it constructs and
+executes the command
+
+XFILESEARCHPATH=/usr/local/X11-local/xappl/current/lib/app-defaults/%N \
+                               /usr/local/X11-local/xappl/current/bin/xappl $@
+
+The component current is omitted if /usr/local/X11-local/xappl/current
+does not exist. 
+
+I always make any symbolic links that are needed, e.g. in
+/usr/local/man/man1 for the man page, in terms of current, so that once
+they have been made they are always up to date as versions come and go.
+
+
+Jim
+---
+J.K.Wight@newcastle.ac.uk
+Department of Computing Science, University of Newcastle,  Tel: +44 91 222 8238
+Newcastle upon Tyne, NE1 7RU, United Kingdom.              Fax: +44 91 222 8232

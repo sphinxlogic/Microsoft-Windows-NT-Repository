@@ -1,0 +1,56 @@
+#!/bin/sh  
+# written by Bruce Barnett <barnett@crdgw1.ge.com>
+# Inspired from
+#	Dan Long
+# 	CSNET Technical Staff
+# 	long@sh.cs.net
+#
+#	This script converts the sendmail debug output into something 
+#	easier to parse.
+#	Some sendmail programs output ^V, ^W, ^X
+#	This script converts ^V to $#, ^X to $:, and ^W to $@
+#	This matches Ultrix 3.1. SunOS 3.5 is different
+#	Other sendmail versions output in the $:, $@, $# format
+#	So this script just ignores those characters, 
+#	as they are already correct.
+#
+#define your sendmail program compiled for debug
+SENDMAIL=/usr/lib/sendmail
+if [ $# -lt 2 ]
+then
+	echo 'Usage: showhow rulesets address [mailer]' 1>&2;exit 2;
+fi
+#FLAGS='-d21.12'
+FLAGS=''
+case $1 in
+0*)
+	echo "$1 $2" | ${SENDMAIL} -bt -Csendmail.cf $FLAGS  |\
+	egrep '\$\#|\^V' |\
+	tail -1 |tr -d '"' |\
+	sed \
+		-e 's/\^V/$#/' \
+		-e 's/\^X/$:/' \
+		-e 's/\^W/$@/' \
+		-e 's/^[a-zA-Z ][:a-zA-Z0-9 ]*//' \
+		-e 's/local \$:/local $@ local $:/' \
+		-e 's/\$# //' \
+		-e 's/ \$@ /	/' \
+		-e 's/ \$: /	/' \
+		-e 's/ //g' 
+	;;
+*)	# else a rewrite rule for a mailer
+	if [ X$3 = X ]
+	then
+		mailer='-';
+	else
+		mailer=$3;
+	fi
+	echo "$1 $2" | ${SENDMAIL} -bt -Csendmail.cf $FLAGS |\
+	egrep "^rewrite:"|tail -1 |tr -d '" '|\
+	sed "s/^.*:/$mailer	/"
+	;;
+esac
+
+
+
+

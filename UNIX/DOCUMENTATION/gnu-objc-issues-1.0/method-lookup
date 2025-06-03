@@ -1,0 +1,657 @@
+Date: Tue, 15 Sep 92 14:04:15 PDT
+From: Bruce Nilo <bruce@ictv.com>
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: Protocols, Reflection...objc_msgSend()
+
+I think that the ability to override objc_msgSend is just
+one aspect of the general desire to be able to specialize various runtime behaviors. CLOS provides something called the meta object
+kernel which enables advanced programmers to customize the
+the language itself to the point that the default semantics becomes
+something entirely different.
+
+A prior suggestion was made that ideally the runtime should be
+object oriented. In my experience this is quite doable and, if done,
+provides a straight forward means to override a whole host of
+behaviors from message dispatch to instance variable lookup. Moreover
+this behavior would be customized on a per class basis as opposed to
+globally. New "root" objects could be selectively implemented each overriding default low level runtime behaviors defined in Object.
+
+One reason this approach is often eshewed is because supporting this
+level of generality is perceived to impose to great a hit on runtime
+performance for the majority of applications.  This is a valid
+criticism but can be obviated with some relatively straight forward
+compile time optimizations. The most important of these, IMHO, would
+provide for static message dispatching. For  example, if an
+implementor knows that a message dispatch can be  resolved at a
+compile time they could conceivably indicate this by a  clause such
+as [static-self msg: ...] instead of [self msg: ...].
+
+In any event, as far as this project is concerned, I think that an
+object oriented runtime is probably best left for a future release.
+Other interim runtime improvements which improve functionality with
+a minimal time hit, such as Kim's suggestion might well be worth
+doing. Much of this will become more easily evaluated once we can
+all see the runtime version which is nearing the point of public
+release.
+
+Bruce D. Nilo
+VP Software Systems
+ICTV
+
+Date: Wed, 16 Sep 92 01:33:26 -0400
+From: athan@object.com (Andrew C . Athan)
+To: Charles Lloyd <uunet!wiltel!clloyd@uunet.uu.net>
+Subject: Re: Protocols, Reflection...objc_msgSend()
+Cc: gnu-objc@prep.ai.mit.edu
+
+
+> [talk of being able to change objc_msgSend through a function pointer]
+
+You have my vote for flexibility in the message sending mechanism.  My only concern would be efficiency.  An extra pointer dereference per method call may or may not be negligible.  One cool way to possibly avoid this problem is to have the objc_msgSend function be rld'ed (run time linked) from someplace (e.g., a section of the executable image, a file specified in the environment, whatever).  This way, you get to put in the function you want, and it is exactly as efficient as it used to be.  There are disadvantages to this method:  how do you gain access to the old objc_msgSend?
+
+Andrew Athan
+
+Date: Sat, 19 Sep 92 15:01:02 -0400
+From: athan@object.com (Andrew C . Athan)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Good article on Method Dispatch technique
+
+
+Check out September's "Journal of Object Oriented Programming" (an ACM SIGS publication).  There's an article entitled " Efficient Algorithms for Method Dispatch" that presents methods possibly applicable to the GNU Obj-C runtime.
+
+Andrew Athan
+
+From: Steve_Naroff@NeXT.COM (Steve Naroff)
+Date: Mon, 21 Sep 92 15:45:48 -0700
+To: Geoffrey S. Knauth <gsk@marble.com>
+Subject: extending message lookup vs. open coding
+Cc: gnu-objc@prep.ai.mit.edu
+
+
+Allowing applications to conveniently override objc_msgSend() is a very useful feature that underscores the benefits of having a central dispatcher. I don't like the idea of "open coding" calls to objc_msgSend(), it is not clear that this will result in any noticeable performance improvement (it could result in significant code expansion and hurt performance, who knows).
+
+The pre/post operation example that Kim Christensen outlined sounds good, however it only works for methods that return "id's". objc_msgSend reuses the current stack frame, rather than create its own, this complicates implementing the post operation. All of these are implementation details that can be nailed down...
+
+If the goal is making the message dispatcher easier to customize, writing the assembler magic to reuse the stack frame (and not disrupt any registers used by the compiler) might be intimidating to many application writers. Separating "lookup" from "dispatch" removes the assembler hacking (however makes the post op functionality hard).
+
+	extern id (*objc_msgLookup(id, SEL))(id, SEL, ...);
+	
+	// messaging separated into two distinct operations...
+	(*objc_msgLookup(obj, sel))(obj, sel, arg1);
+
+It might be nice to override objc_msgSend on a per class basis as well, depending on the application.
+
+snaroff.
+
+Date: Mon, 21 Sep 92 20:05:34 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: Steve_Naroff@next.com
+Cc: gsk@marble.com, gnu-objc@prep.ai.mit.edu
+Subject: extending message lookup vs. open coding
+
+In our runtime, dispatch and lookup are separate.  That was easy to
+implement in C.
+
+My plan is to replace objc_msgSend with a couple of array and
+structure refs.  So far I don't see that replacing objc_msgSend
+gives a real increase in power.
+
+From: Steve_Naroff@NeXT.COM (Steve Naroff)
+Date: Tue, 22 Sep 92 11:25:18 -0700
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: extending message lookup vs. open coding
+Cc: gsk@marble.com, athan@object.com
+
+
+> In our runtime, dispatch and lookup are separate.  That was easy to
+implement in C.
+
+This sounds good, I should probably learn more about the FSF runtime. Have you considered message forwarding (i.e. delegation)? This (unfortunately) cannot be done entirely in C. I hope the FSF runtime plans to implement forwarding, it is a powerful feature can enable some interesting things (like Distributed Objects).
+
+> My plan is to replace objc_msgSend with a couple of array and
+structure refs. So far I don't see that replacing objc_msgSend gives a real increase in power.
+
+I'm not saying this is a panacea. In my mind, the increase in power comes down to enabling a new class of debug/analysis tools that can be written/used during development. The other is obviously changing the semantics of messaging, which is less important to me personally.
+
+Ultimately, the decision should be made by weighing the performance win by open coding the dispatcher vs. the flexibility of being able to replace the dispatcher.
+
+snaroff.
+
+Date: Tue, 22 Sep 92 15:08:28 -0400
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: Steve_Naroff@NeXT.COM
+Cc: gsk@marble.com, athan@object.com
+Subject: extending message lookup vs. open coding
+
+    I hope the FSF runtime  
+    plans to implement forwarding, it is a powerful feature can enable  
+    some interesting things (like Distributed Objects).
+
+Sorry, this is beyond what I have time to think about.
+
+    I'm not saying this is a panacea. In my mind, the increase in power  
+    comes down to enabling a new class of debug/analysis tools that can  
+    be written/used during development.
+
+I think this can be done anyway, by modifying the dispatch tables.
+
+Date: Tue, 22 Sep 92 06:40:52 -0700
+From: Dennis Glatting <seattle-ni-srvr!dglattin@trirex.COM>
+To: uunet!next.com!Steve_Naroff@uunet.UU.NET (Steve Naroff)
+Subject: extending message lookup vs. open coding
+Cc: Geoffrey S. Knauth <gsk@marble.com>, gnu-objc@prep.ai.mit.edu
+
+> Allowing applications to conveniently override
+> objc_msgSend() is a very useful feature that
+> underscores the benefits of having a central
+> dispatcher. I don't like the idea of "open coding" calls
+> to objc_msgSend(), it is not clear that this will result
+> in any noticeable performance improvement (it could
+> result in significant code expansion and hurt
+> performance, who knows).
+
+The GNU version of objc_msgSend returns a method address.  Therefore, the compiler produces code in this fashion:  stack the *method's* variables;  stack objc_msgSend's variables;  call objc_msgSend, clean up the stack tail;  then call the method.  One problem however -- although the problem may be philosophical -- is that this impacts defer-pop optimization.
+
+The GNU objc_msgSend works by array look up.  The advantage to this is speed (the array operations in the run time are nicely optimized by the compiler too).  Therefore, what we are swapping (code bulk) by open coding the method dispatch is additional stacking, a subroutine call, and some stack clean up verses an array look up.
+
+I suspect that, if we open code method dispatch, we'll approach the theoretical minimum dispatch overhead of 2 (currently it is 3).
+
+	[paragraph deleted ]
+
+> If the goal is making the message dispatcher easier to
+> customize, writing the assembler magic to reuse the
+> stack frame (and not disrupt any registers used by the
+> compiler) might be intimidating to many application
+> writers. Separating "lookup" from "dispatch" removes
+> the assembler hacking (however makes the post op
+> functionality hard).
+
+The design of the run time is purposely portable (aka: no assembly language).  There are several problems with assembly language:  code maintenance and dealing with various processor architectures -- not all processors are stack based.
+
+-dpg
+
+Date: Wed, 23 Sep 92 23:16:16 -0700
+From: Dennis Glatting <seattle-ni-srvr!dglattin@uunet.UU.NET>
+To: Geoffrey S. Knauth <uunet!marble.com!gsk@uunet.UU.NET>
+Subject: Re: extending message lookup vs. open coding
+
+> I found myself wondering what would happen if NeXT
+> messaging had 3:1 overhead, and your system had only 2:1.
+> It seems there's room for everyone to improve.
+>
+
+Steve may be right but open coding should be evaluated.
+
+-dpg
+
+Date: Sun, 21 Feb 1993 21:34:10 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+Reply-To: gnu-objc@gnu.ai.mit.edu
+To: gnu-objc@gnu.ai.mit.edu
+Subject: How to do lookup (or: Is the simple array approach acceptable?)
+Cc: krab@iesd.auc.dk, rms@gnu.ai.mit.edu
+
+The currently distributed runtime uses a very simple array mechanism
+for method lookup.  Each class has an array which is as large as the
+maximum number of selectors in any class.  The lookup is then simply
+to get the element at the index corresponding to the selector number.
+
+As noted by several people, this is approach is probably not good
+enough if there is a lot of selectors in the system, since it will
+take a lot of space.  Further more, if dynamic loading is implemented
+some time in the future, we will have to realloc all these dispatch
+arrays when we load in new code to make room for the new selectors. 
+
+An alternative to the simple minded full size array would be the
+ollowing data structure.  I don't know if it already has a name ssince
+i invented it myself.  I will call it a `doubly indexed array'.  Using
+this structure we can probably save a lot of space, and time in the
+initialization phase.  It will however cost a bit more to do the
+lookup.  Is this what is known in gcc as an `obarray'?  Maybe, we'll
+see... 
+
+The basic idea is that an DIarray is keeping track of small intervals
+(kept in buckets) of the full range of the array.  If a such bucket is
+empty, it will point to a special bucket, the `empty_bucket'.  Hence,
+an array with no elements in it will occupy only one bucket no matter
+how big it is.
+
+Besides, it is relatively cheap to realloc a such array, since we'll
+only have to realloc the first indirect table.  If the bucketsize is
+kept relatively small, most buckets will be empty if used as dispatch
+table in objc, since any class will only implement a subset of the
+known selectors.
+
+Since it is convenient, I will describe the DIarray data structure as
+an objective C class.  The real implementation should of cause be done
+in C.  The code is _not_ optimized, only coded for clarity!
+
+  @interface DIarray 
+   {
+     short max_elements;       /* elements in array */
+     short bucket_size;        /* size of one bucket */
+     id* empty_bucket;     /* the empty bucket */
+     id** bucket_table;    /* array holding pointers to buckets */
+   }
+
+   +newWith: (short)size bSize: (short)bucket_size missingElem: missing_elem;
+
+   -atIndex: (short)index;
+   -atIndex: (short)index put: anObject;
+
+  @end
+
+The implementation follows right after:
+ 
+  @implementation DIarray
+
+  - atIndex: (short)index
+  {
+     return (bucket_table[index/bucket_size])[index%bucket_size];
+  }
+
+  /* If bucket_size is power of two, the divide and modulus operations
+  /* in atIndex: can be coded as bit-shift and bit-and.  This */
+  /* would be a significant speedup on most architectures.  */
+
+  +newWith: (short)size bSize: (short)bucket_size missingElem: missing_element;
+    {
+      short num_buckets = (size%bucket_size)+1;
+      short counter;
+      assert <<bucket_size is power of two>>;
+
+      self = [super alloc];  // Allocate me
+
+      // Initialize elements
+      max_elements = size;
+      bucket_size  = bucket_size;
+      bucket_table = (id**)malloc(num_buckets*sizeof(id));
+      empty_bucket = (id*)malloc(bucket_size*sizeof(id));
+
+      // fill empty bucket with missing_element 
+      for(counter=0; counter<bucket_size; counter++)
+        empty_bucket[counter] = missing_element;
+
+      // Let all bucket entries point to empty_bucket 
+      for(counter=0; counter < num_buckets; counter++)
+        bucket_table[counter] = empty_bucket;
+
+      return self;
+    }
+      
+    /* the store operation is a bit more complicated, since it has to
+    /* check if the bucket being put into is the `empty_bucket' */
+    /* and in that case allocate a new bucket for that slot */
+
+    - atIndex: (short)index put: anObject
+    {
+      id** bucket = &(bucket_table[index/bucket_size]);
+      if(*bucket==empty_bucket) {
+        *bucket=(id*)malloc(bucket_size*sizeof(id));
+	bcopy(empty_bucket, *bucket, bucket_size*sizeof(id));
+      }
+      (*bucket)[index%bucket_size] = anObject;
+    }
+ 
+  @end -- DIarray
+
+
+As noted, the modulus and divide operations needed to calculate the
+position in the array can be done as bit operations if the bucket size
+is a power of two.  Further more, the allocation of buckets could be
+done from a pool of buckets to improve performance at that point.  The
+code for resizing the array is not included above, but if the
+structure is clear to the reader that code is obvious.
+
+I am sure, that using a structure like this for the dispatch table
+will use much less space, since many entries which point to
+`__objc_missingMethod' would possibly be in the `empty_bucket'.
+Further more it is very cheap to resize the structure, as we will only
+have to realloc the bucket_table.
+
+Comments would be appreciated.
+
+/Kresten
+
+Kresten Krab Thorup               |       /   | E-mail : krab@iesd.auc.dk
+Institute of Electronic Systems   |   ,-'/(   | S-mail : Sigrid Undsetsvej 226A
+Aalborg University                |  /  |  \  |          9220 Aalborg \O
+Fr. Bajers vej 7, DK-9220 Aalb    |  A  U  C  |          Denmark
+-------------------------------------------------------------------------------
+               Member of The League for Programming Freedom
+
+Return-Path: <burchard@localhost.gw.umn.edu>
+Date: Sun, 21 Feb 93 16:43:20 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: krab@iesd.auc.dk
+Subject: Re: How to do lookup (or: Is the simple array approach acceptable?)
+Cc: gnu-objc@gnu.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+The "sparse array" you desire is, as you suspect, not new---it's  
+essentially what is called a "hash table".
+
+For an overview of design issues, see Seltzer and Yigit, USENIX  
+Winter 1991 (this paper can be obtained from the BSD sources along  
+with the hashing package described there).  Implementing a hash table  
+as a huge array is one end of the spectrum of hash table design,  
+which attempts to trade space for time.  Your DIArray is another,  
+more intermediate, point on the spectrum.
+
+The "correct" hash table design depends on the actual lookup patterns  
+that the sparse array experiences during use.  If you have a special  
+hash table design that is more efficient for sel->imp lookup than the  
+generic one currently used, that's great!
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Tue, 23 Feb 1993 05:47:52 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: burchard@geom.umn.edu, rms@gnu.ai.mit.edu, gnu-objc@gnu.ai.mit.edu
+Subject: The sparse arrays is it!
+Cc: krab@iesd.auc.dk
+
+I just implemented a quite sophisticated sparse array (somewhat like I
+explained in my last article), and it surely looks like this is going
+to be a hit!  I have been experimenting with different ideas, and has
+come up with a version, which uses reference counting and lazy copying
+(copy-on-write).  `My' copy-on-write will actually only copy the
+bucket you are writing to, if you write something different than what
+is already there.  At the same time, all the empty buckets will point
+to the same empty bucket.
+
+If you think of all the dispatch tables in a running system, and let
+the one in `Object' be the very `super' dispatch table.  Now, if all
+other tables are `lazy' copies of this one (following the inheritance
+hierachy), we can save even more space and time, since buckets
+(belonging to a super table) which are not changed in the subclasses
+(methods not overwritten, only inherited) can be shared between the
+tables, and hence only allocated once!  This is really great--there
+should be a good chance that buckets can simply be reused in
+subclasses.
+
+The lookup (dispatch) is going to be fast. Trying it out on a Sun
+(sparc), it comes out as only 5 assembler instructions, which is for
+sure better than any dynamic language has seen before (perhaps Self
+can do better, but they do nasty tricks).  The 5 instructions is based
+on that the parameters to the lookup function are already in
+registers, since I expanded the function inline.
+
+Isn't this just great?
+
+/Kresten
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Tue, 23 Feb 1993 07:28:34 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+In-Reply-To: <9302230537.AA09054@geech.gnu.ai.mit.edu>
+Subject: The sparse arrays is it!
+Cc: krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+
+Richard Stallman writes:
+>It sounds good.  But please think of how this fits in with
+>the multi-thread locking scheme that I designed.
+
+As far as I can see, there are no serious problems concerning my new
+tables in this direction.
+
+However, I do se some problems in _general_ in your design, which have
+to be thought about.  What happens if it is not only a new class, but
+a category which is loaded dynamically?  (That's a class add-on) If
+the class which gets added something has subclasses, we will have to
+figure out in which order the class and the subclasses should have
+their new dispatch tables enabled--since we don't have locking on
+lookup, we'll have to figure out the ordering.  I don't have an answer
+ready at hand, perhaps someone on the list?
+
+/Kresten
+
+From: Steve_Naroff@NeXT.COM (Steve Naroff)
+Date: Thu, 25 Feb 93 12:53:58 -0800
+To: Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Optimizing the GNU objc runtime [long]
+Cc: gnu-objc@gnu.ai.mit.edu
+
+
+Here is some data for a "typical" application on a NeXT (linked with the standard shared library of objects that we supply):
+
+200-300 classes
+6000-7000 method implementations
+2000-3000 selectors (unique method names)
+
+Many of these are classes are "private"...nevertheless, it is important that the runtime scale to support a system of this magnitude. It seems like you have already abandoned the idea of a per-class vector that has room for all possible selectors. This is good, since my "back of the envelope" calculation comes out to 3.2 megabytes to store all the caches (using 200 classes, 2000 selectors in the computation)! Let me know if I misinterpreted your proposal.
+
+It sounds like the sparse array idea might reclaim much of this overhead. I would be interested in how much space that works out to be. The NeXT runtime typically consumes between 20-40 kilobytes for the per-class caches. The space occupied is proportional to the classes/methods used by the application. The simple rule is "pay if you play". In fact, even though there are 200-300 classes linked into an application, only 30-50% are typically used. I think any scalable system must incur mininal overhead (on a per-class basis) until the class is actually used.
+
+Another method for doing dynamic dispatch (that is similar in spirit to your scheme) is to have a vector that is maintained on a per-app basis (not per-class) that has an entry for each selector. Each entry would contain a chain of classes that implement the selector...in practice, this chain is very short. A simple way to view this is go from the selector->class, rather than class->selector. I'm not convinced it statisfies your performance goals, but it is another way to look at the problem.
+
+I think it is worthwhile goal to improve the performance of dispatching messages in Objective-C. Just be aware that it is a classic "time vs. space" problem...and saving time without carefully considering space doesn't work. Most computers are getting a lot faster without adding significantly more memory...this should influence the tradeoffs we make when designing the new runtime (my perspective, of course).
+
+In the past, we have spent time optimizing memory utilization and improving locality of reference. This includes the data generated by the compiler as well as caches that are dynamically allocated (which are often "hot" for commonly used classes). We also developed a program called "objcopt" that improves launch time by building the selector hash table and "freeze drying" it in the executable for each shared library that we ship.
+
+Given the portability goals of the project, I can't say that many of these apply to the GNU runtime...I just wanted to let you know what problems we work on wrt optimizing the NeXT Objective-C runtime.
+
+btw...the NeXT runtime sends the "+initialize" lazily, was the change to execute before main() made intentionally?
+
+regards,
+
+snaroff.
+
+Date: Thu, 25 Feb 93 18:04:54 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: Steve_Naroff@NeXT.COM
+Cc: krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302252054.AA20409@oz.NeXT.COM> (Steve_Naroff@NeXT.COM)
+Subject: Optimizing the GNU objc runtime [long]
+
+    In fact, even though there are 200-300 classes linked into  
+    an application, only 30-50% are typically used. I think any scalable  
+    system must incur mininal overhead (on a per-class basis) until the  
+    class is actually used. 
+
+It ought to be possible to delay setting up a class's method dispatch
+table until the first time it is instantiated.  Until then you need
+only the dispatch mechanism for the methods that act on the class
+rather than on an instance.  I expect there will be much fewer
+operations of that sort.
+
+
+Date: Fri, 26 Feb 1993 00:53:14 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: Steve_Naroff@NeXT.COM (Steve Naroff)
+Cc: Kresten Krab Thorup <krab@iesd.auc.dk>, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302252054.AA20409@oz.NeXT.COM>
+Subject: Re: Optimizing the GNU objc runtime [long]
+
+Steve Naroff writes:
+> It seems like you have already abandoned the idea of a  
+>per-class vector that has room for all possible selectors. This is  
+>good, since my "back of the envelope" calculation comes out to 3.2  
+>megabytes to store all the caches (using 200 classes, 2000 selectors  
+>in the computation)! Let me know if I misinterpreted your proposal.
+
+You're right.  Obviously we cannot have an array with domaine of all
+selectors for each class.   I have been in this belief for some time
+now.  The comments in the `Optimizing ...' article were to make it
+clear that this was not the subject of the paper.
+
+>It sounds like the sparse array idea might reclaim much of this  
+>overhead. I would be interested in how much space that works out to  
+>be.
+
+I have a prototype of the runtime up running using sparse arrays for
+dispatch.  Ok, I compiled the first program successfull 10 minutes
+ago, so I'll have to test it a bit more before it's worth distributing!
+
+>The NeXT runtime typically consumes between 20-40 kilobytes for  
+>the per-class caches. The space occupied is proportional to the  
+>classes/methods used by the application. The simple rule is "pay if  
+>you play". In fact, even though there are 200-300 classes linked into  
+>an application, only 30-50% are typically used. I think any scalable  
+>system must incur mininal overhead (on a per-class basis) until the  
+>class is actually used. 
+
+This mechanism could be adopted to install the tables incrementally,
+if only we had objc_msgSendv!!!  Please, if someone is into assember
+and gcc internals do it!  I dont know far enough about assember to do
+it, who could we possibly ask?
+
+I am very excited to see some performace result from my new runtime.
+Sadly enough I will be gone for the weekend :-)  
+
+I myself is actually very fond of using caches and ordinary dynamic
+lookup.  This has one big advantage which my scheme will have to pay
+for: It is simple to add methods to excisting classes at runtime.  On
+the other hand, by installing magic handlers in the dispatch table, my
+scheme allows the programmer to install his own messenger on class
+basis. I guess to think of a nice API for this ..
+
+>Given the portability goals of the project, I can't say that many of  
+>these apply to the GNU runtime...I just wanted to let you know what  
+>problems we work on wrt optimizing the NeXT Objective-C runtime.
+
+I dont know for sure.  I guess most things written in GNU objc will
+probably NOT be large applications with zillions of classes and using
+dynamic loading.  At least it will take some time before this will be
+the case, since class libraries and loading stuff is not easily
+accessible... Several operating systems provide facilities -- I know,
+but far from all.
+
+>btw...the NeXT runtime sends the "+initialize" lazily, was the change  
+>to execute before main() made intentionally?
+
+Initially, yes.  The problem is that if you access variables
+initialized in "+initialize" directly (without a message call) you are
+not sure about the state of these.  After having talked to some fellow
+students, I may have changed my mind, but one must enforce the
+constraint that such variables may only be accessed through method
+invocations.  It may be a problem, if class variables are introduced,
+that you can say MyClass->aVariable, but aVariable is assigned its
+default value in "+initialize" !
+
+I hope to be able to release a beta version of my new runtime within a
+week or so.  It may be that someone are interested in studying it? :-)
+
+/Kresten
+
+Date: Fri, 26 Feb 1993 01:21:01 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Cc: Steve_Naroff@NeXT.COM, krab@iesd.auc.dk, gnu-objc@gnu.ai.mit.edu
+In-Reply-To: <9302252304.AA06929@mole.gnu.ai.mit.edu>
+Subject: Optimizing the GNU objc runtime [long]
+
+Richard Stallman writes:
+>It ought to be possible to delay setting up a class's method dispatch
+>table until the first time it is instantiated.  Until then you need
+>only the dispatch mechanism for the methods that act on the class
+>rather than on an instance.  I expect there will be much fewer
+>operations of that sort.
+
+This is easily done using the sparse array scheme.  To do it, we would
+initially install a dispatch table where the empty bucket is filled
+with some function which installs the right dispatch table and forwards
+the message.  We will however need the ability to do forwarding.  
+
+Do you think we can find someone who'd like to implement a forwarding
+primitive?  At least the primitive one (__builtin_forward) we've been
+talking about which does not allow one to do anything after the
+forward.  Using this we could implement the lazy dispatch table setup,
+as well as lazy initialization.
+
+/Kresten
+
+
+Date: Mon, 1 Mar 1993 18:01:49 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: gnu-objc@gnu.ai.mit.edu
+Subject: Sparse array stats
+Cc: krab@iesd.auc.dk
+
+Hi again
+
+I have been doing some statistics on my sparse array dispatch
+mechanism.  For the test I used the public methods and classes of the
+NeXT appkit.  This makes 76 classes and 1661 distinct selectors.  This
+includes 2371 distinct instance methods and 258 distinct factory
+methods.
+
+The best test results for fixed size dispatch tables look like this:
+
+   Bucket size: 32 entries
+
+   Number of classes: 76
+   Number of distinct selectors: 1661
+   Number of distinct instance impls: 2371
+   Number of distinct factory impls: 258
+
+   Number of buckets for itables: 417
+   Number of buckets for ftables: 124
+
+   Memory used for ibuckets: 53k
+   Memory used for fbuckets: 15k
+   Memory used for sparse indices: 32k
+
+   ======================================
+   Total memory used for dispatch: 100k
+
+I have tried sorting the selectors by number of redefinitions, so that
+methods often redefined are grouped together.  Surprisingly enough
+this does not make the result better!  
+
+There are several ways to reduce the amount of memory used.  As
+proposed by Steve Naroff, we can delay the initialization of dispatch
+tables for instance methods (which takes the most memory) until an
+instance of the specific class is actually used.  The simple way is to
+check that is installed in `class_createInstance'.  We could make it
+even more sophisticated, by actually installing the methods one by one
+as they are called, but this requires additional code in the
+messenger.
+
+Another approach is to sort the selectors by number of definitions,
+and then have dispatch tables of different sizes, so that subclasses
+expand the dispatch table by the number of new methods.  The next test
+does this, and also used sorting of the selectors by number of
+redefinitions.  This approach reduces the memory usage for the sparce
+indices noticably, and combined with a smaller bucket size (as small
+as 8, actually) it gives something as good as this:
+
+   Bucket size: 8 entries
+
+   Number of classes: 76
+   Number of distinct selectors: 1661
+   Number of distinct instance impls: 2371
+   Number of distinct factory impls: 258
+
+   Number of buckets for itables: 928
+   Number of buckets for ftables: 188
+
+   Memory used for ibuckets: 32k
+   Memory used for fbuckets: 6k
+
+   Memory used for sparse i-indices: 12k
+   Memory used for sparse f-indices: 7k
+
+   ========================================
+   Total memory usage for dispatch:  57k
+   
+This is really great!  Half the size of the static approach, and
+somewhat closer to the typical NeXT usage of 30-40k in total [snaroff].
+This does however require an additional range test in the lookup
+function, so that selectors above the table size are taken from the
+`empty bucket'. 
+
+In my oppinion we should use the latter, and live with the extra check
+in the messenger.  This is still a whole lot faster than a caching
+approach.  Perhaps it should even be combined with the late
+initialization mechanism.
+
+Comments appreciated.
+
+/Kresten
+

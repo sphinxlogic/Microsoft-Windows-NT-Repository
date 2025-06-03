@@ -1,0 +1,170 @@
+@(#)README	1.1 (30 Sep 1993)
+/*..........................................................................
+ . Copyright 1993, Jim Avera.  All Rights Reserved.
+ . 
+ . This program contains new material owned by the above copyright holder, and
+ . may also contain portions derived from existing works used by permission.
+ .
+ . You are prohibited from copying, distributing, modifying, or using this
+ . file (or the portions owned by the above copyright holder) except as 
+ . described in the file "COPYRIGHT" which accompanies this program.
+ ...........................................................................*/
+
+Welcome to tslip - 
+
+Tslip implements SLIP network links with automatic dial-on-demand and idle
+disconnect using Taylor UUCP dialing routines.
+
+  Note: Ian Lance Taylor wrote Taylor UUCP, but had nothing to do with tslip --
+  so please don't bother him for anything related to this package.
+
+Tslip requires that Taylor UUCP 1.04 (with patches) be compiled first.
+Several .o and .a files from the Taylor build directory are linked into the 
+slip dialing daemon (slipd).  
+
+Put the Taylor UUCP source directory in the same parent as tslip, if you can.
+Otherwise edit the file guess_tuucpsrc to indicate the correct path.
+
+NOTE: The following instructions apply to ESIX SVR4.04.
+
+INSTALLATION INSTRUCTIONS:
+
+1. Patch and compile Taylor uucp-1.04 (see file PATCHES_TO_STOCK_TAYLOR1.04).
+
+In tslip:
+
+2. Run "configure".  This creates various system-dependent files.  By default,
+   programs will be installed in /usr/local/lib/slip, but you can substitute
+   another directory for "/usr/local" by running "configure --prefix=otherdir".
+
+3. make 				...in the top directory
+5. If using SVR4.0.2 on i386, read driver/v2.ip.fix/README.v2ipfix
+4. (as root) make install		...install programs and driver
+6. (as root) /etc/conf/bin/idbuild	...rebuild your kernel
+7. Edit /etc/inet/rc.inet as explained below
+8. Reboot
+
+Note: You do not have to *install* Taylor UUCP.  You can use your regular 
+(non-Taylor) uucp setup files for tslip dial-out if you compile Taylor 
+uucp-1.04 using the appropriate options (probably HAVE_HDB_CONFIG).
+Please read the Taylor uucp-1.04 README and policy.h files.
+
+For clients (who dial out to servers) add lines to /etc/inet/rc.inet which:
+  - Start "slipd", the autodial/supervisory daemon.
+  - Run "slattach" to configure each slip interface and give autodial info.
+  - Use "ifconfig" to assign IP addresses to each slip interface. 
+  - Use "route" to tell the kernel to route packets to the slip interface(s).
+  [see example below]
+
+For servers (who accept dial-IN slip clients):
+  Server support tools (by Greg Whitehead and Geoff Arnold) are in the
+  "dialin" subdirectory, BUT HAVEN'T YET BEEN TESTED with the new daemon and
+  don't work yet with tslip.
+  
+  I'd really appreciate it if someone would wring out the server tools on SVR4 
+  and send me advice and any corrections, both of which will be incorporated
+  into a later release.
+
+  In general, the login shell for slip dial-up accounts should configure the 
+  line as a slip link after login and tear it down when SIGHUP is received.
+  The dialin tools provided will dynamically assign IP addresses to dial-in 
+  slip connections (and prevent duplicates).  
+
+
+======================= CLIENT EXAMPLE ===========================
+
+Scenario: The only network connection is a dial-up slip link to an internet 
+gateway.  You must dial the machine "slipserv" (as it is known to uucp) and 
+log in, wait for the message "slip session beginning....", and then convert
+the line to a slip link.  You want the call to be dropped after 3 idle 
+minutes (and automatically re-dialed when needed).
+
+**FIRST**
+Configure uucp so that "cu slipserv" dials up the slip server machine.
+Also define a login chat script, as would be used by uucico.
+The way you do this depends on whether you built Taylor UUCP to use Taylor-style
+configuration files or HDB config files (see the Taylor documentation).
+
+For HDB configuration, the Systems file should contain a line like this:
+
+slipserv Any ACU 19200 <phonenumber> ogin:-\r\c-ogin: <logname>\r\c word: <password>\r\c beginning....
+
+and the Devices file should contain a line similar to this:
+
+ACU tty00,M - 19200 hayes -
+
+For Taylor-style configuration and a pre-set-up modem, the "sys" file might 
+have lines like the following:
+
+system slipserv
+phone <phonenumber>
+baud 19200
+port device /dev/tty00
+# s190=1 disables compression (on a Telebit Worldblazer modem)
+port dialer chat "" ATs190=1DT\T\r\c CONNECT
+port dialer chat-fail \nRING\r
+port dialer chat-fail ANSWER
+port dialer chat-fail BUSY
+port dialer chat-fail ERROR
+port dialer chat-fail NO\sCARRIER
+chat ogin: <logname>\r\c ssword: <password>\r\c beginning....
+chat-fail NO\sCARRIER
+
+
+**SECOND**
+Put lines in /etc/inet/rc.inet like the following (supply full
+path names for slattach and slipd):
+
+SLLOG=/var/adm/slip.log
+slipd -v >$SLLOG 2>&1; chmod 700 $SLLOG
+
+  slipd is the auto-dial daemon, and must be running to actually use the
+  link (packets are harmlessly dropped if the daemon is not running).
+  The driver sends slipd the dial parameter string when a dial-out is needed.
+  -v means log slipd actions to stderr.  Also, if "-d" is in a dial parameter 
+  string given to slattach, slipd will emit dial-out logging just like "cu".
+  The log should be secure because it may show server passwords.
+
+slattach -a "-d slipserv" -t180 -p sl0
+
+  slattach configures the network interface "sl0" as a slip link.
+  You can use any name ending in digits.  -a means auto-dial on demand.
+  The auto-dial parameter string "-d slipserv" is stored in the driver, along
+  with a 180-second idle timeout value.  In this case, the system "slipserv"
+  will be dialed, with debug logging.  Dialing is performed by slipd.
+  -p means use persistent links to construct the interface (you can 
+  omit -p for testing and run slattach in background; slattach will sleep until 
+  interrupted, at which time the link will be dismantled).
+
+/usr/sbin/ifconfig sl0 sl0_ip_addr slipserv_gw_ip_addr up -trailers
+
+  ifconif tells the system that network interface "sl0" has IP 
+  address <sl0_ip_addr> and is connected directly to <slipserv_gw_ip_addr>.  
+  Names in /etc/hosts may be used.  A unique but fictitious 
+  <slipserv_gw_ip_addr> may be used if the true address of the other end is
+  not known.  <slipserv_gw_ip_addr> is used only as a target for
+  packet routing inside the client.  "-trailers", in the case of the slip 
+  driver, enables Van Jacobson packet compression (see driver/io/slp.c).
+
+/usr/sbin/route add default slipserv_gw_ip_addr 0
+
+  The "route" command is used to tell the kernel to forward packets to
+  <slipserv_gw_ip_addr> if no explicit route is known.  Since this is on the
+  same network as <sl0_ip_addr>, the kernel routes packets to the slip
+  interface.  If you have other networks (e.g., a LAN), you may want to
+  specify an explicit network or host route instead.
+
+NOTE: The ESIX installation notes imply that subnetting doesn't work for 
+point-to-point networks, in which case a unique network number would have
+to be assigned to each slip link.  However, one SVR4.0.4 user has reported
+that subnetting DOES appear to work, at least with class B networks.  
+
+SAS USERS: The sas-1.25 serial port driver (available from the net)
+has a bug which crashes the system when receiving at high speeds.  If you
+use sas-1.25, apply the patch in PATCHES_TO_SAS-1.25.  
+Tslip does NOT require use of sas.
+
+Please send bugs, corrections, and comments to jima@netcom.com .
+
+-Jim Avera
+Revised 18 August 1993

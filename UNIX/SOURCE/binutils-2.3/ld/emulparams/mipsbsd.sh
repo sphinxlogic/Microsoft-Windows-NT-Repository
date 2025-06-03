@@ -1,0 +1,5 @@
+SCRIPT_NAME=mipsbsd
+OUTPUT_FORMAT="aout-mips-little"
+TEXT_START_ADDR=0x1020
+PAGE_SIZE=4096
+ARCH=mips

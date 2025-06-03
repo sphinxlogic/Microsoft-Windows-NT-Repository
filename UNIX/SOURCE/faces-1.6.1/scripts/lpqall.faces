@@ -1,0 +1,100 @@
+#!/usr/bin/perl
+#
+#  @(#)lpqall.faces 1.4 91/11/19
+#
+#  Copyright (c) Steve Kinzler - April 1991.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+# Uncomment this line if you are running a version of faces earlier
+# than version 1.5.0:
+# $oldformat = 1;
+
+$lpqall = '/usr/local/adm/bin/lpqall';
+$qsize = 2;
+$rows = 13;
+$lpface = 'lp';
+$psface = 'printer';
+$npface = 'nopaper';
+
+# lpqall.faces - monitor all printers
+# Steve Kinzler, kinzler@cs.indiana.edu, 31 Jan 1991
+
+$format = $oldformat ? "%-20s%-20s%-10s%-10s%-10s%-10s\n" :
+		       "%s\t%s\t%s\t%s\t%s\t%s\n";
+
+$n = 0;
+
+open(LPQALL, "$lpqall |");
+
+MAIN:
+while (<LPQALL>) {
+	if (/^([^ ]+) in ([^ ]+):$/) {
+		$printer = $1;
+		$queue{$printer} = '';
+		$message{$printer} = $2;
+		$face{$printer} = /^lp/ ? $lpface : $psface;
+		while (<LPQALL>) {
+			if (/^([^ ]+) in ([^ ]+):$/) {
+				redo MAIN;
+			} elsif (/^Rank/i || /^no entries/i) {
+				;
+			} elsif (/ bytes$/) {
+				split;
+				$user = $_[1];
+				$size = $_[$#_ - 1];
+				$queue{$printer} .= "$user $size\n";
+				$n++;
+			} elsif (/\S/ && $queue{$printer} eq '') {
+				chop;
+				s/.*:\s*//;
+				s/\t/ /g;
+				s/$printer\s*//;
+				s/^is\s*//;
+				s/^(.{0,10}).*/\1/ if $oldformat;
+				$message{$printer} = $_;
+				$face{$printer} = $npface
+					if /out of paper/i || /no paper/i;
+			}
+		}
+	}
+}
+
+close LPQALL;
+
+@printers = keys %queue;
+
+$nprs = $#printers + 1;
+$qcols = int($nprs / ($rows + 1)) + 1;
+
+printf "%sCols=%d Rows=%d\n",
+    $oldformat ? '' : sprintf($format, $psface, '', 'ALL', $n, '', ''),
+    ($qsize + 1) * $qcols, int($nprs / $qcols + .999);
+
+foreach (sort byendnums @printers) {
+	@jobs = split(/\n/, $queue{$_});
+
+	printf $format, $face{$_}, '', $_, $#jobs + 1, $message{$_}, '';
+
+	while ($#jobs < $qsize - 1) {
+		push(@jobs, 'NOTHING - -');
+	}
+
+	foreach (0..($qsize - 1)) {
+		split(/\s+/, $jobs[$_]);
+		($#_ == 1) ?
+			printf $format, $_[0], '', $_[0], '', $_[1], '' :
+			printf $format, $_[0], '', $_[1], '', $_[2], '';
+	}
+}
+
+sub byendnums {
+	$a =~ /\d*$/; local($atext, $anum) = ($`, $&);
+	$b =~ /\d*$/; local($btext, $bnum) = ($`, $&);
+	$atext eq $btext ? $anum <=> $bnum : $atext cmp $btext;
+}

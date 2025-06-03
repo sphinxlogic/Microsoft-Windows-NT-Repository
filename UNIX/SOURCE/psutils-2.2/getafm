@@ -1,0 +1,175 @@
+#!/bin/sh
+# getafm: get afm file from printer
+#         Note that the AFM file returned will not have any kerning
+#         information, but it is useful if you can't get the file anywhere else
+# usage:
+#       getafm Font-Name | lpr -Pprinter
+
+if [ $# != 1 ]; then
+        echo "Usage: `basename $0` Font-Name" >&2
+        exit 1
+fi
+
+cat <<EOF
+%!
+% Get character metrics and bounding box for $1
+/ns 30 string def
+/fname /$1 def
+/fn fname findfont 1000 scalefont def
+/en fn /Encoding get def
+fn setfont
+
+/sp { ( )print } def
+/nl { (\n)print } def
+/pn { ns cvs print } def
+
+/printbb { % llx lly urx ury => -
+   4 -1 roll round cvi pn sp
+   3 -1 roll round cvi pn sp
+   exch round cvi pn sp
+   round cvi pn
+} def
+
+(StartFontMetrics 2.0\n)print
+(Comment Created by `basename $0` 1.00 (c) AJCD `date`\n)print
+fn /FontName known {
+   (FontName )print fn /FontName get pn nl
+} {
+   (FontName $1\n) print
+} ifelse
+en StandardEncoding eq {
+   (EncodingScheme AdobeStandardEncoding\n)print
+} {
+   en ISOLatin1Encoding eq {
+      (EncodingScheme ISOLatin1Encoding\n)print
+   } if
+} ifelse
+fn /FontInfo known {
+   fn /FontInfo get
+   dup /FamilyName known {
+      (FamilyName )print dup /FamilyName get print nl
+   } if
+   dup /FullName known {
+      (FullName )print dup /FullName get print nl
+   } if
+   dup /Notice known {
+      (Notice )print dup /Notice get print nl
+   } if
+   dup /Weight known {
+      (Weight )print dup /Weight get print nl
+   } if
+   dup /Version known {
+      (Version )print dup /Version get print nl
+   } if
+   dup /ItalicAngle known {
+      (ItalicAngle )print dup /ItalicAngle get pn nl
+   } if
+   dup /isFixedPitch known {
+      (IsFixedPitch )print dup /isFixedPitch get {(true)}{(false)}ifelse print
+       nl
+   } {
+      (IsFixedPitch false\n)print
+   } ifelse
+   dup /UnderlinePosition known {
+      (UnderlinePosition )print dup /UnderlinePosition get pn nl
+   } if
+   dup /UnderlineThickness known {
+      (UnderlineThickness )print dup /UnderlineThickness get pn nl
+   } if
+   pop
+} if
+(FontBBox )print fn /FontBBox get aload pop printbb nl
+
+%CapHeight 662
+%XHeight 448
+%Descender -217
+%Ascender 682
+%(PaintType: )print fn /PaintType get pn (\n) print flush
+
+(StartCharMetrics )print
+fn /CharStrings get length 1 sub pn nl
+
+% check encoded chars
+0 1 255 {
+   dup en exch get 
+   dup /.notdef ne { % C 77 ; WX 889 ; N M ; B 19 0 871 662 ;
+      (C ) print                                % character number
+      exch dup pn exch
+      ( ; WX ) print                            % character width
+      fn /Metrics known {
+         dup fn /Metrics get exch get 
+         dup type /arraytype eq {
+            dup length 2 eq
+            {1 get} {2 get} ifelse
+         } if
+      } {
+         ( ) dup 0 4 index put stringwidth pop round cvi
+      } ifelse
+      pn
+      ( ; N ) print                             % character name
+      pn
+      newpath 0 0 moveto
+      ( ; B ) print                             % BoundingBox
+      ( ) dup 0 4 -1 roll put
+      true charpath flattenpath pathbbox printbb
+      ( ;\n) print                              % finished!
+   } {pop pop} ifelse
+} for
+
+% get unencoded characters into MyEncoding array (problem if >256 unencoded)
+/MyEncoding 256 array def
+/Reverse 256 dict def
+Reverse begin
+   en { % reverse encoding dictionary
+      true def
+   } forall
+end
+
+0 % start at beginning of MyEncoding
+fn /CharStrings get {
+   pop % discard encrypted string
+   dup Reverse exch known not % test if key is in normal encoding
+   {
+     MyEncoding 2 index 3 -1 roll put 1 add
+   } {pop} ifelse
+} forall
+1 255 { % fill out with notdefs
+   MyEncoding exch /.notdef put
+} for
+
+fn dup length dict begin
+  {1 index /FID ne {def} {pop pop} ifelse} forall
+  /Encoding MyEncoding def
+  currentdict
+end /newfont exch definefont
+dup /fn exch def setfont
+/en MyEncoding def
+
+% check encoded chars
+0 1 255 {
+   dup en exch get
+   dup /.notdef ne { % C -1 ; WX 889 ; N M ; B 19 0 871 662 ;
+      (C -1) print                                % character number
+      ( ; WX ) print                            % character width
+      fn /Metrics known {
+         dup fn /Metrics get exch get 
+         dup type /arraytype eq {
+            dup length 2 eq
+            {1 get} {2 get} ifelse
+         } if
+      } {
+         ( ) dup 0 4 index put stringwidth pop round cvi
+      } ifelse
+      pn
+      ( ; N ) print                             % character name
+      pn
+      newpath 0 0 moveto
+      ( ; B ) print                             % BoundingBox
+      ( ) dup 0 4 -1 roll put
+      true charpath flattenpath pathbbox printbb
+      ( ;\n) print                              % finished!
+   } {pop pop exit} ifelse
+} for
+(EndCharMetrics\n)print
+flush
+EOF

@@ -1,0 +1,517 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node Imageto, IMGrotate, File formats, Top
+@chapter Imageto
+
+@pindex imageto
+
+Imageto converts an image file (currently either in portable bitmap
+format (PBM) or GEM's IMG format) to either a bitmap font or an Encapsulated
+PostScript file (EPSF).  An @dfn{image file} is simply a large bitmap.
+
+If the output is a font, it can be constructed either by outputting a
+constant number of scanlines from the image as each ``character'' or
+(more usually) by extracting the ``real'' characters from the image.
+
+@cindex image input formats
+The current selection of input formats is rather arbitrary.  We
+implemented the IMG format because that is what our scanner outputs, and
+the PBM format because Ghostscript can output it (@pxref{GSrenderfont}).
+Other formats could easily be added.
+
+@menu
+* Imageto usage::               Process for extracting fonts from an image.
+* IFI files::                   IFI files supply extra information.
+* Invoking Imageto::            Command-line options.
+@end menu
+
+
+@node Imageto usage, IFI files,  , Imageto
+@section Imageto usage
+
+@cindex Imageto usage
+@cindex usage of Imageto
+
+Usually there are two prerequisites to extracting a usable font from an
+image file.  First, looking at the image, so you can see what you've
+got.  Second, preparing the IFI file describing the contents of the
+image: the character codes to output, any baseline adjustment (as for,
+e.g., @samp{j}), and how many pieces each character has.  Each
+is a separate invocation of Imageto; the first time with either the
+@samp{-strips} or @samp{-epsf} option, the second time with neither.
+
+@cindex scanlines, definition of
+@cindex image rows, definition of
+@cindex bounding boxes in Imageto
+In the second step, Imageto considers the input image as a series of
+@dfn{image rows}.  Each image row consists of all the scanlines between
+a nonblank scanline and the next entirely blank scanline.  (A
+@dfn{scanline} is a single horizontal row of pixels in the image.)
+Within each image row, Imageto looks top-to-bottom, left-to-right, for
+@dfn{bounding boxes}: closed contours, i.e., an area whose edge
+you can trace with a pencil without lifting it.
+
+@cindex type specimen image, example of
+@cindex problems in scanned images, example
+For example, in the following image Imageto would find two image rows,
+the first from scanlines 1 to scanline 7, the second consisting of only
+scanline 10.  There are six bounding boxes in the first image row, only
+one in the second.  (This example also shows some typical problems in
+scanned images: the baseline of the @samp{m} is not aligned with those
+of the @samp{i}, @samp{j}, and @samp{l}; a meaningless black line is
+present; the @samp{i} and @samp{j} overlap.)
+
+@example
+  01234567890123456789
+ 0
+ 1       x
+ 2 x x   x
+ 3       x
+ 4 x x   x   xxxxx
+ 5 x x   x   x x x
+ 6   x       x x x
+ 7 xx
+ 8
+ 9
+10 xxxxxxxxxxxxxxx
+@end example
+
+@menu
+* Viewing an image::            Seeing what's in an image.
+* Image to font conversion::    Extracting a font.
+* Dirty images::                Handling scanning artifacts or other noise.
+@end menu
+
+
+@node Viewing an image, Image to font conversion,  , Imageto usage
+@subsection Viewing an image
+
+@cindex EPS
+@cindex Encapsulated PostScript
+@pindex gs
+@cindex Ghostscript
+
+@cindex image file, viewing
+@cindex viewing image files
+Typically, the first step in extracting a font from an image is to see
+exactly what is in the image.  (Clearly, this is unnecessary if you
+already know what your image file contains.)
+
+@opindex -epsf
+@cindex Ghostscript, using to look at images
+The simplest way to get a look at the image file, if you have
+Ghostscript or some other suitable PostScript interpreter, is to convert
+the image file into an EPSF file with the @samp{-epsf} option.  Here is
+a possible invocation:
+
+@example
+imageto -epsf ggmr.img
+@end example
+
+Here we read an input file @file{ggmr.img}; the output is
+@file{ggmr.eps}.  You can then view the EPS file with
+
+@example
+gs ggmr.eps
+@end example
+
+@noindent (presuming that @file{gs} invokes your PostScript interpreter).
+
+@opindex -strips
+If you don't have both a suitable PostScript interpreter and enough
+disk space to store the EPS file (it uses approximately twice as much
+disk space as the original image), the above won't work.  Instead, to
+view the image you must make a font with the @samp{-strips} option:
+
+@example
+imageto -strips ggmr.img
+@end example
+
+The output of this will be @file{ggmrsp.1200gf} (our image having a
+resolution of 1200 dpi).  Although the GF font cannot be conveniently
+viewed directly, you can use @TeX{} and your favorite DVI processor to
+look at it, as follows:
+
+@flindex strips.tex
+@example
+fontconvert -tfm ggmrsp.1200
+echo ggmrsp | tex strips
+@end example
+
+This outputs in @file{strips.dvi}, which you can view with your favorite
+DVI driver.  (@xref{Archives}, for how to obtain the DVI drivers for
+PostScript and X we recommend.)
+
+@file{strips.tex} is distributed in the @file{imageto} directory.
+
+
+@node Image to font conversion, Dirty images, Viewing an image, Imageto usage
+@subsection Image to font conversion
+
+@cindex image to font conversion
+@cindex conversion, of image to font
+@cindex extracting characters
+@cindex characters, extracting from image
+@cindex optical character recognition
+
+Once you can see what is in the image, the next step is to prepare the
+IFI file (@pxref{IFI files}) corresponding to its characters.  Imageto
+relies completely on the IFI files to describe the image; it makes no
+attempt at optical character recognition, i.e., guessing what the
+characters are from their shapes.
+
+You must also decide on a few more aspects of the output font, which you
+specify with options:
+
+@itemize @bullet
+
+@item
+@cindex design size in image
+@opindex -designsize
+The @emph{design size}, which you specify with the @samp{-designsize}
+option.  The default is 10@dmn{pt}.  Even if you know the true design
+size of the original scanned image, you may wish to change it.  For
+example, some of our original specimens were stated to be 30@dmn{pt},
+but that resulted in the 10@dmn{pt} size being too small to our
+(20th-century) eyes.  So we specified a design size of 26@dmn{pt}.
+
+@item
+@cindex baselines in image
+@opindex -baselines
+@opindex -print-guidelines
+The @emph{baselines}, which you specify with the @samp{-baselines}
+option.  You can specify the baseline for each image row (the bottom
+scanline of each image row is numbered zero, with coordinates increasing
+upward).  You can make an adjustment for individual characters in the
+IFI files, but you save yourself at least some of this hassle by
+specifying a general baseline for each row.
+
+For instance, in the example image in @ref{Imageto usage}, it would be
+best to specify @samp{-baselines=2,0}.  The @samp{2} is scanline #5 in
+that image.  The @samp{0} is an arbitrary value for scanline #10, which
+we will ignore via the IFI file (@pxref{IFI files}).
+
+@opindex -print-guidelines @r{example}
+For each character written, the @samp{-print-guidelines} option produces
+output on the terminal that looks like:
+@example
+75 (K) 5/315
+@end example
+
+@noindent This means that character code 75, whose name in
+the encoding file is @samp{K}, has its bottom row at row 5, and its top
+row at row 315; i.e., the character has five blank rows above the
+origin.  This is almost certainly wrong (the letter `K' should sit on
+the typesetting baseline), so we would want to adjust it downwards to 0
+via the individual character adjustment (@pxref{IFI files}).
+
+@end itemize
+
+The final invocation to produce the font might look something like this:
+
+@example
+imageto -baselines=121,130,120 -designsize=26 ggmr
+@end example
+
+The output from this would be @file{ggmr26.1200gf}.
+
+
+@node Dirty images,  , Image to font conversion, Imageto usage
+@subsection Dirty images
+
+@cindex sex
+@cindex dirty images
+@cindex noisy images
+@cindex spots
+@cindex clean images, not having
+@cindex scanning artifacts
+@cindex artifacts, of scanning
+
+Your image may not be completely ``clean'', i.e., the scanning process
+may have introduced artifacts: black lines at the edge of the paper;
+blotches where the original had a speck of dirt or ink; broken lines
+where the image had a continuous line.  To get a correct output font,
+you must correct these problems.
+
+@cindex blotches in image, ignoring
+@vindex .notdef@r{, removing blotches with}
+To remove blotches, you can simply put @code{.notdef} in the appropriate
+place in the IFI file.  You can find the ``appropriate place'' when you
+look at the output font; some character will be nothing but a (possibly
+tiny) speck, and all the characters following will be in the wrong
+position.
+
+@opindex -print-clean-info @r{example}
+@cindex bounding boxes, assigned to characters
+@cindex characters, bounding boxes assigned
+The @samp{-print-clean-info} option might also help you to
+diagnose which bounding boxes are being assigned to which characters,
+when you are in doubt.  Here is an example of its output:
+
+@example
+[Cleaning 149x383 bitmap:
+  checking (0,99)-(10,152) ... clearing.
+  checking (0,203)-(35,263) ... clearing.
+  checking (0,99)-(130,382) ... keeping.
+  checking (113,0)-(149,37) ... keeping.
+106]
+@end example
+
+@noindent The final @samp{106} is the character code output (ASCII
+@samp{j}).  The size of the overall bitmap which contains the `j' is 149
+pixels wide and 383 pixels high.  The bitmap contained four bounding
+boxes, the last two of which belonged to the `j' and were kept, and the
+first two from the adjacent character (`i') and were erased.  (As shown
+in the example image above, the tail of the `j' often overlaps the `i'
+in type specimens.)
+
+If the image has blobs you have not removed with @code{.notdef}, you
+will see a small bounding box in this output.  The numbers shown are in
+``bitmap coordinates'': (0,0) is the upper left-hand pixel of the
+bitmap.
+
+
+@cindex baselines and blotches
+@opindex -baselines @r{and blotches}
+If a blotch appears outside of the row of characters, Imageto will
+consider it to be its own (very small) image row.  If you are using
+@samp{-baselines}, you must specify an arbitrary value corresponding to
+the blotch, even though the bounding box in the image will be ignored.
+See the section above for an example.
+
+
+@node IFI files, Invoking Imageto, Imageto usage, Imageto
+@section IFI files
+
+@cindex IFI files
+@cindex image font information files
+
+An @dfn{image font information} (IFI) file is a text file which
+describes the contents of an image file.  You yourself must create it;
+as we will see, the information it contains usually cannot be determined
+automatically.
+
+@cindex IFI files, naming
+@cindex naming IFI files
+If your image file is named @file{@var{foo}.img} (or
+@file{@var{foo}.pbm}), it is customary to name the corresponding IFI
+file @file{@var{foo}.ifi}.  That is what Imageto looks for by default.
+If you name it something else, you must specify the name with the
+@samp{-ifi-file} option.
+
+Imageto does not look for an IFI file if either the @samp{-strips} or
+@samp{-epsf} options were specified.
+
+@cindex characters, defining in IFI files
+Each nonblank non-comment line in the IFI file represents a a sequence
+of bounding boxes in the image, and a corresponding character in the
+output font.  @xref{Common file syntax}, for a description of syntax
+elements common to all data files processed by these programs, including
+comments.
+
+@cindex entries in IFI files
+Each line has one to five @dfn{entries}, separated by spaces and/or
+tabs.  If a line contains fewer than five entries, suitable defaults (as
+described below) are taken for the missing trailing entries.  (It is
+impossible to supply a value for entry #3, say, without also supplying
+values for entries #1 and #2.)
+
+Here is the meaning of each entry, in order:
+
+@enumerate
+
+@item
+@cindex character name in IFI files
+The character name of the output character.  Usually, Imageto outputs
+the bounding boxes from the image as a character in the output font,
+assigning it the character code of the name as defined in the encoding
+vector (@pxref{Invoking Imageto}).  However, if the character name is
+@code{.notdef}, or if the character name is not specified in the
+encoding, Imageto just throws away the bounding boxes.  @xref{Encoding
+files}, for general information on encoding files.
+
+@item
+@cindex baseline in IFI files
+@cindex baseline adjustment
+@cindex adjustment, to baseline
+An adjustment to the baseline of the output character, as a (possibly
+signed) decimal number.  The default baseline is either the bottom
+scanline of the image row, or the value you specified with the
+@samp{-baselines} option.  The number given here, in the IFI file, is
+subtracted from that default.  Thus, a positive adjustment moves the
+baseline up (i.e., moves the character down relative to the typesetting
+baseline), a negative one down.  The default adjustment is zero.
+
+@item
+@cindex bounding box count in IFI files
+@cindex alternating bounding boxes
+@cindex mixed-up characters in image
+@cindex out-of-order characters in image
+@cindex characters, out-of-order in image
+The number of bounding boxes which comprise this character, as a decimal
+number.  The default is one.  If this number is negative, it indicates
+that the bounding boxes for this character are not consecutive in the
+image; instead, they alternate with the following character.  For
+example, the tail of an italic `j' might protrude to the left of the
+`i'; then Imageto will find the tail of the `j' first (so it should come
+first in the IFI file), but it will find the dot of the `i' next.  In
+this case, the bounding box count for both the `i' and the `j' should be
+@code{-2}.
+
+@item
+@cindex side bearings in IFI files
+@cindex left side bearing in IFI files
+The left side bearing (lsb).  Most type specimens unfortunately don't
+include side bearing information, but if you happen to have such, you
+can give it here.  (GSrenderfont (@pxref{GSrenderfont}) uses this
+feature).  The default is zero.
+
+You can run Charspace (@pxref{Charspace}) to add side bearings to a font
+semi-automatically.  This is usually less work than trying to guess
+at numbers here.
+
+@cindex right side bearing in IFI files
+@item
+The right side bearing.  As with the lsb, the default is zero.
+
+@end enumerate
+
+Here is a possible IFI file for the image in @ref{Imageto usage}.  We
+throw away the black line that is the second image row.  (Imagine that
+it is a scanner artifact.)
+
+@example
+% IFI file for example image.
+i 0 2
+j 0 2
+l
+m 1
+.notdef % Ignore the black line at the bottom.
+@end example
+
+
+@node Invoking Imageto,  , IFI files, Imageto
+@section Invoking Imageto
+
+@cindex Imageto options
+@cindex invocation of Imageto
+@cindex options for Imageto
+
+This section describes the options that Imageto accepts.
+@xref{Command-line options}, for general option syntax.
+
+The main input filename (@pxref{Main input file}) is called
+@var{image-name} below.
+
+@table @samp
+
+@item -baselines @var{scanline1},@var{scanline2},@dots{}
+@opindex -baselines
+@cindex baselines in image
+Define the baselines for each image row.  The default baseline for the
+characters in the first image row is taken to be @var{scanline1}, etc.
+The @var{scanline}s are @emph{not} cumulative: the top scanline in each
+image row is numbered zero.
+
+@item -designsize @var{real}
+@opindex -designsize
+@cindex design size, specifying
+@cindex fontsize
+Set the design size of the output font to @var{real}; default is 10.0.
+
+@item -dpi @var{unsigned}
+@opindex -dpi
+The resolution of the input image, in pixels per inch (required for PBM
+input).  @xref{Common options}.
+
+@item -encoding @var{enc-file}
+@opindex -encoding
+The encoding file to read for the mapping between character names and
+character codes.  @xref{Encoding files}.  If @var{enc-file} has no
+suffix, @samp{.enc} is appended.  Default is to assign successive
+character codes to the character names in the IFI file.
+
+@item -epsf
+@opindex -epsf
+Write the image to @file{@var{image-name}.eps} as an Encapsulated
+PostScript file.
+
+@item -help
+@opindex -help
+Print a usage message.  @xref{Common options}.
+
+@opindex -ifi-file
+@itemx -ifi-file @var{filename}
+Set the name of the IFI file to @var{filename} (if @var{filename} has an
+extension) or @file{@var{filename}.ifi} (if it doesn't).  The default is
+@file{@var{image-name}.ifi}.
+
+@item -input-format @var{format}
+@opindex -input-format
+Specify the format of the input image; @var{format} must be
+one of @samp{pbm} or @samp{img}.  The default is taken from
+@var{image-name}, if possible.
+
+@item -nchars @var{unsigned}
+@opindex -nchars
+Only write the first @var{unsigned} (approximately) characters from the
+image to the output font; default is all the characters.
+
+@item -output-file @var{filename}
+@opindex -output-file
+@cindex output file, naming
+Write to @var{filename} if @var{filename} has a suffix.  If it doesn't,
+then if writing strips, write to @var{filename}sp.@var{dpi}gf; else
+write to @file{@var{filename}.@var{dpi}gf}.  By default, use
+`@var{image-name} @var{designsize}' for @var{filename}.
+
+@item -print-clean-info
+@opindex -print-clean-info
+Print the size of each bounding box considered for removal, and the size
+of the containing bitmaps.  This option implies @samp{-verbose}.
+@xref{Dirty images}, for a full explanation of its output.
+
+@item -print-guidelines
+@opindex -print-guidelines
+Print the numbers of the top and bottom scanlines for each
+character.  This implies @samp{verbose}.  @xref{Image to font
+conversion}, for a full explanation of its output.
+
+@item -range @var{char1}-@var{char2}
+@opindex -range
+Only output characters with codes between @var{char1} and @var{char2},
+inclusive.  (@xref{Common options}, and @ref{Specifying character codes}.)
+
+@item -strips
+@opindex -strips
+Take a constant number of scanlines from the image as each character in
+the output font, instead of using an IFI file to analyze the image.
+
+@item -trace-scanlines
+@cindex scanlines, tracing
+@cindex image, converting to ASCII
+@opindex -trace-scanlines
+Show every scanline as we read it as plain text, using @samp{*} and
+space characters.  This is still another way to view the image
+(@pxref{Viewing an image}), but the result takes an enormous amount of
+disk space (over eight times as much as the original image) and is quite
+difficult to look at (because it's so big).  To be useful at all, we
+start a giant XTerm window with the smallest possible font and look at
+the resulting file in Emacs.  This option is primarily for debugging.
+
+@item -verbose
+@opindex -verbose
+@kindex . @r{in Imageto verbose output}
+@kindex + @r{in Imageto verbose output}
+Output progress reports.  @xref{Common options}.  Specifically, a
+@samp{.} is output for every 100 scanlines read, a @samp{+} is
+output when an image row does not end on a character boundary, and the
+character code is output inside brackets.
+
+@item -version
+@opindex -version
+Print the version number.  @xref{Common options}.
+
+@end table

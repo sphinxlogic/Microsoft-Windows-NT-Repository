@@ -1,0 +1,1247 @@
+This is Info file fontu.info, produced by Makeinfo-1.49 from the input
+file fontu.texi.
+
+  This file documents the GNU font utilities.
+
+  Copyright (C) 1992 Free Software Foundation, Inc.
+
+  Permission is granted to make and distribute verbatim copies of this
+manual provided the copyright notice and this permission notice are
+preserved on all copies.
+
+  Permission is granted to copy and distribute modified versions of this
+manual under the conditions for verbatim copying, provided also that the
+sections entitled "Freedom" and "GNU General Public License" are
+included exactly as in the original, and provided that the entire
+resulting derived work is distributed under the terms of a permission
+notice identical to this one.
+
+  Permission is granted to copy and distribute translations of this
+manual into another language, under the above conditions for modified
+versions, except that the sections entitled "Freedom" and "GNU General
+Public License" may be included in a translation approved by the Free
+Software Foundation instead of in the original English.
+
+
+File: fontu.info,  Node: Finding tangents,  Next: Finding the spline,  Prev: Initializing t,  Up: Fitting the bitmap curve
+
+Finding tangents
+................
+
+  As mentioned above, Limn moves the control points on the spline to
+optimally fit the bitmap.  But it cannot just move them arbitrarily,
+because it must make sure that the spline fitting one part of the bitmap
+blends smoothly with those fit to adjacent parts.
+
+  Technically, this smooth blending is called "continuity", and it
+comes in degrees.  Limn is concerned with the first two degrees: zero-
+and first-order.  Zero-order continuity between two curves simply means
+the curves are connected; first-order geometric (G1) continuity means
+the tangents to each curve at the point of connection have the same
+direction.  (There are other kinds of continuity besides "geometric",
+but they are not important for our purposes.)
+
+  Informally, this means that the final shape will not abruptly turn at
+the point where two splines meet.  (Any computer graphics textbook will
+discuss the properties of tangents, continuity, and splines, if you're
+unfamiliar with the subject.)
+
+  To achieve G1 continuity, Limn puts the first control point of a
+spline on a line going in the direction of the tangent to the start of
+the spline; and it puts the second control point on a line in the
+direction of the tangent to the end of the spline.  (It would be going
+far afield to prove that this together with the properties of Bezier
+splines imply G1 continuity, but they do.  See Schneider's thesis
+referenced in `limn/README' for a complete mathematical treatment.)
+
+  For the purposes of using Limn, the important thing is that Limn must
+compute the tangents to the spline at the beginning and end, and must do
+so accurately in order to achieve a good fit to the bitmap.  Since Limn
+has available only samples (i.e., the pixel coordinates) of the curve
+being fit, it cannot compute the true tangent.  Instead, it must
+approximate the tangent by looking at some number of coordinates on
+either side of a point.  By default, the number is 3, but you can
+specify a different number with the `-tangent-surround' option.  If the
+resolution of the input font is different than 300dpi, or if the
+outline Limn fits to the bitmap seems off, you will want to scale it
+proportionately.
+
+
+File: fontu.info,  Node: Finding the spline,  Next: Reparameterization,  Prev: Finding tangents,  Up: Fitting the bitmap curve
+
+Finding the spline
+..................
+
+  At last, after all the preprocessing steps described in the previous
+sections, we can actually fit a spline to the bitmap.  Subject to the
+tangent constraints (see the previous section), Limn finds the spline
+which minimizes the "error"--the overall distance to the pixel
+coordinates.
+
+  More precisely, Limn uses a "least-squares error metric" to measure
+the "goodness" of the fit.  This metric minimizes the sum of the
+squares of the distance between each point on the bitmap curve and its
+corresponding point on the fitted spline.  (It is appropriate to square
+the distance because it is equally bad for the fitted spline to diverge
+from the curve in a positive or negative direction.)
+
+  The correspondence between the fitted spline and the bitmap curve is
+defined by the t value that is associated with each point (*note
+Initializing t::.).
+
+  For a given set of t values and given endpoints on the spline, the
+control points which minimize the least-squares metric are unique. The
+formula which determines them is derived in Schneider's thesis (see the
+reference in `limn/README'); Limn implements that formula.
+
+  Once we have the control points, we can ask how well the resulting
+spline actually does fit the bitmap curve.  Limn can do two things to
+improve the fit: change the t values (reparameterization); or break the
+curve into two pieces and then try to fit each piece separately
+(subdivision).
+
+  The following two sections describe these operations in more detail.
+
+
+File: fontu.info,  Node: Reparameterization,  Next: Subdivision,  Prev: Finding the spline,  Up: Fitting the bitmap curve
+
+Reparameterization
+..................
+
+  "Reparameterization" changes the t value for each point p on the
+bitmap curve, thus changing the place on the spline which corresponds
+to p.  Given these new t values, Limn will then fit a new spline (see
+the previous section) to the bitmap, one which presumably matches it
+more closely.
+
+  Reparameterization is almost always a win.  Only if the initial fit
+(*note Initializing t::.) was truly terrible will reparameterization be
+a waste of time, and be omitted in favor of immediate subdivision (see
+the next section).
+
+  Limn sets the default threshold for not reparameterizing to be 30
+"square pixels" (this number is compared to the least-squares error;
+see the previous section).  This is usually only exceeded in cases such
+as that of an outline of `o', where one spline cannot possibly fit the
+entire more-or-less oval outline.  You can change the threshold with
+the option `-reparameterize-threshold'.
+
+  If the error is less than `reparameterize-threshold', Limn
+reparameterizes and refits the curve until the difference in the error
+from the last iteration is less than some percentage (10 by default; you
+can change this with the option `-reparameterize-improve').
+
+  After Limn has given up reparameterization (either because the initial
+fit was worse than `reparameterize-threshold', or because the error did
+not change by more than `reparameterize-improve'), the final error is
+compared to another threshold, 2.0 by default.  (You can specify this
+with the option `-error-threshold'.)  If the error is larger, Limn
+subdivides the bitmap curve (see the next section) and fits each piece
+separately.  Otherwise, Limn saves the fitted spline and goes on to the
+next piece of the pixel outline.
+
+
+File: fontu.info,  Node: Subdivision,  Prev: Reparameterization,  Up: Fitting the bitmap curve
+
+Subdivision
+...........
+
+  When Limn cannot fit a bitmap curve within the `error-threshold' (see
+the previous section), it must subdivide the curve into two pieces and
+fit each independently, applying the fitting algorithm recursively.
+
+  As a strategy to improve the fit, subdivision is inferior to
+reparameterization, because it increases the number of splines in the
+character definition.  This increases the memory required to store the
+character, and also the time to render it.  However, subdivision is
+unavoidable in some circumstances: for example, the outlines on an `o'
+cannot be fit by a single spline.
+
+  For the initial guess of the point at which to subdivide, Limn chooses
+the point of worst error--the point where the fitted spline is farthest
+from the bitmap curve. Although this is usually a good choice,
+minimizing the chance that further subdivision will be necessary,
+occasionally it is not the best: in order to preserve straight lines,
+it is better to subdivide at the point where a straight becomes a curve
+if that point is close to the worst point.  For example, this happens
+where a serif joins the stem.
+
+  Limn has three options to control this process:
+
+  1. `-subdivide-search PERCENT' specifies how far away from the worst
+     point to search for a better subdivision point, as a percentage of
+     the total number of points in the curve; the default is 10.  If
+     you find Limn missing a join as a subdivision point, resulting in
+     a straight line becoming a curve, you probably need to increase
+     this.
+
+  2. `-subdivide-threshold REAL': if the distance between a point p
+     (within the search range) and a straight line is less than this,
+     subdivide at p; default is .03 pixels.
+
+  3. `-subdivide-surround UNSIGNED': when calculating the linearity of
+     the curve surrounding a potential subdivision, use this many
+     points; default is 4.
+
+
+  Because fitting a shorter curve is easier, this process will always
+terminate.  (Eventually the curve will be short enough to fit with a
+straight line (*note Fitting the bitmap curve::.), if nothing else.)
+
+
+File: fontu.info,  Node: Changing splines to lines,  Next: Changing lines to splines,  Prev: Fitting the bitmap curve,  Up: Limn algorithm
+
+Changing splines to lines
+-------------------------
+
+  Upon accepting a fitted spline (see the previous sections), Limn
+checks if a straight line would fit the curve as well.  If so, that is
+preferable, since it is much faster to render straight lines than cubic
+splines.
+
+  More precisely, after fitting a cubic spline to a particular (segment
+of a) curve, Limn finds the straight line between the spline's
+endpoints, and computes the average distance (*note Finding the
+spline::.) between the line and the curve.  If the result is less than
+some threshold, 1 by default, then the spline is provisionally (see the
+next section) changed to a line.
+
+  You can change the theshold with the `-line-threshold' option.
+
+
+File: fontu.info,  Node: Changing lines to splines,  Next: Aligning endpoints,  Prev: Changing splines to lines,  Up: Limn algorithm
+
+Changing lines to splines
+-------------------------
+
+  Once an entire curve (i.e., the bitmap outline between two corners;
+see *Note Finding corners::) has been fit, Limn checks for straight
+lines that are adjacent to splines.  Unless such lines fit the bitmap
+*extremely* well, they must be changed to splines.
+
+  The reason is that the point at which the line and spline meet will
+be a visible "bump" in the typeset character unless the two blend
+smoothly. Where two splines meet, the continuity is guaranteed from the
+way we constructed the splines (*note Finding tangents::.).  But where
+a line and spline meet, nothing makes the join smooth.
+
+  For example, if the outline of a `o' has been subdivided many times
+(as typically happens), a spline may end up fitting just a few
+pixels--so few that a line would fit just as well.  The actions
+described in the previous section will therefore change the spline to a
+line.  But since the adjacent parts of the `o' are being fit with
+curves, that line will result in a noticeable flat spot in the final
+output.  So we must change it back to a spline.
+
+  We want this reversion to be more likely for short curves than long
+curves, since short curves are more likely to be the result of a small
+piece of a curved shape.  So Limn divides the total distance between the
+fitted line and the bitmap curve by the square of the curve length, and
+compares the result to a threshold, .01 by default.  You can change this
+with the `-line-reversion-threshold' option.
+
+
+File: fontu.info,  Node: Aligning endpoints,  Next: Displaying fitting online,  Prev: Changing lines to splines,  Up: Limn algorithm
+
+Aligning endpoints
+------------------
+
+  After fitting a mathematical outline of splines and lines to a pixel
+outline (*note Finding pixel outlines::.), Limn aligns the endpoints on
+the fitted outline.  This involves simply checking each spline to see if
+its starting point and ending point (in either axis) are "close enough"
+to each other.  If they are, then they are made equal to their average.
+
+  This is useful because even a slight offset of the endpoints can be
+produce a noticeable result, especially for straight lines and corners.
+
+  By default, "close enough" is half a pixel.  You can change this with
+the `-align-threshold' option.
+
+
+File: fontu.info,  Node: Displaying fitting online,  Prev: Aligning endpoints,  Up: Limn algorithm
+
+Displaying fitting online
+-------------------------
+
+  While experimenting with the various fitting options listed in the
+preceding sections, you may find it useful to see the results of the
+fitting online.  Limn can display the filtered (*note Filtering
+curves::.) bitmap and the fitted outline online if it is run under the X
+window system and you specify `-do-display'.
+
+  Ordinarily, Limn stops at the end of fitting every character for you
+to hit return, so you have a chance to examine the result.  If you just
+want to get a brief glimpse or something, you can specify
+`-display-continue'.  Then Limn won't stop.
+
+  If you specify `-do-display', you must set the environment variable
+`DISPLAY' to the X server you want Limn to use.  For example, in
+Bourne-compatible shells, you might do:
+
+     DISPLAY=:0 ; export DISPLAY
+
+  The output is shown on a grid, in which each square represents several
+pixels in the input.  Corners are shown as filled squares; other pixels
+are shown as hollow squares.
+
+  Limn has several options that change the appearance of the online
+output:
+
+   * `-display-grid-size UNSIGNED' The number of expanded pixels shown
+     between the grid lines; default is 10.
+
+   * `-display-pixel-size UNSIGNED' The expansion factor; i.e., each
+     input pixel is expanded to a square this many pixels on a side;
+     default is 9.
+
+   * `-display-rectangle-size UNSIGNED' The pixel size; i.e., each
+     pixel shown is a square this many pixels on a side; default is 6. 
+     This must be less than the `display-pixel-size', so that black
+     pixels don't merge into each other.
+
+  You can change the size of the window Limn creates with the
+`geometry' resource in your `.Xdefaults' file (see the documentation in
+the file `mit/doc/tutorials/resources.txt' in the X distribution if you
+aren't familiar with X resources).  The class name is `Limn'.  For
+example:
+
+     Limn*geometry: 300x400-0-0
+
+makes the window 300 pixels wide, 400 pixels high, and located in the
+lower right corner of the screen.
+
+
+File: fontu.info,  Node: Invoking Limn,  Prev: Limn algorithm,  Up: Limn
+
+Invoking Limn
+=============
+
+  This section lists the options that Limn accepts in alphabetic order.
+ The previous section described many of these options in the context of
+the fitting algorithm.
+
+  *Note Command-line options::, for general option syntax.
+
+  The root of the main input fontname is called FONT-NAME below.
+
+`-align-threshold REAL'
+     If either coordinate of the endpoints on a spline is closer than
+     this, make them the same; default is .5.  *Note Aligning
+     endpoints::.
+
+`-corner-always-threshold ANGLE-IN-DEGREES'
+     If the angle at a pixel is less than this, it is considered a
+     corner, even if it is within `corner-surround' pixels of another
+     corner; default is 60.  *Note Finding corners::.
+
+`-corner-surround UNSIGNED'
+     Number of pixels on either side of a point to consider when
+     determining if that point is a corner; default is 4.  *Note
+     Finding corners::.
+
+`-corner-threshold ANGLE-IN-DEGREES'
+     If a pixel, its predecessor(s), and its successor(s) meet at an
+     angle smaller than this, it's a corner; default is 100.  *Note
+     Finding corners::.
+
+`-display-continue'
+     If you specified `-do-display', do not wait for you to hit return
+     after displaying each character online.  *Note Displaying fitting
+     online::.
+
+`-display-grid-size UNSIGNED'
+     Number of expanded pixels between the grid lines; default is 10.
+     *Note Displaying fitting online::.
+
+`-display-pixel-size UNSIGNED'
+     Length of one side of the square that each pixel expands into;
+     default is 9.  *Note Displaying fitting online::.
+
+`-display-rectangle-size UNSIGNED'
+     Length of one side of the square drawn to represent input pixels;
+     default is 6.  Must be less than `display-pixel-size'. *Note
+     Displaying fitting online::.
+
+`-do-display'
+     Show the results of the fitting in an X window, if the X server
+     specified in the `DISPLAY' environment variable can be opened.
+     *Note Displaying fitting online::.
+
+`-dpi UNSIGNED'
+     The resolution, in pixels per inch.  *Note Common options::.
+
+`-error-threshold REAL'
+     Subdivide fitted curves that are off by more pixels than this;
+     default is 2.0.  *Note Reparameterization::.
+
+`-filter-alternative-surround UNSIGNED'
+     Another choice for filter-surround; default is 1.  *Note Filtering
+     curves::.
+
+`-filter-epsilon REAL'
+     If the angles using `filter-surround' and
+     `filter-alternative-surround' points differ by more than this, use
+     the latter; default is 10.0.  *Note Filtering curves::.
+
+`-filter-iterations UNSIGNED'
+     Smooth the curve this many times before fitting; default is 4.
+     *Note Filtering curves::.
+
+`-filter-percent PERCENT'
+     When filtering, use the old point plus distance of neighbors
+     multiplied by this (as a percentage) to determine the new point;
+     default is 33. *Note Filtering curves::.
+
+`-filter-surround UNSIGNED'
+     Number of pixels on either side of a point to consider when
+     filtering that point; default is 2.  *Note Filtering curves::.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-keep-knees'
+     Do not remove "knees"--points on the inside of the outline that are
+     between two others.  *Note Removing knees::.
+
+`-line-reversion-threshold REAL'
+     If a spline is closer to a straight line than this, keep it a
+     straight line even if it is a list with curves; default is .01
+     pixels. *Note Changing lines to splines::.
+
+`-line-threshold REAL'
+     If a spline is not more than this far away from the straight line
+     defined by its endpoints, then output a straight line; default is
+     1. *Note Changing splines to lines::.
+
+`-log'
+     Write detailed progress reports to `FONT_NAME.log'.
+
+`-output-file FILENAME'
+     Write to FILENAME if it has a suffix and to `FILENAME.bzr' if it
+     doesn't.  Default is `FONT-NAME.bzr'.
+
+`-range CHAR1-CHAR2'
+     Only output characters with codes between CHAR1 and CHAR2,
+     inclusive.  (*Note Common options::, and *Note Specifying
+     character codes::.)
+
+`-reparameterize-improve PERCENT'
+     If reparameterization doesn't improve the fit by this much, as a
+     percentage, then stop reparameterizing; default is 10. *Note
+     Reparameterization::.
+
+`-reparameterize-threshold REAL'
+     If an initial fit is off by more pixels than this, don't bother to
+     reparameterize; default is 30.  *Note Reparameterization::.
+
+`-subdivide-search PERCENT'
+     Percentage of the curve from the initial guess for a subdivision
+     point to look for a better one; default is 10.  *Note
+     Subdivision::.
+
+`-subdivide-surround UNSIGNED'
+     Number of points on either side of a point to consider when
+     looking for a subdivision point; default is 4.  *Note
+     Subdivision::.
+
+`-subdivide-threshold REAL'
+     If a point is this close or closer to a straight line, subdivide
+     there; default is .03 pixels.  *Note Subdivision::.
+
+`-tangent-surround UNSIGNED'
+     Number of points on either side of a point to consider when
+     computing the tangent at that point; default is 3.  *Note Finding
+     tangents::.
+
+`-verbose'
+     Output progress reports.
+
+`-version'
+     Print the version number.
+
+
+File: fontu.info,  Node: BZRto,  Next: BPLtoBZR,  Prev: Limn,  Up: Top
+
+BZRto
+*****
+
+  BZRto translates an outline font that's in our home-grown BZR outline
+font format (described below) to some other form: Metafont, Type 1
+PostScript, Type 3 PostScript, or BPL.
+
+  BPL format is simply a human-readable form of BZR files.  *Note BPL
+files::.  We discuss the other output forms below.
+
+  Besides straight format conversion, BZRto can also:
+
+   * merge fonts, possibly of different sizes (see the `-concat' option
+     in *Note Invoking BZRto::);
+
+   * slant fonts, so the oblique version of a font can be made without
+     respecifying the character shapes (see the `-oblique-angle'
+     option);
+
+   * create new characters by combining existing ones, via a fairly
+     general command language (*note CCC files::.).
+
+* Menu:
+
+* Metafont and BZRto::          Output as a Metafont program.
+* Type 1 and BZRto::            Output as a Type 1 PostScript font.
+* Type 3 and BZRto::            Output as a Type 3 PostScript font.
+* CCC files::                   Creating additional characters.
+* Invoking BZRto::              Command-line options.
+* BZR files::                   The technical definition of BZR format.
+
+
+File: fontu.info,  Node: Metafont and BZRto,  Next: Type 1 and BZRto,  Up: BZRto
+
+Metafont and BZRto
+==================
+
+  Metafont is a language for specifying graphic shapes, particularly
+characters in a font of a type, as well as the name of the program which
+interprets the language.  It is commonly used to generate fonts for TeX
+and related software (TeX and Metafont were developed more-or-less
+simultaneously by Donald Knuth during the years 1977--1985).  *Note
+Archives::, for how to obtain the Metafont program.
+
+  BZRto generates a Metafont font `FOO.mf' from the input file
+`FOO10.bzr' (the `10' being the design size of the input) if you
+specify the `-metafont' option, as in:
+
+     bzrto -metafont FOO
+
+  Presuming Metafont has been installed properly at your site, you can
+then make both a TFM and a GF file for FOO at a size of 10pt and
+rasterized for your most common output device with the command:
+
+     mf '\mode:=localfont; input FOO'
+
+(The single quotes are not seen by Metafont; they just protect the
+backslash and semicolon from interpretation by your shell.)
+
+  The assignment to `mode' tells Metafont the name of your output
+device.  `localfont' should be a synonym for some real output device,
+defined when Metafont was installed.  The GF file will be named
+`FOO.DPIgf', where DPI is the resolution of the `localfont' device.
+
+  Given the TFM and GF file, you can now use the font in TeX.
+
+* Menu:
+
+* Metafont output at any size::  Making larger or smaller fonts.
+* Proofing with Metafont::      Metafont can help with debugging fonts.
+
+
+File: fontu.info,  Node: Metafont output at any size,  Next: Proofing with Metafont,  Up: Metafont and BZRto
+
+Metafont output at any size
+---------------------------
+
+  We described above how to get Metafont output at a size of 10pt. To
+generate a GF file for a font FOO at a different size, assign to
+`designsize' on the command line, as follows:
+
+     mf '\mode:=localfont; designsize:=INTEGER; input FOO
+
+For example, if `localfont' corresponds to a 300dpi device, and you
+specify `designsize:=6', this command creates `FOO.180gf', i.e., a 40%
+reduction from `FOO.300gf'.
+
+  In some cases, it may be more convenient to specify a magnification
+factor than a new point size.  (For example, this is the case if you are
+enlarging or reducing an entire document by some constant factor, as
+with TeX's `\magnification' command.)  You can do this by assigning to
+`mag':
+
+     mf '\mode:=localfont; mag:=REAL; input FOO
+
+By default, `mag' is 1.0.  You can also assign to both `mag' and
+`designsize'.  For example, if you set `designsize' to 5 and `mag' to
+4, the output will be a 20pt font.
+
+  Although the Metafont language allows nonlinear scaling of fonts, so
+that the 6pt font would not simply be a reduced version of the 10pt
+font, BZRto cannot take advantage of this sophistication. The reason is
+that BZR files specify a single set of outlines, and the nonlinear
+scaling cannot be deduced from that.  Perhaps we will extend the
+programs someday to handle interpolation between outlines of different
+sizes.
+
+
+File: fontu.info,  Node: Proofing with Metafont,  Prev: Metafont output at any size,  Up: Metafont and BZRto
+
+Proofing with Metafont
+----------------------
+
+  While creating fonts, it is useful to enlarge the character shapes
+enough to be able to make out small details.  This blowing-up process is
+called "proofing".  Metafont works together with GFtoDVI, another
+program created as part of the TeX project, to do this.
+
+  You can make two kinds of proofs with Metafont: "gray proofs" and
+"smoke proofs".  Metafont calls the former `proof' mode, and the latter
+`smoke' mode.  `proof' mode is the default, so if you do not assign to
+`mode' at all, you get gray proofs.  To get smoke proofs for a font
+FOO, you run Metafont as follows:
+
+     mf '\mode:=smoke; input FOO'
+
+(See the preceding sections for general information on running
+Metafont.)  In `proof' or `smoke' mode, by default Metafont will
+display the characters online as it runs (if you are on a terminal
+capable of this, e.g., running under X).  If you aren't interested in
+seeing this online output, you can say `nodisplays;' on the command
+line.
+
+  In both kinds of proofs, the font is produced at a very high
+resolution, typically thousands of pixels per inch, to minimize (or
+eliminate) distortion due to rasterization difficulties.  To be more
+precise, the resolution is chosen so that the `designsize' of the font
+fills `proof_size' inches; by default, `proof_size' is 7, which works
+well enough for both letter-size and A4 paper.
+
+  In order to calculate this, Metafont must also know the resolution of
+the final output device.  This is called `proof_resolution', and is 300
+by default.
+
+  You can change the values of `proof_size' and `proof_resolution' on
+the command line; the actual calculation is done in `bzrsetup.mf'.
+
+  After running Metafont, you will have a GF file, e.g., `FOO.2602gf'. 
+You can then make a DVI file you can preview or print with:
+     gftodvi FOO.2602gf
+   This creates `FOO.dvi'.  In the DVI output from GFtoDVI, each
+character in the font has its own page.  Some additional information is
+also present, as follows:
+
+In `proof' mode, the character shapes are printed in a "gray" font, and
+the starting and ending points of each spline (or line) in the
+character outline are shown.  (Thus, you can see if Limn did a good job
+choosing those points.)  If you set `proofing' > 2, the control points
+for each spline will also be shown.  If a point would otherwise overlap
+with others on the output, an equation is put off to the right defining
+where it appears.
+
+  In `smoke' mode, the character shapes are printed in black; if you
+put the output on the wall and stand back, you can get an idea of how
+the font is coming along.  The character is also shown at its true size
+off to the right (assuming you have made the font at the true-size
+resolution, of course).
+
+  You may find that the extra information to the right of the character
+("overflow equations" in `proof' mode; the true-size character in
+`smoke' mode) is being lost off the edge of the page.  You can change
+where GFtoDVI puts this with the `-overflow-label-offset' option to
+GFtoDVI.
+
+  See the `Metafontbook' and the GFtoDVI documentation for more details.
+
+
+File: fontu.info,  Node: Type 1 and BZRto,  Next: Type 3 and BZRto,  Prev: Metafont and BZRto,  Up: BZRto
+
+Type 1 PostScript fonts and BZRto
+=================================
+
+  The Type 1 font format, invented by Adobe Systems, Inc., is the most
+common representation for PostScript fonts.  Adobe first published its
+specification in the book `Adobe Type 1 Font Format' in 1990.  It
+defines a limited set of operations; general PostScript programs cannot
+be represented as Type 1 fonts.  It also defines hints--ways of
+improving characters' appearances at low resolution and/or small small
+sizes--which cannot be represented in PostScript proper.
+
+  BZRto generates a Type 1 font `FOO.gsf' from the input file
+`FOO10.bzr' (the `10' being the design size of the input) if you
+specify the `-pstype1' option, as in:
+
+     bzrto -pstype1 FOO
+
+  The file `FOO.gsf' consists only of plain text (it's not really
+"human-readable", since Type 1 format requires encryption of the
+character outlines).
+
+  Although Type 1 format also allows for encryption of the entire font,
+this is not required, and BZRto does not do it.  Some deficient
+PostScript interpreters do not recognize unencrypted fonts; but
+Ghostscript, the GNU quasi-PostScript interpreter, has no trouble.  We
+do not know of any utilities for encrypting an unencrypted Type 1 font,
+but presumably such a program would not be hard to write.
+
+
+File: fontu.info,  Node: Type 3 and BZRto,  Next: CCC files,  Prev: Type 1 and BZRto,  Up: BZRto
+
+Type 3 PostScript fonts and BZRto
+=================================
+
+  Type 3 PostScript fonts are not defined in a singular format, as are
+Type 1 fonts (see the previous section).  Rather, they are general
+PostScript programs which happen to meet the PostScript language's
+(liberal) requirements for being a font.  They can therefore be used
+with any PostScript interpreter.
+
+  BZRto generates a Type 3 font `FOO.pf3' from an input BZR file
+`FOO.bzr' if you specify the `-pstype3' option, as in:
+
+     bzrto -pstype3 FOO
+
+  We do not know of any conventional extension for Type 3 fonts; we made
+up `pf3' to stand for "PostScript font Type 3".
+
+  The most important part of a Type 3 font is the `BuildChar' routine,
+which does the actual rendering from the character program. Unlike Type
+1 fonts, whose `BuildChar' routine is built into the PostScript
+interpreter, each Type 3 font supplies its own `BuildChar' routine.
+
+  The Type 3 fonts output by BZRto use a `BuildChar' routine defined in
+a separate file `bzrbuildch.PS' (distributed in the `bzr' directory). 
+They use the PostScript `run' command to read that file; so if you want
+to download one to a printer (which naturally will not have access to
+the file on your computer), you must replace the `run' command with the
+contents of the file.  For PostScript interpreters which run on a host
+computer, such as Ghostscript, you have to install `bzrbuildch.PS' in a
+directory where it will be found, but you need not modify the fonts.
+
+
+File: fontu.info,  Node: CCC files,  Next: Invoking BZRto,  Prev: Type 3 and BZRto,  Up: BZRto
+
+CCC files
+=========
+
+  The CCC (composite character construction) language allows you to
+define new characters in terms of existing ones.  This is useful for
+building such characters as pre-accented A's (from a piece accent and
+an `A').
+
+  A CCC file consists of a sequence of character definitions, each of
+which looks like:
+
+     define NAME = STATEMENTS end
+
+where NAME is a character name, presumably from the encoding file
+specified with the `-encoding' option (*note Invoking BZRto::.). *Note
+Character names::, for the details of character names.
+
+  We describe the possible STATEMENTS below.
+
+  You may also include comments starting with a `%' character and
+continuing to the end of the line.
+
+* Menu:
+
+* setchar: CCC setchar.         Statements for including a character.
+* move: CCC move.               Statements for moving to a new position.
+
+
+File: fontu.info,  Node: CCC setchar,  Next: CCC move,  Up: CCC files
+
+CCC `setchar' statements
+------------------------
+
+  To use an existing character as part of a new character, you can use
+either the `setchar' or `setcharbb' statement.  They both take a
+character name in parentheses as their argument, as in:
+
+     setchar ( NAME )
+     setcharbb ( NAME )
+
+  *Note Character names::, for the details of character names.
+
+  The difference between the two commands lies in their treatment of the
+existing character's sidebearings: the `setchar' command includes them,
+and `setcharbb' does not.  `setcharbb' also removes any white space
+above and below the character shapes, as is usually present in accent
+characters.
+
+  This difference lets you construct characters without worrying about
+interaction between their side bearings.  For example, you could make an
+`A' with an acute accent centered over the body of the `A' as follows:
+
+     define Aacute =
+       setchar (A)
+       hmove -.5 width (A)
+       vmove height (A)
+       setcharbb (acute)
+     end
+
+(See the next section for a description of the `hmove' and `vmove'
+commands.)  Without the `setcharbb' command, this definition would be
+complicated by the side bearings on the `acute' character.
+
+
+File: fontu.info,  Node: CCC move,  Prev: CCC setchar,  Up: CCC files
+
+CCC `move' statements
+---------------------
+
+  To change the current position in a CCC file, you can use the `hmove'
+or `vmove' command; as you might expect, the former moves horizontally
+and the latter vertically.
+
+  Both take a single argument: a "dimension", which is an optional real
+number followed by a unit of measure.  The real number is a multiplying
+factor.  For example, one of the units is `pt' (signifying printer's
+points, as usual), so the command `hmove 3pt' moves three points to the
+right (a pretty small distance).
+
+  Here are the possible units of measure:
+
+`bbheight ( NAME )'
+     The height exclusive of blank space above or below the shape of the
+     character NAME if it exists.
+
+`bbwidth ( NAME )'
+     The width exclusive of side bearings of the character NAME if it
+     exists.
+
+`capheight'
+     The height of the capital letters, e.g., `H'.  See `xheight' for
+     how this is determined.
+
+`depth ( NAME )'
+     The depth of the character NAME.
+
+`designsize'
+     The design size of the main input BZR font.
+
+`em'
+     The quad width of the font.  This value is determined analogously
+     to `xheight', below.
+
+`fontdepth'
+     The maximum depth any character in the font descends below the
+     baseline. Again, this is determined analogously to `xheight'.
+
+`height ( NAME )'
+     The height of the character NAME.
+
+`pt'
+     Printer's points; 72.27pt = 1in.  Since dimensions specified in
+     points are absolute distances, they do not scale when the font size
+     changes.
+
+`width ( NAME )'
+     The set width of the character NAME.
+
+`xheight'
+     The x-height of the main input font.  If a TFM file corresponding
+     to the main BZR file exists and defines this, that value is used;
+     otherwise, the height of a suitable character (e.g., `x') is used
+     if one exists; otherwise, it's zero.  BZRto treats the other
+     font-related units of measure in the same way.
+
+  If the character NAME does not exist, an error is given, and the
+command ignored.
+
+
+File: fontu.info,  Node: Invoking BZRto,  Next: BZR files,  Prev: CCC files,  Up: BZRto
+
+Invoking BZRto
+==============
+
+  This section describes the options that BZRto accepts. *Note
+Command-line options::, for general option syntax.
+
+  The root of the main input fontname is called FONT-NAME below.
+
+`-concat BZR-NAME1, BZR-NAME2, ...'
+     Concatenate the main input file with the given BZR-NAMEs; if a
+     character code exists in more than one of the BZR files, it's the
+     first occurrence that counts.  The BZR files can have any design
+     size; the output is normalized to the size of the main input file.
+
+`-ccc-file FILENAME'
+     Read the CCC file FILENAME (if FILENAME has a suffix) or
+     `FILENAME.ccc' (if it doesn't).  Default is to use FONT-NAME for
+     FILENAME, but if BZRto does not find the file `FONT-NAME.ccc', it
+     does not complain.
+
+`-encoding FILENAME'
+     Specify the encoding file for the input font, so character names
+     in the CCC files can be matched to character codes.  If FILENAME
+     has no suffix, use `FILENAME.enc', otherwise just FILENAME. The
+     default is to guess the encoding from the `codingscheme' string in
+     a TFM file corresponding to the main input file, if such exists.
+
+`-help'
+     Print a usage message.  *Note Common options::.
+
+`-metafont'
+     Translate the input to a Metafont program; write to
+     `FONT-NAME.mf'.  *Note Metafont and BZRto::.
+
+`-mf'
+     Synonym for `-metafont'.
+
+`-oblique-angle ANGLE-IN-DEGREES'
+     Angle in degrees from the vertical by which to slant the shapes;
+     default is zero.
+
+`-output-file FILENAME'
+     Output to FILENAME (if it has a suffix) or to
+     `FILENAME.FONT-FORMAT' (if it doesn't), where FONT-FORMAT is `mf',
+     `gsf', etc.  If you give more than one of the output format
+     options (i.e., `metafont', `pstype1' and `pstype3'), FILENAME
+     cannot have a suffix.  The default is FONT-NAME with a trailing
+     number removed, so that, for example, an input filename of `cmr10'
+     becomes `cmr'.
+
+`-ps-font-info NAME1:VALUE1,...'
+     Assign each VALUE to the corresponding NAME when outputting a
+     PostScript font (either Type 1 or Type 3).  Case is significant in
+     both the NAMEs and VALUEs.  You can specify the following:
+
+    `FontName:STRING'
+          The full PostScript name of the font; e.g.,
+          `Times-BoldItalic'. The default is `unknown'.
+
+    `FamilyName:STRING'
+          The name of the typeface family to which this font belongs;
+          e.g., `Times'.  The default is to use `FontName' up to the
+          first `-'.
+
+    `Weight:STRING'
+          The typographic weight of the font, e.g., `Bold'.  If
+          `FontName' contains one of the strings `Black', `Book',
+          `Bold', `Demi', `ExtraBold', `Light', `Heavy', `Regular',
+          `Semibold', or `Ultra', that is the weight.  Otherwise, BZRto
+          uses `Medium'.
+
+    `ItalicAngle:REAL'
+          The angle in degrees by which the font slopes to the right
+          from the vertical.  Default is zero.  Typical slanted or
+          italic fonts have values between 10--20.
+
+    `isFixedPitch:`true' or `false''
+          Whether or not this font is monospaced.  If a TFM file
+          corresponding to the main BZR file exists, and specifies a
+          zero interword stretch and shrink, and a nonzero interword
+          space, the default is `true'. Otherwise, it's `false'.
+
+    `UnderlinePosition:REAL'
+          Distance from the baseline for positioning underlines, in
+          units of the character coordinate system.  Default is -100.
+
+    `UnderlineThickness:REAL'
+          Thickness of underlines.  Default is 50.
+
+    `UniqueID:NON-NEGATIVE INTEGER'
+          An integer in the range 0 to 16777215 (2^24 - 1) uniquely
+          identifying this font.  The default is zero, meaning (for our
+          purposes) not to output any `UniqueID'.  This avoids
+          unlikely-but-possible conflicts with existing fonts.
+
+    `version:STRING'
+          Identification for the particular version of this font.  If a
+          TFM file corresponding to the main BZR file exists, and
+          specifies a version number, that is the default; otherwise,
+          there is none.
+
+     All values except `FontName' and `UniqueID' go in the `FontInfo'
+     dictionary.
+
+`-pstype1'
+     Translate the input to (unencrypted) PostScript Type 1 font format;
+     write to `FONT-NAME.gsf'.  *Note Type 1 and BZRto::.
+
+`-pstype3'
+     Translate the input to PostScript Type 3 font format; write to
+     `FONT-NAME.pf3'.  *Note Type 3 and BZRto::.
+
+`-range CHAR1-CHAR2'
+     Only process characters between the character codes CHAR1 and
+     CHAR2, inclusive.
+
+`-text'
+     Translate the font to a BPL file, i.e., human-readable text; write
+     to standard output.  *Note BPL files::.
+
+`-verbose'
+     Output progress reports to standard output, unless `-text' is
+     specified, in which case output to standard error.
+
+`-version'
+     Print the version number.
+
+
+File: fontu.info,  Node: BZR files,  Prev: Invoking BZRto,  Up: BZRto
+
+BZR files
+=========
+
+  This section describes the technical definition of the BZR file
+format.  It is intended for programmers who wish to write other
+programs which read or write such files.  The present distribution
+includes a subroutine library which can be shared among programs (Limn,
+BPLtoBZR, and BZRto all use it); new programs can and probably should
+use the existing library as well.  The source code is in the `bzr'
+directory.
+
+  The BZR file format shares the philosophy of the TeX project file
+formats (DVI, GF, PK, etc.): machine-independence; compactness; and
+easy interpretation.
+
+  BZR files have three parts: a preamble, character definitions, and a
+postamble.  We describe each below, as well as some general
+considerations.
+
+* Menu:
+
+* Intro: BZR format introduction.  General concepts and definitions.
+* Preamble: BZR preamble.       The beginning.
+* Chars: BZR characters.        The middle.
+* Postamble: BZR postamble.     The end.
+
+
+File: fontu.info,  Node: BZR format introduction,  Next: BZR preamble,  Up: BZR files
+
+BZR format introduction
+-----------------------
+
+  This section describes some general conventions of the BZR format.
+
+  In the following sections, we use the notation NAME[N] to mean that
+some constituent NAME of the BZR file takes up N bytes.  If NAME is all
+capital letters, it is an opcode, i.e., a command byte, and therefore
+we give no [N] after NAME, since all opcodes are a single byte.  The
+numerical value of each opcode is given in the source file
+`bzr/bzr_opcodes.h'.
+
+  Some values in BZR files are "pointers".  These values give the
+location of some other byte in the file.  The first byte is numbered 0,
+the next byte numbered 1, and so on.
+
+  Besides commands which actually define the font, the BZR format has a
+`NO_OP' command, which does nothing.  Any number of `NO_OP''s can occur
+between the preamble and the character definitions, between character
+definitions and commands within characters, between the character
+definitions and the postamble, and after the postamble.  But they may
+not occur within the preamble, the postamble, or between a command and
+its parameters.
+
+  Besides simple integers, BZR format uses a fixed-point representation
+of real numbers called a "scaled", which is three bytes: two bytes of
+fraction and one byte of integer.  We can get away with such a small
+range because almost all numbers are scaled by the design size; i.e., in
+a 10-point font, a designsize-scaled value of 1.0 would represent 10
+points (quite a large distance, relatively speaking).
+
+  In fact, designsize-scaled numbers are typically less than 1.0, so the
+BZR format provides for abbreviating such, thus making the font smaller,
+as detailed in the following sections.
+
+  Negative numbers are represented in 2's complement notation, and
+multibyte values are stored in BigEndian order, regardless of the
+conventions of the host computer.  This makes a BZR font file portable
+between different architectures.
+
+
+File: fontu.info,  Node: BZR preamble,  Next: BZR characters,  Prev: BZR format introduction,  Up: BZR files
+
+BZR preamble
+------------
+
+  The preamble of a BZR file has two components, the font's design size
+and a comment: `designsize'[3], `k'[1], `comment'[`k'].
+
+  *Note BZR format introduction::, for general information about BZR
+files and for the definition of the types used here.
+
+  The `designsize' is a `scaled' number in printer's points.
+
+  The K-byte long `comment' typically identifies the source and
+creation date of the BZR file.
+
+
+File: fontu.info,  Node: BZR characters,  Next: BZR postamble,  Prev: BZR preamble,  Up: BZR files
+
+BZR characters
+--------------
+
+  BZR characters consist of an identifying command, metric information,
+shape information, and a terminating `EOC' command.
+
+  We describe these parts below.
+
+* Menu:
+
+* BOC: BZR character beginnings.  Giving character metrics.
+* Shape: BZR character shapes.  Defining the outline(s).
+
+
+File: fontu.info,  Node: BZR character beginnings,  Next: BZR character shapes,  Up: BZR characters
+
+BZR character beginnings
+........................
+
+  BZR format provides two ways to start characters: an abbreviated one,
+which saves space in common cases, and a longer form which (we hope)
+will always suffice.
+
+  The short form looks like this:
+
+     `BOC_ABBREV' `charcode'[1]
+     `set-width'[2]
+     `llx'[2] `lly'[2] `urx'[2] `ury'[2]
+
+  The long form:
+
+     `BOC' `charcode'[1]
+     `set-width'[3]
+     `llx'[3] `lly'[3] `urx'[3] `ury'[3]
+
+  Here is a description of these components:
+
+   * The `BOC' or `BOC_ABBREV' opcode byte introduces the character.
+
+   * `charcode' defines the character code in question.
+
+   * `set-width' defines the set width of the character, given as a
+     design-size scaled, in printer's points.
+
+   * `llx' ... `ury' (which stand for "lower left x", "lower left y",
+     "upper right x", and "upper right y") define the bounding box for
+     this character.  The values are designsize-scaled, in printer's
+     points.  The bounding box is not guaranteed to be the tightest
+     possible, because it is difficult to compute the exact path of any
+     splines in the character shape (*note BZR character shapes::.).
+
+  As with other formats, the left side bearing is defined by `llx', and
+the right side bearing by `set-width' - `urx'.
+
+  *Note BZR format introduction::, for general information about BZR
+files and for the definition of the types used here.
+
+
+File: fontu.info,  Node: BZR character shapes,  Prev: BZR character beginnings,  Up: BZR characters
+
+BZR character shapes
+....................
+
+  In the BZR format, a character shape is defined as a sequence of
+(non-contiguous) closed paths, i.e., outlines.  Each path can contain
+straight lines and Bezier cubic splines.  As a BZR-reading program
+interprets the character definition, it keeps track of a "current
+point", which is initially undefined.
+
+  Each path--and therefore also the character shape itself--starts with
+a path command: `PATH', `x'[3], `y'[3].  This finishes off any previous
+outline and starts a new one, setting the current point to `(x,y)'. 
+`x' and `y' are designsize-scaled values in printer's points.
+
+  After a path command has started an outline, a sequence of zero or
+more line and/or spline commands, intermixed in any order, follows.  (A
+path command followed by another path command is allowed, but does
+nothing useful.)
+
+  Although the BZR format itself does not require it, for the font to
+work properly when translated to some other formats, the "outside
+curves" must be drawn counterclockwise, and the inside ones clockwise.
+
+  The BZR format defines both abbreviated and long versions of both
+straight line and spline commands, as follows.
+
+  The abbreviated line command is:
+
+     `LINE_ABBREV' `ex'[2]
+     `ey'[2]
+
+which defines a straight line from the current point to `(ex,ey)'. 
+`ex' and `ey' are designsize-scaled numbers in points.  After drawing
+the line, the current point is set to `(ex,ey)'.
+
+  The long form of the line command differs only in starting with a
+`LINE' opcode, and the coordinate parameters being three bytes long,
+instead of two.
+
+  The spline commands are analogous.  Here is the abbreviated form:
+
+     `SPLINE_ABBREV' `c1x'[2] `c1y'[2]
+     `c2x'[2] `c2y'[2]
+     `ex'[2] `ey'[2]
+
+This defines a Bezier spline with initial point the current point,
+control points `(c1x,c1y)' and `(c2x,c2y)', and ending point `(ex,ey)'.
+ The current point is then set to `(ex,ey)'.  As with the line
+commands, the coordinate parameters are designsize-scaled in units of
+points.
+
+  Also as with the line commands, the long form of the spline command
+differs only in starting with a `SPLINE' opcode and the other
+parameters being three bytes long instead of two.
+
+
+File: fontu.info,  Node: BZR postamble,  Prev: BZR characters,  Up: BZR files
+
+BZR postamble
+-------------
+
+  The postamble of a BZR file consists of the following.  *Note BZR
+format introduction::, for general information about BZR files and for
+the definition of the types used here.
+
+     `POST' `llx'[3] `lly'[3] `urx'[3] `ury'[3]
+     character locators (see below)
+     `POST_POST' `nchars'[1]
+     `post-ptr'[4]
+     `id'[1]
+     1 to any number of `NO_OP''s
+
+  Here is a description of these components:
+
+   * `llx' ... `ury' are all designsize-scaled numbers.  They define
+     the bounding box for the entire font, which is simply the smallest
+     box that encloses all the characters.  *Note BZR character
+     beginnings::.
+
+   * A character locators provides a pointer to the first byte of the
+     corresponding character description, i.e., its `BOC'.  There are
+     two forms of character locators: one abbreviates the common case
+     of the pointer being less than 65536; the other allows for a full
+     four-byte pointer value.
+
+     More precisely, an abbreviated character locator consists of:
+
+          CHAR_LOC_ABBREV charcode[1] pointer[2]
+
+     and a long character locator consists of:
+
+          `CHAR_LOC' `charcode'[1] `pointer'[4]
+
+   * `nchars' is the number of characters defined in the BZR file.
+
+   * `post-ptr' points to the `POST' byte.
+
+   * `id' identifies the version of BZR format; this is currently 75.
+
+  This way of ending BZR files makes it straightforward to process a BZR
+file from end to beginning, even though it must of course be written
+beginning to end.  The BZR-reading program can position itself at the
+end of the file, skip over the `NO_OP' bytes at the end to the `id'
+byte, and then read the pointer to the postamble proper, which provides
+enough information to read each character individually.  This
+eliminates the need to read the entire (potentially large) BZR file into
+memory before doing any processing.
+
+
+File: fontu.info,  Node: BPLtoBZR,  Next: XBfe,  Prev: BZRto,  Up: Top
+
+BPLtoBZR
+********
+
+  BPLtoBZR translates a human-readable (and -editable) text file in BPL
+format (see below) to the binary BZR (Bezier) font format.
+
+  Of the two, only BZR files can be changed into font formats which
+typesetting programs can use.  So after editing a BPL file, you need to
+run this program.  BZRedit likewise invokes it when necessary (*note
+BZRedit::.).
+
+* Menu:
+
+* BPL files::                   Bezier property list file format.
+* Invoking BPLtoBZR::           Command-line options.
+
+

@@ -1,0 +1,69 @@
+# Make everything script
+# Greg Lehey, LEMIS, 16 January 1994
+# This is invoked from the top-level Makefile, which 
+# sets up to five environment variables:
+#
+# package - name of the directory
+# install - set if we want to install the finished package
+# make-package - set to the name of a script (in SOURCE/cdtools-1.3) to do the make
+# clean - set if we want to subsequently make clean
+# compress - set if we want to gzip the directory after the make
+# This can be mkmkpk, to always rebuild prototype file,
+# mkpackage, to never rebuild it (and fail if it is missing),
+# or make-package, to make it when needed.
+
+if [ "$CDROM" = "" ]; then
+  CDROM=/cdcopy
+fi
+TOOLS=$CDROM/SOURCE/cdtools-1.3
+TIMESTAMP=/tmp/cdtools-package_start
+echo +++ Making package $package	# XXX
+echo +++ install: $install		# XXX
+echo +++ make package script: $make_package
+if $clean; then
+   echo +++ subsequently perform make clean
+fi
+if $compress; then
+   echo +++ subsequently compress directory
+fi
+echo +++ making package
+make					# make the package
+if [ $? != 0 ]; then			# bombed out
+  exit 1;
+fi
+if [ "$(install)" != "" ]; then
+  touch $TIMESTAMP			# for deciding what we have installed
+  echo +++ Installing package
+  make install
+  if [ $? != 0 ]; then			# bombed out
+    exit 1;
+  fi
+  echo +++ linking documentation
+  (cd man; make installman)
+  linkdoc $package
+  if [ $? != 0 ]; then			# bombed out
+    exit 1;
+  fi
+  echo +++ Building installable package
+  $make_package . 
+fi
+if [ $? != 0 ]; then			# bombed out
+  exit 1;
+fi
+if [ "$clean" != "" ]; then
+  echo +++ Making clean
+  make clean
+  find . -name "*~" -print|xargs rm -f
+  find . -name "#*" -print|xargs rm -f
+  fi
+if [ $? != 0 ]; then			# bombed out
+  exit 1;
+fi
+cd .. 
+if [ "$compress" != "" ]; then
+  echo +++ Compressing directory into archive
+  tar cf - $package | gzip >$package.tar.gz
+  if [ $? = 0 ]; then			# gzip worked OK,
+    rm -rf $package			# remove the directory hierarchy
+  fi
+fi

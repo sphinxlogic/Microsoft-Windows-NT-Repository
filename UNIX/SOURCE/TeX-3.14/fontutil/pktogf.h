@@ -1,0 +1,15 @@
+void initialize(void);
+void openpkfile(void);
+void opengffile(void);
+integer getbyte(void);
+integer signedbyte(void);
+integer gettwobytes(void);
+integer signedpair(void);
+integer signedquad(void);
+void gf16(integer i);
+void gf24(integer i);
+void gfquad(integer i);
+integer getnyb(void);
+boolean getbit(void);
+integer pkpackednum(void);
+void skipspecials(void);

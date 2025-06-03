@@ -1,0 +1,1060 @@
+Date: Mon, 18 Jan 93 15:34:32 -0600
+From: burchard@geom.umn.edu
+To: gnu-objc@prep.ai.mit.edu
+Subject: The forward/performv Puzzle
+
+I have written a very, very, very preliminary socket-based distributed object system that is intended for porting to GNU Objective-C.  So far, this has been primarily an exercise to see what is actually required from the run-time in order to implement such a system.
+
+There is one major feature missing from GNU's Objective-C run-time at the moment, which prevents this project from progressing to the more desirable very, very preliminary :-) stage.  That feature is the functionality of NeXT's forward and performv, which are required in order that arbitrary messages can be captured by proxy objects and then later executed by the remote objects they stand for.
+
+The puzzle I would like to pose to this mailing list is how such a run-time facility can best (most portably) be implemented.  It doesn't have to be compatible with NeXT's forward and performv; it just needs to provide their capabilities (in fact, NeXT's API is proabably a good one to avoid).
+
+This is a tricky puzzle, though, the underlying difficulty being that the C language does not support the run-time construction of argument lists and return values.  (It doesn't really support the run-time deconstruction of argument lists either, except that we now have standard hack for it called "stdarg.h".)
+
+This puzzle is ironically made more difficult by the portable message-dispatching implementation chosen by GNU Obj-C.  The problem here is that objc_msgSend() only gets to choose a method implementation, and is helpless to change the message's "self" and "_cmd" (which are hard-compiled into the message call in the GNU run-time system).  If this were not the case, a limited form of forwarding could be implemented portably.
+
+This portability puzzle vexes NeXT's distributed object system as well, resulting in problems like not being able to return doubles from remote messages.
+
+The benefits of distributed objects are too great, though, to abandon this quest if it turns out that no 100% pure solution exists.  More portable is better, but I'd like to hear any practical ideas that will work well with the GNU compiler.
+
+Solutions?  Ideas, anyone?
+
+Thanks,
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+
+Date: Tue, 19 Jan 93 08:05:01 -0800
+From: Dennis Glatting <dglattin@trirex.com>
+To: <burchard@geom.umn.edu>
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+Reply-To: dennis_glatting@trirex.com
+
+
+I looked at doing forwardv:: for the first release of the run time.  To implement forwardv:: is a perplexing problem:  
+
+* Implementation of forwardv:: would require stack frame copying.  (or at least modification of the existing stack frame.)
+* The microprocessor itself poses problems such as word width, alignment, and -- possibly on some RISC machines -- parameter passing using register windows.
+* Each function used to implement forwardv:: may need to know the amount of data pushed onto the stack for local variables.  (So to index backward.)
+* The dispatch function must know about passed arguments.  While this is encoded and available, what do you do for variable arguments and structures?  Oh yea, how about void*?
+* The stack must be indexed to extract return addresses -- that is, if this can be done with your microprocessor of the day.  There are also microprocessor/compiler specific data pushed onto the stack that the functions may need to know about such as the variable frame on 680x0 microprocessors (note the link instruction on each function entry).
+
+At the time, these issues and others I haven't mentioned caused me think that DO reeks of assembly code that is not only tailored to the microprocessor, by the vendor's operating system as well.  This is a significant maintenance issue and is in no way portable.
+
+The other item I wanted to add to the run time is "active objects" but it suffers from many of the same issues.
+
+I think you touched on something I suspect about the NeXT run time:  it contains microprocessor/vendor specific assembly code.
+
+I invite ideas of how to do this in a somewhat portable fashion.  Portability was one of the chief goals of the run time.
+
+
+-dpg
+
+
+
+
+From: Steve Naroff <Steve_Naroff@next.com>
+Date: Tue, 19 Jan 93 17:50:24 -0800
+To: dennis_glatting@trirex.com
+Subject: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+
+The "style" of forwarding required for DO is hard to do in portable way (given the low level nature of C). C compilers have a hard enough time agreeing on structure layout! Nevertheless, I believe you are over estimating the assembly required implement this. The two hooks in the NeXT runtime that support forwarding are:
+
+extern id _objc_msgForward (id self, SEL sel, ...);
+extern id objc_msgSendv (id self, SEL op,
+		unsigned arg_size, marg_list arg_frame);
+
+The assembly code amounts to less than 1 page for both of these routines (let me know if you want the code).
+
+You could imagine a style of forwarding that works fine locally (and is totally portable). The interface is:
+
+- forward:(SEL)op;	// adequate for supporting delegation.
+
+"forward:" would be implemented by any class interested in providing a delegate. It would not be directly responsible for sending the message (which is why it is more portable). This is also parallel with the way you separate "lookup from dispatch" in the GNU runtime.
+
+regards, snaroff.
+
+Begin forwarded message:
+
+Date: Tue, 19 Jan 93 08:05:01 -0800
+From: Dennis Glatting <dglattin@trirex.com>
+To: <burchard@geom.umn.edu>
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+Reply-To: dennis_glatting@trirex.com
+
+
+I looked at doing forwardv:: for the first release of the run time.  To implement forwardv:: is a perplexing problem: 
+
+* Implementation of forwardv:: would require stack frame copying.  (or at least modification of the existing stack frame.)
+* The microprocessor itself poses problems such as word width, alignment, and -- possibly on some RISC machines -- parameter passing using register windows.
+* Each function used to implement forwardv:: may need to know the amount of data pushed onto the stack for local variables.  (So to index backward.)
+* The dispatch function must know about passed arguments.  While this is encoded and available, what do you do for variable arguments and structures?  Oh yea, how about void*?
+* The stack must be indexed to extract return addresses -- that is, if this can be done with your microprocessor of the day.  There are also microprocessor/compiler specific data pushed onto the stack that the functions may need to know about such as the variable frame on 680x0 microprocessors (note the link instruction on each function entry).
+
+At the time, these issues and others I haven't mentioned caused me think that DO reeks of assembly code that is not only tailored to the microprocessor, by the vendor's operating system as well.  This is a significant maintenance issue and is in no way portable.
+
+The other item I wanted to add to the run time is "active objects" but it suffers from many of the same issues.
+
+I think you touched on something I suspect about the NeXT run time:  it contains microprocessor/vendor specific assembly code.
+
+I invite ideas of how to do this in a somewhat portable fashion.  Portability was one of the chief goals of the run time.
+
+
+-dpg
+
+
+
+
+
+Date: Wed, 20 Jan 93 23:40 PST
+From: michael@stb.info.com (Michael Gersten)
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: The forward/performv Puzzle
+
+Here's my comments on how to forward:
+
+The issue is how to portable forward a call to someone else, given that you don't know how far up the stack the stack frame runs, nor the format of said stack frame.
+
+Method one:
+You decide to pass a message to an object. You call the dispatcher. The dispatcher must do one of two things: It must either call (or return the address of) the specified routine, or failing that, the "forward" routine.
+
+Assumptions used: The number of arguments declared to be taken by the routine (in this case, an arbitrary number of args from the original routine, and the probably 0 args declared by the forward routine) do not affect the format of the stack frame.
+
+Disadvantages: Cannot retreive the arguments in the forward routine, nor can the forward routine pass those arguments to another routine.
+
+Method two:
+All method calls get another arg pushed on the stack, an invisible arg specifying how many bytes have been pushed on the stack. This is used to determine the stack size, which can then be "independently" copied
+Advantages: Fairly portable (see below)
+Disadvantages: Does not properly handle the case of one arg being a pointer to another arg -- you'll have instead a pointer to something back up the stack in another frame.
+	Still relies on the forward method knowing the stack info.
+
+Method three:
+Attempting to emulate the next mechanism:
+The forward method will be called with a special argument type, that can only be used by passing it to the performv method. The performv method will use this special type, with the goal of being implementation independent, to call the routine.
+
+In order for performv to be so independent, it must take the new object, the new method name, and the old info; it would then unwind the stack to the point indicated in the special argument, modifies the stack frame in place to substitute the new object (which may be the same as the old), and the new method, and then reruns the send routine.
+
+This requires that the send routine, when it fails, must instead send to the forward routine, and with a slightly different stack frame -- it needs to put onto the stack a new stack frame specifying the original object, the original method, and this special argument for performv.
+
+Advantages: It works. It's fairly portable. It doesn't break under any arg types
+Disadvantages: Requires that the machine have some way to unwind a stack frame (does this conflict with register windows machines?). This code (the unwinding of the stack, and the setting up info needed to unwind) would probably be machine specific, and only used in one or two places (not really much different than requiring each machien description to provide a prologue and epilogue routine). Not completely compatible with a message dispatcher that works by returning a pointer for someone else to call -- would require that the code so involved change from
+
+	push args
+	push obj
+	push method
+	call lookup
+	jump addr
+
+to
+...
+	call lookup
+	jump NZ,addr
+	jump massage_stack_and_forward
+
+other arg passing conventions may require other changes -- you need a new #define for "the name of the insn pattern to use (usually jne) after calling the method lookup routine; must not jump if a lookup failure occurs". Also not quite standard in the implementation of forward and performv -- note that performv under this system does not return to the caller (forward), but instead to the caller of forward. Since sending a message "method1" to "foo" is translated into a "forward" message, this has the result of returning directly after the call to method1, with no way for that routine to know that a failure occured (and no way for the forward routine to do something AFTER the performv, which may vary well be desireable). No easy way to check for a "double forward", where the forward routine cannot operate because of a failed send (infinite loop in the error handler). Still, it looks like the best of the implementation independent ways. Would someone like to shoot it down please?
+--
+	Michael Gersten		michael@stb.info.com
+NeXT Registered Developer (NeRD) # 3860 -- Hire me! Quick!
+Will program computers for food (and net connection, health benefits, cash,...)
+
+Date: Thu, 21 Jan 93 11:53:49 -0600
+From: burchard@geom.umn.edu
+To: michael@stb.info.com (Michael Gersten)
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+> (does this conflict with register windows machines?)
+
+To avoid lots of hypothetical discussions, I suggest everyone thinking about this take a look at section 14.7 of the GNU CC manual, on C calling conventions (about a dozen pages).  It was an eye-opener for me---I hadn't realized that some platforms will go so far as to split a single argument into pieces, and pass part on the stack and part in a register.  And don't count on there being stack space "reserved" for the missing args/pieces that are passed in registers.
+
+The varargs facilities in GNU CC provide a bit of guidance but not a lot of actual help.  The one thing that could be helpful is the builtin "function" __builtin_saveregs().  Don't try taking a pointer to this thing---it's really a slippery compiler trick to cause the insertion of some assembly code at the beginning of the routine (no matter where it's "called").  The assembly code for __builtin_saveregs() is maintained for each platform that needs it in libgcc2.c.  Thankfully it isn't, in the end, all that terrible, and gives some hints about how the opposite operation (of loading arguments properly from a more uniform format) would proceed.
+
+Still, after looking at all this, I have to regard the stack-oriented argument info maintained and published by the Obj-C runtime as being somewhat euphemistic.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Date: Sat, 23 Jan 93 15:04:24 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: Steve_Naroff@next.com
+Cc: dennis_glatting@trirex.com, gnu-objc@prep.ai.mit.edu
+In-Reply-To: <9301200150.AA24759@oz.NeXT.COM> (message from Steve Naroff on Tue, 19 Jan 93 17:50:24 -0800)
+Subject: The forward/performv Puzzle
+
+I woul like to see a feature in C to allow construction of an argument
+list with types and number of args chosen at run time,
+plus a feature to call a function with such an argument list.
+Forwarding could use this feature and would then not need
+any assembler language support.
+
+
+We would need to have descriptors for types.  They would not
+necessarily have to give complete information about the type, but they
+would have to give enough to decide how to pass an argument.  Perhaps
+a __builtin_classify_type value plus the size would be enough info.
+
+Then the arglist would be an array of this structure:
+
+struct datum { int typeclass; int size; void *address; };
+
+You would call a function using apply:
+
+void apply (struct datum value, struct datum *arguments);
+
+
+With some work, it would be possible to arrange to write apply
+in libgc2.c and make it portable by using the same FUNCTION_ARG...
+macros used in expand_call.  We would have to make those macros
+use a struct datum rather than a tree node, to represent type info,
+and change the machine descriptions, but that is ok.
+
+
+Please tell me if you volunteer to write this.
+
+Date: Sat, 23 Jan 93 16:29:14 -0600
+From: burchard@geom.umn.edu
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+Oops....a couple of typos made their way into our letters...just to avoid any confusion here they are....
+
+Richard Stallman wrote:
+>  void apply (struct datum value, struct datum *arguments);
+
+where I imagine he meant something like:
+
+  void apply(struct datum val, void (*func)(), struct datum *args);
+
+Then I wrote:
+>  static double double_identity_function(x) { return(x); }
+
+meaning, of course,
+
+  static double double_identity_function(double x) { return(x); }
+
+-PB
+
+Date: Sat, 23 Jan 93 17:01:04 -0600
+From: burchard@geom.umn.edu
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: The forward/performv Puzzle [corrected]
+
+[ Corrected version of my earlier letter. ]
+
+Richard Stallman proposes:
+>  void apply (struct datum value, struct datum *arguments);
+
+I'm assuming that he meant:
+
+  void apply(struct datum val, void (*func)(), struct datum *args);
+
+The above is what is needed for performv.  For forwarding (and to get
+the full benefit of the above facility) the opposite capability is
+also required---namely, the ability for a single function to receive
+calls issued with varying prototypes.  This will require two
+"functions"
+
+  void get_args(struct datum *arguments);
+
+  void put_return(struct datum value);
+
+In both cases, you'd supply type information; in put_return() you'd also supply the value.
+
+In general, these two cannot be honest function calls, since for
+example get_args() contains an implicit __builtin_saveregs().
+Sometimes kludges are available to avoid assembler insertion, though.
+For example, the following hack tricks many platforms into returning a
+double from a nominal 32-bit function:
+
+  #define RETURN_DOUBLE(x)				\
+	({						\
+	double rtn = x;					\
+	unsigned int fake = *(unsigned int *)&rtn;	\
+	double_identity_function(rtn);			\
+	return(fake);					\
+	})
+
+  /* don't inline this */
+  static double double_identity_function(double x) { return(x); }
+
+
+Richard further proposes:
+>  struct datum { int typeclass; int size; void *address; };
+
+I don't think this machine-specific encoding is currently accessible
+at run-time, because __builtin_classify_type() is of necessity a
+compiler directive rather than an honest function call (due to the way
+it is "called").
+
+I think what is needed here is a simple, portable type
+encoding---which conveniently enough already exists.  The Objective-C
+runtime uses a simple string encoding which covers all possible C
+types, including compound types.  So I'd suggest
+
+  struct datum { const char *typedesc; void *address; };
+
+You'd need to write a library function to convert this to the
+machine-specific form, but the code for it would be simple, and
+more-or-less xeroxed from BUILT_IN_CLASSIFY_TYPE.  Actually, for
+better efficiency, we could even leave space in the datum structure
+for caching the machine-specific info:
+
+  struct datum
+  {
+  	/* User-level information */
+  	const char *typedesc;
+	void *address;
+
+	/* System-cached information */
+	int typeclass;
+	int size;
+  };
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+Date: Sat, 23 Jan 93 15:20:20 -0600
+From: burchard@geom.umn.edu
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+Richard Stallman proposes:
+>  void apply (struct datum value, struct datum *arguments);
+
+The above is what is needed for performv.  For forwarding (and to get
+the full benefit of the above facility) the opposite capability is
+also required---namely, the ability for a single function to receive
+calls issued with varying prototypes.  This will require two
+"functions"
+
+  void get_args(struct datum *arguments);
+
+  void put_return(struct datum value);
+
+In both cases, you'd supply type information; in put_return() you'd
+also supply the value.
+
+In general, these two cannot be honest function calls, since for
+example get_args() contains an implicit __builtin_saveregs().
+Sometimes kludges are available to avoid assembler insertion, though.
+For example, the following hack tricks many platforms into returning a
+double from a nominal 32-bit function:
+
+  #define RETURN_DOUBLE(x)				\
+	({						\
+	double rtn = x;					\
+	unsigned int fake = *(unsigned int *)&rtn;	\
+	double_identity_function(rtn);			\
+	return(fake);					\
+	})
+
+  /* don't inline this */
+  static double double_identity_function(x) { return(x); }
+
+
+Richard further proposes:
+>  struct datum { int typeclass; int size; void *address; };
+
+I don't think this machine-specific encoding is currently accessible
+at run-time, because __builtin_classify_type() is of necessity a
+compiler directive rather than an honest function call (due to the way
+it is "called").
+
+I think what is needed here is a simple, portable type
+encoding---which conveniently enough already exists.  The Objective-C
+runtime uses a simple string encoding which covers all possible C
+types, including compound types.  So I'd suggest
+
+  struct datum { const char *typedesc; void *address; };
+
+You'd need to write a library function to convert this to the
+machine-specific form, but the code for it would be simple, and
+more-or-less xeroxed from BUILT_IN_CLASSIFY_TYPE.  Actually, for
+better efficiency, we could even leave space in the datum structure
+for caching the machine-specific info:
+
+  struct datum
+  {
+  	/* User-level information */
+  	const char *typedesc;
+	void *address;
+
+	/* System-cached information */
+	int typeclass;
+	int size;
+  };
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Date: Sat, 23 Jan 93 15:20:20 -0600
+From: burchard@geom.umn.edu
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+Richard Stallman proposes:
+>  void apply (struct datum value, struct datum *arguments);
+
+The above is what is needed for performv.  For forwarding (and to get
+the full benefit of the above facility) the opposite capability is
+also required---namely, the ability for a single function to receive
+calls issued with varying prototypes.  This will require two
+"functions"
+
+  void get_args(struct datum *arguments);
+
+  void put_return(struct datum value);
+
+In both cases, you'd supply type information; in put_return() you'd
+also supply the value.
+
+In general, these two cannot be honest function calls, since for
+example get_args() contains an implicit __builtin_saveregs().
+Sometimes kludges are available to avoid assembler insertion, though.
+For example, the following hack tricks many platforms into returning a
+double from a nominal 32-bit function:
+
+  #define RETURN_DOUBLE(x)				\
+	({						\
+	double rtn = x;					\
+	unsigned int fake = *(unsigned int *)&rtn;	\
+	double_identity_function(rtn);			\
+	return(fake);					\
+	})
+
+  /* don't inline this */
+  static double double_identity_function(x) { return(x); }
+
+
+Richard further proposes:
+>  struct datum { int typeclass; int size; void *address; };
+
+I don't think this machine-specific encoding is currently accessible
+at run-time, because __builtin_classify_type() is of necessity a
+compiler directive rather than an honest function call (due to the way
+it is "called").
+
+I think what is needed here is a simple, portable type
+encoding---which conveniently enough already exists.  The Objective-C
+runtime uses a simple string encoding which covers all possible C
+types, including compound types.  So I'd suggest
+
+  struct datum { const char *typedesc; void *address; };
+
+You'd need to write a library function to convert this to the
+machine-specific form, but the code for it would be simple, and
+more-or-less xeroxed from BUILT_IN_CLASSIFY_TYPE.  Actually, for
+better efficiency, we could even leave space in the datum structure
+for caching the machine-specific info:
+
+  struct datum
+  {
+  	/* User-level information */
+  	const char *typedesc;
+	void *address;
+
+	/* System-cached information */
+	int typeclass;
+	int size;
+  };
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Date: Sat, 23 Jan 93 19:55:49 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: burchard@geom.umn.edu
+Cc: gnu-objc@prep.ai.mit.edu
+In-Reply-To: <9301232120.AA15572@mobius.geom.umn.edu> (burchard@geom.umn.edu)
+Subject: The forward/performv Puzzle
+
+    The above is what is needed for performv.  For forwarding (and to get  
+    the full benefit of the above facility) the opposite capability is  
+    also required---namely, the ability for a single function to receive  
+    calls issued with varying prototypes.
+
+Doesn't varargs accomplish that?
+
+But we do need in addition a way to find out what sorts of arguments a
+given method expects.
+
+    I don't think this machine-specific encoding is currently accessible  
+    at run-time, because __builtin_classify_type() is of necessity a  
+    compiler directive rather than an honest function call (due to the  
+    way it is "called").
+
+It is true that ___builtin_classify_type is only computed at compile time,
+but that isnot a problem.  There is no occasion in the scheme I proposed
+to wish it were otherwise.
+
+
+Date: Sat, 23 Jan 93 20:05:37 -0600
+From: burchard@geom.umn.edu
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+
+[More about RMS's excellent "apply" idea...]
+>
+> > [Paul wants] the ability for a single function to receive 
+> > calls issued with varying prototypes.
+>
+> Doesn't varargs accomplish that?
+
+Unfortunately not.  The "apply" extension is supposed to be a run-time
+version of function-pointer casting, and thus compatible with function
+prototypes.  This unfortunately makes it *incompatible* with varargs,
+because "..." arguments effectively use a different calling convention
+than normal prototyped arguments (due to type promotion).
+
+And of course varargs only attempts to handle argument types, not return types.
+
+> But we do need in addition a way to find out what sorts of
+> arguments a given method expects.
+
+Correct---in this respect the "apply" extension is no different than
+varargs; we must use "required" args (or something similar) to get
+that info.
+
+In an Obj-C forwarding implementation, self and _cmd would be the
+required args.  The Obj-C runtime would be able to determine from that
+data what the remaining expected arg types were.
+
+> It is true that ___builtin_classify_type is only
+> computed at compile time, but that isnot a problem.  There
+> is no occasion in the scheme I proposed to wish it were
+> otherwise.
+
+This may be true if "apply" is simply a way of avoiding large case
+statements (i.e., if you always "apply" functions consistently with
+their prototypes, which are in principle known at compile time).
+
+However, Obj-C forwarding requires that we be able to "apply" a fixed
+function as if it had different prototypes.  Moreover, in a
+distributed object setting, those prototypes may not---even in
+principle!---be knowable at compile time.  Therefore, the type system
+must be fully accessible at run time.
+
+Actually, this isn't worth haggling over, because the run-time
+equivalent of ___builtin_classify_type is so trivial to write.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+From: Andrew Athan <wiltel!aathan@uunet.uu.net>
+Date: Tue, 26 Jan 93 09:59:22 -0600
+To: gnu-objc-runtime@prep.ai.mit.edu
+Subject: forward/performv: summary
+
+
+I'm not sure how many of you (probably all of you?) are on the
+gnu-objc list, so I am forwarding parts of a discussion on
+implementing forward:/performv: behavior in gnu-objc (this is
+currently missing).
+
+No-one has yet volunteered to write the code.
+
+aca
+-----------------------------------------------------
+> uunet!geom.umn.edu!burchard -- started this all off
+
+> There is one major feature missing from GNU's Objective-C run-time
+> at the moment, which prevents this project from progressing to the
+> more desirable very, very preliminary :-) stage.  That feature is the
+> functionality of NeXT's forward and performv, which are required in
+> order that arbitrary messages can be captured by proxy objects and
+> then later executed by the remote objects they stand for.
+
+
+>Michael Gersten
+> To avoid lots of hypothetical discussions, I suggest everyone
+> thinking about this take a look at section 14.7 of the GNU CC manual,
+> on C calling conventions (about a dozen pages).
+
+>Dennis Glatting on some of the issues
+> * Implementation of forwardv:: would require stack frame copying.
+> (or at least modification of the existing stack frame.)
+> * The microprocessor itself poses problems such as word width,
+> alignment, and -- possibly on some RISC machines -- parameter passing
+> using register windows.
+> * Each function used to implement forwardv:: may need to know the
+> amount of data pushed onto the stack for local variables.  (So to
+> index backward.)
+> * The dispatch function must know about passed arguments.  While this
+> is encoded and available, what do you do for variable arguments and
+> structures?  Oh yea, how about void*?
+> * The stack must be indexed to extract return addresses -- that is, if
+> this can be done with your microprocessor of the day.  There are also
+> microprocessor/compiler specific data pushed onto the stack that the
+> functions may need to know about such as the variable frame on 680x0
+> microprocessors (note the link instruction on each function entry).
+
+> uunet!geom.umn.edu!burchard -- a summary of what needs to be done
+> 1. id objc_msgSend(id self, SEL op);
+	return objc_forwardingHandler if method missing
+
+2. id objc_forwardingHandler(id self, SEL op);
+	ask runtime for expected arg types, based on self and op
+	use __builtin_get_args() to get those expected args
+	send -forward::return: to object if it implements it, passing
+		back the return value with __builtin_put_return()
+	else call usual runtime error handler
+	
+3. -forward:(SEL)op :(typed_data_t *)args return:(typed_data_t)rtn;
+	[optional instance method]
+
+4. -perform:(SEL)op :(typed_data_t *)args return:(typed_data_t)rtn;
+	[builtin Object method]
+	use __builtin_apply() to call objc_msgSend() with the
+		correct cast for the method being performed
+	[this scheme will allow the call to be forwarded again]
+
+5. void __builtin_get_args(typed_data_t *args);
+	[a convenience built on GCC's varargs support]
+	insert __builtin_saveregs()
+	loop through the given type info:
+		get low-level info with __builtin_classify_typedesc()
+		use varargs code, ___builtin_args_info(), and
+			__builtin_next_arg()) to do the real work
+	[we can't use va macros because this is a runtime operation]
+
+6. void __builtin_classify_typedesc(typed_data_t *data);
+	[run-time version of GCC's __builtin_classify_type(),
+		__alignof__(), and sizeof() combined]
+	fill in machine-dependent fields of structure, based on
+		given type descriptor string
+
+7. void __builtin_put_return(typed_data_t value);
+	machine-dependent; based on GNU CC return convention macros
+	[REQUIRES SOME WORK]
+	
+8. void __builtin_apply(typed_data_t rtn; void (*f)(), typed_data_t *args);
+	machine-dependent; based on calling conventions...
+	[REQUIRES REAL WORK]
+
+[In the above, we are using
+
+	typedef struct _typed_data_t {
+	    const char *typedesc;		/* as in Obj-C */
+	    void *value;
+	    /* ... fields for machine-dependent data... */
+	} typed_data_t;
+
+> Rms' call to arms
+> rms> Please tell me if you volunteer to write this.
+
+aca
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:35:19 -0500
+To: gsk@marble.com
+Subject: [rms@gnu.ai.mit.edu: The forward/performv Puzzle]
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Sun, 24 Jan 93 14:24:41 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: burchard@geom.umn.edu
+Cc: gnu-objc@prep.ai.mit.edu
+In-Reply-To: <9301240205.AA15818@mobius.geom.umn.edu> (burchard@geom.umn.edu)
+Subject: The forward/performv Puzzle
+
+    > It is true that ___builtin_classify_type is only
+    > computed at compile time, but that isnot a problem.  There
+    > is no occasion in the scheme I proposed to wish it were
+    > otherwise. 
+
+
+    This may be true if "apply" is simply a way of avoiding large case  
+    statements (i.e., if you always "apply" functions consistently with  
+    their prototypes, which are in principle known at compile time).  
+
+
+    However, Obj-C forwarding requires that we be able to "apply" a fixed  
+    function as if it had different prototypes.
+
+That is not how I envision apply to be used.  apply is to be used to
+call an individual method chosen at run time.  Each method has a fixed
+set of argument types.  In a correct program, it will always be applied
+with arguments of those types.
+
+The forwarder will be called with arguments of different types,
+but it will not be called with apply.  It *uses* apply.
+
+
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:35:27 -0500
+To: gsk@marble.com
+Subject: [burchard@geom.umn.edu: Re: The forward/performv Puzzle]
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Sun, 24 Jan 93 14:42:07 -0600
+From: burchard@geom.umn.edu
+To: gnu-objc@prep.ai.mit.edu
+Subject: Re: The forward/performv Puzzle
+
+> > However, Obj-C forwarding requires that we be able to "apply" a 
+
+> > fixed function as if it had different prototypes.
+
+> The forwarder will be called with arguments of different
+> types, but it will not be called with apply.
+
+Exactly: the forwarding handler in the Obj-C run-time has no choice  
+about the way it is called, because once a pointer to it is returned  
+from objc_msgSend(), BAM!, it gets called as if it had the prototype  
+of the desired (missing) method.  So certainly, we have no chance to  
+call it with "apply".
+
+OK, so now we are inside that forwarding handler, having been sent  
+the arguments the method would have expected, and we want to either  
+"apply" some replacement method to those args, or ship off the arg  
+frame to something like a forward:: method, or make use of whatever  
+your favorite forwarding protocol is (more on this below).
+
+But...but...how do we get a hold of those args that we were sent, in  
+order to "apply" a new method to them, or forward:: them somewhere  
+else?  And once we determine a return value, how do we get that out  
+of the the forwarding handler and back into the code the missing  
+method was called from?  This is why forwarding requires "get_args"  
+and "put_return", not just "apply".
+
+> It *uses* apply. 
+
+
+Actually, that would be tragic.  If it's going to be of any use for  
+distributed objects, the forwarding handler cannot presume upon  
+itself the sole power to call a replacement method.  After all, the  
+replacement method may need to be called in a completely different  
+execution context!
+
+For this reason, the "forward" and "perform" parts of the  
+method-replacement process must be cleanly separated; only "perform"  
+is allowed to use "apply".  We get a 3-step process:
+
+1.  objc_msgSend() offers up a forwarding handler to be called in  
+place of the missing method.  This handler bundles up the args into a  
+standard format, and passes along the expected return value when it's  
+all over.  [This uses only "get_args" and "put_return".]
+
+2.  Using some standard Obj-C "forward" message, the forwarding  
+handler passes all this information, in standard format, to the  
+object whose method was missing.  [This uses nothing special.]
+
+3.  The object may do whatever it likes with this information.  One  
+possibility is to compute a new object, selector, and arg frame from  
+the given information, and pass that to some standard Obj-C "perform"  
+message.  Another possibility is to send instructions to a remote  
+process to do the same.  [This uses only "apply".]
+
+In other words, NeXT (or would that be Steve?) basically discovered  
+the right strategy for forwarding; the API just needs a bit of  
+touching up.
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:35:37 -0500
+To: gsk@marble.com
+Subject: [rms@gnu.ai.mit.edu: The forward/performv Puzzle]
+
+Return-Path: <rms@gnu.ai.mit.edu>
+Date: Sun, 24 Jan 93 17:05:49 -0500
+From: rms@gnu.ai.mit.edu (Richard Stallman)
+To: gnu-objc@prep.ai.mit.edu
+In-Reply-To: <9301242041.AA16505@mobius.geom.umn.edu> (burchard@geom.umn.edu)
+Subject: The forward/performv Puzzle
+
+    But...but...how do we get a hold of those args that we were sent, in  
+    order to "apply" a new method to them, or forward:: them somewhere  
+    else?
+
+It should work to do this with varargs, even when args have promotable
+types such as float.  A properly declared "real" varargs function will
+never receive a nameless arg of type float, as it would have been
+promoted to double.  But it will work in the forwarder to use va_arg
+for an arg of type float if that is what was passed.
+
+As for finding out how many args were passed, and of what type,
+you need to get that from the tables defining the methods of the class.
+
+Storing the return value does need some new construct.
+A new built-in function should be able to do the job.
+
+    Actually, that would be tragic.  If it's going to be of any use for  
+    distributed objects, the forwarding handler cannot presume upon  
+    itself the sole power to call a replacement method.  After all, the  
+    replacement method may need to be called in a completely different  
+    execution context!
+
+I have not been using your distinction between "forward" and
+"perform".  When I talk of "the forwarder" I have been alking about
+the whole process of forwarding a message to another object.
+
+
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:35:45 -0500
+To: gsk@marble.com
+Subject: [burchard@geom.umn.edu: Light at the end of the forwarding tunnel?]
+
+Return-Path: <burchard@geom.umn.edu>
+Date: Sun, 24 Jan 93 17:00:20 -0600
+From: burchard@geom.umn.edu
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Light at the end of the forwarding tunnel?
+Cc: gnu-objc@prep.ai.mit.edu
+
+> > But...but...how do we get a hold of those args that we were
+> > sent, in   order to "apply" a new method to them, or
+> > forward:: them somewhere   else? 
+
+> 
+
+> With varargs.  This can work, even when args have
+> promotable types such as float.  A "real" varargs
+> function will never receive an arg of type float, but it
+> will work in the forwarder to ask for an arg of type float if
+> that is what it was given.  
+
+
+Aha, I didn't realize GCC's varargs support was already general  
+enough to handle non-promoted arg types.  That's wonderful!
+
+I stand, happily, corrected.  This saves over 1/3 of the work!
+
+> Storing the return value does need some new construct. A
+> new built-in function should be able to do the job. 
+
+
+Right, and this won't be nearly as complicated as grabbing args.
+
+> I have not been using your distinction between "forward"
+> and "perform".  When I talk of "the forwarder" I have been
+> alking about the whole process of forwarding a message to
+> another object. 
+
+
+OK, I'm glad we're on the same wavelength. So, here is an 8-step plan  
+of what needs to be done.  The "apply" function appears once again as  
+the biggest job:
+
+1. id objc_msgSend(id self, SEL op);
+	return objc_forwardingHandler if method missing
+
+2. id objc_forwardingHandler(id self, SEL op);
+	ask runtime for expected arg types, based on self and op
+	use __builtin_get_args() to get those expected args
+	send -forward::return: to object if it implements it, passing
+		back the return value with __builtin_put_return()
+	else call usual runtime error handler
+	
+3. -forward:(SEL)op :(typed_data_t *)args return:(typed_data_t)rtn;
+	[optional instance method]
+
+4. -perform:(SEL)op :(typed_data_t *)args return:(typed_data_t)rtn;
+	[builtin Object method]
+	use __builtin_apply() to call objc_msgSend() with the
+		correct cast for the method being performed
+	[this scheme will allow the call to be forwarded again]
+
+5. void __builtin_get_args(typed_data_t *args);
+	[a convenience built on GCC's varargs support]
+	insert __builtin_saveregs()
+	loop through the given type info:
+		get low-level info with __builtin_classify_typedesc()
+		use varargs code, ___builtin_args_info(), and
+			__builtin_next_arg()) to do the real work
+	[we can't use va macros because this is a runtime operation]
+
+6. void __builtin_classify_typedesc(typed_data_t *data);
+	[run-time version of GCC's __builtin_classify_type(), 
+
+		__alignof__(), and sizeof() combined]
+	fill in machine-dependent fields of structure, based on
+		given type descriptor string
+
+7. void __builtin_put_return(typed_data_t value);
+	machine-dependent; based on GNU CC return convention macros
+	[REQUIRES SOME WORK]
+	
+8. void __builtin_apply(typed_data_t rtn; void (*f)(), typed_data_t  
+*args);
+	machine-dependent; based on calling conventions...
+	[REQUIRES REAL WORK]
+
+[In the above, we are using
+
+	typedef struct _typed_data_t {
+	    const char *typedesc;		/* as in Obj-C */
+	    void *value;
+	    /* ... fields for machine-dependent data... */
+	} typed_data_t;
+
+So is it time to start dividing this task up?  Are people excited?   
+Or should we plan the implementation of the "apply" function in more  
+detail first?
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+
+
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:35:55 -0500
+To: gsk@marble.com
+Subject: [casey!gaboon!seltd!lerman@uunet.uu.net: Re: The forward/performv Puzzle]
+
+Return-Path: <casey!gaboon!seltd!lerman@uunet.uu.net>
+From: Kenneth Lerman <casey!gaboon!seltd!lerman@uunet.uu.net>
+X-Mailer: SCO System V Mail (version 3.2)
+To: burchard@geom.umn.edu, rms@gnu.ai.mit.edu
+Subject: Re: The forward/performv Puzzle
+Cc: gnu-objc@prep.ai.mit.edu
+Date: Sun, 24 Jan 93 15:06:11 EST
+
+
+It was asked:
+|    The above is what is needed for performv.  For forwarding (and to get
+|    the full benefit of the above facility) the opposite capability is
+|    also required---namely, the ability for a single function to receive
+|    calls issued with varying prototypes.
+
+|Doesn't varargs accomplish that?
+
+No, it does not.  Varargs, in general, only works if the function was
+declared to have a variable number of arguments.  Of course, some
+compilers on some platforms may have a varargs which will work anyway.
+
+Ken
+
+
+
+From: "Geoffrey S. Knauth" <gsk@marble.com>
+Date: Sun, 31 Jan 93 13:39:29 -0500
+To: gsk@marble.com
+Subject: [Steve_Naroff@next.com: Re: The forward/performv Puzzle]
+
+Return-Path: <Steve_Naroff@next.com>
+From: Steve Naroff <Steve_Naroff@next.com>
+Date: Mon, 25 Jan 93 10:43:32 -0800
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+Subject: Re: The forward/performv Puzzle
+Cc: Steve_Naroff@next.com, dennis_glatting@trirex.com,
+        gnu-objc@prep.ai.mit.edu, wood@next.com, mwagner@next.com
+
+
+rms> Please tell me if you volunteer to write this.
+
+I am real busy, but Tom Wood (who now works with me) might be  
+interested in writing this. I will discuss it with him.
+
+thanks, snaroff.
+
+Return-Path: <burchard@localhost.gw.umn.edu>
+Date: Sat, 20 Feb 93 14:04:33 -0600
+From: Paul Burchard <burchard@localhost.gw.umn.edu>
+To: Kresten Krab Thorup <krab@iesd.auc.dk>
+Subject: Re: Optimizing the GNU objc runtime
+Cc: gnu-objc@gnu.ai.mit.edu
+Reply-To: burchard@geom.umn.edu
+
+Kresten Krab Thorup <krab@iesd.auc.dk> writes:
+> We will here use the trick of installing a special
+> method __objc_missingMethod at all indices for which
+> there do not exist a corresponding message.  That
+> function handles the case where a message is not
+> recognized, and if possible, forward the message to
+> `doesNotRecognize:' in the receiver.
+
+This is a good trick---and it thankfully leaves open a way to  
+implement full-fledged forwarding as previously discussed on this  
+mailing list.  Not only that, but your proposed system should even  
+make forwarding noticeably faster, by cutting the message dispatch  
+overhead, which is normally paid several extra times during the  
+forwarding process.
+
+Your proposal seems like a good idea; I'd love to have efficient  
+messaging for some numerical algorithms I'm working with.  My only  
+question would be how much time a "typical" program would spend at  
+startup, filling all the dispatch caches. Would the wait be  
+noticeable on a human timescale?  (If you have ~100 classes with ~100  
+methods each, and you want to keep extra startup overhead to no more  
+than 1/20 second, that only allows you 5 ms per lookup.)
+
+--------------------------------------------------------------------
+Paul Burchard	<burchard@geom.umn.edu>
+``I'm still learning how to count backwards from infinity...''
+--------------------------------------------------------------------
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Sun, 21 Feb 1993 23:22:37 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu (Richard Stallman)
+In-Reply-To: <9302212157.AA01459@mole.gnu.ai.mit.edu>
+Subject: Re: Gnu objc runtime [comments and bug reports]
+Cc: krab@iesd.auc.dk, gsk@marble.com
+
+Richard Stallman writes:
+>Could you please send me individual separate patches for those three
+>problems?
+
+Do you really want this?  Most of these bugfixes are outdated the
+moment I implement the new messenger and initialization mechanism
+described in my papers `Optimizing ...' and `How to do lookup...'.
+In my oppinion it would be waste of time patching up the current
+runtime, at least `core.c'. 
+
+Realize the facts:  This is a completely new runtime, since an objc
+runtime is practically nothing but initialization an message lookup.  
+
+I have been working hard for the last days, trying to convince you
+that I actually do know what I am talking about.  This is what you
+questioned in the first place.
+
+I am willing to supply the patches you requested, but I would rather,
+if I was `allowed' to recode the initialization and lookup sections
+completely.  
+
+All I need in order to do this is that special `__builtin_forward'
+which I am not able to program myself, since I am not into assember,
+neither the internals of gcc.  However, if you would do this for me,
+you should do it for sparc architecture first, since I am sitting on a
+Sun.
+
+Regards, Thanks, Please, etc.
+Kresten
+
+NOTE // The letter is Cc'ed to gsk since it contains essential
+	questions for the gnu-objc project.			//
+

@@ -1,0 +1,183 @@
+#! /bin/sh
+#
+#  Script to automatically update the faces database with a new X-Face: image.
+#
+#  Usage: face_update [-o] [-w]
+#
+#  -o  -  use "old" updating method of saving the ikon as the username.
+#
+#  -w  -  will allow the face_update script to automaticaly overwrite
+#         existing ikon files.
+#
+#  Copyright (c) Hal Stern - Sun Microsystems Inc - June 1990.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged.
+#
+#  No responsibility is taken for any errors inherent either
+#  to the comments or the code of this program, but if reported
+#  to me then an attempt will be made to fix them.
+#
+#-----------------------------------------------------------------------------
+#
+#	face_update	1.4	11/19/91 15:00:51
+#
+#	failure()
+#	shell routine to handle various failures
+#	and send a note back to the sender explaining
+#	what happened
+
+failure() {
+	( 
+	echo "" 
+	echo "The Face Update server was not able to process"
+	echo "your request because "
+	echo $reason
+	echo ""
+	) | fmt | Mail -s "Face update failed" $sender 
+	rm -f /tmp/facereply.$$ /tmp/face.$$ /tmp/facebits.$$
+	if [ ! -z "$LOGFILE" ]
+	then
+		echo `date` $sender '	' update failed for $facefile >> $LOGFILE
+	fi
+	exit 0
+}
+#
+#	name of the logfile, if you don't want to log
+#	changes, make this an empty string, ie
+#	LOGFILE=""
+#
+LOGFILE=/var/log/facelog
+
+#	save the incoming message in a tmp file for
+#	parsing later
+
+cat - > /tmp/face.$$
+
+#	parse command line arguments	
+
+overwrite=""
+oldstyle=""
+
+while [ $# != 0 ]
+do
+	case $1 in
+	-w)
+		overwrite=yes
+		;;
+	-o)
+		oldstyle=yes
+		;;
+	*)
+		;;
+	esac
+	shift
+done
+
+#	find out who sent this request, and the file name
+#	where the face is to be deposited
+
+sender=`fgrep 'From ' /tmp/face.$$ | awk -F' ' '{print $2}'`
+if [ -z "$sender" ]
+then	
+	sender=root
+fi
+
+facefile=`fgrep 'Subject:' /tmp/face.$$ | awk -F':' '{print $2}' | sed -e 's@ @@g'`
+if [ -z "$facefile" ]
+then
+	reason="it is missing a Subject line"
+	failure
+fi
+
+#	overwriting check
+if [ -f $facefile ] && [ -z "$overwrite" ]
+then
+	reason="it cannot overwrite existing file $facefile"
+	failure
+fi
+
+#	extract the "interesting" part of the file.
+#	i'm assuming here that almost all RFC822 headers have
+#	colons in them, so it will speed up the egrep by removing
+#	obvious mail headers first
+
+fgrep -v ':' /tmp/face.$$ |
+	egrep '0x[0-9A-F]*,0x[0-9A-F]*,0x[0-9A-F]*' > /tmp/facebits.$$
+
+#	count the number of lines that are in 48x48x1 format
+linecnt=`wc -l /tmp/facebits.$$ | awk '{print $1}' | sed -e 's@ @@g'`
+
+#	if this file doesn't contain a good image, complain
+
+if [ "$linecnt" != "48" ]
+then
+	reason="the submitted icon did not contain a 48x48x1 file"
+	failure
+fi
+
+#	get the various directory names for the user, machine and
+#	top-level face archive
+
+userdir=`dirname $facefile`
+username=`basename $userdir`
+hostdir=`dirname $userdir`
+hostname=`basename $hostdir`
+facedir=`dirname $hostdir`
+
+#if [ ! -d $facedir ]
+#then
+#	reason="the face directory $facedir does not exist"
+#	failure
+#fi
+
+#	if any of these don't exist, create them if we can
+#	this allows on-the-fly face addition for new hosers or
+#	machines
+
+for d in $hostdir $userdir
+do
+	if [ -f $d ]
+	then
+		break
+	fi
+
+	if [ ! -d $d ]
+	then
+		if [ $d = $userdir ] && [ ! -z "$oldstyle" ]
+		then
+			:
+		else
+			mkdir -p $d 2>/dev/null
+			if [ $? != 0 ]
+			then
+				reason="the server could not create directory $d"
+				failure
+			fi
+		fi
+	fi
+done
+
+if [ -f "$userdir" ]
+then
+	facefile=$userdir
+fi
+
+#	if we're overwriting, at least save the old file
+
+if [ -f $facefile ]
+then
+	mv $facefile ${facefile}-
+fi
+
+#	tuck the new file in place, clean up the mess, and 
+#	send an acknowledgement
+
+cp /tmp/facebits.$$ $facefile
+rm -f /tmp/face.$$ /tmp/facebits.$$
+#Mail -s "Face update succeeded" $sender
+if [ ! -z "$LOGFILE" ]
+then
+	echo `date` $sender '	' face update succeeded for $facefile >> $LOGFILE
+fi
+exit 0

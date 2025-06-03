@@ -1,0 +1,117 @@
+# The patches in this file are provided for informational purposes only, to 
+# indicate what should be changed in order to allow a 128kb bank to be used
+# in the Trident cards.
+
+# They require, and should be applied AFTER, the cleanup patches.
+# (Which were late. Sorry.)
+
+# Those modifications can be used in conjunction with the unbank modifications,
+# to have a [relatively] fast Trident server that allows up to 1152x900.
+
+# Those patches may be out of date.
+
+# The content of the patches is:
+# 128kb1.dif:
+#    Update the Trident driver to allow and have an 128kb option.
+# 128kb2.dif:
+#    Make this option "map_all" a valid option of the vga16 server.
+
+# $XFree86: mit/server/ddx/x386/vga16/doc/128kb.shar,v 2.0 1994/03/03 12:46:25 dawes Exp $
+
+#!/bin/sh
+# shar:	Shell Archiver  (v1.22)
+#
+#	Run the following text with /bin/sh to create:
+#	  128kb1.dif
+#	  128kb2.dif
+#
+sed 's/^X//' << 'SHAR_EOF' > 128kb1.dif &&
+X*** mit/server/ddx/x386/vga256/drivers/tvga8900/driver.c.org	Tue Mar  1 18:58:55 1994
+X--- mit/server/ddx/x386/vga256/drivers/tvga8900/driver.c	Tue Mar  1 18:59:54 1994
+X***************
+X*** 41,46 ****
+X--- 41,47 ----
+X   *	    David Wexelblat, massive rewrite to support 8800CS, 8900B,
+X   *			     8900C, 8900CL, 9000.  Support 512k and 1M.
+X   *			     Version 3.0.
+X+  *	    Gertjan Akkerman, made this EXPERIMENTAL version.
+X   */
+X  
+X  #include "X.h"
+X***************
+X*** 427,437 ****
+X--- 428,456 ----
+X  	vga256InfoRec.chipset = TVGA8900Ident(TVGAchipset);
+X  	vga256InfoRec.bankedMono = TRUE;
+X  
+X+ #ifdef XF86VGA16
+X+ 	if (OFLG_ISSET(OPTION_MAP_ALL,&vga256InfoRec.options)) {
+X+   		TVGA8900.ChipMapSize = 0x20000;
+X+   		TVGA8900.ChipSegmentSize = 0x20000;
+X+   		TVGA8900.ChipSegmentShift = 17;
+X+   		TVGA8900.ChipSegmentMask = 0x1ffff;
+X+   		TVGA8900.ChipReadBottom = 0x00000;
+X+ 		TVGA8900.ChipReadTop = 0x20000;
+X+   		TVGA8900.ChipWriteBottom = 0x00000;
+X+ 		TVGA8900.ChipWriteTop = 0x20000;
+X+ 		vga256InfoRec.bankedMono = FALSE;
+X+ 	}
+X+ 
+X+ 	/* Allow the map all option */
+X+ 	OFLG_SET(OPTION_MAP_ALL, &TVGA8900.ChipOptionFlags);
+X+ #endif
+X+ 
+X  	/* Initialize option flags allowed for this driver */
+X  	if ((TVGAchipset == TVGA8900B) || (TVGAchipset == TVGA8900C))
+X  	{
+X  		OFLG_SET(OPTION_16CLKS, &TVGA8900.ChipOptionFlags);
+X  	}
+X+ 
+X      	return(TRUE);
+X  }
+X  
+X***************
+X*** 667,672 ****
+X--- 686,696 ----
+X  			new->OldMode1 = (new->std.NoClock & 0x08) << 1;
+X  		}
+X  	}
+X+ #ifdef XF86VGA16
+X+ 	if (OFLG_ISSET(OPTION_MAP_ALL,&vga256InfoRec.options)) {
+X+ 		new->std.Graphics[6] = 0x01; /* Map 128Kb of memory */
+X+ 	}
+X+ #endif
+X          return(TRUE);
+X  }
+X  
+SHAR_EOF
+chmod 0644 128kb1.dif || echo "restore of 128kb1.dif fails"
+sed 's/^X//' << 'SHAR_EOF' > 128kb2.dif &&
+X*** mit/server/ddx/x386/common/xf86_Option.or	Tue Mar  1 18:35:38 1994
+X--- mit/server/ddx/x386/common/xf86_Option.h	Tue Mar  1 19:03:59 1994
+X***************
+X*** 91,96 ****
+X--- 91,99 ----
+X  #define OPTION_SHOWCACHE	48 /* Allow cache to be seen (S3) */
+X  #define OPTION_FB_DEBUG		49 /* Linear fb debug for S3 */
+X  
+X+ /* Experimental option: (unsupported) */
+X+ #define OPTION_MAP_ALL		57 /* Map 128Kb instead of 64Kb of vid. mem */
+X+   
+X  #define CLOCK_OPTION_PROGRAMABLE 0 /* has a programable clock */
+X  #define CLOCK_OPTION_ICD2061A	 1 /* use ICD 2061A programable clocks      */
+X  #define CLOCK_OPTION_ICD2061ASL	 2 /* use slow ICD 2061A programable clocks */
+X***************
+X*** 144,149 ****
+X--- 147,154 ----
+X  
+X    { "showcache",	OPTION_SHOWCACHE },
+X    { "fb_debug",		OPTION_FB_DEBUG },
+X+ 
+X+   { "map_all",		OPTION_MAP_ALL },
+X  
+X    { "",			-1 },
+X  };
+SHAR_EOF
+chmod 0644 128kb2.dif || echo "restore of 128kb2.dif fails"
+exit 0

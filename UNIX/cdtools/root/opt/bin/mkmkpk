@@ -1,0 +1,117 @@
+#!/bin/sh
+# mkmkpk: a script to establish which file have been installed
+# in the directories /opt and /usr/X since 
+#
+# Greg Lehey, LEMIS, 24 January 1994
+#
+# Usage: mkmkpk <directory> <trees>
+# <directory> is the name of the source directory, which should
+# have a subdirectory package.LEMIS. The file README.LEMIS/prototype
+# will be built.
+# <trees> is a list of directories to search for changed files.
+# it defaults to "/opt /usr/X"
+echo $0 $*
+if [ "$CDROM" = "" ]; then
+  CDROM=/cdcopy
+fi
+TOOLS=$CDROM/SOURCE/cdtools-1.3
+SOURCE=$CDROM/SOURCE
+FILEINFO=$TOOLS/fileinfo
+NEWINFO=$TOOLS/newinfo
+CHANGEDFILES=$TOOLS/changedfiles
+TEMP=$TOOLS/temp
+TIMESTAMP=/tmp/cdtools-package_start
+OPT=/opt
+DIRS=$TOOLS/dirs
+PROTO=package.LEMIS/prototype
+MOREPROTO=package.LEMIS/extra.prototype		# special stuff for this package?
+MISSING=$TOOLS/missing		# list of files that disappeared
+
+if [ $# -lt 1 ]; then
+  echo  "Usage: mkmkpk <directory> [<trees>]"
+  echo  "<directory> is the name of the source directory relative to $SOURCE"
+  echo  "<trees> are directory trees to search for changed files."
+  echo  "        it defaults to /opt /usr/X"
+  exit 1
+fi
+if [ "$1" = "." ]; then		# this directory
+  PACKDIR=`pwd|sed 's:.*/::'`
+else
+  PACKDIR=$1
+fi
+shift
+TREES=$*
+if [ "$TREES" = "" ]; then	# no trees,
+  TREES="/opt /usr/X"
+fi
+cd $SOURCE/$PACKDIR
+if [ $? -ne 0 ]; then
+  exit 1		# cd prints its own error messages
+fi
+# Now check that our package info is initialized
+PACKAGE=`grep PKG package.LEMIS/pkginfo|sed 's/PKG=//'`
+if [ "$PACKAGE" = "" -o "$PACKAGE" = "uninitialised!" ]; then
+  echo Invalid `pwd`/package.LEMIS/pkginfo
+  exit 1
+fi
+if [ ! -d $OPT/README ]; then
+  mkdir -p $OPT/README
+fi
+cp README.LEMIS $OPT/README/$PACKDIR
+rm -f $NEWINFO
+for i in $TREES; do
+  if [ -d $i ]; then
+    echo Searching $i for installed files
+    find $i -follow -cnewer $TIMESTAMP -type f -print | xargs -n50 ls -l >>$NEWINFO
+  fi
+done
+# Create a new prototype file
+echo  >$PROTO "# Prototype file created by $0 on `date`"
+echo >>$PROTO "i pkginfo"
+echo >>$PROTO "i preinstall"
+if [ -f package.LEMIS/postinstall ]; then	# we have a postinstall file,
+  echo >>$PROTO "i postinstall"
+fi
+echo >>$PROTO "i copyright"
+if [ -f $MOREPROTO ]; then
+  cat $MOREPROTO >> $PROTO
+fi
+# First do the directories
+echo >>$PROTO "# Required directories"
+echo >>$PROTO "d none /opt 755 bin bin"
+echo >>$PROTO "d none /opt/bin 755 bin bin"
+echo >>$PROTO "d none /opt/README 755 bin bin"
+echo >>$PROTO "d none /opt/man 755 bin bin"
+echo >>$PROTO "d none /opt/lib 755 bin bin"
+for i in $TREES; do
+  if [ -d $i ]; then
+    find $i -follow -type d -cnewer $TIMESTAMP -print | xargs -n50 selectdirs $PROTO 
+  fi
+done
+# Then do the files
+echo >>$PROTO "# Required files"
+# Remove symlinks to the same file system
+grep < $NEWINFO '^l.* ->' >$TEMP
+# It doesn't pay to remove symlinks: the premastering software resolves a link
+# by copying (sheesh)
+# if [ -s $TEMP ]; then
+#   echo TEMP:
+#   cat $TEMP
+#   awk <$TEMP '{print "rmsymlinks package.LEMIS/prototype " $1 " " $9 " " $11}'|sh
+# fi
+# First the normal files
+grep < $NEWINFO "^[^l+]" | \
+  sed 's/-r.-....../644/; s/^+//; s/-..x....../755/; s/-r--....../444/; s/-r.s....../4555/' | \
+  awk '{print "f none " $9 " " $1 " "  $3 " " $4}' >>$PROTO
+# And then symlinks
+grep < $NEWINFO "^[l+]" | \
+  sed 's/lr.-....../644/; s/^+//; s/l..x....../755/; s/lr--....../444/; s/lr.s....../4555/' | \
+  awk '{print "s none " $9 " " $1 " "  $3 " " $4}' >>$PROTO
+# rm -f $MISSING $NEWINFO $DIRS $FILEINFO 
+
+# Now make the package
+echo "+++ making package $PACKAGE"
+$TOOLS/mkpk $SOURCE/$PACKDIR				# make the package
+echo
+echo "+++ End of make $PACKDIR"
+echo

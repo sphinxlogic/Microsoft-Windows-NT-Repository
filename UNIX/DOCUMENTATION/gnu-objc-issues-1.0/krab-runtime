@@ -1,0 +1,1426 @@
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 10 Feb 1993 03:17:38 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: rms@gnu.ai.mit.edu, gnu-objc-submissions@prep.ai.mit.edu
+Subject: Gnu objc runtime [comments and bug reports]
+Cc: krab@iesd.auc.dk
+
+Hi <whoever may recieve this letter> !
+
+I have found a number of bugs in the current runtime -- the following
+list describes the patch included below.
+
+   * class Object *   
+
+     # Added methods for alloc/init scheme.  
+
+     # Changed isEqual so that bcmp on instances is done, instead of
+     comparing the object pointers only.  I dont know if this is the
+     right semathics, but it surely is more natural.  
+
+     # Changed hash function to be more portable, and so that it only
+     uses `self' if it cannot avoid it.  It is a desired property,
+     that two isEqual instances gives the same hash value.  
+
+     # Added perform with two objects.  
+
+     # Fixed subclassResponsibility, notImplemented and
+     doesNotRecognize, which didnt sel_getName the selector before it
+     was printet!    
+
+     # Fixed readFrom so that it does better checking, and gives more
+     meaningful error messages.  It now also checks the version. 
+
+   * mutex.h * 
+
+     # Added support for my own (soon-to-be-released) co routines.
+     These are done in ObjC, so it's quite nice...   
+  
+   * objc-proto.h *  
+   
+      # Fixed it so that is include'able from objective C code.  It
+      wasnt - HOST_BITS_PER_LONG was missing. 
+
+   * objc.h *
+
+      #  Fixed so that it is include'able from objc code. varargs.h
+      was missing. 
+
+   * record.h *
+
+      #  Fixed two BAD assertions, checking record_entries instead of
+      record_capacity. 
+
+   * core.c *
+
+      # Changed list of included files, so that it may now be compiled
+      with an objc compiler.   
+
+      # Changed msgSend scheme:  objc_msgSend is now a pointer two a
+      function. core.c defines two messengers, one equal to the
+      present doing extensively initialization checking, and one
+      bare-bone with no such checks (more on initialization at next item)
+      This also allows the programmer to do his own messengers -- fun!
+
+      # execClass is heavily changed. 
+
+        The first time it is called, it installs the heavy version
+	of objc_msgSend, so that initialization is handles correctly.
+	This one is called __initializing_objc_msgSend -- there is
+	also a msgSendSuper with a name like that...
+
+	Fixed terrible bug in resolving of class relationship.  In
+	line 351, it doesnt check if a class has already been
+	resolved, so it will try numerous times... Making only more
+	garbage each time.   
+
+	Added debugging `printf' displaying cause of failure if
+	execClass cannot resolve all classes. 
+
+	When all classes have their class-relationships resolved,
+	(i.e. the last time it is called), It calls +initialize for
+	all classes.  (still using the heavy messenger)  it is not
+	called if it has already been done if a +initialize method has
+	invoked it indirectly by doing message passing to other
+	objects.
+
+	Finally, the fast messenger is installed -- we know that all
+	classes have been initialized.  This one is called
+	__builtin_objc_msgSend -- is such names only for compilers? 
+ 
+      # Changed initialize_class to get a Class_t instead of a class
+      names, all invocations said someclass->name, so we can save a
+      little in lookup here.   Also the class is marked as initialized
+      BEFORE the +initialize method is invoked -- this is needed, if
+      that method somehow calls a method in the class it comes from.
+
+      # Changed all malloc, calloc etc to either __objc_xmalloc and
+      friends, or simply xmalloc and friends.  This gives more control
+      of how allocation is done.  Why does malloc come in those two
+      flavours anyway?
+ 
+    * hash.c *  
+
+      # Changed calloc, malloc into xcalloc, xmalloc -- we _want_
+      fatal errors if such things fail...
+
+      
+This actually makes it possible to compile and run objective C
+programs using GNU C.  
+
+I am working on a collection library -- it is mostly finished, I'm
+writing some documentation currently.   It's designed purely after
+Smalltalk, of course with appropriate performance onsiderations.  I
+hope to be able to let you test it out for me in the near future.
+
+Any comments on the above are stongly appreciated.
+
+/Kresten
+
+======================================================================
+diff -c ../orig/Object.h objc/Object.h
+*** ../orig/Object.h	Tue Feb  9 20:20:19 1993
+--- objc/Object.h	Mon Feb  8 21:07:19 1993
+***************
+*** 49,54 ****
+--- 49,57 ----
+  /* Creating, copying, and freeing instances */
+  
+  + new;
++ + alloc;
++ - init;
++ 
+  + free;
+  - free;
+  - copy;
+***************
+*** 62,67 ****
+--- 65,71 ----
+  - ( Class_t )class;
+  - ( Class_t )superClass;
+  - ( const char* )name;
++ + ( BOOL )isEqual:aClass;
+  
+  /* Identifying and comparing instances */
+  
+***************
+*** 85,90 ****
+--- 89,95 ----
+  
+  - perform:( SEL )aSel;
+  - perform:( SEL )aSel with:aObject;
++ - perform:( SEL )aSel with:firstObject with:secondObject;
+  
+  /* Posing */
+  
+diff -c ../orig/mutex.h objc/mutex.h
+*** ../orig/mutex.h	Tue Feb  9 20:20:20 1993
+--- objc/mutex.h	Tue Feb  9 00:32:13 1993
+***************
+*** 36,46 ****
+  #define MUTEX_UNLOCK(mutex) mutex_unlock (mutex)
+  #define MUTEX_ISLOCK(mutex)     mutex->lock /* Gak */
+  
+! #elif defined (OSF)
+  
+! #elif defined (mach)
+  
+! #elif defined (sun)
+  /*
+   * Sun lwp uses monitors.
+   *
+--- 36,46 ----
+  #define MUTEX_UNLOCK(mutex) mutex_unlock (mutex)
+  #define MUTEX_ISLOCK(mutex)     mutex->lock /* Gak */
+  
+! #elif defined (OSF) && !defined (COROUTINES)
+  
+! #elif defined (mach) && !defined (COROUTINES)
+  
+! #elif defined (sun) && !defined (COROUTINES)
+  /*
+   * Sun lwp uses monitors.
+   *
+***************
+*** 86,91 ****
+--- 86,102 ----
+   * A environment where threads are implemented as a
+   *  set of coroutines.
+   */
++ 
++ #include <util/Semaphore.h>   /* this is my co-routine impl (KKT) */
++ 
++ #define MUTEX Semaphore*
++ #define MUTEX_ALLOC(mutex)   { *mutex = [Semaphore alloc]; }
++ #define MUTEX_INIT(mutex)    [mutex init]
++ #define MUTEX_FREE(mutex)    [mutex free]
++ #define MUTEX_LOCK(mutex)    [mutex wait]
++ #define MUTEX_ISLOCK(mutex)  [mutex wouldBlock]
++ #define MUTEX_UNLOCK(mutex)  [mutex signal]
++ 
+  
+  #endif
+  #endif
+diff -c ../orig/objc-proto.h objc/objc-proto.h
+*** ../orig/objc-proto.h	Tue Feb  9 20:20:20 1993
+--- objc/objc-proto.h	Mon Feb  8 11:37:34 1993
+***************
+*** 27,32 ****
+--- 27,37 ----
+  #ifndef __objc_proto_INCLUDE_GNU
+  #define __objc_proto_INCLUDE_GNU
+  
++ #ifndef HOST_BITS_PER_LONG         /* missing? */
++ #include <sys/limits.h>
++ #define HOST_BITS_PER_LONG (sizeof(long)*CHAR_BIT)
++ #endif
++ 
+  /* This used to be #ifndef __OBJC__, but it turns out that
+     object.m needs these declarations.  I don't understand why one
+     might want to avoid them in object.m.  */
+diff -c ../orig/objc.h objc/objc.h
+*** ../orig/objc.h	Tue Feb  9 20:20:20 1993
+--- objc/objc.h	Mon Feb  8 11:37:34 1993
+***************
+*** 27,32 ****
+--- 27,34 ----
+  #ifndef __objc_INCLUDE_GNU
+  #define __objc_INCLUDE_GNU
+  
++ #include <varargs.h>
++ 
+  /* If someone is using a c++ compiler then adjust the types in the
+     file back to C.  */
+  #ifdef __cplusplus
+diff -c ../orig/record.h objc/record.h
+*** ../orig/record.h	Tue Feb  9 20:20:21 1993
+--- objc/record.h	Tue Feb  9 03:23:10 1993
+***************
+*** 92,98 ****
+  record_store_at (unsigned int i, void *value, struct record *record)
+  {
+    assert (i);
+!   assert (i <= record_entries (record));
+  
+    record->records[i] = value;
+  }
+--- 92,98 ----
+  record_store_at (unsigned int i, void *value, struct record *record)
+  {
+    assert (i);
+!   assert (i <= record_capacity (record));
+  
+    record->records[i] = value;
+  }
+***************
+*** 121,127 ****
+  record_get (unsigned int i, struct record *record)
+  {
+    assert (i);
+!   assert (i <= record_entries (record));
+    return record->records[i];
+  }
+  
+--- 121,127 ----
+  record_get (unsigned int i, struct record *record)
+  {
+    assert (i);
+!   assert (i <= record_capacity (record));
+    return record->records[i];
+  }
+  
+diff -c ../orig/core.c objc/core.c
+*** ../orig/core.c	Tue Feb  9 20:20:19 1993
+--- objc/core.c	Tue Feb  9 06:27:16 1993
+***************
+*** 23,34 ****
+     This exception does not however invalidate any other reasons why
+     the executable file might be covered by the GNU General Public License.  */
+  
+- #include "tconfig.h"
+  #include "assert.h"
+  #include <ctype.h>
+! #include "gstdarg.h"
+  #include <stdio.h>
+! #include "gstddef.h"
+  
+  #include "hash.h"
+  #include "objc.h"
+--- 23,33 ----
+     This exception does not however invalidate any other reasons why
+     the executable file might be covered by the GNU General Public License.  */
+  
+  #include "assert.h"
+  #include <ctype.h>
+! #include "stdarg.h"
+  #include <stdio.h>
+! #include "stddef.h"
+  
+  #include "hash.h"
+  #include "objc.h"
+***************
+*** 56,62 ****
+  static SEL    record_selector (const char*);
+  static void   record_methods_from_class (Class_t);
+  static void   record_methods_from_list (MethodList_t);
+! static void   initialize_class (const char*);
+  /*
+   * This is a hash table of Class_t structures. 
+   *
+--- 55,75 ----
+  static SEL    record_selector (const char*);
+  static void   record_methods_from_class (Class_t);
+  static void   record_methods_from_list (MethodList_t);
+! static void   initialize_class (Class_t);
+! 
+! /* objc_msgSend comes in 3 variants... */
+! IMP objc_msgSend(id receiver, SEL selector);
+! IMP __builtin_objc_msgSend(id receiver, SEL selector);
+! IMP __initializing_objc_msgSend(id receiver, SEL selector);
+! IMP (*__objc_msgSend)(id receiver, SEL selector) = __initializing_objc_msgSend;
+! 
+! /* as does objc_msgSendSuper */
+! IMP objc_msgSendSuper(Super_t receiver, SEL selector);
+! IMP __builtin_objc_msgSendSuper(Super_t receiver, SEL selector);
+! IMP __initializing_objc_msgSendSuper(Super_t receiver, SEL selector);
+! IMP (*__objc_msgSendSuper)(Super_t receiver, SEL selector) =
+!        __initializing_objc_msgSendSuper;
+! 
+  /*
+   * This is a hash table of Class_t structures. 
+   *
+***************
+*** 84,89 ****
+--- 97,105 ----
+  /* This mutex provides a course lock for method dispatch.  */
+  MUTEX	runtimeMutex;
+  
++ /* This mutex provides lock for malloc and friends */
++ MUTEX   mallocMutex;
++ 
+  /*
+   * This hash table is used by the initialization routines.  When the
+   * constructor function (__objc_execClass) is called it is passed a pointer
+***************
+*** 185,203 ****
+    exit (1);
+  }
+  
+! static void *
+  xmalloc (unsigned int size)
+  {
+!   void *ptr = (void *) malloc (size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+  }
+  
+! static void *
+  xcalloc (unsigned int size, unsigned int units)
+  {
+!   void *ptr = (void *) calloc (size, units);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+--- 201,230 ----
+    exit (1);
+  }
+  
+!  void *
+  xmalloc (unsigned int size)
+  {
+!   void *ptr;
+!   ptr = (void *) malloc (size);
+!   if (ptr == 0)
+!     fatal ("virtual memory exceeded");
+!   return ptr;
+! }
+! 
+!  void *
+! xrealloc (void* ptr, unsigned int size)
+! {
+!   ptr = (void *) realloc (ptr, size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+  }
+  
+!  void *
+  xcalloc (unsigned int size, unsigned int units)
+  {
+!   void *ptr;
+!   ptr = (void *) calloc (size, units);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+***************
+*** 206,212 ****
+  void *
+  __objc_xmalloc (unsigned int size)
+  {
+!   void *ptr = (void *) malloc (size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+--- 233,240 ----
+  void *
+  __objc_xmalloc (unsigned int size)
+  {
+!   void *ptr;
+!   ptr = (void *) malloc (size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+***************
+*** 215,221 ****
+  void *
+  __objc_xrealloc (void *optr, unsigned int size)
+  {
+!   void *ptr = (void *) realloc (optr, size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+--- 243,250 ----
+  void *
+  __objc_xrealloc (void *optr, unsigned int size)
+  {
+!   void *ptr;
+!   ptr = (void *) realloc (optr, size);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+***************
+*** 224,230 ****
+  void *
+  __objc_xcalloc (unsigned int size, unsigned int units)
+  {
+!   void *ptr = (void *) calloc (size, units);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+--- 253,260 ----
+  void *
+  __objc_xcalloc (unsigned int size, unsigned int units)
+  {
+!   void *ptr;
+!   ptr = (void *) calloc (size, units);
+    if (ptr == 0)
+      fatal ("virtual memory exceeded");
+    return ptr;
+***************
+*** 247,254 ****
+   * The purpose of this function is to gather the module pointers so that they
+   * may be processed by the initialization clean up routine. 
+   */
+! void 
+! __objc_execClass (Module_t module)
+  {
+    /* Has we processed any constructors previously? 
+       Flag used to indicate that some global data structures
+--- 277,284 ----
+   * The purpose of this function is to gather the module pointers so that they
+   * may be processed by the initialization clean up routine. 
+   */
+! void            /* it is declared void* in objc-actions.c */
+! __objc_execClass (void* theModule)
+  {
+    /* Has we processed any constructors previously? 
+       Flag used to indicate that some global data structures
+***************
+*** 255,260 ****
+--- 285,291 ----
+       need to be built.  */
+    static BOOL previous_constructors = 0;
+  
++   Module_t    module = (Module_t)theModule;	/* see above */
+    Symtab_t    symtab = module->symtab;
+    Class_t     object_class;
+    node_ptr node;
+***************
+*** 273,287 ****
+       some data structures.  */
+    if (!previous_constructors) {
+  
+      /* Enable malloc debugging. This'll slow'er down! */
+  #if defined (DEBUG) && defined (NeXT)
+      malloc_debug (62);
+  #endif
+  
+-     /* Allocate and initialize the mutex.  */
+-     MUTEX_ALLOC (&runtimeMutex);
+-     MUTEX_INIT (runtimeMutex);
+- 
+      /* Allocate the module hash table.  */
+      module_hash_table
+        = hash_new (MODULE_HASH_SIZE, (hash_func_type)hash_ptr,
+--- 304,319 ----
+       some data structures.  */
+    if (!previous_constructors) {
+  
++     __objc_msgSend = __initializing_objc_msgSend; 
++     __objc_msgSendSuper = __initializing_objc_msgSendSuper; 
++ 				/* wee need a version checking for */
++ 				/* un-initialized classes here... */
++ 
+      /* Enable malloc debugging. This'll slow'er down! */
+  #if defined (DEBUG) && defined (NeXT)
+      malloc_debug (62);
+  #endif
+  
+      /* Allocate the module hash table.  */
+      module_hash_table
+        = hash_new (MODULE_HASH_SIZE, (hash_func_type)hash_ptr,
+***************
+*** 348,354 ****
+        class1->class_pointer->class_pointer = object_class->class_pointer; 
+  
+        /* Assign super class pointers */
+!       if (class1->super_class) {
+  	Class_t aSuperClass = objc_getClass ((char*)class1->super_class);
+  
+  	if (aSuperClass) {
+--- 380,386 ----
+        class1->class_pointer->class_pointer = object_class->class_pointer; 
+  
+        /* Assign super class pointers */
+!       if ((((class1->info)&CLS_RTI)!=CLS_RTI) && class1->super_class) {
+  	Class_t aSuperClass = objc_getClass ((char*)class1->super_class);
+  
+  	if (aSuperClass) {
+***************
+*** 362,375 ****
+  
+  	  /* Mark the class as initialized.  */
+  	  class1->info |= CLS_RTI;
+! 	} else
+  	  /* Couldn't find the class's super class.  */
+  	  incomplete = 1;
+        }
+      }
+!   } else
+      /* Couldn't find class Object.  */
+      incomplete = 1;
+  
+    /* Process category information from the module.  */
+    for (i = 0; i < symtab->cat_def_cnt; ++i) {
+--- 394,413 ----
+  
+  	  /* Mark the class as initialized.  */
+  	  class1->info |= CLS_RTI;
+! 	} else {
+  	  /* Couldn't find the class's super class.  */
+  	  incomplete = 1;
++ 	  DEBUG_PRINTF("Missing superclass for %s (%s)\n",
++ 		       class1->name, (char*)(class1->super_class));
++ 	}
+        }
+      }
+!   } else {
+      /* Couldn't find class Object.  */
+      incomplete = 1;
++     DEBUG_PRINTF("Missing class Object\n");
++   }
++ 
+  
+    /* Process category information from the module.  */
+    for (i = 0; i < symtab->cat_def_cnt; ++i) {
+***************
+*** 396,401 ****
+--- 434,440 ----
+  	 be found.  Save the information.  */
+        hash_add (&unclaimed_category_hash_table, category, category);
+  
++       DEBUG_PRINTF("Missing class %s\n", category->class_name);
+        incomplete = 1;
+      }
+    }
+***************
+*** 422,429 ****
+        if (category->class_methods)
+  	addMethodsToClass ((Class_t)class->class_pointer,
+  			   category->class_methods);
+!     } else
+        incomplete = 1;
+    }
+  
+    /* Can we finish the run time initialization? */
+--- 461,471 ----
+        if (category->class_methods)
+  	addMethodsToClass ((Class_t)class->class_pointer,
+  			   category->class_methods);
+!     } else {
+!       DEBUG_PRINTF("Missing class %s\n", category->class_name);
+        incomplete = 1;
++     }
++ 
+    }
+  
+    /* Can we finish the run time initialization? */
+***************
+*** 438,450 ****
+      /* Print out class tables if debugging.  */
+      DEBUG_PRINTF ("dump of class tables from objcInit\n");
+      debug_dump_classes ();
+!   }
+  
+  }
+  
+  
+  IMP  
+! objc_msgSend (id receiver, SEL sel)
+  {
+    /*
+     * A method is always called by the compiler.  If a method wasn't
+--- 480,514 ----
+      /* Print out class tables if debugging.  */
+      DEBUG_PRINTF ("dump of class tables from objcInit\n");
+      debug_dump_classes ();
+! 
+!     /* initialize all classes */
+!     for (node = hash_next (class_hash_table, NULL); node;
+! 	 node = hash_next (class_hash_table, node)) 
+!       if(!(((Class_t)node->value)->info & CLS_INITIALIZED)) 
+! 	initialize_class(node->value);
+! 
+!     __objc_msgSend = __builtin_objc_msgSend; 
+!     __objc_msgSendSuper = __builtin_objc_msgSendSuper; 
+! 				/* change to the fast versions */
+  
++     /* Allocate and initialize the mutex.  */
++     MUTEX_ALLOC (&runtimeMutex);
++     MUTEX_INIT (runtimeMutex);
++ 
++     MUTEX_ALLOC(&mallocMutex);
++     MUTEX_INIT(mallocMutex);
++ 
++   }
+  }
+  
+  
++ IMP objc_msgSend (id receiver, SEL sel) {
++   return (*__objc_msgSend)(receiver,sel);
++ }
++ 
++ /* This is an cut-down messenger, which does only what is needed*/
+  IMP  
+! __builtin_objc_msgSend (id receiver, SEL sel)
+  {
+    /*
+     * A method is always called by the compiler.  If a method wasn't
+***************
+*** 452,466 ****
+     */
+    IMP  imp = nil_method;
+  
+  
+    /* The run time must be initialized at this point.
+       Otherwise we get a message sent to a object with a bogus selector.  */
+!   assert (initialized);
+  
+    /* Objective-C allows messages to be sent to a nil object.  */
+    if (receiver) {
+  
+!     /* Check for common programmer error.  */
+      if (!receiver->class_pointer) {
+        fprintf (stderr, "method %s sent to deallocated object %#x\n", 
+  	       sel_getName (sel), receiver);
+--- 516,569 ----
+     */
+    IMP  imp = nil_method;
+  
++   /* Objective-C allows messages to be sent to a nil object.  */
++   if (receiver) {
++     /*
++      * If we're passed a object then its class_pointer is a Class.  If
++      * we're passed a Class then its class_pointer is a MetaClass. 
++      * Therefore, searching for a instance or class method
++      * requires no special decision making here. 
++      *
++      * Look for the method. 
++      */
++     imp = get_imp (receiver->class_pointer, sel);
++ 
++     /* If the method cannot be found then perform error handling.  */
++     if (!imp)
++       imp = handle_runtime_error (receiver, sel);
++   }
++ 
++ #ifdef DEBUG
++   /* Nice debugging messages if enabled.  */
++   if (objc_trace) {
++     printf ("trace: objc_msgSend , obj=%#x, class=%s, method=%s\n",
++ 	    receiver, 
++ 	    receiver->class_pointer->name, 
++ 	    sel_getName (sel));
++     fflush (stdout);
++   }
++ #endif
++   
++   return imp;
++ }
++ 
++ IMP  
++ __initializing_objc_msgSend (id receiver, SEL sel)
++ {
++   /*
++    * A method is always called by the compiler.  If a method wasn't
++    * found then supply a default. 
++    */
++   IMP  imp = nil_method;
+  
+    /* The run time must be initialized at this point.
+       Otherwise we get a message sent to a object with a bogus selector.  */
+!   assert(initialized);
+  
+    /* Objective-C allows messages to be sent to a nil object.  */
+    if (receiver) {
+  
+!     /* Check for common programmer error */
+      if (!receiver->class_pointer) {
+        fprintf (stderr, "method %s sent to deallocated object %#x\n", 
+  	       sel_getName (sel), receiver);
+***************
+*** 469,475 ****
+      
+      /* Initialize the class if need be.  */
+      if (!(receiver->class_pointer->info & CLS_INITIALIZED))
+!       initialize_class (receiver->class_pointer->name);
+  
+      /*
+       * If we're passed a object then its class_pointer is a Class.  If
+--- 572,578 ----
+      
+      /* Initialize the class if need be.  */
+      if (!(receiver->class_pointer->info & CLS_INITIALIZED))
+!       initialize_class (receiver->class_pointer);
+  
+      /*
+       * If we're passed a object then its class_pointer is a Class.  If
+***************
+*** 494,506 ****
+  	    sel_getName (sel));
+      fflush (stdout);
+    }
+!   
+    return imp;
+  }
+  
+  
+  IMP 
+! objc_msgSendSuper (Super_t super, SEL sel)
+  {
+    IMP	imp;
+  
+--- 597,616 ----
+  	    sel_getName (sel));
+      fflush (stdout);
+    }
+! 
+    return imp;
+  }
+  
+  
++ 
++ 
+  IMP 
+! objc_msgSendSuper (Super_t super, SEL sel) {
+!   return (__objc_msgSendSuper)(super, sel);
+! }
+! 
+! IMP 
+! __initializing_objc_msgSendSuper (Super_t super, SEL sel)
+  {
+    IMP	imp;
+  
+***************
+*** 508,516 ****
+    assert (initialized);
+  
+    if (!(super->class->info & CLS_INITIALIZED))
+!     initialize_class (super->class->name);
+    if (!(super->receiver->class_pointer->info & CLS_INITIALIZED))
+!     initialize_class (super->receiver->class_pointer->name);
+  
+    imp = get_imp (super->class, sel);
+    
+--- 618,626 ----
+    assert (initialized);
+  
+    if (!(super->class->info & CLS_INITIALIZED))
+!     initialize_class (super->class);
+    if (!(super->receiver->class_pointer->info & CLS_INITIALIZED))
+!     initialize_class (super->receiver->class_pointer);
+  
+    imp = get_imp (super->class, sel);
+    
+***************
+*** 528,533 ****
+--- 638,653 ----
+    return imp;
+  }
+  
++ IMP 
++ __builtin_objc_msgSendSuper (Super_t super, SEL sel)
++ {
++   IMP	imp;
++   if(imp = get_imp (super->class, sel))
++     return imp;
++   else
++     return handle_runtime_error (super->receiver, sel);
++ }
++ 
+  
+  /*
+   * This function is called by objc_msgSend or objc_msgSendSuper when a
+***************
+*** 634,640 ****
+     *
+     * No need to initialize the class.  That was done in objcInit. 
+     */
+!   object = (id) xcalloc (1, class->instance_size);
+    object->class_pointer = class;
+  
+    return object;
+--- 754,760 ----
+     *
+     * No need to initialize the class.  That was done in objcInit. 
+     */
+!   object = (id) __objc_xcalloc (1, class->instance_size);
+    object->class_pointer = class;
+  
+    return object;
+***************
+*** 661,667 ****
+    if (length < object->class_pointer->instance_size)
+      abort ();
+  
+!   obj = (id) realloc (object, length);
+    bzero ((char*)obj + object->class_pointer->instance_size,  
+  	 length - object->class_pointer->instance_size);
+    
+--- 781,787 ----
+    if (length < object->class_pointer->instance_size)
+      abort ();
+  
+!   obj = (id) __objc_xrealloc (object, length);
+    bzero ((char*)obj + object->class_pointer->instance_size,  
+  	 length - object->class_pointer->instance_size);
+    
+***************
+*** 949,958 ****
+  Class_t 
+  class_poseAs (Class_t impostor, Class_t super_class)
+  {
+!   Class_t     new_class = (Class_t) calloc (1, sizeof (Class));
+!   MetaClass_t new_meta_class = (MetaClass_t) calloc (1, sizeof (MetaClass));
+    node_ptr node;
+!   char        *new_name = (char *) malloc (strlen (super_class->name) + 12);
+  
+    
+    assert (new_class);
+--- 1069,1078 ----
+  Class_t 
+  class_poseAs (Class_t impostor, Class_t super_class)
+  {
+!   Class_t     new_class = (Class_t) __objc_xcalloc (1, sizeof (Class));
+!   MetaClass_t new_meta_class = (MetaClass_t) __objc_xcalloc (1, sizeof (MetaClass));
+    node_ptr node;
+!   char        *new_name = (char *) __objc_xmalloc (strlen (super_class->name) + 12);
+  
+    
+    assert (new_class);
+***************
+*** 1220,1235 ****
+   * is marked as initialized. 
+   */
+  static void		
+! initialize_class (const char *name)
+  {
+    Method_t	method = NULL;
+-   Class_t	class = objc_getClass (name);
+    SEL		sel = sel_getUid ("initialize");
+  
+  	
+    /* The class should not be initialized at this point.  */
+    assert (!(class->info & CLS_INITIALIZED));
+!   assert (!(class->class_pointer->info & CLS_INITIALIZED));
+  
+    /* Search for the +initialize method.
+       Call it if it exists.  */
+--- 1340,1358 ----
+   * is marked as initialized. 
+   */
+  static void		
+! initialize_class (Class_t class)
+  {
+    Method_t	method = NULL;
+    SEL		sel = sel_getUid ("initialize");
+  
+  	
+    /* The class should not be initialized at this point.  */
+    assert (!(class->info & CLS_INITIALIZED));
+!   /*assert (!(class->class_pointer->info & CLS_INITIALIZED));*/
+! 
+!   /* Mark the class as initialized.  */
+!   class->info	|= CLS_INITIALIZED;
+!   class->class_pointer->info	|= CLS_INITIALIZED;
+  
+    /* Search for the +initialize method.
+       Call it if it exists.  */
+***************
+*** 1240,1254 ****
+      IMP	imp;
+  
+      DEBUG_PRINTF ("Class: %s sending +%s\n", 
+! 		  name, sel_getName (sel));
+      imp = get_imp ((Class_t)class->class_pointer, sel);
+      assert (imp);
+      (*imp)((id)class, sel);
+    }
+  
+-   /* Mark the class as initialized.  */
+-   class->info	|= CLS_INITIALIZED;
+-   class->class_pointer->info	|= CLS_INITIALIZED;
+  }
+  
+  
+--- 1363,1374 ----
+      IMP	imp;
+  
+      DEBUG_PRINTF ("Class: %s sending +%s\n", 
+! 		  class->name, sel_getName (sel));
+      imp = get_imp ((Class_t)class->class_pointer, sel);
+      assert (imp);
+      (*imp)((id)class, sel);
+    }
+  
+  }
+  
+  
+diff -c ../orig/hash.c objc/hash.c
+*** ../orig/hash.c	Tue Feb  9 20:20:19 1993
+--- objc/hash.c	Tue Feb  9 04:07:26 1993
+***************
+*** 23,31 ****
+     This exception does not however invalidate any other reasons why
+     the executable file might be covered by the GNU General Public License.  */
+  
+! #include "tconfig.h"
+! #include "gstddef.h"
+! #include "gstdarg.h"
+  #include "assert.h"
+  
+  #include "hash.h"
+--- 23,30 ----
+     This exception does not however invalidate any other reasons why
+     the executable file might be covered by the GNU General Public License.  */
+  
+! #include "stddef.h"
+! #include "stdarg.h"
+  #include "assert.h"
+  
+  #include "hash.h"
+***************
+*** 53,67 ****
+    assert (size);
+    assert (!(size & (size - 1)));
+  
+!   /* Allocate the cache structure.  calloc insures
+       its initialization for default values.  */
+!   cache = (cache_ptr) calloc (1, sizeof (struct cache));
+    assert (cache);
+  
+    /* Allocate the array of buckets for the cache.
+!      calloc initializes all of the pointers to NULL.  */
+    cache->node_table
+!     = (node_ptr *) calloc (size, sizeof (node_ptr));
+    assert (cache->node_table);
+  
+    cache->size  = size;
+--- 52,66 ----
+    assert (size);
+    assert (!(size & (size - 1)));
+  
+!   /* Allocate the cache structure.  xcalloc insures
+       its initialization for default values.  */
+!   cache = (cache_ptr) xcalloc (1, sizeof (struct cache));
+    assert (cache);
+  
+    /* Allocate the array of buckets for the cache.
+!      xcalloc initializes all of the pointers to NULL.  */
+    cache->node_table
+!     = (node_ptr *) xcalloc (size, sizeof (node_ptr));
+    assert (cache->node_table);
+  
+    cache->size  = size;
+***************
+*** 100,106 ****
+  hash_add (cache_ptr *cachep, const void *key, void *value)
+  {
+    size_t indx = (*(*cachep)->hash_func)(*cachep, key);
+!   node_ptr node = (node_ptr) calloc (1, sizeof (struct cache_node));
+  
+  
+    assert (node);
+--- 99,105 ----
+  hash_add (cache_ptr *cachep, const void *key, void *value)
+  {
+    size_t indx = (*(*cachep)->hash_func)(*cachep, key);
+!   node_ptr node = (node_ptr) xcalloc (1, sizeof (struct cache_node));
+  
+  
+    assert (node);
+***************
+*** 252,254 ****
+--- 251,256 ----
+  
+    return retval;
+  }
++ 
++ 
++ 
+diff -c ../orig/object.m objc/object.m
+*** ../orig/object.m	Tue Feb  9 20:20:21 1993
+--- objc/object.m	Tue Feb  9 03:45:48 1993
+***************
+*** 1,3 ****
+--- 1,15 ----
++ /* This may look like -*- C -*- but it is really objective C */
++ 
++ /* $Log: Object.m,v $
++  * Revision 1.3  1993/02/08  20:05:15  krab
++  * Changed hash and isEqual to examine instance variables
++  *
++  * 6-Feb-1993		Kresten Krab Thorup	
++  *    Changed deepCopy
++  * 6-Feb-1993		Kresten Krab Thorup	
++  *    Changed to alloc/init scheme.  
++  */
++ 
+  /* This file contains the implementation of class Object.
+     Copyright (C) 1992 Free Software Foundation, Inc.
+  
+***************
+*** 18,26 ****
+  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
+   
+  
+! #include "tconfig.h"
+! #include "gstdarg.h"
+! #include "object.h"
+  #include "objc-proto.h"
+  
+  #include <errno.h>
+--- 30,37 ----
+  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.  */
+   
+  
+! #include "stdarg.h"
+! #include "Object.h"
+  #include "objc-proto.h"
+  
+  #include <errno.h>
+***************
+*** 34,61 ****
+  @implementation Object
+  
+  
+! + new
+! {
+!   return class_createInstance (CLASS (self));
+! }
+! 
+  
+  + free {  return nil; }
+  - free {  return object_dispose (self); }
+  
+- 
+  - copy {  return [self shallowCopy]; }
+  
+- 
+  - shallowCopy
+  {
+    return object_copy (self);
+  }
+  
+- 
+  - deepCopy
+  {
+!   return class_createInstance ([self class]);
+  }
+  
+  
+--- 45,67 ----
+  @implementation Object
+  
+  
+! + alloc {  return class_createInstance (CLASS (self)); }
+! + new   {  return [[self alloc] init]; }
+! - init  {  return self; }
+  
+  + free {  return nil; }
+  - free {  return object_dispose (self); }
+  
+  - copy {  return [self shallowCopy]; }
+  
+  - shallowCopy
+  {
+    return object_copy (self);
+  }
+  
+  - deepCopy
+  {
+!   return object_copy (self);
+  }
+  
+  
+***************
+*** 69,83 ****
+  
+  - (unsigned int)hash
+  {
+!   return (unsigned int)self; /* gak!  Not portable. */
+  }
+  
+- 
+  - (BOOL)isEqual:anObject
+  {
+!   return self == anObject ;
+  }
+  
+  
+  - (BOOL)isKindOf:(Class_t)aClassObject
+  {
+--- 75,104 ----
+  
+  - (unsigned int)hash
+  {
+!   if(isa->instance_size > sizeof(Object))
+!     {
+!       register unsigned cnt, res;
+!       for(cnt=0, res=0; cnt < isa->instance_size; cnt++)
+! 	res += ((char*)self)[cnt];
+!       return res;
+!     }
+!   else    /* no instance variables -- use adress */
+!     return ((unsigned int)self)>>3;
+  }
+  
+  - (BOOL)isEqual:anObject
+  {
+!   if(self->isa != anObject->isa) 
+!     return NO;
+!   if(isa->instance_size != anObject->isa->instance_size)
+!     return NO;
+!   return bcmp(self, anObject, isa->instance_size) == 0 ? YES : NO;
+  }
+  
++ + (BOOL)isEqual: aClass
++ {
++   return self==aClass ? YES : NO;
++ }
+  
+  - (BOOL)isKindOf:(Class_t)aClassObject
+  {
+***************
+*** 145,150 ****
+--- 166,177 ----
+  }
+  
+  
++ - perform:(SEL)aSel with:aObject with:secondObject
++ {
++   return (*((IMP)objc_msgSend (self, aSel)))(self, aSel, aObject,secondObject);
++ }
++ 
++ 
+  + poseAs:(Class_t)aClassObject
+  {
+    return class_poseAs (self, aClassObject);
+***************
+*** 153,171 ****
+   
+  - subclassResponsibility:(SEL)aSel
+  {
+!   return [self error:"subclass should override %s", aSel];
+  }
+  
+  
+  - notImplemented:(SEL)aSel
+  {
+!   return [self error:"method %s not implemented", aSel];
+  }
+  
+  
+  - doesNotRecognize:(SEL)aSel
+  {
+!   return [self error:"%s does not recognize %s", [self name], aSel];
+  }
+  
+  - error:(const char*)aString, ...
+--- 180,198 ----
+   
+  - subclassResponsibility:(SEL)aSel
+  {
+!   return [self error:"subclass should override %s", sel_getName(aSel)];
+  }
+  
+  
+  - notImplemented:(SEL)aSel
+  {
+!   return [self error:"method %s not implemented", sel_getName(aSel)];
+  }
+  
+  
+  - doesNotRecognize:(SEL)aSel
+  {
+!   return [self error:"%s does not recognize %s", [self name], sel_getName(aSel)];
+  }
+  
+  - error:(const char*)aString, ...
+***************
+*** 221,226 ****
+--- 248,256 ----
+    return self;
+  }
+  
++  /* This method reads the header "#<class-name>\0<version>". Finds the */
++  /* class, and checks it version.  Finally it creates a new instance */
++  /* of that class, and sends it the message -readFrom: */
+  
+  + readFrom:(int)aFd
+  {
+***************
+*** 228,234 ****
+    char  objName[256];
+    int   len;
+    
+-   
+    if ((len = read (aFd, &objName, strlen ("#"))) != -1)
+      if (objName[0] == '#') {
+        long  version;
+--- 258,263 ----
+***************
+*** 243,264 ****
+        if (len != -1)
+          len = read (aFd, &version, sizeof (version));
+        
+!       /* No errors???
+! 	 Then create a object. */
+        if (len != -1) {
+! 	aObj = class_createInstance (objc_getClass (objName));
+!           
+! 	/* If the object was 
+! 	   successfully created then
+! 	   tell it to dearchive
+! 	   itself. */
+! 	if (aObj)
+  	  [aObj readFrom:aFd];
+        }
+      }
+      
+    if (len == -1)
+!     [self error:"error activating object, errno=%d", errno];
+    
+    return aObj;
+  }
+--- 272,294 ----
+        if (len != -1)
+          len = read (aFd, &version, sizeof (version));
+        
+!       /* No errors??? Then create a object. */
+        if (len != -1) {
+! 	Class_t aClass = objc_getClass(objName);
+! 	if(aClass == nil)
+! 	  [self error: "readFrom: Cannot find class %s", objName];
+! 	else if ([aClass version] != version)
+! 	  [self error: "readFrom: Bad version: %d of class %s", version, objName];
+! 
+! 	if(aObj = class_createInstance (aClass))
+  	  [aObj readFrom:aFd];
++ 	else
++ 	  [self error: "readFrom: Cannot create instance of class %s", aClass];
+        }
+      }
+      
+    if (len == -1)
+!     [self error:"readFrom: I/O error activating object, errno=%d", errno];
+    
+    return aObj;
+  }
+
+Return-Path: <bradcox@sitevax.gmu.edu>
+Date: Wed, 10 Feb 1993 11:51:12 -0500
+To: Kresten Krab Thorup <krab@iesd.auc.dk>, gnu-objc-runtime@prep.ai.mit.edu
+From: bradcox@sitevax.gmu.edu (Brad Cox; 703 968 8229)
+Subject: Re: Gnu objc runtime [comments and bug reports]
+Cc: "Geoffrey S. Knauth" <gsk@marble.com>, rms@gnu.ai.mit.edu,
+        gnu-objc-submissions@prep.ai.mit.edu
+
+krab@iesd.auc.dk wrote:
+>     # Changed isEqual so that bcmp on instances is done, instead of
+>     comparing the object pointers only.  I dont know if this is the
+>     right semathics, but it surely is more natural.  
+
+There is no single *right* semantics for isEqual: at the generic Object
+level. You're confusing the difference between fixing a bug and redefining
+a standard.
+
+I encourage you to undo this fix by adopting (1) the simplest to explain
+(2) the smallest to implement and (3) the one discussed in my book and (4)
+the one adopted in existing Object class implementations; namely that
+unless overridden, equality == identity; i.e.
+
+- isEqual: anObject { return anObject == self; }
+
+Don't forget that unfixing isEqual: will also require unfixing hash.
+--
+   Brad Cox; bradcox@sitevax.gmu.edu; 703 993 1142 work 703 968 8229 home 
+ George Mason Program on Social and Organizational Learning; Fairfax VA 22030
+
+
+Return-Path: <dglattin@trirex.com>
+Date: Wed, 10 Feb 93 20:57:58 -0800
+From: Dennis Glatting <dglattin@trirex.com>
+To: "Geoffrey S. Knauth" <gsk@marble.com>
+Subject: Re: [krab@iesd.auc.dk: Gnu objc runtime [comments and bug reports]]
+Cc: gnu-objc-runtime@prep.ai.mit.edu
+Reply-To: dennis_glatting@trirex.com
+
+> # Changed msgSend scheme:  objc_msgSend is now a pointer
+> two a function. core.c defines two messengers, one equal
+> to the present doing extensively initialization
+> checking, and one bare-bone with no such checks (more on
+> initialization at next item) This also allows the
+> programmer to do his own messengers -- fun! 
+
+> 
+
+
+Trade off.  Adds overhead to *every* message dispatch.
+
+
+> When all classes have their class-relationships
+> resolved, (i.e. the last time it is called), It calls
+> +initialize for all classes.  (still using the heavy
+> messenger)  it is not called if it has already been done if a
+> +initialize method has invoked it indirectly by doing
+> message passing to other objects. 
+
+> 
+
+
+This is contrary to the definition of the +initialize.  Also, I did  
+this once.  There are problems.  For example, what if a +initialize  
+method allocates a object of another class?  The +initialize method  
+of the second class hasn't been called yet.  How is the +initialize  
+method of the second class called?  By checking to see if the class  
+has been initialized.  So what's the point of executing all  
++initialize methods at once?
+
+
+-dpg
+
+Return-Path: <krab@iesd.auc.dk>
+Date: Wed, 24 Feb 1993 09:52:42 +0100
+From: Kresten Krab Thorup <krab@iesd.auc.dk>
+To: Bill Dudney <dudney@pencom.com>
+In-Reply-To: <9302232343.AA02036@>
+Subject: Help with the runtime
+Cc: krab@iesd.auc.dk, rms@gnu.ai.mit.edu, burchard@geom.umn.edu,
+        gsk@marble.com
+
+Bill Dudney writes:
+>Is there some way I can help? I dont have a very good feel for the
+>state of the run time system now but I do know NeXTs run time pretty
+>well and would be happy to help get GNU's up to snuff.
+
+Since I don't think the current runtime is worth anything I have
+started writing the runtime from scratch.  As the runtime is only a
+2-3 thousand lines of C code, I think it would be best if I did it
+alone until I have something which is close to a full runtime.  But
+there are a few points where I really need help.
+
+(1) Since we do not have a specification of the objective C language
+it is my worst worry if I do it absolutely correct.  There are several
+things which could be done:
+
+   1) Writing a specification of the objective C language. 
+
+   2) Writing a specification of the programmer/runtime interface.
+
+Currently I use the NeXT documentation, and the existing C code to
+make these matters certain.  For example, the exact semathics of
+posing is still a bit unclear to me...  Should the class being posed
+for be accessible in any way after the poseAs call?
+
+
+(2) The type encoding format needs revision/redesign.  Stallman, Paul
+and I have had some discussions on this, and if you're interested in
+writing a some documentation, you're welcome.  One problem not exactly
+solved yet, is how to manage translations to and from machine
+independent format, and who's resplonsibility it should be to do so --
+the runtime? the compiler? the code in typedstreams?.  We also need
+someone to actually code things like typed streams.  This is not
+critical for the core runtime, and could be done later.
+
+
+(3) Whenever I or other people introduce ideas for new features or how
+to implement them, take your time to evaluate them carefully, and
+** answer to the gnu-objc list ** , so that we can discuss it in a wide
+forum.  This is the intermediate way to handle (1).
+
+
+(4) Once I get something up running, be a *critical* beta-tester.
+This -- I guess -- will take a week or two before I have anything
+presentable to testers.
+
+
+Geoffrey:  If you think it would be a good idea, you're welcome to
+post this note to the list.  Perhaps someone has more problems to add? 
+
+Thanks,
+
+Kresten
+
+

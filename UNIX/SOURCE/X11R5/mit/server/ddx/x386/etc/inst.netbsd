@@ -1,0 +1,101 @@
+#!/bin/sh
+
+# Installation script for XFree86 on NetBSD.
+#
+# $XFree86: mit/server/ddx/x386/etc/inst.netbsd,v 2.3 1994/03/06 14:55:14 dawes Exp $
+
+# if XWINHOME isn't set and if /usr/X386 doesn't exist, check if we
+# are being run from the directory containing X386, or from
+# X386/lib/X11/etc
+
+if [ -z "${XWINHOME}" ]; then
+    if [ -d /usr/X386 ]; then
+	XWINHOME=/usr/X386
+    else
+	if [ -d X386 ]; then
+	    XWINHOME=`pwd`/X386
+	elif [ -d ../../../../X386 ]; then
+	    XWINHOME=`(cd ../../../..; pwd)`/X386
+	else
+	    echo Please set the XWINHOME environment variable 
+	    echo to the directory where you unpacked
+	    echo 'XFree86 (eg /usr/local/X386) and then run `basename $0`.'
+	    exit 1
+	fi
+    fi
+    echo setting XWINHOME to "${XWINHOME}"
+fi
+		
+# put ${XWINHOME}/bin in /etc/csh.login
+d=/etc/csh.login
+if grep -s '\${XWINHOME}' $d; then
+	:
+else
+	echo adding the definition of XWINHOME to $d
+	echo '# directory of XFree86 2.1' >> $d
+	(set -x; echo 'setenv XWINHOME '"${XWINHOME}" >>$d )
+fi
+if grep -s '\${XWINHOME}/bin' $d; then
+	:
+else
+	echo adding ${XWINHOME}/bin to the search path in $d
+	echo '# add X386 executables to the search path' >>$d
+	(set -x; echo 'set path = ($path ${XWINHOME}/bin)' >>$d )
+fi
+
+# put ${XWINHOME}/bin in /etc/profile
+d=/etc/profile
+if grep -s '\${XWINHOME}' $d; then
+	:
+else
+	echo adding the definition of XWINHOME to $d
+	echo '# directory of XFree86 2.1' >> $d
+	(set -x; echo 'XWINHOME='"${XWINHOME}"'; export XWINHOME' >>$d )
+fi
+if grep -s '\${XWINHOME}/bin' $d; then
+	:
+else
+	echo adding ${XWINHOME}/bin to the search path in $d
+	echo '# add X386 executables to the search path' >>$d
+	(set -x; echo 'PATH=$PATH:${XWINHOME}/bin' >>$d )
+fi
+
+# check for console drivers
+if [ -f /386bsd ]; then
+    kern=/386bsd
+elif [ -f /netbsd ]; then
+    kern=/netbsd
+fi
+
+echo looking for your console driver in $kern ...
+
+if grep -s pcprobe $kern >/dev/null 2>&1 ; then
+    if grep -s load_font $kern >/dev/null 2>&1 ; then
+        # if it's syscons, do nothing.
+        echo "Good, you are using syscons in $kern."
+    else
+        # if it's pccons and /dev/vga isn't a character device, create it
+        if [ ! -c /dev/vga ]; then
+            echo 'creating /dev/vga.'
+            (set -x; rm /dev/vga; mknod /dev/vga c 12 0)
+        fi
+        if grep -s '^vga.*\bon\b' /etc/ttys >/dev/null 2>&1 ; then
+            echo Good, you have a getty running on /dev/vga.
+        else
+            echo You don\'t have a getty running on /dev/vga.
+            cons=`grep -s '^console.*\bon\b' /etc/ttys 2>/dev/null`
+            if [ X"$cons" != X ]; then
+                echo I suggest you edit /etc/ttys and change the line:
+                echo "$cons"
+                echo to:
+                echo "$cons" | sed -e 's/^console/vga/'
+            else
+                echo I suggest you edit /etc/ttys and insert:
+                echo 'vga     "/usr/libexec/getty Pc" pc3     on secure'
+            fi
+            echo You must then reboot for this change to take effect
+        fi
+    fi
+fi
+
+echo "That's it, done."

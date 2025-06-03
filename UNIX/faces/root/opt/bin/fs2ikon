@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+#  @(#)fs2ikon 1.4 91/10/24
+#
+#  Usage: fstoicon file.fs ...
+#
+#  converts Usenix FaceSaver image into 48x48x1 ikons
+#
+#  Uses the pbm bitmap toolkit.
+#
+#  Copyright (c) Chris Maltby - Softway Pty Ltd - June 1990.
+#
+#  Permission is given to distribute these sources, as long as the
+#  copyright messages are not removed, and no monies are exchanged. 
+#
+#  No responsibility is taken for any errors on inaccuracies inherent
+#  either to the comments or the code of this program, but if reported
+#  to me, then an attempt will be made to fix them.
+
+for f
+do
+    file=`basename $f ".fs"`
+    fstopgm $file.fs > $file.pgm
+    set `sed -n -e 2p -e 2q $file.pgm`
+    x=$1
+    y=$2
+    if [ $x -ge $y ]
+    then
+	pnmscale -width 48 $file.pgm | ppmtopgm | pgmtopbm > $file.pbm
+	set `sed -n -e 2p -e 2q $file.pbm`
+	yo=`expr '(' 48 - $2 ')' / 2`
+	pbmmake 48 48 |
+	    pnmpaste $file.pbm 0 $yo |
+	    pbmtoicon 
+    else
+	pnmscale -height 48 $file.pgm | ppmtopgm | pgmtopbm > $file.pbm
+	set `sed -n -e 2p -e 2q $file.pbm`
+	xo=`expr '(' 48 - $1 ')' / 2`
+	pbmmake 48 48 |
+	    pnmpaste $file.pbm $xo 0 |
+	    pbmtoicon
+    fi |
+	sed -e 1,2d -e '20s/$/,/' |
+	tr -d '\011\012' |
+	tr ',' '\012' |
+	sed -e 's/^/0x/' |
+	pr -l1 -t -w22 -3 -s, |
+	sed -e 's/$/,/' > $file.face
+    rm $file.pbm
+done

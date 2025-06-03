@@ -1,0 +1,13 @@
+void initialize(void);
+void opengffile(void);
+void openpkfile(void);
+integer gfbyte(void);
+integer gfsignedquad(void);
+void pkhalfword(integer a);
+void pkthreebytes(integer a);
+void pkword(integer a);
+void pknyb(integer a);
+integer gflength(void);
+void movetobyte(integer n);
+void packandsendcharacter(void);
+void convertgffile(void);

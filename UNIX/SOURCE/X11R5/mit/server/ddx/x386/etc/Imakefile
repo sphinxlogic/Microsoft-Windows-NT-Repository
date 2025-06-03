@@ -1,0 +1,95 @@
+XCOMM $XFree86: mit/server/ddx/x386/etc/Imakefile,v 2.17 1994/03/06 14:55:12 dawes Exp $
+XCOMM $XConsortium: Imakefile,v 1.3 91/08/26 15:00:14 gildea Exp $
+
+#if SystemV
+ CONFIGFILES = ldterm.sdevice ptem.sdevice ptm.sdevice pts.node \
+               pts.sdevice sp.node sp.sdevice
+X386INSTPROG = install.sh
+#if defined(i386Sco)
+   MISCFILES = dmmap.shar 
+#else
+   MISCFILES = mmapSVR3.shar
+#endif
+#endif
+
+#if SystemV4
+X386INSTPROG = install.svr4
+     XDMCONF = XdmConf.svr4
+#if defined(i386SVR4Solarisx86)
+   MISCFILES = apSolx86.shar xcode.xfree86
+#else
+   MISCFILES = 2key.c xcode.xfree86
+#endif
+#endif
+
+#if i386Bsd
+ PATCHFILES  = stdlib.diff
+# ifdef i386FreeBsd
+X386INSTPROG = inst.freebsd
+# endif
+# ifdef i386NetBsd
+X386INSTPROG = inst.netbsd
+# endif
+#endif
+
+#if !BuildServersOnly
+#if (SystemV || SystemV4) 
+#if defined (i386SVR4Solarisx86)
+   TERMFILES = xterm.termcap xterm.terminfo
+#else
+   TERMFILES = sun.termcap sun.terminfo xterm.termcap xterm.terminfo
+#endif
+#endif
+#endif
+
+       FILES = VideoModes.doc modeDB.txt $(CONFIGFILES) $(TERMFILES) \
+               $(PATCHFILES) $(XDMCONF) ati.test.c README.ati README.trident \
+               README.tseng README.WstDig README.cirrus xmodmap.std \
+               AccelCards \
+               et4000clock.c README.clkprog $(MISCFILES)
+    OLDFILES = CONFIG XConfig.Notes
+    INCLUDES = -I../common -I../os-support -I../../../include -I$(INCLUDESRC)
+
+all:: $(FILES)
+
+#if i386Bsd && !defined(i386Bsdi)
+all:: kbd_mode
+
+SingleProgramTarget(kbd_mode,kbd_mode.o,NullParameter,NullParameter)
+
+InstallProgram(kbd_mode,$(BINDIR))
+InstallManPage(kbd_mode,$(MANDIR))
+#endif
+
+#if SystemV || SystemV4 || i386Bsd
+#ifndef i386Sco
+InstallNamedProg($(X386INSTPROG),x386install,$(LIBDIR)/etc)
+#endif
+#endif
+InstallMultipleDestFlags(install,$(FILES),$(LIBDIR)/etc,$(INSTDATFLAGS))
+InstallMultipleDestFlags(install,$(OLDFILES),$(LIBDIR)/etc/Obsolete,$(INSTDATFLAGS))
+#if i386Bsd && !defined(i386FreeBsd)
+InstallNamedProg(mkwhatis.bsd,mkwhatis,$(MANPATH))
+#endif
+#if SystemV
+InstallNamedProg(svr3_patch,svr3_patch,$(LIBDIR)/etc)
+InstallNamedProg(svr3_patch_rem,svr3_patch_rem,$(LIBDIR)/etc)
+#endif
+#if SystemV4
+#if !defined (i386SVR4Solarisx86)
+InstallNamedProg(svr4_patch,svr4_patch,$(LIBDIR)/etc)
+InstallNamedProg(svr4_patch_rem,svr4_patch_rem,$(LIBDIR)/etc)
+#endif
+#endif
+
+#if !BuildServersOnly
+LinkFile(xterm.termcap,$(CLIENTSRC)/xterm/termcap)
+LinkFile(xterm.terminfo,$(CLIENTSRC)/xterm/terminfo)
+
+clean::
+	$(RM) xterm.termcap xterm.terminfo
+#endif
+
+NormalLibraryObjectRule()
+DependTarget()
+

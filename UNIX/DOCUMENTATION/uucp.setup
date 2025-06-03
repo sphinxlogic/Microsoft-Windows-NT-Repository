@@ -1,0 +1,152 @@
+Setting up an Outgoing Modem on SVR4.2
+
+Andrew Josey, USL Europe
+revised by Greg Lehey, LEMIS
+
+1. Debugging the connection
+   The connection server /usr/sbin/cs establishes network connections
+   and dialup connections. To enable a debug trace do the following:
+	
+	$ ps -ef|grep cs
+	$ kill -9  {pid of cs process}
+	$ cd /tmp; nohup /usr/sbin/cs -d &    {start of with debugging on)
+	$ tail -f /var/adm/log/cs.debug       {tail the debug log)
+
+2.  Setup uucp configuration files:
+
+    /etc/uucp/Devices:
+
+	# This first one to enable to talk directly to the modem device
+	Direct tty00 - Any direct_modem
+	
+	# This one an ACU for a hayes compatible modem
+	ACU tty00 - Any hayes
+	
+	
+    /etc/uucp/Systems:
+	
+	uel Any ACU 2400 0815672515 "" \r\d in:--in: uuxxxxxx word: xxxxx
+	
+	
+    You may wish to customise the /etc/uucp/Dialers file, for example
+	
+	# Xhayes, does hayes thru an extension (9 for an outside line) and
+	# use pulse dialing;
+	
+	Xhayes  =,-,    "" \M\dAT\r\c OK\r \EATDP9,\T\r\c CONNECT \r\m\c
+	
+	
+    If you are using a bidirectional line (see below) and a
+    Trailblazer add a newline (\M) character to the dialer script to 
+	
+	tb  =W-,	""  \M....
+
+3.  Establishing a bidirectional ttymon process
+
+      $ /usr/X/adm/addttymon
+
+    If no ttymons have been setup this will create an entry; else it
+    will modify an entry prompting for COM1.
+
+      # pmadm -l
+      PMTAG          PMTYPE         SVCTAG         FLGS ID       SCHEME   <PMSPECIFIC>
+      ttymon1        ttymon         001            u    -        login  /dev/tty00 bhr
+      0 /usr/bin/shserv 60 auto ldterm SVR4.2 login:  - - - -  #
+
+    Note that /usr/X/adm/addttymon is broken on some ports, so this
+    might not work for you.
+
+    If you don't require bidirectional uucp either stop the
+    portmonitor:
+
+	$ sacadm -s -p ttymon1
+  
+  or
+
+  	$ /usr/X/adm/delttymon
+
+4. Accessing the port
+
+   If not running the portmonitor ensure you can access the port.
+   Either 
+
+    $ chmod 666 /dev/tty00
+
+  or
+
+    $ chown uucp /dev/tty00
+
+  Note that the drivers (on some systems at least) will not even look
+  at a modem unless DCD (data carrier detect, pin 8, sometimes also
+  called M5 or CD) is asserted. This is in violation of the Hayes
+  protocols, which asserts DCD when a connection has been established.
+  However, you can't establish an outgoing connection until the
+  commands have been issued to the modem.
+
+  There are a number of ways to solve this: 
+
+  1: get the driver to ignore the DCD line. Unfortunately, if this is
+     possible, we haven't been able to find out how.
+
+  2: Set up the modem to assert DCD at all times. This is the easiest
+     one to do, *if* you can do it at all - we had to do it on a
+     different machine. Use cu to talk to the modem. This can be done,
+     for example, with
+
+       $ cu -s9600 -l/dev/tty01
+
+     This requires that tty01 (or whatever line you use) is in your
+     /etc/uucp/Devices file, as described above, and that the speed
+     (-s parameter, in this case) is defined there as well. Then talk
+     to the modem:
+
+      AT
+      OK (response from modem)
+      ATC&0   (turn DCD on at all times)
+      OK
+      AT&W0   (save as profile 0)
+      AT
+
+      Note that the save profile command is not supported by all
+      modems. In case of doubt or problems, (in other words, if all
+      else fails) read the modem manual.
+
+      You can check the current setting of DCD tracking by looking at
+      S register 21?
+
+      AT&S21
+      16
+
+      The exact value will depend on your modem and what other options
+      you have set; if you convert the value to binary, however, bit 5
+      (the `32' bit) should be off.
+
+   3: Make a special cable. At the computer end, disconnect pin 8 from
+      the cable and connect it to pin 20, leaving the cable connection
+      to pin 20 intact:
+
+
+      -------------------- 20
+                        |
+      ---------------   -- 8
+
+      This will work, but requires soldering. 
+
+5. Kernel Tuning
+
+   You may (depending on your modem type) also have to change the
+   value of 'tp_saktypeDATA_switchdelay' in
+   '/etc/conf/pack.d/tpath/space.c'.  This value is a delay so that if
+   a modem sends data after it disconnects it doesn't trigger the
+   secure attention key on the port monitor and thus make it
+   unavailable for call out.  As far as I know a value of 4000
+   (default is 1000) will work with all modems.
+
+   After changing the file:
+
+	$ /etc/conf/bin/idbuild
+	$ cd /; shutdown -i6 -g0 -y
+
+
+
+

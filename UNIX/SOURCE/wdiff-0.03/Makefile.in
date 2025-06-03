@@ -1,0 +1,133 @@
+# Makefile for word diff.
+# Copyright (C) 1992 Free Software Foundation, Inc.
+
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+#### Start of system configuration section. ####
+
+srcdir = @srcdir@
+VPATH = @srcdir@
+
+CC = @CC@
+DIFF = @DIFF@
+LEX = @LEX@
+PAGER = @PAGER@
+
+INSTALL = @INSTALL@
+INSTALL_PROGRAM = @INSTALL_PROGRAM@
+INSTALL_DATA = @INSTALL_DATA@
+
+U = @U@
+DEFS = @DEFS@
+PROGDEFS = -DDIFF_PROGRAM=\"$(DIFF)\" -DPAGER_PROGRAM=\"$(PAGER)\"
+LIBS = @LIBS@
+LIBOBJS = @LIBOBJS@
+
+# -O3 added by Greg Lehey, LEMIS, 16 May 1993
+CFLAGS = -g -O3 -I$(srcdir)
+LDFLAGS = -g
+
+prefix = /opt
+exec_prefix = $(prefix)
+
+bindir = $(exec_prefix)/bin
+infodir = $(prefix)/info
+
+#### End of system configuration section. ####
+
+SHELL = /bin/sh
+
+SRCS = wdiff.c version.c readpipe.c writepipe.c \
+error.c getopt.c getopt1.c xmalloc.c xstrdup.c alloca.c strstr.c
+OBJS = $Uwdiff.o $Uversion.o readpipe.o writepipe.o \
+error.o getopt.o getopt1.o xmalloc.o xstrdup.o $(ALLOCA) $(LIBOBJS)
+HDRS = getopt.h
+DISTFILES = README COPYING COPYING.LIB INSTALL ChangeLog Makefile.in \
+$(SRCS) $(HDRS) configure configure.in testinput1 testinput2 testoutput \
+wdiff.texi gpl.texinfo texinfo.tex wdiff.info c-boxes.el unproto.l
+
+
+all: wdiff wdiff.info
+
+.c.o:
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(DEFS) $<
+
+$Uwdiff.o: $Uwdiff.c
+	$(CC) -c $(CFLAGS) $(CPPFLAGS) $(DEFS) $(PROGDEFS) $<
+
+install: all
+	$(INSTALL_PROGRAM) wdiff $(bindir)/wdiff
+	-$(INSTALL_DATA) $(srcdir)/wdiff.info $(infodir)/wdiff.info
+
+wdiff: $(OBJS)
+	$(CC) $(LDFLAGS) -o wdiff $(OBJS) $(LIBS)
+	
+wdiff.o getopt.o getopt1.o: getopt.h
+
+_wdiff.c: wdiff.c unproto
+	./unproto < $(srcdir)/wdiff.c > _wdiff.c
+
+_version.c: version.c unproto
+	./unproto < $(srcdir)/version.c > _version.c
+
+unproto: unproto.l
+	$(LEX) $(srcdir)/unproto.l
+	$(CC) $(CFLAGS) -o unproto lex.yy.c
+	rm -f yy.lex.c
+
+wdiff.info: wdiff.texi
+	makeinfo -o wdiff.info $(srcdir)/wdiff.texi
+
+check: wdiff
+	-./wdiff $(srcdir)/testinput1 $(srcdir)/testinput2 > test.out
+	@echo
+	@echo Expect no output from following diff:
+	@echo
+	diff $(srcdir)/testoutput test.out
+	rm -f test.out
+
+Makefile: Makefile.in config.status
+	./config.status
+
+config.status: configure
+	$(srcdir)/configure --no-create
+
+configure: configure.in
+	autoconf
+
+TAGS: $(SRCS)
+	etags $(SRCS)
+
+clean:
+	rm -f wdiff *.o core test.out
+
+mostlyclean: clean
+
+distclean: clean
+	rm -f Makefile config.status
+
+realclean: distclean
+	rm -f TAGS
+
+dist: $(DISTFILES)
+	echo wdiff-`sed -e '/version/!d' -e 's/[^0-9.]*\([0-9.]*\).*/\1/' -e q version.c` > .fname
+	rm -rf `cat .fname`
+	mkdir `cat .fname`
+	ln $(DISTFILES) `cat .fname`
+	tar chZf `cat .fname`.tar.Z `cat .fname`
+	rm -rf `cat .fname` .fname
+
+# Prevent GNU make v3 from overflowing arg limit on SysV.
+.NOEXPORT:

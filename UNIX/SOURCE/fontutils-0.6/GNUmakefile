@@ -1,0 +1,224 @@
+# Generated automatically from GNUmakefile.in by configure.
+# Master GNU makefile for GNU font utilities.
+#
+# Copyright (C) 1992 Free Software Foundation, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 1, or (at your option)
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+
+# Version number of this release.
+version = 0.6
+
+# Installation prefixes.  Since GNU programs and the TeX system may be
+# installed in different places, we have different prefixes.
+prefix = /opt
+exec_prefix = $(prefix)
+texmf_prefix = /opt
+
+# Installation directories.
+bindir = $(exec_prefix)/bin
+infodir = $(prefix)/info
+datadir = $(prefix)/lib
+fu_datadir = $(datadir)/fontutil
+emacs_datadir = $(datadir)/emacs
+emacslispdir = $(emacs_datadir)/elisp # Where to install .el files.
+
+mfdatadir = $(texmf_prefix)/lib/mf
+mfinputdir = $(mfdatadir)/macros
+texdatadir = $(texmf_prefix)/lib/tex
+texinputdir = $(texdatadir)/macros
+
+# Where the default resource files for X programs get installed.  If you
+# don't want to or can't write in the standard app-defaults directory,
+# you can set this to any directory you like as long as you set the
+# XAPPLRESDIR environment variable to the same directory.  See the
+# tutorial on resources in the X distribution
+# (.../mit/doc/tutorial/resources.txt) for more information.
+app_defaults = $(prefix)/lib/app-defaults
+
+# Default paths for you to override.  You can either change these and
+# run `make', or copy include/paths.h.in to include/paths.h and change
+# them manually.  These paths are overridden by various environment
+# variables; see the documentation.  The font paths here should probably
+# match TeX's default paths.
+default_lib_path = .:$(shell pwd)/data:$(fu_datadir)
+default_tfm_path = /opt/lib/tex/fonts//:.
+default_pk_path = $(default_tfm_path)
+default_gf_path = $(default_tfm_path)
+
+SHELL = /bin/sh
+srcdir = .
+VPATH = .
+
+# Compiler option to make #include <X11/...> work, i.e., should start it
+# with `-I'.
+xincludedir = 
+
+# Loader option to make -lX... work, i.e., should start with `-L'.
+xlibdir = 
+
+CC = gcc -O3
+CFLAGS = -g
+
+LDFLAGS = $(xlibdir) $(CFLAGS) $(XLDFLAGS)
+LIBS =  -lm $(extralibs) -lnsl
+wlibs = 
+
+RANLIB = ranlib
+
+INSTALL = /usr/ucb/install -c
+INSTALL_PROGRAM = $(INSTALL)
+INSTALL_DATA = $(INSTALL) -m 644
+
+
+# You shouldn't need to change anything below here.
+
+libraries = bzr gf lib pbm pk tfm widgets
+programs = bpltobzr bzrto charspace fontconvert gsrenderfont imageto \
+           imgrotate limn xbfe
+alldirs = $(libraries) $(programs) doc
+
+default: all
+
+.PHONY: all install libraries clean distclean extraclean realclean depend dist
+
+makeargs = $(MFLAGS) \
+  SHELL="$(SHELL)" CC="$(CC)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+  LIBS="$(LIBS)" RANLIB="$(RANLIB)" wlibs="$(wlibs)" \
+  xlibdir="$(xlibdir)" xincludedir='$(xincludedir)' srcdir=$(srcdir)
+
+all: libraries
+	for dir in $(programs);						\
+	do								\
+	  (cd $${dir}; $(MAKE) $(makeargs) all);			\
+	done
+
+libraries: include/paths.h
+	for dir in $(libraries);					\
+	do								\
+	  (cd $${dir}; $(MAKE) $(makeargs));				\
+        done
+
+include/paths.h: include/paths.h.in GNUmakefile GNUmakefile.in
+	rm -f $@
+	echo "/* Generated from paths.h.in (`date`).  */" > $@
+	sed -e "s,replace-with-lib-path,$(default_lib_path)," \
+            -e "s,replace-with-tfm-path,$(default_tfm_path)," \
+            -e "s,replace-with-pk-path,$(default_pk_path)," \
+            -e "s,replace-with-gf-path,$(default_gf_path)," \
+          $< >> $@
+
+
+installargs = bindir=$(bindir) \
+  fu_datadir=$(fu_datadir) \
+  emacslispdir=$(emacslispdir) \
+  mfinputdir=$(mfinputdir) \
+  texinputdir=$(texinputdir) \
+  app_defaults=$(app_defaults) \
+  INSTALL="$(INSTALL)" \
+  INSTALL_DATA="$(INSTALL_DATA)" \
+  INSTALL_PROGRAM="$(INSTALL_PROGRAM)"
+
+install:
+	-mkdir $(prefix) $(exec_prefix) $(bindir) $(datadir) $(infodir) \
+	  $(fu_datadir) $(emacs_datadir) $(emacslispdir) $(app_defaults) \
+          >/dev/null 2>&1
+	for dir in $(programs) doc;					\
+        do								\
+          (cd $${dir}; $(MAKE) $(installargs) install);			\
+        done
+	cd data; for f in *.enc *.map common.cmi;			\
+	  do $(INSTALL_DATA) $$f $(fu_datadir)/$$f; done
+
+
+configure: configure.in
+	autoconf
+
+config.status: configure
+	sh configure --no-create
+
+GNUmakefile: GNUmakefile.in config.status
+	sh config.status
+
+# Prevent GNU make 3 from overflowing arg limit on system V.
+.NOEXPORT:
+
+# Files in the top level directory to be distributed.
+topfiles = AUTHORS ChangeLog NEWS README configure *.in
+
+# Directories whose complete contents are to be distributed.
+# `doc' will go away.
+completedirs = bin data include
+
+# Files which have version number or date templates.
+versionfiles = gsrenderfont/gsrf.in */version.c
+
+top_distdir = fontutils-$(version)
+
+distargs = top_distdir=$(top_distdir) app_defaults=$(app_defaults) \
+version=$(version) 
+
+dist:: # TAGS # depend
+	rm -rf $(top_distdir)
+	-mkdir $(top_distdir)
+#
+# Set up the top-level files.
+	ln $(topfiles) $(top_distdir)
+	cp -p $(HOME)/gnu/gnuorg/COPYING* $(top_distdir)
+	cp -p $(gnu)/lib/aclocal.m4 $(top_distdir)
+#
+# Set up the directories whose complete contents get distributed.
+	cd $(top_distdir); for dir in $(completedirs); do \
+          (mkdir $$dir; ln ../$$dir/* $$dir); done
+	cp -p $(plain)/testfont.tex $(top_distdir)/data
+	cp -p $(ktex)/macros/printeps.tex $(top_distdir)/data
+	rm -f $(top_distdir)/include/c-auto.h $(top_distdir)/include/paths.h
+#
+# Set up the other subdirectories.
+	for dir in $(alldirs); do \
+	  (cd $$dir; $(MAKE) $(distargs) dir=$$dir dist) done
+#
+# Add version numbers.  Have to do this after creating the
+# $(versionfiles), naturally.
+	cd $(top_distdir); add-version $(version) $(versionfiles)
+#
+# Put on the finishing touches.
+	tar czf $(top_distdir). $(top_distdir)
+	rm -rf $(top_distdir)
+
+TAGS:
+	for dir in $(programs);						\
+	do								\
+	  (cd $${dir}; $(MAKE) $@);					\
+	done
+
+depend: include/paths.h
+	for dir in $(alldirs);						\
+	do								\
+	  (cd $${dir}; $(MAKE) $@);					\
+	done
+
+mostlyclean clean distclean extraclean realclean::
+	for dir in $(alldirs);						\
+	do								\
+	  (cd $${dir}; $(MAKE) $@);					\
+	done
+
+distclean::
+	rm -f include/c-auto.h include/paths.h config.status GNUmakefile
+
+realclean:: distclean
+
+extraclean:: distclean
+	rm -f *~ *\#*

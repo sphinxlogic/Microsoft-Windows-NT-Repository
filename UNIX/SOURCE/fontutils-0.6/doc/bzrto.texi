@@ -1,0 +1,1008 @@
+@c Copyright (C) 1992 Free Software Foundation.
+@c This is part of the GNU font utilities manual.
+@c For copying conditions, see the file fontutil.texi.
+
+@node BZRto, BPLtoBZR, Limn, Top
+@chapter BZRto
+
+@pindex bzrto
+@cindex outline conversion
+
+BZRto translates an outline font that's in our home-grown BZR outline
+font format (described below) to some other form: Metafont, Type 1
+PostScript, Type 3 PostScript, or BPL.
+
+BPL format is simply a human-readable form of BZR files.  @xref{BPL
+files}.  We discuss the other output forms below.
+
+Besides straight format conversion, BZRto can also:
+
+@itemize @bullet
+@item
+merge fonts, possibly of different sizes (see the @samp{-concat} option
+in @ref{Invoking BZRto});
+
+@item
+slant fonts, so the oblique version of a font can be made without
+respecifying the character shapes (see the @samp{-oblique-angle}
+option);
+
+@item
+create new characters by combining existing ones, via a fairly general
+command language (@pxref{CCC files}).
+
+@end itemize
+
+@menu
+* Metafont and BZRto::          Output as a Metafont program.
+* Type 1 and BZRto::            Output as a Type 1 PostScript font.
+* Type 3 and BZRto::            Output as a Type 3 PostScript font.
+* CCC files::                   Creating additional characters.
+* Invoking BZRto::              Command-line options.
+* BZR files::                   The technical definition of BZR format.
+@end menu
+
+
+@node Metafont and BZRto, Type 1 and BZRto,  , BZRto
+@section Metafont and BZRto
+
+@cindex Metafont output from BZR files
+@cindex converting from BZR to Metafont
+@cindex BZR files, converting to Metafont
+
+@cindex Knuth, Donald E.
+Metafont is a language for specifying graphic shapes, particularly
+characters in a font of a type, as well as the name of the program which
+interprets the language.  It is commonly used to generate fonts for
+@TeX{} and related software (@TeX{} and Metafont were developed
+more-or-less simultaneously by Donald Knuth during the years
+1977--1985).  @xref{Archives}, for how to obtain the Metafont program.
+
+@opindex -metafont
+BZRto generates a Metafont font @file{@var{foo}.mf} from the input file
+@file{@var{foo}10.bzr} (the @samp{10} being the design size of the
+input) if you specify the @samp{-metafont} option, as in:
+
+@example
+bzrto -metafont @var{foo}
+@end example
+
+Presuming Metafont has been installed properly at your site, you can
+then make both a TFM and a GF file for @var{foo} at a size of 10@dmn{pt}
+and rasterized for your most common output device with the command:
+
+@cindex GF file, generating with Metafont
+@example
+mf '\mode:=localfont; input @var{foo}'
+@end example
+
+@noindent (The single quotes are not seen by Metafont; they just protect
+the backslash and semicolon from interpretation by your shell.)
+
+@vindex localfont @r{Metafont mode}
+@cindex Metafont mode
+@cindex modes in Metafont
+The assignment to @code{mode} tells Metafont the name of your output
+device.  @code{localfont} should be a synonym for some real output
+device, defined when Metafont was installed.  The GF file will be named
+@file{@var{foo}.@var{dpi}gf}, where @var{dpi} is the resolution of the
+@code{localfont} device.
+
+Given the TFM and GF file, you can now use the font in @TeX{}.
+
+@menu
+* Metafont output at any size::  Making larger or smaller fonts.
+* Proofing with Metafont::      Metafont can help with debugging fonts.
+@end menu
+
+
+@node Metafont output at any size, Proofing with Metafont,  , Metafont and BZRto
+@subsection Metafont output at any size
+
+@cindex Metafont output, at different sizes
+
+@vindex designsize @r{Metafont parameter}
+@cindex point size, specifying to Metafont
+We described above how to get Metafont output at a size of 10@dmn{pt}.
+To generate a GF file for a font @var{foo} at a different size, assign
+to @code{designsize} on the command line, as follows:
+
+@example
+mf '\mode:=localfont; designsize:=@var{integer}; input @var{foo}
+@end example
+
+@noindent
+For example, if @code{localfont} corresponds to a 300@dmn{dpi}
+device, and you specify @samp{designsize:=6}, this command creates
+@file{@var{foo}.180gf}, i.e., a 40% reduction from
+@file{@var{foo}.300gf}.
+
+@cindex magnification
+@findex \magnification
+In some cases, it may be more convenient to specify a magnification
+factor than a new point size.  (For example, this is the case if you are
+enlarging or reducing an entire document by some constant factor, as
+with @TeX{}'s @code{\magnification} command.)  You can do this by
+assigning to @code{mag}:
+
+@example
+mf '\mode:=localfont; mag:=@var{real}; input @var{foo}
+@end example
+
+@noindent
+By default, @code{mag} is 1.0.  You can also assign to both @code{mag}
+and @code{designsize}.  For example, if you set @code{designsize} to 5
+and @code{mag} to 4, the output will be a 20@dmn{pt} font.
+
+@cindex nonlinear scaling
+@cindex scaling of Metafont fonts
+@cindex anamorphic scaling
+Although the Metafont language allows nonlinear scaling of fonts, so
+that the 6@dmn{pt} font would not simply be a reduced version of the
+10@dmn{pt} font, BZRto cannot take advantage of this sophistication.
+The reason is that BZR files specify a single set of outlines, and the
+nonlinear scaling cannot be deduced from that.  Perhaps we will extend
+the programs someday to handle interpolation between outlines of
+different sizes.
+
+
+@node Proofing with Metafont,  , Metafont output at any size, Metafont and BZRto
+@subsection Proofing with Metafont
+
+@cindex proofing fonts
+@cindex fonts, proofing
+@cindex debugging fonts
+@cindex blowing up fonts
+
+@pindex gftodvi
+While creating fonts, it is useful to enlarge the character shapes
+enough to be able to make out small details.  This blowing-up process is
+called @dfn{proofing}.  Metafont works together with GFtoDVI, another
+program created as part of the @TeX{} project, to do this.
+
+@cindex gray proofs
+@cindex smoke proofs
+You can make two kinds of proofs with Metafont: @dfn{gray proofs} and
+@dfn{smoke proofs}.  Metafont calls the former @code{proof} mode, and
+the latter @code{smoke} mode.  @code{proof} mode is the default, so if
+you do not assign to @code{mode} at all, you get gray proofs.  To get
+smoke proofs for a font @var{foo}, you run Metafont as follows:
+
+@example
+mf '\mode:=smoke; input @var{foo}'
+@end example
+
+@findex nodisplays
+@noindent (See the preceding sections for general information on running
+Metafont.)  In @code{proof} or @code{smoke} mode, by default Metafont
+will display the characters online as it runs (if you are on a terminal
+capable of this, e.g., running under X).  If you aren't interested in
+seeing this online output, you can say @samp{nodisplays;} on the command
+line.
+
+@vindex designsize @r{and proofing}
+@cindex proof_size
+In both kinds of proofs, the font is produced at a very high resolution,
+typically thousands of pixels per inch, to minimize (or eliminate)
+distortion due to rasterization difficulties.  To be more precise, the
+resolution is chosen so that the @code{designsize} of the font fills
+@code{proof_size} inches; by default, @code{proof_size} is 7, which
+works well enough for both letter-size and A4 paper.
+
+@vindex proof_resolution
+In order to calculate this, Metafont must also know the resolution of
+the final output device.  This is called @code{proof_resolution}, and is
+300 by default.
+
+@flindex bzrsetup.mf@r{, computing proof values}
+You can change the values of @code{proof_size} and
+@code{proof_resolution} on the command line; the actual calculation is
+done in @file{bzrsetup.mf}.
+
+After running Metafont, you will have a GF file, e.g.,
+@file{@var{foo}.2602gf}.  You can then make a DVI file you can preview
+or print with:
+@example
+gftodvi @var{foo}.2602gf
+@end example
+@noindent This creates @file{@var{foo}.dvi}.  In the DVI output from
+GFtoDVI, each character in the font has its own page.  Some additional
+information is also present, as follows:
+
+@cindex gray fonts
+@cindex control points of splines, seeing
+@cindex endpoints of splines, seeings
+In @code{proof} mode, the character shapes are printed in a ``gray''
+font, and the starting and ending points of each spline (or line) in the
+character outline are shown.  (Thus, you can see if Limn did a good job
+choosing those points.)  If you set @math{@code{proofing} > 2}, the
+control points for each spline will also be shown.  If a point would
+otherwise overlap with others on the output, an equation is put off to
+the right defining where it appears.
+
+@cindex Wall, The
+In @code{smoke} mode, the character shapes are printed in black; if you
+put the output on the wall and stand back, you can get an idea of how
+the font is coming along.  The character is also shown at its true size
+off to the right (assuming you have made the font at the true-size
+resolution, of course).
+
+@opindex -overflow-label-offset
+@cindex losing proof information
+@cindex proof information, losing
+@cindex overflow equations, losing
+You may find that the extra information to the right of the character
+(``overflow equations'' in @code{proof} mode; the true-size character in
+@code{smoke} mode) is being lost off the edge of the page.  You can
+change where GFtoDVI puts this with the @samp{-overflow-label-offset}
+option to GFtoDVI.
+
+See the @cite{Metafontbook} and the GFtoDVI documentation for more
+details.
+
+
+@node Type 1 and BZRto, Type 3 and BZRto, Metafont and BZRto, BZRto
+@section Type 1 PostScript fonts and BZRto
+
+@cindex Type 1 output from BZR files
+@cindex PostScript Type 1 output from BZR files
+@cindex converting from BZR to Type 1
+@cindex BZR files, converting to Type 1
+
+The Type 1 font format, invented by Adobe Systems, Inc., is the most
+common representation for PostScript fonts.  Adobe first published its
+specification in the book @cite{Adobe Type 1 Font Format} in 1990.  It
+defines a limited set of operations; general PostScript programs cannot
+be represented as Type 1 fonts.  It also defines hints---ways of
+improving characters' appearances at low resolution and/or small small
+sizes---which cannot be represented in PostScript proper.
+
+@opindex -pstype1
+BZRto generates a Type 1 font @file{@var{foo}.gsf} from the input file
+@file{@var{foo}10.bzr} (the @samp{10} being the design size of the
+input) if you specify the @samp{-pstype1} option, as in:
+
+@example
+bzrto -pstype1 @var{foo}
+@end example
+
+The file @file{@var{foo}.gsf} consists only of plain text (it's not
+really ``human-readable'', since Type 1 format requires encryption
+of the character outlines).
+
+@cindex encryption of Type 1 fonts
+@cindex Type 1 fonts, encryption of
+@cindex unencrypted Type 1 fonts
+Although Type 1 format also allows for encryption of the entire font,
+this is not required, and BZRto does not do it.  Some deficient
+PostScript interpreters do not recognize unencrypted fonts; but
+Ghostscript, the GNU quasi-PostScript interpreter, has no trouble.  We
+do not know of any utilities for encrypting an unencrypted Type 1 font,
+but presumably such a program would not be hard to write.
+
+
+@node Type 3 and BZRto, CCC files, Type 1 and BZRto, BZRto
+@section Type 3 PostScript fonts and BZRto
+
+@cindex Type 3 output from BZR files
+@cindex PostScript Type 3 output from BZR files
+@cindex converting from BZR to Type 3
+@cindex BZR files, converting to Type 3
+
+Type 3 PostScript fonts are not defined in a singular format, as are
+Type 1 fonts (see the previous section).  Rather, they are general
+PostScript programs which happen to meet the PostScript language's
+(liberal) requirements for being a font.  They can therefore be used
+with any PostScript interpreter.
+
+@opindex -pstype3
+BZRto generates a Type 3 font @file{@var{foo}.pf3} from an input BZR
+file @file{@var{foo}.bzr} if you specify the @samp{-pstype3} option, as
+in:
+
+@example
+bzrto -pstype3 @var{foo}
+@end example
+
+@cindex PF3 abbreviation
+We do not know of any conventional extension for Type 3 fonts; we made
+up @file{pf3} to stand for ``PostScript font Type 3''.
+
+@findex BuildChar @r{in Type 3 fonts}
+The most important part of a Type 3 font is the @code{BuildChar}
+routine, which does the actual rendering from the character program.
+Unlike Type 1 fonts, whose @code{BuildChar} routine is built into the
+PostScript interpreter, each Type 3 font supplies its own
+@code{BuildChar} routine.
+
+@flindex bzrbuildch.PS
+@findex run @r{PostScript command}
+The Type 3 fonts output by BZRto use a @code{BuildChar} routine defined
+in a separate file @file{bzrbuildch.PS} (distributed in the @file{bzr}
+directory).  They use the PostScript @code{run} command to read that
+file; so if you want to download one to a printer (which naturally will
+not have access to the file on your computer), you must replace the
+@code{run} command with the contents of the file.  For PostScript
+interpreters which run on a host computer, such as Ghostscript, you have
+to install @file{bzrbuildch.PS} in a directory where it will be found,
+but you need not modify the fonts.
+
+
+@node CCC files, Invoking BZRto, Type 3 and BZRto, BZRto
+@section CCC files
+
+@cindex CCC files
+
+@cindex pre-accented characters
+@cindex accented characters
+@cindex piece accents
+@cindex characters, accented
+The CCC (composite character construction) language allows you to define
+new characters in terms of existing ones.  This is useful for building
+such characters as pre-accented A's (from a piece accent and an `A').
+
+A CCC file consists of a sequence of character definitions, each of
+which looks like:
+
+@example
+define @var{name} = @var{statements} end
+@end example
+
+@noindent
+where @var{name} is a character name, presumably from the encoding file
+specified with the @samp{-encoding} option (@pxref{Invoking BZRto}).
+@xref{Character names}, for the details of character names.
+
+We describe the possible @var{statements} below.
+
+You may also include comments starting with a @samp{%} character and
+continuing to the end of the line.
+
+@menu
+* setchar: CCC setchar.         Statements for including a character.
+* move: CCC move.               Statements for moving to a new position.
+@end menu
+
+
+@node CCC setchar, CCC move,  , CCC files
+@subsection CCC @code{setchar} statements
+
+@cmindex setchar @r{CCC commands}
+@cmindex setcharbb @r{CCC commands}
+To use an existing character as part of a new character, you can use
+either the @code{setchar} or @code{setcharbb} statement.  They both take
+a character name in parentheses as their argument, as in:
+
+@example
+setchar ( @var{name} )
+setcharbb ( @var{name} )
+@end example
+
+@xref{Character names}, for the details of character names.
+
+@cindex side bearings in CCC files
+The difference between the two commands lies in their treatment of the
+existing character's sidebearings: the @code{setchar} command includes
+them, and @code{setcharbb} does not.  @code{setcharbb} also removes
+any white space above and below the character shapes, as is usually
+present in accent characters.
+
+This difference lets you construct characters without worrying about
+interaction between their side bearings.  For example, you could make an
+`A' with an acute accent centered over the body of the `A' as follows:
+
+@vindex Aacute @r{character, constructing}
+@example
+define Aacute =
+  setchar (A)
+  hmove -.5 width (A)
+  vmove height (A)
+  setcharbb (acute)
+end
+@end example
+
+@noindent
+(See the next section for a description of the @code{hmove} and
+@code{vmove} commands.)  Without the @code{setcharbb} command, this
+definition would be complicated by the side bearings on the @code{acute}
+character.
+
+
+@node CCC move,  , CCC setchar, CCC files
+@subsection CCC @code{move} statements
+
+@cindex moves in CCC files
+
+To change the current position in a CCC file, you can use the
+@code{hmove} or @code{vmove} command; as you might expect, the former
+moves horizontally and the latter vertically.
+
+@cindex dimensions in CCC files
+Both take a single argument: a @dfn{dimension}, which is an optional
+real number followed by a unit of measure.  The real number is a
+multiplying factor.  For example, one of the units is @code{pt}
+(signifying printer's points, as usual), so the command @samp{hmove 3pt}
+moves three points to the right (a pretty small distance).
+
+Here are the possible units of measure:
+
+@table @samp
+
+@item bbheight ( @var{name} )
+@vindex bbheight @r{CCC dimension}
+The height exclusive of blank space above or below the shape of the
+character @var{name} if it exists.
+
+@item bbwidth ( @var{name} )
+@vindex bbwidth @r{CCC dimension}
+The width exclusive of side bearings of the character @var{name} if it
+exists.
+
+@item capheight 
+@vindex capheight @r{CCC dimension}
+The height of the capital letters, e.g., @samp{H}.  See @samp{xheight}
+for how this is determined.
+
+@item depth ( @var{name} )
+@vindex depth @r{CCC dimension}
+The depth of the character @var{name}.
+           
+@item designsize 
+@vindex designsize @r{CCC dimension}
+The design size of the main input BZR font.
+
+@item em
+@vindex em @r{CCC dimension}
+The quad width of the font.  This value is determined analogously to
+@samp{xheight}, below.
+           
+@item fontdepth 
+@vindex fontdepth @r{CCC dimension}
+The maximum depth any character in the font descends below the baseline.
+Again, this is determined analogously to @samp{xheight}.
+
+@item height ( @var{name} ) 
+@vindex height @r{CCC dimension}
+The height of the character @var{name}.
+
+@item pt 
+@vindex pt @r{CCC dimension}
+Printer's points; 72.27@dmn{pt} = 1@dmn{in}.  Since dimensions specified
+in points are absolute distances, they do not scale when the font size
+changes.
+
+@item width ( @var{name} ) 
+@vindex width @r{CCC dimension}
+The set width of the character @var{name}.
+
+@item xheight 
+@vindex xheight @r{CCC dimension}
+The x-height of the main input font.  If a TFM file corresponding to the
+main BZR file exists and defines this, that value is used; otherwise, the
+height of a suitable character (e.g., @samp{x}) is used if one exists;
+otherwise, it's zero.  BZRto treats the other font-related units of
+measure in the same way.
+
+@end table
+
+If the character @var{name} does not exist, an error is given, and the
+command ignored.
+
+
+@node Invoking BZRto, BZR files, CCC files, BZRto
+@section Invoking BZRto
+
+@cindex BZRto options
+@cindex Invoking BZRto
+@cindex options, for BZRto
+
+This section describes the options that BZRto accepts.
+@xref{Command-line options}, for general option syntax.
+
+The root of the main input fontname is called @var{font-name} below.
+
+@table @samp
+
+@item -concat @var{bzr-name1}, @var{bzr-name2}, @dots{}
+@opindex -concat
+@cindex concatenating outline fonts
+@cindex merging outline fonts
+@cindex outline fonts, concatenating
+@cindex font concatenation
+Concatenate the main input file with the given @var{bzr-name}s; if a
+character code exists in more than one of the BZR files, it's the first
+occurrence that counts.  The BZR files can have any design size; the
+output is normalized to the size of the main input file.
+
+@item -ccc-file @var{filename}
+@opindex -ccc-file
+Read the CCC file @var{filename} (if @var{filename} has a suffix) or
+@file{@var{filename}.ccc} (if it doesn't).  Default is to use
+@var{font-name} for @var{filename}, but if BZRto does not find
+the file @file{@var{font-name}.ccc}, it does not complain.
+
+@item -encoding @var{filename}
+@opindex -encoding
+@cindex encoding of input fonts
+Specify the encoding file for the input font, so character names in the
+CCC files can be matched to character codes.  If @var{filename} has no
+suffix, use @file{@var{filename}.enc}, otherwise just @var{filename}.
+The default is to guess the encoding from the @samp{codingscheme} string
+in a TFM file corresponding to the main input file, if such exists.
+
+@item -help
+@opindex -help
+Print a usage message.  @xref{Common options}.
+
+@item -metafont
+@opindex -metafont
+Translate the input to a Metafont program; write to
+@file{@var{font-name}.mf}.  @xref{Metafont and BZRto}.
+
+@item -mf
+@opindex -mf
+Synonym for @samp{-metafont}.
+
+@item -oblique-angle @var{angle-in-degrees}
+@opindex -oblique-angle
+@cindex slanted fonts, making
+@cindex oblique fonts, making
+Angle in degrees from the vertical by which to slant the shapes; default
+is zero.
+
+@item -output-file @var{filename}
+@opindex -output-file
+Output to @var{filename} (if it has a suffix) or to
+@file{@var{filename}.@var{font-format}} (if it doesn't), where
+@var{font-format} is @file{mf}, @file{gsf}, etc.  If you give more than
+one of the output format options (i.e., @samp{metafont}, @samp{pstype1} and
+@samp{pstype3}), @var{filename} cannot have a suffix.  The default is
+@var{font-name} with a trailing number removed, so that, for example, an
+input filename of @file{cmr10} becomes @file{cmr}.
+
+@item -ps-font-info @var{name1}:@var{value1},@dots{}
+@opindex -ps-font-info
+@vindex FontInfo
+Assign each @var{value} to the corresponding @var{name} when outputting
+a PostScript font (either Type 1 or Type 3).  Case is significant in
+both the @var{name}s and @var{value}s.  You can specify the following:
+
+@table @samp
+
+@item FontName:@var{string}
+@vindex FontName @r{in PostScript fonts}
+@vindex unknown @r{font name}
+The full PostScript name of the font; e.g., @code{Times-BoldItalic}.
+The default is @code{unknown}.
+
+@item FamilyName:@var{string}
+@vindex FamilyName @r{in PostScript fonts}
+The name of the typeface family to which this font belongs; e.g.,
+@code{Times}.  The default is to use @code{FontName} up to the first
+@samp{-}.
+
+@item Weight:@var{string}
+@vindex Weight @r{in PostScript fonts}
+The typographic weight of the font, e.g., @code{Bold}.  If
+@code{FontName} contains one of the strings @samp{Black}, @samp{Book},
+@samp{Bold}, @samp{Demi}, @samp{ExtraBold}, @samp{Light}, @samp{Heavy},
+@samp{Regular}, @samp{Semibold}, or @samp{Ultra}, that is the
+weight.  Otherwise, BZRto uses @samp{Medium}.
+
+@item ItalicAngle:@var{real}
+@vindex ItalicAngle @r{in PostScript fonts}
+The angle in degrees by which the font slopes to the right from the
+vertical.  Default is zero.  Typical slanted or italic fonts have values
+between 10--20.
+
+@item isFixedPitch:@code{true} @r{or} @code{false}
+@vindex isFixedPitch @r{in PostScript fonts}
+@cindex monospaced PostScript fonts
+Whether or not this font is monospaced.  If a TFM file corresponding to
+the main BZR file exists, and specifies a zero interword stretch and
+shrink, and a nonzero interword space, the default is @code{true}.
+Otherwise, it's @code{false}.
+
+@item UnderlinePosition:@var{real}
+@vindex UnderlinePosition @r{in PostScript fonts}
+Distance from the baseline for positioning underlines, in units of the
+character coordinate system.  Default is @math{-100}.
+
+@item UnderlineThickness:@var{real}
+@vindex UnderlineThickness @r{in PostScript fonts}
+Thickness of underlines.  Default is 50.
+
+@item UniqueID:@var{non-negative integer}
+@vindex UniqueID @r{in PostScript fonts}
+An integer in the range 0 to 16777215 (2^24 - 1) uniquely identifying
+this font.  The default is zero, meaning (for our purposes) not to
+output any @code{UniqueID}.  This avoids unlikely-but-possible conflicts
+with existing fonts.
+
+@item version:@var{string}
+@vindex version @r{in PostScript fonts}
+Identification for the particular version of this font.  If a TFM file
+corresponding to the main BZR file exists, and specifies a version
+number, that is the default; otherwise, there is none.
+
+@end table
+
+@noindent All values except @code{FontName} and @code{UniqueID} go in
+the @code{FontInfo} dictionary.
+
+@item -pstype1
+@opindex -pstype1
+Translate the input to (unencrypted) PostScript Type 1 font format;
+write to @file{@var{font-name}.gsf}.  @xref{Type 1 and BZRto}.
+
+@item -pstype3
+@opindex -pstype3
+Translate the input to PostScript Type 3 font format; write to
+@file{@var{font-name}.pf3}.  @xref{Type 3 and BZRto}.
+
+@item -range @var{char1}-@var{char2}
+@opindex -range
+Only process characters between the character codes @var{char1} and
+@var{char2}, inclusive.
+
+@item -text
+@opindex -text
+Translate the font to a BPL file, i.e., human-readable text; write to
+standard output.  @xref{BPL files}.
+
+@item -verbose
+@opindex -verbose
+Output progress reports to standard output, unless @samp{-text} is
+specified, in which case output to standard error.
+
+@item -version
+@opindex -version
+Print the version number.
+
+@end table
+
+
+@node BZR files,  , Invoking BZRto, BZRto
+@section BZR files
+
+@cindex BZR file format, definition of
+
+@flindex bzr @r{source directory}
+This section describes the technical definition of the BZR file format.  It
+is intended for programmers who wish to write other programs which read
+or write such files.  The present distribution includes a subroutine
+library which can be shared among programs (Limn, BPLtoBZR, and BZRto
+all use it); new programs can and probably should use the existing
+library as well.  The source code is in the @file{bzr} directory.
+
+The BZR file format shares the philosophy of the @TeX{} project file
+formats (DVI, GF, PK, etc.): machine-independence; compactness; and
+easy interpretation.
+
+BZR files have three parts: a preamble, character definitions, and a
+postamble.  We describe each below, as well as some general
+considerations.
+
+@menu
+* Intro: BZR format introduction.  General concepts and definitions.
+* Preamble: BZR preamble.       The beginning.
+* Chars: BZR characters.        The middle.
+* Postamble: BZR postamble.     The end.
+@end menu
+
+
+@node BZR format introduction, BZR preamble,  , BZR files
+@subsection BZR format introduction
+
+This section describes some general conventions of the BZR format.
+
+@cindex opcodes in BZR files
+@flindex bzr_opcodes.h
+@cindex notation, for BZR format
+In the following sections, we use the notation @var{name}[@var{n}] to
+mean that some constituent @var{name} of the BZR file takes up @var{n}
+bytes.  If @var{name} is all capital letters, it is an opcode, i.e., a
+command byte, and therefore we give no [@var{n}] after @var{name}, since
+all opcodes are a single byte.  The numerical value of each opcode is
+given in the source file @file{bzr/bzr_opcodes.h}.
+
+@cindex pointers in BZR files
+Some values in BZR files are ``pointers''.  These values give the
+location of some other byte in the file.  The first byte is numbered
+0, the next byte numbered 1, and so on.
+
+@cmindex NO_OP @r{opcode in BZR files}
+Besides commands which actually define the font, the BZR format has a
+@code{NO_OP} command, which does nothing.  Any number of @code{NO_OP}'s
+can occur between the preamble and the character definitions, between
+character definitions and commands within characters, between the
+character definitions and the postamble, and after the postamble.  But
+they may not occur within the preamble, the postamble, or between a
+command and its parameters.
+
+@cindex types in BZR format
+@cindex designsize-scaled numbers in BZR files
+Besides simple integers, BZR format uses a fixed-point representation of
+real numbers called a @dfn{scaled}, which is three bytes: two bytes of
+fraction and one byte of integer.  We can get away with such a small
+range because almost all numbers are scaled by the design size; i.e., in
+a 10-point font, a designsize-scaled value of 1.0 would represent 10
+points (quite a large distance, relatively speaking).
+
+In fact, designsize-scaled numbers are typically less than 1.0, so the
+BZR format provides for abbreviating such, thus making the font smaller,
+as detailed in the following sections.
+
+@cindex two's complement in BZR files
+@cindex negative numbers in BZR files
+@cindex multibyte values in BZR files
+@cindex BigEndian order in BZR files
+@cindex portability of BZR files
+Negative numbers are represented in 2's complement notation, and
+multibyte values are stored in BigEndian order, regardless of the
+conventions of the host computer.  This makes a BZR font file
+portable between different architectures.
+
+
+@node BZR preamble, BZR characters, BZR format introduction, BZR files
+@subsection BZR preamble
+
+@cindex BZR preamble
+@cindex preamble in BZR files
+
+The preamble of a BZR file has two components, the font's design size
+and a comment: @code{designsize}[3], @code{k}[1],
+@code{comment}[@code{k}].
+
+@xref{BZR format introduction}, for general information about BZR files
+and for the definition of the types used here.
+
+@cindex designsize in BZR files
+The @code{designsize} is a @code{scaled} number in printer's points.
+
+@cindex comment in BZR files
+@cindex identification in BZR files
+@cindex date of creation in BZR files
+The @var{k}-byte long @code{comment} typically identifies the
+source and creation date of the BZR file.  
+
+
+@node BZR characters, BZR postamble, BZR preamble, BZR files
+@subsection BZR characters
+
+@cindex character definitions in BZR files
+
+@cmindex EOC @r{opcode in BZR files}
+BZR characters consist of an identifying command, metric
+information, shape information, and a terminating @code{EOC} command.
+
+We describe these parts below.
+
+@menu
+* BOC: BZR character beginnings.  Giving character metrics.
+* Shape: BZR character shapes.  Defining the outline(s).
+@end menu
+
+
+@node BZR character beginnings, BZR character shapes,  , BZR characters
+@subsubsection BZR character beginnings
+
+@cindex BZR character beginning
+@cindex beginning of characters in BZR files
+
+BZR format provides two ways to start characters: an abbreviated one,
+which saves space in common cases, and a longer form which (we hope)
+will always suffice.
+
+The short form looks like this:
+
+@display
+@code{BOC_ABBREV} @cmindex BOC_ABBREV
+@code{charcode}[1]
+@code{set-width}[2]
+@code{llx}[2] @code{lly}[2] @code{urx}[2] @code{ury}[2]
+@end display
+
+The long form:
+
+@display
+@code{BOC} @cmindex BOC
+@code{charcode}[1]
+@code{set-width}[3]
+@code{llx}[3] @code{lly}[3] @code{urx}[3] @code{ury}[3]
+@end display
+
+Here is a description of these components:
+
+@itemize @bullet
+
+@item
+The @code{BOC} or @code{BOC_ABBREV} opcode byte introduces the character.
+
+@cindex character code in BZR files
+@item
+@code{charcode} defines the character code in question.
+
+@cindex set width in BZR files
+@item
+@code{set-width} defines the set width of the character, given as a
+design-size scaled, in printer's points.
+
+@item
+@code{llx} @dots{} @code{ury} (which stand for ``lower left @math{x}'',
+``lower left @math{y}'', ``upper right @math{x}'', and ``upper right
+@math{y}'') define the bounding box for this character.  The values are
+designsize-scaled, in printer's points.  The bounding box is not
+guaranteed to be the tightest possible, because it is difficult to
+compute the exact path of any splines in the character shape (@pxref{BZR
+character shapes}).
+
+@end itemize
+
+As with other formats, the left side bearing is defined by @code{llx},
+and the right side bearing by @code{set-width} @minus{} @code{urx}.
+
+@xref{BZR format introduction}, for general information about BZR files
+and for the definition of the types used here.
+
+
+@node BZR character shapes,  , BZR character beginnings, BZR characters
+@subsubsection BZR character shapes
+
+@cindex BZR character shapes
+@cindex character shapes in BZR files
+@cindex shapes of characters in BZR files
+@cindex outlines of characters in BZR files
+
+In the BZR format, a character shape is defined as a sequence of
+(non-contiguous) closed paths, i.e., outlines.  Each path can contain
+straight lines and Bezier cubic splines.  As a BZR-reading program
+interprets the character definition, it keeps track of a ``current
+point'', which is initially undefined.
+
+@cmindex PATH @r{opcode in BZR files}
+@cindex path command in BZR files
+Each path---and therefore also the character shape itself---starts with a
+path command: @code{PATH}, @code{x}[3], @code{y}[3].  This
+finishes off any previous outline and starts a new one, setting the
+current point to @code{(x,y)}.  @code{x} and @code{y} are
+designsize-scaled values in printer's points.
+
+After a path command has started an outline, a sequence of zero or more
+line and/or spline commands, intermixed in any order, follows.  (A path
+command followed by another path command is allowed, but does nothing
+useful.)
+
+@cindex outside curves
+@cindex inside curves
+@cindex counterclockwise drawing of curves
+@cindex clockwise drawing of curves
+Although the BZR format itself does not require it, for the font to work
+properly when translated to some other formats, the ``outside curves''
+must be drawn counterclockwise, and the inside ones clockwise.
+
+The BZR format defines both abbreviated and long versions of both straight
+line and spline commands, as follows.
+
+@cindex straight lines in BZR files
+The abbreviated line command is:
+
+@display
+@code{LINE_ABBREV} @cmindex LINE_ABBREV @r{opcode in BZR files}
+@code{ex}[2]
+@code{ey}[2]
+@end display
+
+@noindent which defines a straight line from the current point to
+@code{(ex,ey)}.  @code{ex} and @code{ey} are designsize-scaled numbers
+in points.  After drawing the line, the current point is set to
+@code{(ex,ey)}.
+
+@cmindex LINE @r{opcode in BZR files}
+The long form of the line command differs only in starting with a
+@code{LINE} opcode, and the coordinate parameters being three bytes long,
+instead of two.
+
+@cindex splines in BZR files
+The spline commands are analogous.  Here is the abbreviated form:
+
+@display
+@code{SPLINE_ABBREV} @cmindex SPLINE_ABBREV @r{opcode in BZR files}
+@code{c1x}[2] @code{c1y}[2]
+@code{c2x}[2] @code{c2y}[2]
+@code{ex}[2] @code{ey}[2]
+@end display
+
+@noindent This defines a Bezier spline with initial point the
+current point, control points @code{(c1x,c1y)} and @code{(c2x,c2y)}, and
+ending point @code{(ex,ey)}.  The current point is then set to
+@code{(ex,ey)}.  As with the line commands, the coordinate parameters
+are designsize-scaled in units of points.
+
+@cmindex SPLINE @r{opcode in BZR files}
+Also as with the line commands, the long form of the spline command
+differs only in starting with a @code{SPLINE} opcode and the other
+parameters being three bytes long instead of two.
+
+
+@node BZR postamble,  , BZR characters, BZR files
+@subsection BZR postamble
+
+@cindex BZR postamble
+@cindex postamble in BZR files
+
+The postamble of a BZR file consists of the following.  @xref{BZR format
+introduction}, for general information about BZR files and for the
+definition of the types used here.
+
+@display
+@code{POST} @cmindex POST @r{opcode in BZR files}
+@code{llx}[3] @code{lly}[3] @code{urx}[3] @code{ury}[3]
+character locators (see below)
+@code{POST_POST} @cmindex POST_POST @r{opcode in BZR files}
+@code{nchars}[1]
+@code{post-ptr}[4]
+@code{id}[1]
+1 to any number of @code{NO_OP}'s
+@end display
+@cmindex NO_OP @r{opcode in BZR files}
+
+Here is a description of these components:
+
+@itemize @bullet
+
+@cindex font bounding box in BZR files
+@cindex bounding box of font in BZR files
+@item
+@code{llx} @dots{} @code{ury} are all designsize-scaled
+numbers.  They define the bounding box for the entire font, which is
+simply the smallest box that encloses all the characters.  @xref{BZR
+character beginnings}.
+
+@cindex character locators in BZR files
+@item
+A character locators provides a pointer to the first byte of the
+corresponding character description, i.e., its @code{BOC}.  There are
+two forms of character locators: one abbreviates the common case of the
+pointer being less than 65536; the other allows for a full four-byte
+pointer value.
+
+@cmindex CHAR_LOC_ABBREV @r{opcode in BZR files}
+More precisely, an abbreviated character locator consists of:
+
+@example
+CHAR_LOC_ABBREV charcode@r{[1]} pointer@r{[2]}
+@end example
+
+@cmindex CHAR_LOC @r{opcode in BZR files}
+@noindent and a long character locator consists of:
+
+@display
+@code{CHAR_LOC} @code{charcode}[1] @code{pointer}[4]
+@end display
+
+@cindex number of characters in BZR files
+@cindex character count in BZR files
+@item
+@code{nchars} is the number of characters defined in the BZR file.
+
+@cindex postamble pointer in BZR files
+@item
+@code{post-ptr} points to the @code{POST} byte.
+
+@cindex identification of BZR format
+@cindex BZR format, identification
+@item
+@code{id} identifies the version of BZR format; this is currently 75.
+
+@end itemize
+
+@cindex BZR files, algorithm for reading
+This way of ending BZR files makes it straightforward to process a BZR
+file from end to beginning, even though it must of course be written
+beginning to end.  The BZR-reading program can position itself at the
+end of the file, skip over the @code{NO_OP} bytes at the end to the
+@code{id} byte, and then read the pointer to the postamble proper, which
+provides enough information to read each character individually.  This
+eliminates the need to read the entire (potentially large) BZR file into
+memory before doing any processing.
