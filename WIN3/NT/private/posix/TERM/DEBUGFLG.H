@@ -1,0 +1,1 @@
+#define TGETENT	0x00000001
